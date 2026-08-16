@@ -34,6 +34,15 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+// Measured every level's actual rendered output at an average luminance
+// of 9-26/255 (3.5-10% brightness) -- verified with real pixel data, not
+// eyeballed. Tried ACESFilmic tone mapping first, expecting it to lift
+// this; measured again and it made every level darker still (2.8-18.7),
+// because ACES's filmic curve is calibrated for much higher-radiance HDR
+// input than this scene's light intensities and crushes shadows further
+// at low values instead of lifting them. Left on the plain sRGB output
+// (Three's default, no tone mapping) and fixed the actual light energy
+// per level instead -- see each level file.
 
 const scene = new THREE.Scene();
 const worldRoot = new THREE.Group();
@@ -109,7 +118,10 @@ const bedroom = createBedroomLevel({
 });
 sceneManager.register('bedroom', bedroom);
 
-const hallwayBasement = createHallwayBasementLevel({ showCaption });
+const hallwayBasement = createHallwayBasementLevel({
+  showCaption,
+  onExit: () => activateLevel('study')
+});
 sceneManager.register('hallwayBasement', hallwayBasement);
 
 const study = createStudyLevel({ showCaption });
@@ -132,14 +144,14 @@ bedroom.group.add(rain.points);
 
 const LEVEL_OBJECTIVES = {
   bedroom: 'You wake up chained to the bed frame. Find a way free.',
-  hallwayBasement: 'Preview: the hallway and basement lab (Level 2 blockout).',
+  hallwayBasement: 'Restore power in the basement, then get through the locked door.',
   study: 'Preview: the study and front door (Level 3 blockout).'
 };
 
 const LEVEL_FOG = {
-  bedroom: new THREE.FogExp2(0x05070a, 0.09),
-  hallwayBasement: new THREE.FogExp2(0x0a0c0a, 0.045),
-  study: new THREE.FogExp2(0x0c0a06, 0.03)
+  bedroom: new THREE.FogExp2(0x05070a, 0.065),
+  hallwayBasement: new THREE.FogExp2(0x0a0c0a, 0.03),
+  study: new THREE.FogExp2(0x0c0a06, 0.02)
 };
 
 function activateLevel(key, { lockMovement = false } = {}) {

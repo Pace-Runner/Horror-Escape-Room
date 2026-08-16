@@ -23,6 +23,105 @@ function finish(canvas, repeatX = 1, repeatY = 1) {
   return tex;
 }
 
+// Bump maps are height data, not colour, so they're left in linear space
+// (no sRGB tag) -- otherwise the renderer would gamma-decode grey values
+// meant to be read literally as elevation.
+function finishBump(canvas, repeatX = 1, repeatY = 1) {
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(repeatX, repeatY);
+  tex.anisotropy = 4;
+  return tex;
+}
+
+// Companion bump map for createWoodFloorTexture(): the plank seams read as
+// grooves and the grain streaks get a little relief, so raking light from
+// the bedroom's bulb/lightning actually catches the floor's structure
+// instead of it reading as a flat painted plane.
+export function createWoodFloorBumpTexture() {
+  const canvas = makeCanvas(512, 512);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const planks = 8;
+  const plankH = canvas.height / planks;
+  for (let i = 0; i < planks; i++) {
+    ctx.strokeStyle = 'rgba(120, 120, 120, 0.15)';
+    for (let g = 0; g < 6; g++) {
+      const y = i * plankH + Math.random() * plankH;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      for (let x = 0; x <= canvas.width; x += 32) {
+        ctx.lineTo(x, y + (Math.random() - 0.5) * 4);
+      }
+      ctx.stroke();
+    }
+    ctx.strokeStyle = 'rgba(20, 20, 20, 0.9)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, i * plankH);
+    ctx.lineTo(canvas.width, i * plankH);
+    ctx.stroke();
+  }
+  return finishBump(canvas, 4, 4);
+}
+
+// Companion bump map for createPlasterWallTexture(): mostly fine noise
+// (matching the colour map's grain) plus the same water-damage streaks
+// recessed slightly, so the wall isn't perfectly flat under a grazing light.
+export function createPlasterBumpTexture() {
+  const canvas = makeCanvas(256, 256);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < imgData.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 40;
+    imgData.data[i] += n;
+    imgData.data[i + 1] += n;
+    imgData.data[i + 2] += n;
+  }
+  ctx.putImageData(imgData, 0, 0);
+  ctx.strokeStyle = 'rgba(60, 60, 60, 0.5)';
+  for (let i = 0; i < 10; i++) {
+    ctx.beginPath();
+    const x = Math.random() * canvas.width;
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x + (Math.random() - 0.5) * 30, canvas.height);
+    ctx.lineWidth = 4 + Math.random() * 8;
+    ctx.stroke();
+  }
+  return finishBump(canvas, 2, 2);
+}
+
+// Companion bump map for createConcreteTexture(): coarse noise plus deep
+// grooves at the panel-seam lines, reading as poured concrete slabs
+// rather than a flat grey plane once a light rakes across it.
+export function createConcreteBumpTexture() {
+  const canvas = makeCanvas(256, 256);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < imgData.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 60;
+    imgData.data[i] += n;
+    imgData.data[i + 1] += n;
+    imgData.data[i + 2] += n;
+  }
+  ctx.putImageData(imgData, 0, 0);
+  ctx.strokeStyle = 'rgba(15, 15, 15, 0.95)';
+  ctx.lineWidth = 3;
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath();
+    ctx.moveTo(0, (canvas.height / 4) * i + 4);
+    ctx.lineTo(canvas.width, (canvas.height / 4) * i + 4);
+    ctx.stroke();
+  }
+  return finishBump(canvas, 3, 3);
+}
+
 export function createWoodFloorTexture() {
   const canvas = makeCanvas(512, 512);
   const ctx = canvas.getContext('2d');
@@ -217,6 +316,69 @@ export function createFamilyPhotoTexture({ scratchedFourth = false } = {}) {
       }
     }
   }
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export function createRugTexture({ base = '#5a2a28', accent = '#8a5a2a' } = {}) {
+  const canvas = makeCanvas(256, 256);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 10;
+  ctx.strokeRect(18, 18, canvas.width - 36, canvas.height - 36);
+  ctx.lineWidth = 3;
+  ctx.strokeRect(34, 34, canvas.width - 68, canvas.height - 68);
+  // faint worn/frayed noise so it doesn't read as a flat vector rectangle
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < imgData.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 16;
+    imgData.data[i] += n;
+    imgData.data[i + 1] += n;
+    imgData.data[i + 2] += n;
+  }
+  ctx.putImageData(imgData, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+export function createHazardSignTexture(text = 'HIGH VOLTAGE') {
+  const canvas = makeCanvas(256, 192);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#1c1a12';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const stripe = 24;
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, canvas.width, 34);
+  ctx.rect(0, canvas.height - 34, canvas.width, 34);
+  ctx.clip();
+  for (let x = -canvas.height; x < canvas.width + canvas.height; x += stripe * 2) {
+    ctx.fillStyle = '#d8b32a';
+    ctx.save();
+    ctx.translate(x, 0);
+    ctx.transform(1, 0, -0.6, 1, 0, 0);
+    ctx.fillRect(0, -10, stripe, canvas.height + 20);
+    ctx.restore();
+  }
+  ctx.restore();
+  ctx.fillStyle = '#d8b32a';
+  ctx.beginPath();
+  ctx.moveTo(canvas.width / 2, 50);
+  ctx.lineTo(canvas.width / 2 - 34, 110);
+  ctx.lineTo(canvas.width / 2 + 34, 110);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#1c1a12';
+  ctx.font = 'bold 28px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('!', canvas.width / 2, 100);
+  ctx.fillStyle = '#e8d89a';
+  ctx.font = 'bold 14px sans-serif';
+  ctx.fillText(text, canvas.width / 2, 132);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;

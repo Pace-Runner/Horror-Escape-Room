@@ -1,11 +1,15 @@
 import * as THREE from 'three';
 import {
   createWoodFloorTexture,
+  createWoodFloorBumpTexture,
   createPlasterWallTexture,
+  createPlasterBumpTexture,
   createScratchedMessageTexture,
   createPolaroidTexture,
-  createFamilyPhotoTexture
+  createFamilyPhotoTexture,
+  createRugTexture
 } from '../world/textures.js';
+import { addBaseboard, makeHandle } from '../world/trim.js';
 
 const ROOM_W = 6.4;
 const ROOM_D = 5.2;
@@ -36,7 +40,9 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   const colliders = [];
 
   const floorTex = createWoodFloorTexture();
+  const floorBump = createWoodFloorBumpTexture();
   const wallTex = createPlasterWallTexture('#726a5c');
+  const wallBump = createPlasterBumpTexture();
 
   // ---------- structure ----------
   const structure = new THREE.Group();
@@ -45,7 +51,7 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
 
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(ROOM_W, ROOM_D),
-    new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.9 })
+    new THREE.MeshStandardMaterial({ map: floorTex, bumpMap: floorBump, bumpScale: 0.4, roughness: 0.9 })
   );
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
@@ -59,7 +65,7 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   ceiling.position.y = ROOM_H;
   structure.add(ceiling);
 
-  const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.95 });
+  const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, bumpMap: wallBump, bumpScale: 0.15, roughness: 0.95 });
 
   function addWall(w, h, x, y, z, ry) {
     const wall = new THREE.Mesh(new THREE.PlaneGeometry(w, h), wallMat);
@@ -107,6 +113,8 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     { minX: -ROOM_W / 2, maxX: ROOM_W / 2, minZ: ROOM_D / 2 - 0.15, maxZ: ROOM_D / 2 + 0.1 }
   );
 
+  addBaseboard(structure, { width: ROOM_W, depth: ROOM_D, color: 0x1a140e });
+
   // ---------- ceiling light fixture ----------
   const ceilingAnchor = new THREE.Object3D();
   ceilingAnchor.position.set(0.6, ROOM_H, 0.2);
@@ -126,14 +134,14 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   bulbMesh.position.y = -0.5;
   ceilingAnchor.add(bulbMesh);
 
-  const bulbLight = new THREE.PointLight(0xffb347, 1.4, 7, 2);
+  const bulbLight = new THREE.PointLight(0xffb347, 2.0, 8, 1.8);
   bulbLight.position.y = -0.5;
   bulbLight.castShadow = true;
   bulbLight.shadow.mapSize.set(512, 512);
   ceilingAnchor.add(bulbLight);
 
   // ---------- ambient / storm baseline ----------
-  const ambient = new THREE.AmbientLight(0x2a2f3a, 0.35);
+  const ambient = new THREE.AmbientLight(0x2e3342, 0.5);
   group.add(ambient);
 
   const lightning = new THREE.DirectionalLight(0xbcd4ff, 0);
@@ -245,9 +253,14 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
 
   const drawerMat = new THREE.MeshStandardMaterial({ color: 0x2a1e14, roughness: 0.7 });
   [0.68, 0.42, 0.16].forEach((y, i) => {
+    const drawerFront = i === 1 ? 0.28 : 0.2; // middle drawer left open further
     const drawer = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.2, 0.42), drawerMat);
-    drawer.position.set(0, y, i === 1 ? 0.28 : 0.2); // middle drawer left open further
+    drawer.position.set(0, y, drawerFront);
     dresserBody.add(drawer);
+
+    const handle = makeHandle({ length: 0.16 });
+    handle.position.set(0, y, drawerFront + 0.21 + 0.01);
+    dresserBody.add(handle);
   });
 
   colliders.push({
@@ -273,6 +286,13 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   );
   doorSlab.position.set(0, 1.0, 0);
   doorFrame.add(doorSlab);
+
+  const doorKnob = new THREE.Mesh(
+    new THREE.SphereGeometry(0.03, 10, 10),
+    new THREE.MeshStandardMaterial({ color: 0xb8ac7a, metalness: 0.8, roughness: 0.3 })
+  );
+  doorKnob.position.set(0.38, 1.0, 0.035);
+  doorFrame.add(doorKnob);
 
   const plankMat = new THREE.MeshStandardMaterial({ color: 0x5b3f28, roughness: 0.9 });
   const plankA = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.14, 0.04), plankMat);
@@ -444,6 +464,15 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   chairBack.position.set(0, 0.65, -0.2);
   chairGroup.add(chairBack);
   group.add(chairGroup);
+
+  const rug = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.8, 1.2),
+    new THREE.MeshStandardMaterial({ map: createRugTexture({ base: '#4a2422', accent: '#7a4a24' }), roughness: 1 })
+  );
+  rug.rotation.x = -Math.PI / 2;
+  rug.rotation.z = 0.05;
+  rug.position.set(0.6, 0.008, 0.3);
+  group.add(rug);
 
   interactables.push(doorSlab);
   doorSlab.userData.interact = {

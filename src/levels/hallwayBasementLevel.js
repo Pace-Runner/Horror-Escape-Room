@@ -1,6 +1,15 @@
 import * as THREE from 'three';
-import { createPlasterWallTexture, createConcreteTexture, createStickyNoteTexture } from '../world/textures.js';
+import {
+  createPlasterWallTexture,
+  createPlasterBumpTexture,
+  createConcreteTexture,
+  createConcreteBumpTexture,
+  createStickyNoteTexture,
+  createHazardSignTexture,
+  createPaperNoteTexture
+} from '../world/textures.js';
 import { createStaticScreenMaterial } from '../world/StaticScreenMaterial.js';
+import { addBaseboard } from '../world/trim.js';
 
 const HALL_W = 2.4;
 const HALL_LEN = 5.5;
@@ -11,10 +20,11 @@ const LAB_H = 3.2;
 const LAB_Z = HALL_LEN + LAB_D / 2 + 0.2;
 
 /**
- * Level 2 blockout: the hallway the creature is glimpsed in, leading down
- * into the industrial basement lab. This is an environment-only pass --
- * navigable and dressed, but the power-restore puzzle and camera-feed
- * interactions described in the storyline are not wired up yet.
+ * Level 2: the hallway the creature is glimpsed in, leading down into the
+ * industrial basement lab. The camera-feed minigame from the storyline
+ * isn't built, but there's a real (if minimal) objective now: flip the
+ * fuse box to restore power, which unlocks the locked door at the far end
+ * of the lab and lets the player continue on to the study.
  *
  * Hierarchy notes:
  *  - the CCTV monitor mesh and its screen-glow point light are children
@@ -23,7 +33,7 @@ const LAB_Z = HALL_LEN + LAB_D / 2 + 0.2;
  *  - the fluorescent tube meshes are children of a `fixturesGroup` so the
  *    whole strip can be repositioned or its material swapped in one place.
  */
-export function createHallwayBasementLevel({ showCaption = () => {} } = {}) {
+export function createHallwayBasementLevel({ showCaption = () => {}, onExit = () => {} } = {}) {
   const group = new THREE.Group();
   group.name = 'Level2_HallwayBasement';
   const interactables = [];
@@ -31,7 +41,9 @@ export function createHallwayBasementLevel({ showCaption = () => {} } = {}) {
   const dynamics = [];
 
   const wallTex = createPlasterWallTexture('#4a453d');
+  const wallBump = createPlasterBumpTexture();
   const concreteTex = createConcreteTexture();
+  const concreteBump = createConcreteBumpTexture();
 
   // ---------- hallway ----------
   const hallway = new THREE.Group();
@@ -40,13 +52,13 @@ export function createHallwayBasementLevel({ showCaption = () => {} } = {}) {
 
   const hallFloor = new THREE.Mesh(
     new THREE.PlaneGeometry(HALL_W, HALL_LEN),
-    new THREE.MeshStandardMaterial({ map: concreteTex, roughness: 0.95 })
+    new THREE.MeshStandardMaterial({ map: concreteTex, bumpMap: concreteBump, bumpScale: 0.3, roughness: 0.95 })
   );
   hallFloor.rotation.x = -Math.PI / 2;
   hallFloor.receiveShadow = true;
   hallway.add(hallFloor);
 
-  const hallWallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.95 });
+  const hallWallMat = new THREE.MeshStandardMaterial({ map: wallTex, bumpMap: wallBump, bumpScale: 0.15, roughness: 0.95 });
   const hallCeil = new THREE.Mesh(
     new THREE.PlaneGeometry(HALL_W, HALL_LEN),
     new THREE.MeshStandardMaterial({ color: 0x161310 })
@@ -67,20 +79,23 @@ export function createHallwayBasementLevel({ showCaption = () => {} } = {}) {
     });
   });
 
-  // The hallway previously had only this one dim point light and no
-  // ambient fill at all -- noticeably darker than every other room.
-  // Brightened, and given a matching ambient light like the bedroom/lab/
-  // study all already have.
-  const hallAmbient = new THREE.AmbientLight(0x3a3f4c, 0.5);
+  // The hallway previously had no ambient light source at all (just one
+  // dim point light) -- a real oversight, not a deliberate darkness
+  // choice, since every other room has ambient fill. Given a modest one
+  // to match; the low overall light level everywhere else is intentional
+  // (this is a flashlight-driven horror game) and left alone.
+  const hallAmbient = new THREE.AmbientLight(0x3a3f4c, 0.6);
   hallway.add(hallAmbient);
 
-  const hallLight = new THREE.PointLight(0x8896b8, 1.3, 8, 1.6);
+  const hallLight = new THREE.PointLight(0x8896b8, 1.7, 8, 1.6);
   hallLight.position.set(0, HALL_H - 0.3, HALL_LEN / 2 - 1);
   hallway.add(hallLight);
 
-  const hallLight2 = new THREE.PointLight(0x9aa4c2, 1.1, 6, 1.6);
+  const hallLight2 = new THREE.PointLight(0x9aa4c2, 1.4, 6, 1.6);
   hallLight2.position.set(0, HALL_H - 0.4, 1.4);
   hallway.add(hallLight2);
+
+  addBaseboard(hallway, { width: HALL_W, depth: HALL_LEN, color: 0x141210 });
 
   // No staircase here: the hallway and lab are both at y=0 (see the note
   // on `lab.position` below for why), so there is no elevation change
@@ -103,9 +118,10 @@ export function createHallwayBasementLevel({ showCaption = () => {} } = {}) {
 
   const labFloor = new THREE.Mesh(
     new THREE.PlaneGeometry(LAB_W, LAB_D),
-    new THREE.MeshStandardMaterial({ map: concreteTex, roughness: 1 })
+    new THREE.MeshStandardMaterial({ map: concreteTex, bumpMap: concreteBump, bumpScale: 0.3, roughness: 1 })
   );
   labFloor.rotation.x = -Math.PI / 2;
+  labFloor.receiveShadow = true;
   lab.add(labFloor);
 
   const labCeil = labFloor.clone();
@@ -114,7 +130,7 @@ export function createHallwayBasementLevel({ showCaption = () => {} } = {}) {
   labCeil.material = new THREE.MeshStandardMaterial({ color: 0x121110 });
   lab.add(labCeil);
 
-  const labWallMat = new THREE.MeshStandardMaterial({ map: concreteTex, roughness: 1 });
+  const labWallMat = new THREE.MeshStandardMaterial({ map: concreteTex, bumpMap: concreteBump, bumpScale: 0.3, roughness: 1 });
   function labWall(w, x, z, ry) {
     const wall = new THREE.Mesh(new THREE.PlaneGeometry(w, LAB_H), labWallMat);
     wall.position.set(x, LAB_H / 2, z);
@@ -157,47 +173,81 @@ export function createHallwayBasementLevel({ showCaption = () => {} } = {}) {
   for (let i = 0; i < 3; i++) {
     const pipe = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, LAB_W - 1, 10), pipeMat);
     pipe.rotation.z = Math.PI / 2;
-    pipe.position.set(0, 2.2 - i * 0.25, LAB_Z + LAB_D / 2 - 0.2);
+    pipe.position.set(0, 2.2 - i * 0.25, LAB_D / 2 - 0.2);
     lab.add(pipe);
   }
 
   // generators / fuse box against the side wall
   const boxMat = new THREE.MeshStandardMaterial({ color: 0x33362f, roughness: 0.7, metalness: 0.3 });
   const generator = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.2, 0.7), boxMat);
-  generator.position.set(-LAB_W / 2 + 0.7, 0.6, LAB_Z - 1.5);
+  generator.position.set(-LAB_W / 2 + 0.7, 0.6, -1.5);
   lab.add(generator);
   colliders.push({
     minX: generator.position.x - 0.55, maxX: generator.position.x + 0.55,
-    minZ: generator.position.z - 0.4, maxZ: generator.position.z + 0.4
+    minZ: LAB_Z + generator.position.z - 0.4, maxZ: LAB_Z + generator.position.z + 0.4
   });
+
+  // ---------- power / locked-door objective ----------
+  let powerRestored = false;
 
   const fuseBox = new THREE.Mesh(
     new THREE.BoxGeometry(0.5, 0.7, 0.15),
     new THREE.MeshStandardMaterial({ color: 0x3a2e20, roughness: 0.6 })
   );
-  fuseBox.position.set(-LAB_W / 2 + 0.12, 1.4, LAB_Z);
+  fuseBox.position.set(-LAB_W / 2 + 0.12, 1.4, 0);
   fuseBox.userData.interact = {
-    label: 'Examine fuse box',
-    onInteract: () => showCaption('SUBJECT UNSTABLE. CONTAINMENT REQUIRED. The fuse box is dead -- no power to the cameras.')
+    label: 'Flip the breaker',
+    onInteract: () => {
+      if (powerRestored) {
+        showCaption('The fuse box is live. Power is already restored.');
+        return;
+      }
+      powerRestored = true;
+      showCaption('You flip the breaker. Power surges through the lab -- something unlocks at the far end.');
+      metalDoor.userData.interact.label = 'Open the door';
+    }
   };
   interactables.push(fuseBox);
   lab.add(fuseBox);
+
+  // a hazard sign bolted above the generator, and a couple of cable runs
+  // slung between it and the fuse box -- small clutter that sells "this
+  // was a working piece of industrial equipment" far better than a bare box
+  const hazardSign = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.35, 0.26),
+    new THREE.MeshStandardMaterial({ map: createHazardSignTexture('HIGH VOLTAGE'), roughness: 0.8 })
+  );
+  hazardSign.position.set(-LAB_W / 2 + 0.71, 1.35, -1.86);
+  hazardSign.rotation.y = Math.PI / 2;
+  lab.add(hazardSign);
+
+  const cableMat = new THREE.MeshStandardMaterial({ color: 0x14120f, roughness: 0.6 });
+  const cableStart = new THREE.Vector3(generator.position.x + 0.3, 1.0, generator.position.z + 0.1);
+  const cableEnd = new THREE.Vector3(fuseBox.position.x, 1.1, fuseBox.position.z - 0.1);
+  const cableSag = new THREE.Vector3(
+    (cableStart.x + cableEnd.x) / 2,
+    Math.min(cableStart.y, cableEnd.y) - 0.35,
+    (cableStart.z + cableEnd.z) / 2
+  );
+  const cableCurve = new THREE.CatmullRomCurve3([cableStart, cableSag, cableEnd]);
+  const cable = new THREE.Mesh(new THREE.TubeGeometry(cableCurve, 12, 0.012, 6, false), cableMat);
+  lab.add(cable);
 
   // storage shelves
   const shelfMat = new THREE.MeshStandardMaterial({ color: 0x24261f, roughness: 0.8, metalness: 0.4 });
   for (let s = 0; s < 2; s++) {
     const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.2, 0.5), shelfMat);
-    shelf.position.set(LAB_W / 2 - 0.9, 1.1, LAB_Z - 2 + s * 2.4);
+    shelf.position.set(LAB_W / 2 - 0.9, 1.1, -2 + s * 2.4);
     lab.add(shelf);
     colliders.push({
       minX: shelf.position.x - 0.8, maxX: shelf.position.x + 0.8,
-      minZ: shelf.position.z - 0.25, maxZ: shelf.position.z + 0.25
+      minZ: LAB_Z + shelf.position.z - 0.25, maxZ: LAB_Z + shelf.position.z + 0.25
     });
   }
 
   // retro computer desk with the CCTV monitor (custom shader material)
   const desk = new THREE.Group();
-  desk.position.set(1.6, 0, LAB_Z + LAB_D / 2 - 1.4);
+  desk.position.set(1.6, 0, LAB_D / 2 - 1.4);
   lab.add(desk);
 
   const deskTop = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.06, 0.6), frameWoodMat());
@@ -247,18 +297,29 @@ export function createHallwayBasementLevel({ showCaption = () => {} } = {}) {
 
   colliders.push({
     minX: desk.position.x - 0.65, maxX: desk.position.x + 0.65,
-    minZ: desk.position.z - 0.35, maxZ: desk.position.z + 0.35
+    minZ: LAB_Z + desk.position.z - 0.35, maxZ: LAB_Z + desk.position.z + 0.35
   });
 
-  // locked metal door at the far end of the lab
+  // Locked metal door at the far end of the lab -- opposite the entrance
+  // from the hallway, per the storyline ("at the opposite end of the
+  // room, a locked metal door"). Previously placed on the entrance-facing
+  // wall instead, which meant the player would walk straight past it on
+  // the way in rather than having to cross the room to reach it.
   const metalDoor = new THREE.Mesh(
     new THREE.BoxGeometry(1.1, 2.1, 0.08),
     new THREE.MeshStandardMaterial({ color: 0x3a3d3f, metalness: 0.7, roughness: 0.4 })
   );
-  metalDoor.position.set(0, 1.05, LAB_Z - LAB_D / 2 + 0.05);
+  metalDoor.position.set(0, 1.05, LAB_D / 2 - 0.05);
   metalDoor.userData.interact = {
     label: 'Locked. Restore power first.',
-    onInteract: () => showCaption('Heavy bolts. Locked tight until the power comes back on.')
+    onInteract: () => {
+      if (!powerRestored) {
+        showCaption('Heavy bolts. Locked tight until the power comes back on.');
+        return;
+      }
+      showCaption('The door unlocks with a heavy clunk. You head deeper into the house.');
+      onExit();
+    }
   };
   interactables.push(metalDoor);
   lab.add(metalDoor);
@@ -268,13 +329,78 @@ export function createHallwayBasementLevel({ showCaption = () => {} } = {}) {
     new THREE.TorusGeometry(0.15, 0.02, 8, 16),
     new THREE.MeshStandardMaterial({ color: 0x6b6b6b, metalness: 0.7, roughness: 0.5 })
   );
-  restraint.position.set(-0.5, 0.9, LAB_Z);
+  restraint.position.set(-0.5, 0.9, 0);
   restraint.rotation.x = Math.PI / 2.3;
   lab.add(restraint);
 
   function frameWoodMat() {
     return new THREE.MeshStandardMaterial({ color: 0x3a2c1e, roughness: 0.85 });
   }
+
+  // ---------- central detail ----------
+  // The lab is an 8x6.5m room with most of its dressing pushed against
+  // the side walls (generator/fuse box on one side, shelves on the
+  // other) -- a player walking straight in from the hallway down the
+  // centre saw nothing but bare floor and ceiling. A workbench and crates
+  // along that direct sightline fill the middle of the room instead of
+  // leaving it as dead space between the two side walls.
+  const workbench = new THREE.Group();
+  workbench.position.set(0.4, 0, -0.3);
+  lab.add(workbench);
+  const benchTop = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.05, 0.8), frameWoodMat());
+  benchTop.position.y = 0.82;
+  workbench.add(benchTop);
+  [[-0.6, -0.35], [0.6, -0.35], [-0.6, 0.35], [0.6, 0.35]].forEach(([x, z]) => {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.82, 0.06), frameWoodMat());
+    leg.position.set(x, 0.41, z);
+    workbench.add(leg);
+  });
+  const toolMat = new THREE.MeshStandardMaterial({ color: 0x4a4a4a, metalness: 0.6, roughness: 0.4 });
+  for (let i = 0; i < 4; i++) {
+    const tool = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.04, 0.06), toolMat);
+    tool.position.set(-0.4 + i * 0.22, 0.865, -0.15 + (i % 2) * 0.3);
+    tool.rotation.y = Math.random() * Math.PI;
+    workbench.add(tool);
+  }
+  colliders.push({
+    minX: workbench.position.x - 0.75, maxX: workbench.position.x + 0.75,
+    minZ: LAB_Z + workbench.position.z - 0.45, maxZ: LAB_Z + workbench.position.z + 0.45
+  });
+
+  const crateMat = new THREE.MeshStandardMaterial({ color: 0x2e2418, roughness: 0.9 });
+  [[1.5, 1.5, 0], [1.75, 1.7, 0.4], [-1.6, 2.2, 0]].forEach(([x, z, stackY], i) => {
+    const crate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), crateMat);
+    crate.position.set(x, 0.25 + stackY, z);
+    crate.rotation.y = i * 0.6;
+    lab.add(crate);
+    if (stackY === 0) {
+      colliders.push({ minX: x - 0.3, maxX: x + 0.3, minZ: LAB_Z + z - 0.3, maxZ: LAB_Z + z + 0.3 });
+    }
+  });
+
+  // torn pages of notes on the workbench -- the creature's own case file,
+  // called out in the storyline but previously missing from the world
+  const tornNoteTex = createPaperNoteTexture([
+    'SUBJECT UNSTABLE.',
+    'CONTAINMENT REQUIRED.',
+    'MEMORY DETERIORATION',
+    'OBSERVED.',
+    'VISUAL DISTORTION',
+    'INCREASING.'
+  ]);
+  const tornNotes = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.3, 0.38),
+    new THREE.MeshStandardMaterial({ map: tornNoteTex, roughness: 1 })
+  );
+  tornNotes.rotation.x = -Math.PI / 2;
+  tornNotes.rotation.z = 0.15;
+  tornNotes.position.set(-0.2, 0.845, 0.15); // local to the workbench, which is its parent
+  tornNotes.userData.interact = {
+    label: 'Read the torn notes',
+    onInteract: () => showCaption('"SUBJECT UNSTABLE. CONTAINMENT REQUIRED. MEMORY DETERIORATION OBSERVED. VISUAL DISTORTION INCREASING."')
+  };
+  interactables.push(tornNotes);
+  workbench.add(tornNotes);
 
   return {
     group,

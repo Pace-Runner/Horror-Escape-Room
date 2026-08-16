@@ -1,5 +1,13 @@
 import * as THREE from 'three';
-import { createWoodFloorTexture, createPlasterWallTexture, createFamilyPhotoTexture } from '../world/textures.js';
+import {
+  createWoodFloorTexture,
+  createWoodFloorBumpTexture,
+  createPlasterWallTexture,
+  createPlasterBumpTexture,
+  createFamilyPhotoTexture,
+  createRugTexture
+} from '../world/textures.js';
+import { addBaseboard, makeHandle } from '../world/trim.js';
 
 const ROOM_W = 7.5;
 const ROOM_D = 6.5;
@@ -21,13 +29,16 @@ export function createStudyLevel({ showCaption = () => {} } = {}) {
   const colliders = [];
 
   const floorTex = createWoodFloorTexture();
+  const floorBump = createWoodFloorBumpTexture();
   const wallTex = createPlasterWallTexture('#5c5648');
+  const wallBump = createPlasterBumpTexture();
 
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(ROOM_W, ROOM_D),
-    new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.85 })
+    new THREE.MeshStandardMaterial({ map: floorTex, bumpMap: floorBump, bumpScale: 0.4, roughness: 0.85 })
   );
   floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
   group.add(floor);
 
   const ceiling = new THREE.Mesh(
@@ -38,7 +49,7 @@ export function createStudyLevel({ showCaption = () => {} } = {}) {
   ceiling.position.y = ROOM_H;
   group.add(ceiling);
 
-  const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughness: 0.9 });
+  const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, bumpMap: wallBump, bumpScale: 0.15, roughness: 0.9 });
   function wall(w, x, z, ry) {
     const m = new THREE.Mesh(new THREE.PlaneGeometry(w, ROOM_H), wallMat);
     m.position.set(x, ROOM_H / 2, z);
@@ -57,6 +68,8 @@ export function createStudyLevel({ showCaption = () => {} } = {}) {
     { minX: -ROOM_W / 2, maxX: ROOM_W / 2, minZ: ROOM_D / 2 - 0.15, maxZ: ROOM_D / 2 + 0.1 }
   );
 
+  addBaseboard(group, { width: ROOM_W, depth: ROOM_D, color: 0x161208 });
+
   const ambient = new THREE.AmbientLight(0x342c24, 0.7);
   group.add(ambient);
   const lamp = new THREE.PointLight(0xffcf8a, 1.6, 10, 2);
@@ -73,12 +86,64 @@ export function createStudyLevel({ showCaption = () => {} } = {}) {
   group.add(desk);
   colliders.push({ minX: desk.position.x - 0.85, maxX: desk.position.x + 0.85, minZ: desk.position.z - 0.4, maxZ: desk.position.z + 0.4 });
 
+  const deskHandle = makeHandle({ length: 0.12 });
+  deskHandle.position.set(desk.position.x + 0.5, 0.55, desk.position.z + 0.36);
+  group.add(deskHandle);
+
+  // desk chair, tucked in
+  const chairMat = new THREE.MeshStandardMaterial({ color: 0x2c2018, roughness: 0.8 });
+  const chairGroup = new THREE.Group();
+  chairGroup.position.set(desk.position.x, 0, desk.position.z + 0.65);
+  const chairSeat = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.42), chairMat);
+  chairSeat.position.y = 0.45;
+  chairGroup.add(chairSeat);
+  const chairBack = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 0.05), chairMat);
+  chairBack.position.set(0, 0.7, 0.19);
+  chairGroup.add(chairBack);
+  [-0.18, 0.18].forEach((x) => {
+    [-0.18, 0.18].forEach((z) => {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.45, 6), chairMat);
+      leg.position.set(x, 0.225, z);
+      chairGroup.add(leg);
+    });
+  });
+  group.add(chairGroup);
+
+  const bookMat = [0x6b2e2a, 0x2e4a3a, 0x3a3560, 0x6b5620, 0x2a2a2a].map(
+    (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.75 })
+  );
   for (let i = 0; i < 3; i++) {
     const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.2, 0.35), woodMat);
     shelf.position.set(ROOM_W / 2 - 0.9, 1.1, -2 + i * 1.6);
     group.add(shelf);
     colliders.push({ minX: shelf.position.x - 0.65, maxX: shelf.position.x + 0.65, minZ: shelf.position.z - 0.22, maxZ: shelf.position.z + 0.22 });
+
+    // a row of books on each of three shelf boards per case, leaning at
+    // slightly random angles so the shelves don't read as solid blocks
+    [-0.7, 0, 0.7].forEach((shelfY) => {
+      let x = -0.5;
+      while (x < 0.5) {
+        const w = 0.04 + Math.random() * 0.04;
+        const h = 0.22 + Math.random() * 0.08;
+        const book = new THREE.Mesh(
+          new THREE.BoxGeometry(w, h, 0.22),
+          bookMat[Math.floor(Math.random() * bookMat.length)]
+        );
+        book.position.set(x, shelfY + h / 2, 0); // local to the shelf, which is its parent
+        book.rotation.z = (Math.random() - 0.5) * 0.08;
+        shelf.add(book);
+        x += w + 0.005;
+      }
+    });
   }
+
+  const rug = new THREE.Mesh(
+    new THREE.PlaneGeometry(2.2, 1.6),
+    new THREE.MeshStandardMaterial({ map: createRugTexture({ base: '#2e3a2a', accent: '#6a5a2a' }), roughness: 1 })
+  );
+  rug.rotation.x = -Math.PI / 2;
+  rug.position.set(desk.position.x + 0.7, 0.008, desk.position.z + 0.9);
+  group.add(rug);
 
   // portrait with the scratched-out fourth family member
   const portraitTex = createFamilyPhotoTexture({ scratchedFourth: true });
