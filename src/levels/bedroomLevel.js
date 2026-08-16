@@ -134,14 +134,14 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   bulbMesh.position.y = -0.5;
   ceilingAnchor.add(bulbMesh);
 
-  const bulbLight = new THREE.PointLight(0xffb347, 2.0, 8, 1.8);
+  const bulbLight = new THREE.PointLight(0xffb347, 1.23, 8, 1.8);
   bulbLight.position.y = -0.5;
   bulbLight.castShadow = true;
   bulbLight.shadow.mapSize.set(512, 512);
   ceilingAnchor.add(bulbLight);
 
   // ---------- ambient / storm baseline ----------
-  const ambient = new THREE.AmbientLight(0x2e3342, 0.5);
+  const ambient = new THREE.AmbientLight(0x2e3342, 0.31);
   group.add(ambient);
 
   const lightning = new THREE.DirectionalLight(0xbcd4ff, 0);
@@ -251,8 +251,16 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   dresserBody.castShadow = true;
   dresser.add(dresserBody);
 
+  // Drawers are children of dresserBody, whose own origin is its
+  // geometric centre (BoxGeometry is centred by default), not the floor
+  // -- dresserBody.position.y = 0.45 already accounts for that. These y
+  // values are floor-relative heights (0.68/0.42/0.16 from the floor, for
+  // a 0.9-tall dresser), so they need dresserBody's own 0.45 offset
+  // subtracted back out, or each drawer renders 0.45 too high and pokes
+  // out the top of the dresser instead of sitting inside it.
   const drawerMat = new THREE.MeshStandardMaterial({ color: 0x2a1e14, roughness: 0.7 });
-  [0.68, 0.42, 0.16].forEach((y, i) => {
+  [0.68, 0.42, 0.16].forEach((floorY, i) => {
+    const y = floorY - dresserBody.position.y;
     const drawerFront = i === 1 ? 0.28 : 0.2; // middle drawer left open further
     const drawer = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.2, 0.42), drawerMat);
     drawer.position.set(0, y, drawerFront);

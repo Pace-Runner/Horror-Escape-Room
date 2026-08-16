@@ -84,14 +84,14 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
   // choice, since every other room has ambient fill. Given a modest one
   // to match; the low overall light level everywhere else is intentional
   // (this is a flashlight-driven horror game) and left alone.
-  const hallAmbient = new THREE.AmbientLight(0x3a3f4c, 0.6);
+  const hallAmbient = new THREE.AmbientLight(0x3a3f4c, 0.37);
   hallway.add(hallAmbient);
 
-  const hallLight = new THREE.PointLight(0x8896b8, 1.7, 8, 1.6);
+  const hallLight = new THREE.PointLight(0x8896b8, 1.05, 8, 1.6);
   hallLight.position.set(0, HALL_H - 0.3, HALL_LEN / 2 - 1);
   hallway.add(hallLight);
 
-  const hallLight2 = new THREE.PointLight(0x9aa4c2, 1.4, 6, 1.6);
+  const hallLight2 = new THREE.PointLight(0x9aa4c2, 0.86, 6, 1.6);
   hallLight2.position.set(0, HALL_H - 0.4, 1.4);
   hallway.add(hallLight2);
 
@@ -158,14 +158,14 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
     const tube = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.06, 0.1), tubeMat);
     tube.position.set(i * 2.4, LAB_H - 0.05, -1);
     fixturesGroup.add(tube);
-    const tubeLight = new THREE.PointLight(0xaec4ff, 2.2, 9, 1.5);
+    const tubeLight = new THREE.PointLight(0xaec4ff, 1.35, 9, 1.5);
     tubeLight.position.copy(tube.position);
     tubeLight.position.y -= 0.3;
     fixturesGroup.add(tubeLight);
     fluorescents.push(tubeLight);
   }
 
-  const labAmbient = new THREE.AmbientLight(0x3d4658, 0.65);
+  const labAmbient = new THREE.AmbientLight(0x3d4658, 0.40);
   lab.add(labAmbient);
 
   // exposed pipes along the back wall
@@ -417,7 +417,7 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
       dynamics.forEach((d) => d.update(dt, elapsed));
       fluorescents.forEach((l) => {
         const dip = Math.random() < 0.05 ? 0.3 : 1;
-        l.intensity = (1.9 + Math.random() * 0.5) * dip;
+        l.intensity = (1.17 + Math.random() * 0.31) * dip;
       });
     }
   };

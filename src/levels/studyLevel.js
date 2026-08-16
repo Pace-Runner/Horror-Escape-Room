@@ -70,12 +70,12 @@ export function createStudyLevel({ showCaption = () => {} } = {}) {
 
   addBaseboard(group, { width: ROOM_W, depth: ROOM_D, color: 0x161208 });
 
-  const ambient = new THREE.AmbientLight(0x342c24, 0.7);
+  const ambient = new THREE.AmbientLight(0x342c24, 0.43);
   group.add(ambient);
-  const lamp = new THREE.PointLight(0xffcf8a, 1.6, 10, 2);
+  const lamp = new THREE.PointLight(0xffcf8a, 0.99, 10, 2);
   lamp.position.set(0, 2.4, -0.5);
   group.add(lamp);
-  const doorLamp = new THREE.PointLight(0xffcf8a, 0.8, 6, 2);
+  const doorLamp = new THREE.PointLight(0xffcf8a, 0.49, 6, 2);
   doorLamp.position.set(1.5, 2.2, 2.2);
   group.add(doorLamp);
 
