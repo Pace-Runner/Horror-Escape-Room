@@ -124,6 +124,25 @@ html, body {
   border-color: #b3271a;
 }
 
+#restart-button {
+  margin-top: 14px;
+  padding: 8px 22px;
+  font-size: 0.75rem;
+  letter-spacing: 0.15rem;
+  text-transform: uppercase;
+  background: transparent;
+  border: 1px solid #4a443c;
+  color: #8a8478;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+#restart-button:hover {
+  background: rgba(216, 210, 196, 0.08);
+  border-color: #8a8478;
+  color: #d8d2c4;
+}
+
 #start-controls {
   margin-top: 30px;
   font-size: 0.7rem;

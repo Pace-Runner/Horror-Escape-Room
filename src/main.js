@@ -15,6 +15,7 @@ const loadingScreen = document.getElementById('loading-screen');
 const loadingBarFill = document.getElementById('loading-bar-fill');
 const startScreen = document.getElementById('start-screen');
 const startButton = document.getElementById('start-button');
+const restartButton = document.getElementById('restart-button');
 const startTitle = document.getElementById('start-title');
 const startSub = document.getElementById('start-sub');
 const hud = document.getElementById('hud');
@@ -236,6 +237,12 @@ startButton.addEventListener('click', () => {
   }
 });
 
+restartButton.addEventListener('click', () => {
+  toggleCredits(false);
+  resetGame();
+  player.lock();
+});
+
 player.controls.addEventListener('lock', () => {
   audio.resume();
   startScreen.classList.add('hidden');
@@ -249,6 +256,7 @@ player.controls.addEventListener('unlock', () => {
   startTitle.textContent = 'PAUSED';
   startSub.textContent = '';
   startButton.textContent = 'Click to resume';
+  restartButton.classList.remove('hidden');
   startScreen.classList.remove('hidden');
   hud.style.display = 'none';
   crosshair.style.display = 'none';
