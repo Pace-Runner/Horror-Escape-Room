@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Don't Let It Out</title>
+  <link rel="stylesheet" href="./src/style.css" />
+</head>
+<body>
+  <canvas id="scene"></canvas>
+
+  <div id="loading-screen">
+    <div id="loading-title">DON'T LET IT OUT</div>
+    <div id="loading-bar-track"><div id="loading-bar-fill"></div></div>
+    <div id="loading-hint">entering the house...</div>
+  </div>
+
+  <div id="crosshair"></div>
+
+  <div id="hud">
+    <div id="objective"></div>
+    <div id="interact-prompt"></div>
+    <div id="flashlight-status">FLASHLIGHT: <span id="flashlight-state">not found</span></div>
+  </div>
+
+  <div id="caption-box"></div>
+
+  <div id="start-screen">
+    <div id="start-title">DON'T LET IT OUT</div>
+    <div id="start-sub">Project HOLLOW &mdash; June 1987</div>
+    <button id="start-button">Click to begin</button>
+    <div id="start-controls">
+      WASD move &middot; mouse look &middot; E interact &middot; F flashlight &middot; 1/2/3 preview rooms &middot; R restart &middot; C credits
+    </div>
+  </div>
+
+  <div id="credits-screen" class="hidden">
+    <div id="credits-panel">
+      <h2>Credits</h2>
+      <ul id="credits-list"></ul>
+      <button id="credits-close">Close</button>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
