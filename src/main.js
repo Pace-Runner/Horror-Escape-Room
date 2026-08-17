@@ -4,6 +4,7 @@ import { SceneManager } from './core/SceneManager.js';
 import { Interaction } from './core/Interaction.js';
 import { Storm } from './world/Storm.js';
 import { Rain } from './world/Rain.js';
+import { createDustMotes } from './world/DustMotes.js';
 import { AudioEngine } from './world/AudioEngine.js';
 import { createBedroomLevel } from './levels/bedroomLevel.js';
 import { createHallwayBasementLevel } from './levels/hallwayBasementLevel.js';
@@ -77,6 +78,14 @@ flashlightTarget.position.set(0, 0, -1);
 camera.add(flashlightTarget);
 flashlightSpot.target = flashlightTarget;
 camera.add(flashlightSpot);
+
+// dust motes drifting through the flashlight cone (custom shader material,
+// see world/DustMotes.js) -- shares the spotlight's own angle/distance so
+// the visible dust field always matches the light it's supposedly floating
+// in, and is a child of the camera for the same reason the spotlight is.
+const dustMotes = createDustMotes({ coneAngleRad: THREE.MathUtils.degToRad(28), maxDistance: 9 });
+camera.add(dustMotes.points);
+
 scene.add(camera);
 
 let flashlightFound = false;
@@ -84,6 +93,7 @@ let flashlightOn = false;
 function setFlashlight(on) {
   flashlightOn = on && flashlightFound;
   flashlightSpot.intensity = flashlightOn ? 2.4 : 0;
+  dustMotes.setBeamOn(flashlightOn);
   flashlightStateEl.textContent = !flashlightFound ? 'not found' : flashlightOn ? 'on' : 'off';
   flashlightStateEl.classList.toggle('on', flashlightOn);
 }
@@ -276,9 +286,11 @@ const loadTimer = setInterval(() => {
 
 // ---------- render loop ----------
 const clock = new THREE.Clock();
+let elapsed = 0;
 
 function tick() {
   const dt = Math.min(clock.getDelta(), 0.05);
+  elapsed += dt;
 
   player.update(dt);
 
@@ -286,6 +298,7 @@ function tick() {
     bedroomStorm.update(dt);
     rain.update(dt);
   }
+  dustMotes.update(dt, elapsed);
   sceneManager.update(dt);
 
   if (player.isLocked) {

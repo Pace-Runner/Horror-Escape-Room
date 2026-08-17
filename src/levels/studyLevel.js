@@ -139,7 +139,7 @@ export function createStudyLevel({ showCaption = () => {} } = {}) {
 
   const rug = new THREE.Mesh(
     new THREE.PlaneGeometry(2.2, 1.6),
-    new THREE.MeshStandardMaterial({ map: createRugTexture({ base: '#2e3a2a', accent: '#6a5a2a' }), roughness: 1 })
+    new THREE.MeshStandardMaterial({ map: createRugTexture({ base: '#2e3a2a', border: '#1c241a', ring: '#3c4a30', trim: '#d8cfa0', core: '#8a6a2a' }), roughness: 1 })
   );
   rug.rotation.x = -Math.PI / 2;
   rug.position.set(desk.position.x + 0.7, 0.008, desk.position.z + 0.9);

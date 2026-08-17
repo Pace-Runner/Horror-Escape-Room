@@ -35,11 +35,46 @@ function finishBump(canvas, repeatX = 1, repeatY = 1) {
   return tex;
 }
 
-// Companion bump map for createWoodFloorTexture(): the plank seams read as
-// grooves and the grain streaks get a little relief, so raking light from
-// the bedroom's bulb/lightning actually catches the floor's structure
-// instead of it reading as a flat painted plane.
-export function createWoodFloorBumpTexture() {
+// Converts a grayscale height canvas (as used for the bump maps below)
+// into a tangent-space normal map by sampling the height gradient at each
+// texel. This reads real light direction against the surface detail
+// (raking light catches ridges/grooves correctly from any angle), which a
+// bump map -- Three's cheaper single-channel approximation -- can't do as
+// convincingly. Kept as a general-purpose converter so any of this file's
+// procedural height canvases can get a matching normal map for free.
+function heightToNormalMap(heightCanvas, strength = 1.5) {
+  const w = heightCanvas.width;
+  const h = heightCanvas.height;
+  const src = heightCanvas.getContext('2d').getImageData(0, 0, w, h).data;
+  const heightAt = (x, y) => {
+    const xi = (x + w) % w;
+    const yi = (y + h) % h;
+    return src[(yi * w + xi) * 4] / 255;
+  };
+
+  const out = makeCanvas(w, h);
+  const outCtx = out.getContext('2d');
+  const img = outCtx.createImageData(w, h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const dx = (heightAt(x - 1, y) - heightAt(x + 1, y)) * strength;
+      const dy = (heightAt(x, y - 1) - heightAt(x, y + 1)) * strength;
+      const len = Math.sqrt(dx * dx + dy * dy + 1);
+      const idx = (y * w + x) * 4;
+      img.data[idx] = ((-dx / len) * 0.5 + 0.5) * 255;
+      img.data[idx + 1] = ((-dy / len) * 0.5 + 0.5) * 255;
+      img.data[idx + 2] = ((1 / len) * 0.5 + 0.5) * 255;
+      img.data[idx + 3] = 255;
+    }
+  }
+  outCtx.putImageData(img, 0, 0);
+  return out;
+}
+
+// Raw height canvas shared by createWoodFloorBumpTexture() and
+// createWoodFloorNormalTexture(), so the bump and normal variants always
+// agree on where the plank seams and grain actually are.
+function buildWoodFloorHeightCanvas() {
   const canvas = makeCanvas(512, 512);
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#808080';
@@ -64,7 +99,22 @@ export function createWoodFloorBumpTexture() {
     ctx.lineTo(canvas.width, i * plankH);
     ctx.stroke();
   }
-  return finishBump(canvas, 4, 4);
+  return canvas;
+}
+
+// Companion bump map for createWoodFloorTexture(): the plank seams read as
+// grooves and the grain streaks get a little relief, so raking light from
+// the bedroom's bulb/lightning actually catches the floor's structure
+// instead of it reading as a flat painted plane.
+export function createWoodFloorBumpTexture() {
+  return finishBump(buildWoodFloorHeightCanvas(), 4, 4);
+}
+
+// Normal-map counterpart of the above -- swap this in wherever a surface
+// needs the raking light from the bulb/lightning to actually rake, rather
+// than the flatter bumpMap approximation.
+export function createWoodFloorNormalTexture() {
+  return finishBump(heightToNormalMap(buildWoodFloorHeightCanvas(), 2.2), 4, 4);
 }
 
 // Companion bump map for createPlasterWallTexture(): mostly fine noise
@@ -122,14 +172,17 @@ export function createConcreteBumpTexture() {
   return finishBump(canvas, 3, 3);
 }
 
-export function createWoodFloorTexture() {
+// stain darkens/deepens the wood tone (1 = original honey-brown pine, ~0.6
+// gives the near-black stained hardwood look of a much older house) without
+// changing anything for callers that don't pass it.
+export function createWoodFloorTexture({ stain = 1 } = {}) {
   const canvas = makeCanvas(512, 512);
   const ctx = canvas.getContext('2d');
   const planks = 8;
   const plankH = canvas.height / planks;
   for (let i = 0; i < planks; i++) {
     const base = 58 + Math.floor(Math.random() * 14);
-    ctx.fillStyle = `rgb(${base + 22}, ${base + 10}, ${base - 6})`;
+    ctx.fillStyle = `rgb(${Math.round((base + 22) * stain)}, ${Math.round((base + 10) * stain)}, ${Math.round((base - 6) * stain)})`;
     ctx.fillRect(0, i * plankH, canvas.width, plankH);
     // grain streaks
     ctx.strokeStyle = `rgba(30, 18, 10, 0.25)`;
@@ -179,6 +232,131 @@ export function createPlasterWallTexture(tint = '#8f8778') {
   return finish(canvas, 2, 2);
 }
 
+// Shared grayscale height canvas for the damask wallpaper: the motif is
+// drawn once as raised luminance (lighter = embossed higher off the wall)
+// so the colour texture and normal map below always agree on exactly
+// where the pattern sits, instead of two independently-drawn approximations
+// of each other.
+function buildWallpaperHeightCanvas() {
+  const canvas = makeCanvas(512, 512);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#5a5a5a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < imgData.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 10;
+    imgData.data[i] += n;
+    imgData.data[i + 1] += n;
+    imgData.data[i + 2] += n;
+  }
+  ctx.putImageData(imgData, 0, 0);
+
+  // faint vertical undertone stripes, a classic Victorian wallpaper ground
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+  for (let x = 0; x < canvas.width; x += 34) {
+    ctx.fillRect(x, 0, 4, canvas.height);
+  }
+
+  // one damask "fleur" motif, stamped on a diamond (offset) grid so it
+  // tiles as a continuous repeating pattern
+  function drawMotif(cx, cy) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 9, 15, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    for (let i = 0; i < 4; i++) {
+      ctx.save();
+      ctx.rotate((i / 4) * Math.PI * 2);
+      ctx.beginPath();
+      ctx.moveTo(0, -6);
+      ctx.quadraticCurveTo(26, -20, 30, 0);
+      ctx.quadraticCurveTo(26, 20, 0, 6);
+      ctx.closePath();
+      ctx.globalAlpha = 0.8;
+      ctx.fill();
+      ctx.globalAlpha = 0.5;
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = 1.2;
+    for (let i = 0; i < 4; i++) {
+      ctx.save();
+      ctx.rotate((i / 4) * Math.PI * 2 + Math.PI / 4);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(14, -32, 4, -46);
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  const cell = 128;
+  for (let gy = -1; gy <= canvas.height / cell + 1; gy++) {
+    for (let gx = -1; gx <= canvas.width / cell + 1; gx++) {
+      const offsetX = gy % 2 === 0 ? 0 : cell / 2;
+      drawMotif(gx * cell + offsetX, gy * cell);
+    }
+  }
+
+  return canvas;
+}
+
+// Ornate damask wallpaper: a repeating embossed floral motif over a dark
+// tinted ground, aged with the same kind of water-damage streaking as the
+// plain plaster texture above. Colour is derived from the shared height
+// canvas (raised = motif colour, recessed = base colour) so the visible
+// pattern and its normal map (below) can never drift out of sync.
+export function createDamaskWallpaperTexture({
+  base = [20, 26, 21],
+  motif = [58, 68, 46]
+} = {}) {
+  const height = buildWallpaperHeightCanvas();
+  const hData = height.getContext('2d').getImageData(0, 0, height.width, height.height).data;
+
+  const canvas = makeCanvas(height.width, height.height);
+  const ctx = canvas.getContext('2d');
+  const out = ctx.createImageData(canvas.width, canvas.height);
+  for (let i = 0; i < hData.length; i += 4) {
+    const t = Math.min(Math.max((hData[i] - 70) / 110, 0), 1);
+    out.data[i] = base[0] + (motif[0] - base[0]) * t;
+    out.data[i + 1] = base[1] + (motif[1] - base[1]) * t;
+    out.data[i + 2] = base[2] + (motif[2] - base[2]) * t;
+    out.data[i + 3] = 255;
+  }
+  ctx.putImageData(out, 0, 0);
+
+  // age/water-damage streaks over the finished pattern, sparser than bare
+  // plaster since this is wallpaper left up for years, not an open wall
+  ctx.strokeStyle = 'rgba(4, 4, 4, 0.18)';
+  for (let i = 0; i < 6; i++) {
+    ctx.beginPath();
+    const x = Math.random() * canvas.width;
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x + (Math.random() - 0.5) * 40, canvas.height);
+    ctx.lineWidth = 6 + Math.random() * 10;
+    ctx.stroke();
+  }
+
+  return finish(canvas, 2, 2);
+}
+
+// Normal-map counterpart of createDamaskWallpaperTexture() -- makes the
+// embossed motif actually catch the bedroom bulb/lightning at a raking
+// angle instead of the pattern being flat paint on a flat wall.
+export function createWallpaperNormalTexture() {
+  return finishBump(heightToNormalMap(buildWallpaperHeightCanvas(), 1.8), 2, 2);
+}
+
 export function createConcreteTexture() {
   const canvas = makeCanvas(256, 256);
   const ctx = canvas.getContext('2d');
@@ -203,25 +381,124 @@ export function createConcreteTexture() {
   return finish(canvas, 3, 3);
 }
 
-export function createScratchedMessageTexture(text = "DON'T LET IT OUT") {
-  const canvas = makeCanvas(512, 256);
+// Shared height canvas for the scratched floor message: instead of one
+// crisp fillText() pass (which reads as typed, not carved), the glyph
+// shape gets stamped many times with small random jitter/rotation/alpha,
+// building up a ragged, uneven edge the way a shaking hand dragging
+// something sharp actually would, plus a few stray overshoot scratches
+// past the letters and a per-letter baseline wobble so the whole line
+// doesn't sit dead straight.
+function buildScratchedMessageHeightCanvas(text) {
+  const W = 512;
+  const H = 256;
+
+  // Render the message ONCE, cleanly, to an offscreen source -- filling
+  // or stroking the same glyph shape many times (tried both) always
+  // averages back toward the font's own solid silhouette, which is
+  // exactly the "too neat/typed" look this needs to avoid. Distorting
+  // already-solid pixels per scanline afterward is what actually breaks
+  // that up convincingly.
+  const src = makeCanvas(W, H);
+  const sctx = src.getContext('2d');
+  sctx.save();
+  sctx.translate(W / 2, H / 2);
+  sctx.rotate(-0.03);
+  sctx.font = 'bold 48px Georgia';
+  sctx.textAlign = 'center';
+  sctx.textBaseline = 'middle';
+  sctx.fillStyle = '#fff';
+  sctx.fillText(text, 0, 0);
+  sctx.restore();
+  const srcAlpha = sctx.getImageData(0, 0, W, H).data;
+  const alphaAt = (x, y) => (x < 0 || x >= W || y < 0 || y >= H ? 0 : srcAlpha[(y * W + x) * 4 + 3]);
+
+  const canvas = makeCanvas(W, H);
   const ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.save();
-  ctx.translate(canvas.width / 2, canvas.height / 2);
-  ctx.rotate(-0.03);
-  ctx.font = 'bold 46px Georgia';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  // scratched-into-wood look: dark gouge + faint highlight offset
-  ctx.fillStyle = 'rgba(0,0,0,0.75)';
-  ctx.fillText(text, 2, 3);
-  ctx.fillStyle = 'rgba(210, 190, 160, 0.55)';
-  ctx.fillText(text, 0, 0);
-  ctx.restore();
+  const out = ctx.createImageData(W, H);
+
+  // Per-scanline horizontal jitter (a slow wander plus per-row noise) so
+  // each row of the letters is offset a little differently -- a hand
+  // dragging something sharp doesn't cut a mathematically straight edge.
+  // A handful of rows are dropped entirely (gaps where the point skipped)
+  // and a handful are doubled/smeared (where it dragged unevenly).
+  let wander = 0;
+  for (let y = 0; y < H; y++) {
+    wander += (Math.random() - 0.5) * 1.6;
+    wander = Math.max(-5, Math.min(5, wander));
+    const rowGap = Math.random() < 0.045;
+    const rowSmear = Math.random() < 0.1 ? 2 + Math.random() * 3 : 0;
+    for (let x = 0; x < W; x++) {
+      let v = 0;
+      if (!rowGap) {
+        const shift = Math.round(wander);
+        v = alphaAt(x - shift, y);
+        if (rowSmear) v = Math.max(v, alphaAt(x - shift - Math.round(rowSmear), y));
+      }
+      const idx = (y * W + x) * 4;
+      out.data[idx] = v;
+      out.data[idx + 1] = v;
+      out.data[idx + 2] = v;
+      out.data[idx + 3] = 255;
+    }
+  }
+  ctx.putImageData(out, 0, 0);
+
+  // random ragged notches bitten out of the letter edges
+  ctx.globalCompositeOperation = 'destination-out';
+  for (let i = 0; i < 90; i++) {
+    const x = Math.random() * W;
+    const y = H / 2 + (Math.random() - 0.5) * 90;
+    if (alphaAt(Math.round(x), Math.round(y)) < 40) continue;
+    ctx.beginPath();
+    ctx.arc(x, y, 1.5 + Math.random() * 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff';
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+
+  // stray scratches overshooting past the letters, like the point skidded
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 16; i++) {
+    const x0 = Math.random() * W;
+    const y0 = H / 2 + (Math.random() - 0.5) * 70;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x0 + (Math.random() - 0.5) * 30, y0 + (Math.random() - 0.5) * 10);
+    ctx.stroke();
+  }
+
+  return canvas;
+}
+
+export function createScratchedMessageTexture(text = "DON'T LET IT OUT") {
+  const height = buildScratchedMessageHeightCanvas(text);
+  const hData = height.getContext('2d').getImageData(0, 0, height.width, height.height).data;
+
+  const canvas = makeCanvas(height.width, height.height);
+  const ctx = canvas.getContext('2d');
+  const out = ctx.createImageData(canvas.width, canvas.height);
+  for (let i = 0; i < hData.length; i += 4) {
+    const t = hData[i] / 255;
+    // dark gouge core with a faint pale highlight where the exposed wood
+    // underneath would catch light, not a single flat fill colour
+    const dark = Math.min(1, t * 1.4);
+    out.data[i] = 8 + 60 * (1 - dark) * t * 0.4;
+    out.data[i + 1] = 6 + 52 * (1 - dark) * t * 0.4;
+    out.data[i + 2] = 4 + 40 * (1 - dark) * t * 0.4;
+    out.data[i + 3] = Math.min(255, t * 300);
+  }
+  ctx.putImageData(out, 0, 0);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
+}
+
+// Normal-map counterpart -- lets the gouge actually catch the bedroom
+// bulb/lightning at a raking angle instead of being flat dark paint on
+// the floor.
+export function createScratchedMessageNormalTexture(text = "DON'T LET IT OUT") {
+  return finishBump(heightToNormalMap(buildScratchedMessageHeightCanvas(text), 2.2));
 }
 
 export function createPolaroidTexture({ caption = 'PROJECT HOLLOW', date = 'JUNE 1987' } = {}) {
@@ -321,28 +598,169 @@ export function createFamilyPhotoTexture({ scratchedFourth = false } = {}) {
   return tex;
 }
 
-export function createRugTexture({ base = '#5a2a28', accent = '#8a5a2a' } = {}) {
-  const canvas = makeCanvas(256, 256);
+function hexToRgb(hex) {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+// Shared height canvas for the rug: a filled decorative border BAND
+// (not just an outline) with a repeating diamond trim, four layers of
+// nested central medallion, and quarter-medallions in the corners --
+// modelled on a Persian-style layout rather than a single tinted
+// rectangle with a thin double outline. Encoded as 5 distinct luminance
+// levels (field / border band / trim motif / medallion ring / medallion
+// core) so createRugTexture() below can map each one to its own colour,
+// and the normal map gets real stepped relief between them.
+function buildRugHeightCanvas() {
+  const canvas = makeCanvas(384, 384);
   const ctx = canvas.getContext('2d');
-  ctx.fillStyle = base;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = accent;
-  ctx.lineWidth = 10;
-  ctx.strokeRect(18, 18, canvas.width - 36, canvas.height - 36);
+  const w = canvas.width;
+  const h = canvas.height;
+  const LEVEL = { field: 60, border: 130, trim: 175, ring: 205, core: 235 };
+
+  ctx.fillStyle = `rgb(${LEVEL.field},${LEVEL.field},${LEVEL.field})`;
+  ctx.fillRect(0, 0, w, h);
+
+  const diamond = (x, y, r) => {
+    ctx.beginPath();
+    ctx.moveTo(x, y - r);
+    ctx.lineTo(x + r, y);
+    ctx.lineTo(x, y + r);
+    ctx.lineTo(x - r, y);
+    ctx.closePath();
+    ctx.fill();
+  };
+
+  const ring = (x0, y0, x1, y1, level) => {
+    ctx.strokeStyle = `rgb(${LEVEL[level]},${LEVEL[level]},${LEVEL[level]})`;
+    ctx.strokeRect(x0, y0, x1 - x0, y1 - y0);
+  };
+
+  // outer decorative border: a filled band plus several thinner alternating
+  // pinstripes just inside it, closer to the layered multi-stripe borders
+  // real Persian rugs use instead of one plain band.
+  const bandOuter = 14;
+  const bandInner = 60;
+  ctx.fillStyle = `rgb(${LEVEL.border},${LEVEL.border},${LEVEL.border})`;
+  ctx.fillRect(bandOuter, bandOuter, w - bandOuter * 2, h - bandOuter * 2);
+  ctx.fillStyle = `rgb(${LEVEL.field},${LEVEL.field},${LEVEL.field})`;
+  ctx.fillRect(bandInner, bandInner, w - bandInner * 2, h - bandInner * 2);
+
   ctx.lineWidth = 3;
-  ctx.strokeRect(34, 34, canvas.width - 68, canvas.height - 68);
-  // faint worn/frayed noise so it doesn't read as a flat vector rectangle
-  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  [[bandInner + 6, 'trim'], [bandInner + 13, 'ring'], [bandInner + 19, 'trim']].forEach(([inset, level]) => {
+    ring(inset, inset, w - inset, h - inset, level);
+  });
+
+  // repeating diamond trim running around the border band
+  ctx.fillStyle = `rgb(${LEVEL.trim},${LEVEL.trim},${LEVEL.trim})`;
+  const step = 28;
+  const bandMid = (bandOuter + bandInner) / 2;
+  for (let x = bandInner; x <= w - bandInner; x += step) {
+    diamond(x, bandMid, 8);
+    diamond(x, h - bandMid, 8);
+  }
+  for (let y = bandInner; y <= h - bandInner; y += step) {
+    diamond(bandMid, y, 8);
+    diamond(w - bandMid, y, 8);
+  }
+
+  // a mini nested-medallion motif, reused for both the central medallion
+  // (large) and the corner motifs (small) so the whole rug echoes one
+  // design instead of the corners using a different, simpler shape
+  const medallion = (x, y, scale, withPetals) => {
+    [[100, 'ring'], [80, 'field'], [60, 'ring'], [40, 'trim']].forEach(([r, level]) => {
+      ctx.fillStyle = `rgb(${LEVEL[level]},${LEVEL[level]},${LEVEL[level]})`;
+      diamond(x, y, r * scale);
+    });
+    ctx.fillStyle = `rgb(${LEVEL.core},${LEVEL.core},${LEVEL.core})`;
+    ctx.beginPath();
+    ctx.arc(x, y, 16 * scale, 0, Math.PI * 2);
+    ctx.fill();
+
+    if (withPetals) {
+      // small petal flourishes poking out from the medallion's 4 points
+      const petalR = 100 * scale;
+      ctx.fillStyle = `rgb(${LEVEL.ring},${LEVEL.ring},${LEVEL.ring})`;
+      [[0, -1], [1, 0], [0, 1], [-1, 0]].forEach(([dx, dy]) => {
+        ctx.save();
+        ctx.translate(x + dx * petalR, y + dy * petalR);
+        ctx.rotate(Math.atan2(dy, dx));
+        ctx.beginPath();
+        ctx.moveTo(0, -10 * scale);
+        ctx.quadraticCurveTo(22 * scale, 0, 0, 10 * scale);
+        ctx.quadraticCurveTo(8 * scale, 0, 0, -10 * scale);
+        ctx.fill();
+        ctx.restore();
+      });
+    }
+  };
+
+  const cx = w / 2;
+  const cy = h / 2;
+  medallion(cx, cy, 1, true);
+
+  // quarter-medallions in the corners, now a scaled-down echo of the
+  // central medallion (with its own petals) instead of a plain diamond
+  [[bandInner + 40, bandInner + 40], [w - bandInner - 40, bandInner + 40],
+    [bandInner + 40, h - bandInner - 40], [w - bandInner - 40, h - bandInner - 40]].forEach(([x, y]) => {
+    medallion(x, y, 0.34, true);
+  });
+
+  // fine woven-pile noise over everything, so no band reads as flat vector fill
+  const imgData = ctx.getImageData(0, 0, w, h);
   for (let i = 0; i < imgData.data.length; i += 4) {
-    const n = (Math.random() - 0.5) * 16;
+    const n = (Math.random() - 0.5) * 14;
     imgData.data[i] += n;
     imgData.data[i + 1] += n;
     imgData.data[i + 2] += n;
   }
   ctx.putImageData(imgData, 0, 0);
+
+  return canvas;
+}
+
+// An ornate Persian-style area rug (filled border band with a diamond
+// trim, nested central medallion, corner motifs) instead of a plain
+// tinted rectangle with a thin outline -- colour is derived from the
+// shared height canvas above (5 bands -> 5 colours) so the pattern and
+// its normal map (below) always line up.
+export function createRugTexture({
+  base = '#6e1f1f',
+  border = '#16303c',
+  trim = '#e8dcc0',
+  ring = '#7a1414',
+  core = '#c9a13a'
+} = {}) {
+  const palette = [hexToRgb(base), hexToRgb(border), hexToRgb(trim), hexToRgb(ring), hexToRgb(core)];
+  const thresholds = [45, 100, 150, 190, 255];
+
+  const height = buildRugHeightCanvas();
+  const hData = height.getContext('2d').getImageData(0, 0, height.width, height.height).data;
+
+  const canvas = makeCanvas(height.width, height.height);
+  const ctx = canvas.getContext('2d');
+  const out = ctx.createImageData(canvas.width, canvas.height);
+  for (let i = 0; i < hData.length; i += 4) {
+    const v = hData[i];
+    let band = 0;
+    while (band < thresholds.length - 1 && v > thresholds[band]) band++;
+    const [r, g, b] = palette[band];
+    out.data[i] = r;
+    out.data[i + 1] = g;
+    out.data[i + 2] = b;
+    out.data[i + 3] = 255;
+  }
+  ctx.putImageData(out, 0, 0);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
+}
+
+// Normal-map counterpart of createRugTexture() -- the pile/pattern
+// actually catches the bedroom bulb/lightning at a raking angle instead
+// of being flat paint on a flat plane.
+export function createRugNormalTexture() {
+  return finishBump(heightToNormalMap(buildRugHeightCanvas(), 1.1));
 }
 
 export function createHazardSignTexture(text = 'HIGH VOLTAGE') {
@@ -384,6 +802,289 @@ export function createHazardSignTexture(text = 'HIGH VOLTAGE') {
   return tex;
 }
 
+// Shared height canvas for a set of claw/scratch marks -- 4 curved,
+// tapering gouges (like fingers dragged down a wall) plus 2-3 shorter
+// stray marks, drawn as raised streaks so the colour and normal-map
+// versions below always agree on where the gouges actually are. The
+// storyline calls for these ("signs that something violent may have
+// happened", and the same marks reappearing in the Level 2 basement).
+function buildClawMarksHeightCanvas() {
+  const canvas = makeCanvas(384, 384);
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const startX = 70 + Math.random() * 40;
+  const startY = 40 + Math.random() * 30;
+  const spacing = 34 + Math.random() * 8;
+  const length = 220 + Math.random() * 60;
+
+  for (let i = 0; i < 4; i++) {
+    const x0 = startX + i * spacing + (Math.random() - 0.5) * 8;
+    const y0 = startY + (Math.random() - 0.5) * 10;
+    const dx = (Math.random() - 0.5) * 30;
+    const dy = length + Math.random() * 30;
+    const midX = x0 + dx * 0.5 + (Math.random() - 0.5) * 14;
+    const midY = y0 + dy * 0.5;
+
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineCap = 'round';
+    // tapering width: draw several overlapping strokes narrowing toward the tail
+    for (let seg = 0; seg < 10; seg++) {
+      const t0 = seg / 10;
+      const t1 = (seg + 1) / 10;
+      const w = 6 * (1 - t0) + 0.6;
+      ctx.globalAlpha = 0.75 * (1 - t0 * 0.5);
+      ctx.lineWidth = w;
+      ctx.beginPath();
+      const p0 = quadPoint(x0, y0, midX, midY, x0 + dx, y0 + dy, t0);
+      const p1 = quadPoint(x0, y0, midX, midY, x0 + dx, y0 + dy, t1);
+      ctx.moveTo(p0.x, p0.y);
+      ctx.lineTo(p1.x, p1.y);
+      ctx.stroke();
+    }
+  }
+  ctx.globalAlpha = 1;
+
+  function quadPoint(x0, y0, cx, cy, x1, y1, t) {
+    const mt = 1 - t;
+    return {
+      x: mt * mt * x0 + 2 * mt * t * cx + t * t * x1,
+      y: mt * mt * y0 + 2 * mt * t * cy + t * t * y1
+    };
+  }
+
+  return canvas;
+}
+
+// Colour + alpha version -- a dark gouge with a faint torn-highlight edge,
+// same "scratched into the surface" look as createScratchedMessageTexture,
+// meant to sit on top of a wall/wood texture with alpha blending rather
+// than replacing it.
+export function createClawMarksTexture() {
+  const height = buildClawMarksHeightCanvas();
+  const hData = height.getContext('2d').getImageData(0, 0, height.width, height.height).data;
+
+  const canvas = makeCanvas(height.width, height.height);
+  const ctx = canvas.getContext('2d');
+  const out = ctx.createImageData(canvas.width, canvas.height);
+  for (let i = 0; i < hData.length; i += 4) {
+    const t = hData[i] / 255;
+    out.data[i] = 10;
+    out.data[i + 1] = 8;
+    out.data[i + 2] = 6;
+    out.data[i + 3] = Math.min(255, t * 235);
+  }
+  ctx.putImageData(out, 0, 0);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Normal-map counterpart -- lets the gouges actually catch the bedroom
+// bulb/lightning at a raking angle instead of being flat dark paint.
+export function createClawMarksNormalTexture() {
+  return finishBump(heightToNormalMap(buildClawMarksHeightCanvas(), 2.5));
+}
+
+// General-purpose wood grain for the Blender-authored furniture (bed
+// frame, dresser, door -- see blender/build_*.py) -- those exports only
+// ever carried a flat PBR colour with no map at all (bmesh.ops never
+// creates UV data, so there was nothing to put a texture on), unlike the
+// floor/walls/fabric which all have real canvas textures. This is grain
+// streaks only, no plank seams (createWoodFloorTexture's are specific to
+// flooring), tileable at real-world scale to match the UV density the
+// Blender scripts now bake in (2.2 units/metre, see common.py).
+function buildFurnitureWoodHeightCanvas() {
+  const canvas = makeCanvas(256, 256);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.strokeStyle = 'rgba(130, 130, 130, 0.22)';
+  for (let g = 0; g < 26; g++) {
+    const y = Math.random() * canvas.height;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    for (let x = 0; x <= canvas.width; x += 22) {
+      ctx.lineTo(x, y + (Math.random() - 0.5) * 7);
+    }
+    ctx.lineWidth = 1 + Math.random();
+    ctx.stroke();
+  }
+
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < imgData.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 14;
+    imgData.data[i] += n;
+    imgData.data[i + 1] += n;
+    imgData.data[i + 2] += n;
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+
+export function createFurnitureWoodTexture({ tint = [60, 44, 30] } = {}) {
+  const height = buildFurnitureWoodHeightCanvas();
+  const hData = height.getContext('2d').getImageData(0, 0, height.width, height.height).data;
+
+  const canvas = makeCanvas(height.width, height.height);
+  const ctx = canvas.getContext('2d');
+  const out = ctx.createImageData(canvas.width, canvas.height);
+  for (let i = 0; i < hData.length; i += 4) {
+    const t = hData[i] / 255;
+    const shade = 0.72 + t * 0.5;
+    out.data[i] = Math.min(255, tint[0] * shade);
+    out.data[i + 1] = Math.min(255, tint[1] * shade);
+    out.data[i + 2] = Math.min(255, tint[2] * shade);
+    out.data[i + 3] = 255;
+  }
+  ctx.putImageData(out, 0, 0);
+  // repeat left at 1,1 -- the mesh's own UVs (baked in Blender at a fixed
+  // units-per-metre density) already control real-world tiling scale
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+export function createFurnitureWoodNormalTexture() {
+  const canvas = heightToNormalMap(buildFurnitureWoodHeightCanvas(), 1.3);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+// A cobweb fanned out from one corner of its plane -- radial spokes plus
+// irregular connecting rings, transparent everywhere else. Meant for a
+// PlaneGeometry tucked into a room's ceiling corner: classic cheap detail
+// for "nobody's cleaned this house in a long time" that a normal-mapped
+// wall/floor pass doesn't cover on its own.
+export function createCobwebTexture() {
+  const canvas = makeCanvas(256, 256);
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const cx = 4;
+  const cy = 4;
+  const maxR = 350;
+  const spokeCount = 6 + Math.floor(Math.random() * 2);
+  const angles = [];
+  ctx.strokeStyle = 'rgba(225, 222, 208, 0.5)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < spokeCount; i++) {
+    const a = (Math.PI / 2) * (i / (spokeCount - 1)) + (Math.random() - 0.5) * 0.08;
+    angles.push(a);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + Math.cos(a) * maxR, cy + Math.sin(a) * maxR);
+    ctx.stroke();
+  }
+
+  const rings = 6;
+  for (let r = 1; r <= rings; r++) {
+    const radius = (r / rings) * maxR * (0.8 + Math.random() * 0.25);
+    ctx.beginPath();
+    angles.forEach((a, i) => {
+      const rr = radius * (0.85 + Math.random() * 0.25);
+      const x = cx + Math.cos(a) * rr;
+      const y = cy + Math.sin(a) * rr;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.globalAlpha = 0.4 + Math.random() * 0.3;
+    ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// A curled, torn wallpaper flap with a jagged bottom edge and exposed
+// grey plaster showing through beneath it -- meant to sit slightly
+// proud of/tilted off the wall it's placed on (see bedroomLevel.js) so it
+// reads as peeling away rather than a flat sticker.
+export function createPeelingWallpaperTexture({ paperColor = [20, 26, 21] } = {}) {
+  const canvas = makeCanvas(256, 256);
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Transparent everywhere except the flap itself -- the actual wall
+  // (with its own real damask pattern) sits directly behind this mesh
+  // and shows through, so there's no need to fake plaster underneath;
+  // faking it as an opaque grey rectangle is what read as an obvious
+  // sticker before. paperColor defaults to the same base tone
+  // createDamaskWallpaperTexture() uses, so the flap actually matches
+  // the wall it's supposedly peeling off of.
+  const [pr, pg, pb] = paperColor;
+
+  // organic torn edge: a wandering boundary, not a repeating sawtooth
+  const edgePts = [];
+  const segments = 16;
+  for (let i = 0; i <= segments; i++) {
+    const t = i / segments;
+    const x = 8 + t * 240;
+    const y = 140 + Math.sin(t * 9 + 1.7) * 14 + (Math.random() - 0.5) * 26;
+    edgePts.push([x, y]);
+  }
+
+  ctx.beginPath();
+  ctx.moveTo(8, 10);
+  ctx.lineTo(248, 10);
+  ctx.lineTo(248, edgePts[edgePts.length - 1][1]);
+  for (let i = edgePts.length - 1; i >= 0; i--) ctx.lineTo(edgePts[i][0], edgePts[i][1]);
+  ctx.closePath();
+  ctx.clip();
+
+  const grad = ctx.createLinearGradient(0, 10, 0, 190);
+  grad.addColorStop(0, `rgb(${pr},${pg},${pb})`);
+  grad.addColorStop(0.75, `rgb(${pr},${pg},${pb})`);
+  grad.addColorStop(1, `rgb(${Math.max(0, pr - 18)},${Math.max(0, pg - 18)},${Math.max(0, pb - 18)})`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // faint water-stain blotches and grain noise on the flap itself
+  for (let i = 0; i < 5; i++) {
+    const x = 30 + Math.random() * 200;
+    const y = 30 + Math.random() * 110;
+    const r = 14 + Math.random() * 22;
+    const spot = ctx.createRadialGradient(x, y, 0, x, y, r);
+    spot.addColorStop(0, 'rgba(8,8,4,0.28)');
+    spot.addColorStop(1, 'rgba(8,8,4,0)');
+    ctx.fillStyle = spot;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < imgData.data.length; i += 4) {
+    if (imgData.data[i + 3] === 0) continue;
+    const n = (Math.random() - 0.5) * 14;
+    imgData.data[i] += n;
+    imgData.data[i + 1] += n;
+    imgData.data[i + 2] += n;
+  }
+  ctx.putImageData(imgData, 0, 0);
+
+  // dark shadow line right at the torn edge -- sells the paper lifting
+  // away from the wall instead of lying flush
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(edgePts[0][0], edgePts[0][1]);
+  edgePts.forEach(([x, y]) => ctx.lineTo(x, y));
+  ctx.stroke();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
 export function createStickyNoteTexture(text) {
   const canvas = makeCanvas(200, 200);
   const ctx = canvas.getContext('2d');
@@ -409,4 +1110,84 @@ export function createStickyNoteTexture(text) {
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
+}
+
+// Shared grayscale height canvas for quilted/tufted fabric (mattress,
+// blanket): soft puffiness bulging between grid points with the
+// stitch/seam lines recessed at the grid itself, so the colour texture
+// and normal map below agree on exactly where the fabric actually puckers.
+function buildFabricHeightCanvas({ stitch = 22 } = {}) {
+  const canvas = makeCanvas(512, 512);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const cell = canvas.width / stitch;
+  for (let gy = 0; gy <= stitch; gy++) {
+    for (let gx = 0; gx <= stitch; gx++) {
+      const x = gx * cell + cell / 2 + (Math.random() - 0.5) * cell * 0.15;
+      const y = gy * cell + cell / 2 + (Math.random() - 0.5) * cell * 0.15;
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, cell * 0.6);
+      grad.addColorStop(0, 'rgba(255,255,255,0.4)');
+      grad.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, cell * 0.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.lineWidth = 1.5;
+  for (let gy = 0; gy <= stitch; gy++) {
+    ctx.beginPath();
+    ctx.moveTo(0, gy * cell);
+    ctx.lineTo(canvas.width, gy * cell);
+    ctx.stroke();
+  }
+  for (let gx = 0; gx <= stitch; gx++) {
+    ctx.beginPath();
+    ctx.moveTo(gx * cell, 0);
+    ctx.lineTo(gx * cell, canvas.height);
+    ctx.stroke();
+  }
+
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < imgData.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 10;
+    imgData.data[i] += n;
+    imgData.data[i + 1] += n;
+    imgData.data[i + 2] += n;
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+
+// Quilted fabric colour texture (mattress ticking, blanket knit) -- colour
+// is derived from the shared height canvas so the puffiness/seam pattern
+// always lines up with its normal map below.
+export function createFabricTexture({ color = [156, 148, 132], stitch = 22 } = {}) {
+  const height = buildFabricHeightCanvas({ stitch });
+  const hData = height.getContext('2d').getImageData(0, 0, height.width, height.height).data;
+
+  const canvas = makeCanvas(height.width, height.height);
+  const ctx = canvas.getContext('2d');
+  const out = ctx.createImageData(canvas.width, canvas.height);
+  for (let i = 0; i < hData.length; i += 4) {
+    const t = hData[i] / 255;
+    const shade = 0.7 + t * 0.6;
+    out.data[i] = Math.min(255, color[0] * shade);
+    out.data[i + 1] = Math.min(255, color[1] * shade);
+    out.data[i + 2] = Math.min(255, color[2] * shade);
+    out.data[i + 3] = 255;
+  }
+  ctx.putImageData(out, 0, 0);
+  return finish(canvas, 2, 2);
+}
+
+// Normal-map counterpart of createFabricTexture() -- makes the tufting
+// actually catch the bedroom bulb/lightning at a raking angle instead of
+// the quilting being flat paint on a flat mattress.
+export function createFabricNormalTexture({ stitch = 22 } = {}) {
+  return finishBump(heightToNormalMap(buildFabricHeightCanvas({ stitch }), 1.4), 2, 2);
 }
