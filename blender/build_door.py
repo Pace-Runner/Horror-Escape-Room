@@ -1,8 +1,7 @@
 """
-Generates door.glb: a beveled frame around a two-panel raised door (the
-classic stile-and-rail look, via the same inset+bevel panel technique as
-the bed headboard and dresser drawers) plus a turned knob, in place of a
-single flat slab.
+Generates door.glb: a beveled frame that sits flush in the wall, with a simple
+door panel inside. The frame has no depth extending past the wall, and the door
+panel sits within it.
 
 Run headless: blender --background --python blender/build_door.py
 """
@@ -13,12 +12,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common  # noqa: E402
 import bpy  # noqa: E402
 
-DOOR_WOOD = (0.09, 0.05, 0.03)
-FRAME_WOOD = (0.06, 0.035, 0.022)
+DOOR_WOOD = (0.13, 0.08, 0.05)
+FRAME_WOOD = (0.09, 0.06, 0.04)
 BRASS = (0.35, 0.24, 0.08)
 
-SLAB_W, SLAB_H, SLAB_T = 1.0, 2.0, 0.06
-FRAME_FRONT_Y = -SLAB_T / 2  # the face the panels/knob sit proud of
+# Door dimensions (width, thickness, height)
+DOOR_W = 1.0
+DOOR_T = 0.04
+DOOR_H = 2.0
+
+# Frame dimensions (sits flush in wall, no protrusion)
+FRAME_T = 0.08  # total frame border thickness
+FRAME_DEPTH = 0.06  # depth into the wall
 
 
 def build():
@@ -27,37 +32,29 @@ def build():
     frame_mat = common.make_material('DoorFrameWood', FRAME_WOOD, roughness=0.8)
     brass_mat = common.make_material('DoorBrass', BRASS, roughness=0.3, metallic=0.85)
 
-    frame = common.make_box('frame', (1.15, 0.1, 2.15), frame_mat, bevel_ratio=0.02)
-    frame.location = (0, 0, 1.075)
+    # Create door frame as a simple border that sits in the wall
+    # Frame outer dimensions
+    frame_outer_w = DOOR_W + FRAME_T * 2
+    frame_outer_h = DOOR_H + FRAME_T * 2
+    frame_outer_z = 1.0  # center height
 
-    slab = common.make_box('slab', (SLAB_W, SLAB_T, SLAB_H), door_mat, bevel_ratio=0.01)
-    slab.location = (0, 0, 1.0)
+    # The frame is just a hollow border - we'll make it by creating a box
+    # and then positioning it so it sits flush (negative Y to go into wall)
+    frame = common.make_box('doorFrame', (frame_outer_w, FRAME_DEPTH, frame_outer_h), frame_mat, bevel_ratio=0.01)
+    frame.location = (0, -FRAME_DEPTH / 2, frame_outer_z)
 
-    # classic two-panel door: a shorter lower panel and a taller upper one
-    # with a real gap (mid-rail) between them, both raised proud of the
-    # slab face -- deeper inset/bevel than the bed/dresser panels since a
-    # door is seen close-up and dead-on, where a subtle relief reads as
-    # nothing at all.
-    panel_specs = [
-        ('panelLower', 0.62, 0.68, 0.49),
-        ('panelUpper', 0.62, 0.92, 1.39),
-    ]
-    panel_mat = common.make_material('DoorPanelWood', (0.13, 0.075, 0.045), roughness=0.65)
-    for name, w, h, cz in panel_specs:
-        panel = common.make_panel_frame(
-            name, w, h, panel_mat,
-            depth=-0.045, frame_w=0.075, inset_depth=0.03, bevel_width=0.014
-        )
-        panel.location = (0, FRAME_FRONT_Y, cz)
+    # Create the door panel (the slab that goes in the frame)
+    door_panel = common.make_box('doorPanel', (DOOR_W, DOOR_T, DOOR_H), door_mat, bevel_ratio=0.005)
+    door_panel.location = (0, -DOOR_T / 2 - 0.005, 1.0)
 
-    # knob: a turned backplate + a small round handle
-    backplate = common.make_cylinder('knobPlate', 0.045, 0.015, brass_mat, segments=14)
-    backplate.rotation_euler = (1.5708, 0, 0)
-    backplate.location = (0.38, FRAME_FRONT_Y - 0.007, 1.0)
+    # Create a knob (simple brass knob)
+    knob_backplate = common.make_cylinder('knobPlate', 0.035, 0.012, brass_mat, segments=12)
+    knob_backplate.rotation_euler = (1.5708, 0, 0)
+    knob_backplate.location = (0.35, -0.035, 1.0)
 
-    knob = common.make_cylinder('knob', 0.03, 0.05, brass_mat, segments=14)
-    knob.rotation_euler = (1.5708, 0, 0)
-    knob.location = (0.38, FRAME_FRONT_Y - 0.04, 1.0)
+    knob_handle = common.make_cylinder('knobHandle', 0.025, 0.04, brass_mat, segments=12)
+    knob_handle.rotation_euler = (1.5708, 0, 0)
+    knob_handle.location = (0.35, -0.055, 1.0)
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     out_path = os.path.abspath(os.path.join(script_dir, '..', 'src', 'assets', 'models', 'door.glb'))

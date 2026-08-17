@@ -55,6 +55,16 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   const interactables = [];
   const colliders = [];
 
+  // Puzzle state tracking for bedroom mechanics
+  const puzzleState = {
+    chainsEscaped: false,
+    hasFlashlight: false,
+    foundPhotos: new Set(),
+    photosArranged: false,
+    hasKey: false,
+    doorUnlocked: false
+  };
+
   // Darker stained wood + ornate damask wallpaper (both normal-mapped, not
   // just bump-mapped) in place of plain plaster -- the flat tinted-plaster
   // look read as too bare/generic for a lived-in, decades-old house.
@@ -973,6 +983,170 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     onInteract: () => showCaption('Two wooden planks, boarded diagonally. Whatever is in this house trapped you inside.')
   };
 
+  // ---------- interactive drawer system ----------
+  const drawerStates = {
+    nightstandLeft: { isOpen: false, contents: ['old photograph', 'battery'] },
+    nightstandRight: { isOpen: false, contents: ['matchbook', 'key'] },
+    dresserTop: { isOpen: false, contents: ['family photo (scratched)'] }
+  };
+
+  // Nightstand left drawer (freely searchable)
+  const nightstandLeft = new THREE.Mesh(
+    new THREE.BoxGeometry(0.5, 0.15, 0.4),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  nightstandLeft.position.set(-0.3, 0.55, -2.15);
+  group.add(nightstandLeft);
+  nightstandLeft.userData.interact = {
+    label: '[E] Search drawer',
+    onInteract: () => {
+      if (!drawerStates.nightstandLeft.isOpen) {
+        drawerStates.nightstandLeft.isOpen = true;
+        showCaption('Inside the drawer you find a faded family photograph and an old battery.');
+        puzzleState.foundPhotos.add('nightstandLeft');
+      } else {
+        showCaption('You already searched this drawer.');
+      }
+    }
+  };
+  interactables.push(nightstandLeft);
+
+  // Nightstand right drawer (freely searchable)
+  const nightstandRight = new THREE.Mesh(
+    new THREE.BoxGeometry(0.5, 0.15, 0.4),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  nightstandRight.position.set(1.1, 0.55, -2.15);
+  group.add(nightstandRight);
+  nightstandRight.userData.interact = {
+    label: '[E] Search drawer',
+    onInteract: () => {
+      if (!drawerStates.nightstandRight.isOpen) {
+        drawerStates.nightstandRight.isOpen = true;
+        showCaption('A matchbook and an old brass key inside. The key feels important.');
+        puzzleState.foundPhotos.add('nightstandRight');
+        puzzleState.hasKey = true;
+      } else {
+        showCaption('You already searched this drawer.');
+      }
+    }
+  };
+  interactables.push(nightstandRight);
+
+  // Dresser top drawer (freely searchable)
+  const dresserTop = new THREE.Mesh(
+    new THREE.BoxGeometry(0.8, 0.2, 0.6),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  dresserTop.position.set(2.7, 1.1, 1.6);
+  group.add(dresserTop);
+  dresserTop.userData.interact = {
+    label: '[E] Search dresser',
+    onInteract: () => {
+      if (!drawerStates.dresserTop.isOpen) {
+        drawerStates.dresserTop.isOpen = true;
+        showCaption('Under some old trinkets you find another photograph. The fourth person has been scratched out completely.');
+        puzzleState.foundPhotos.add('dresserTop');
+      } else {
+        showCaption('You already searched this dresser.');
+      }
+    }
+  };
+  interactables.push(dresserTop);
+
+  // ---------- photo arrangement puzzle ----------
+  // Frame on the wall where photos can be arranged
+  const photoHolderGroup = new THREE.Group();
+  photoHolderGroup.position.set(-2.8, 1.2, 1.0);
+  group.add(photoHolderGroup);
+
+  const frameBorder = new THREE.Mesh(
+    new THREE.BoxGeometry(0.65, 0.65, 0.04),
+    new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.8 })
+  );
+  photoHolderGroup.add(frameBorder);
+
+  const photoAreaHitbox = new THREE.Mesh(
+    new THREE.BoxGeometry(0.6, 0.6, 0.1),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  photoAreaHitbox.userData.interact = {
+    label: '[E] Arrange photos',
+    onInteract: () => {
+      if (puzzleState.foundPhotos.size >= 3) {
+        if (!puzzleState.photosArranged) {
+          showCaption('You arrange the photographs in order by their dates: 1985, 1986, 1987. Something clicks nearby... You hear a small lock open somewhere in the room.');
+          puzzleState.photosArranged = true;
+          // Make the box visible after photos are arranged
+          boxBody.visible = true;
+          boxLid.visible = true;
+          lockPlate.visible = true;
+        } else {
+          showCaption('The photos are arranged. The lock has been opened.');
+        }
+      } else {
+        showCaption(`You need to find more photographs (${puzzleState.foundPhotos.size}/3 found).`);
+      }
+    }
+  };
+  photoHolderGroup.add(photoAreaHitbox);
+  interactables.push(photoAreaHitbox);
+
+  // ---------- locked box (sits on the floor, appears after photo puzzle is solved) ----------
+  const lockedBoxGroup = new THREE.Group();
+  // Position on the floor near the nightstand where it will be visible
+  lockedBoxGroup.position.set(-0.3, 0.35, -2.0);
+  group.add(lockedBoxGroup);
+
+  const boxBody = new THREE.Mesh(
+    new THREE.BoxGeometry(0.4, 0.3, 0.3),
+    new THREE.MeshStandardMaterial({ color: 0x2a1a0a, roughness: 0.9, metalness: 0.2 })
+  );
+  boxBody.visible = false; // Hidden until photo puzzle is solved
+  lockedBoxGroup.add(boxBody);
+
+  const boxLid = new THREE.Mesh(
+    new THREE.BoxGeometry(0.4, 0.08, 0.3),
+    new THREE.MeshStandardMaterial({ color: 0x1a0a00, roughness: 0.8 })
+  );
+  boxLid.position.y = 0.19;
+  boxLid.visible = false; // Hidden until photo puzzle is solved
+  lockedBoxGroup.add(boxLid);
+
+  // Lock indicator (small cylinder)
+  const lockPlate = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.03, 0.03, 0.02, 16),
+    new THREE.MeshStandardMaterial({ color: 0x4a3a1a, roughness: 0.5, metalness: 0.7 })
+  );
+  lockPlate.rotation.x = Math.PI / 2;
+  lockPlate.position.set(0, 0.08, 0.15);
+  lockPlate.visible = false; // Hidden until photo puzzle is solved
+  lockedBoxGroup.add(lockPlate);
+
+  const boxHitbox = new THREE.Mesh(
+    new THREE.BoxGeometry(0.45, 0.35, 0.35),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  boxHitbox.userData.interact = {
+    label: '[E] Open box',
+    onInteract: () => {
+      if (puzzleState.photosArranged && puzzleState.hasKey) {
+        showCaption('The key fits! Inside the box you find a crowbar. This should remove those wooden planks...');
+        boxHitbox.visible = false;
+        boxBody.visible = false;
+        boxLid.visible = false;
+        lockPlate.visible = false;
+        puzzleState.hasKey = false;
+      } else if (puzzleState.photosArranged) {
+        showCaption('The box is locked. You need to find a key first.');
+      } else {
+        showCaption('The box is locked tight. Maybe clues elsewhere will help unlock it.');
+      }
+    }
+  };
+  lockedBoxGroup.add(boxHitbox);
+  interactables.push(boxHitbox);
+
   return {
     group,
     interactables,
@@ -996,7 +1170,8 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
       doorSlab,
       messagePlane: message,
       ambient,
-      glassMaterial
+      glassMaterial,
+      puzzleState
     },
     update(dt) {
       this._t = (this._t ?? 0) + dt;
