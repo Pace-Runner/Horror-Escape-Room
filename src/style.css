@@ -243,6 +243,108 @@ html, body {
   opacity: 1;
 }
 
+/* ---------- photo board close-up (drag the photos into place) ---------- */
+#board-view {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 3, 2, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 55;
+  cursor: default;
+}
+
+#board-view.hidden {
+  display: none;
+}
+
+#board-panel {
+  position: relative;
+  width: min(720px, 88vw);
+  padding: 34px 34px 24px;
+  background: #2c1c10;
+  border: 10px solid #1c1108;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+}
+
+#board-slots {
+  display: flex;
+  gap: 22px;
+  justify-content: center;
+  padding: 22px;
+  background: #b99364;
+  background-image: radial-gradient(rgba(0, 0, 0, 0.08) 1px, transparent 1px);
+  background-size: 14px 14px;
+}
+
+.board-slot {
+  width: 150px;
+  height: 118px;
+  border: 2px dashed rgba(40, 28, 16, 0.45);
+  background: rgba(0, 0, 0, 0.06);
+  position: relative;
+}
+
+.board-slot.drag-over {
+  border-color: #efe9db;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+#board-tray {
+  min-height: 140px;
+  margin-top: 22px;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid #4a3624;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.board-photo {
+  width: 150px;
+  height: 118px;
+  background-size: cover;
+  background-position: center;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.6);
+  cursor: grab;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: transform 0.15s ease;
+}
+
+.board-photo:hover {
+  transform: scale(1.03);
+}
+
+.board-photo.dragging {
+  position: fixed;
+  z-index: 80;
+  cursor: grabbing;
+  transform: scale(1.06) rotate(0deg) !important;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.8);
+  transition: none;
+  pointer-events: none;
+}
+
+#board-close {
+  display: block;
+  margin: 22px auto 0;
+  padding: 8px 22px;
+  background: transparent;
+  border: 1px solid #6b6459;
+  color: #d8d2c4;
+  cursor: pointer;
+}
+
+#board-close:hover {
+  background: rgba(179, 39, 26, 0.15);
+}
+
 /* ---------- credits ---------- */
 #credits-screen {
   position: fixed;

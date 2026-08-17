@@ -49,7 +49,7 @@ const ROOM_H = 2.8;
  *    space, so the "left half-open" pose is defined once, relative to
  *    the dresser, rather than as loose world-space furniture.
  */
-export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {}, onFlashlightPicked = () => {} } = {}) {
+export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {}, onFlashlightPicked = () => {}, onDoorOpened = () => {}, onExaminePhotos = () => {} } = {}) {
   const group = new THREE.Group();
   group.name = 'Level1_Bedroom';
   const interactables = [];
@@ -62,7 +62,9 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     foundPhotos: new Set(),
     photosArranged: false,
     hasKey: false,
-    doorUnlocked: false
+    hasCrowbar: false,
+    planksRemoved: false,
+    doorUnlocked: false // true once the door has actually been swung open
   };
 
   // Darker stained wood + ornate damask wallpaper (both normal-mapped, not
@@ -137,11 +139,55 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     slab(gapW, h - gapY1, gapX, (gapY1 + h) / 2); // above gap
   }
 
-  // back wall (has the window), front wall (has the door), left/right walls
+  // back wall (has the window), front wall (has the door), right wall
   addWallWithGap(ROOM_W, ROOM_H, -ROOM_D / 2, -2.1, 1.5, 1.3, 1.5);
-  addWall(ROOM_D, ROOM_H, -ROOM_W / 2, ROOM_H / 2, 0, Math.PI / 2);
   addWall(ROOM_D, ROOM_H, ROOM_W / 2, ROOM_H / 2, 0, -Math.PI / 2);
   addWall(ROOM_W, ROOM_H, 0, ROOM_H / 2, ROOM_D / 2, Math.PI);
+
+  // Left wall has a gap behind the pinboard (see the photo-arrangement
+  // puzzle below) opening onto an actual recessed cavity -- built with the
+  // same four-slab framing technique as the window cut-out above, just
+  // rotated onto the Z axis, plus a hollow pocket (back panel + four
+  // connecting sides) behind the gap so the reveal isn't a hole into the
+  // void once the pinboard swings open.
+  const pinRecess = { z: -1.7, y: 1.3, w: 0.74, h: 0.78, depth: 0.42 };
+  {
+    const wallThickness = 0.12;
+    const wallX = -ROOM_W / 2;
+    const slabCenterX = wallX + wallThickness / 2;
+    const gapZ0 = pinRecess.z - pinRecess.w / 2;
+    const gapZ1 = pinRecess.z + pinRecess.w / 2;
+    const gapY0 = pinRecess.y - pinRecess.h / 2;
+    const gapY1 = pinRecess.y + pinRecess.h / 2;
+
+    const slab = (sw, sh, sy, sz) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, sh, sw), wallMat);
+      mesh.position.set(slabCenterX, sy, sz);
+      structure.add(mesh);
+    };
+    slab(gapZ0 - (-ROOM_D / 2), ROOM_H, ROOM_H / 2, (-ROOM_D / 2 + gapZ0) / 2); // before gap
+    slab(ROOM_D / 2 - gapZ1, ROOM_H, ROOM_H / 2, (ROOM_D / 2 + gapZ1) / 2); // after gap
+    slab(pinRecess.w, gapY0, gapY0 / 2, pinRecess.z); // below gap
+    slab(pinRecess.w, ROOM_H - gapY1, (gapY1 + ROOM_H) / 2, pinRecess.z); // above gap
+
+    const cavityMat = new THREE.MeshStandardMaterial({ color: 0x0c0906, roughness: 1 });
+    const backX = wallX - pinRecess.depth;
+    const back = new THREE.Mesh(new THREE.PlaneGeometry(pinRecess.w, pinRecess.h), cavityMat);
+    back.position.set(backX, pinRecess.y, pinRecess.z);
+    back.rotation.y = Math.PI / 2;
+    structure.add(back);
+
+    const sideCenterX = (wallX + backX) / 2;
+    const side = (sy, sz, sh, sw) => {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(pinRecess.depth, sh, sw), cavityMat);
+      mesh.position.set(sideCenterX, sy, sz);
+      structure.add(mesh);
+    };
+    side(gapY1, pinRecess.z, 0.02, pinRecess.w); // top
+    side(gapY0, pinRecess.z, 0.02, pinRecess.w); // bottom
+    side(pinRecess.y, gapZ0, pinRecess.h, 0.02); // near side
+    side(pinRecess.y, gapZ1, pinRecess.h, 0.02); // far side
+  }
 
   colliders.push(
     { minX: -ROOM_W / 2 - 0.1, maxX: -ROOM_W / 2 + 0.15, minZ: -ROOM_D / 2, maxZ: ROOM_D / 2 },
@@ -509,6 +555,19 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   doorFrame.position.set(-1.4, 0, ROOM_D / 2 - 0.02);
   group.add(doorFrame);
 
+  // The actual door leaf (+ knob + the claw marks scratched into its
+  // surface) gets reparented onto this hinge once the model loads, below
+  // -- a vertical pivot sitting at the leaf's own left edge, opposite the
+  // knob, so once the planks are gone, interacting again swings the whole
+  // leaf open instead of just cutting to a caption. The frame, planks and
+  // polaroid stay direct children of doorFrame and never move (see the
+  // note at the top of this file on why those are deliberately parented
+  // to the frame, not the slab).
+  const doorHinge = new THREE.Object3D();
+  doorHinge.position.set(-0.5, 1.0, 0.025);
+  doorFrame.add(doorHinge);
+  const doorOpenSwing = Math.PI / 2;
+
   // Blender-authored, see blender/build_door.py: a beveled frame around a
   // two-panel raised door (real stile-and-rail relief with a mid-rail gap,
   // not a flat slab) plus a turned knob. doorSlab stays a plain invisible
@@ -526,6 +585,15 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     applyTextureByMaterialName(doorModel, 'DoorFrameWood', furnitureWoodTex, furnitureWoodNormal);
     applyTextureByMaterialName(doorModel, 'DoorPanelWood', furnitureWoodTex, furnitureWoodNormal);
     doorFrame.add(doorModel);
+
+    // Named nodes from the Blender export -- attach() keeps each part's
+    // current world transform while moving it under the hinge, so nothing
+    // jumps when this (async) resolves.
+    ['doorPanel', 'knobHandle', 'knobPlate'].forEach((name) => {
+      const part = doorModel.getObjectByName(name);
+      if (part) doorHinge.attach(part);
+    });
+    doorHinge.attach(doorClawMarks);
   }).catch((err) => {
     console.error('Failed to load door.glb, door will be missing:', err);
   });
@@ -573,6 +641,10 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   });
   const nailMat = new THREE.MeshStandardMaterial({ color: 0x2a2420, metalness: 0.6, roughness: 0.5 });
 
+  // Collected so the crowbar can hide every plank + nail in one go once
+  // the door is pried open, rather than tracking them individually.
+  const boardedPlankParts = [];
+
   // Z=0.14 (was 0.08) -- measured the actual exported door.glb's raised
   // panels and they now extend to Z=0.105 at their most-proud point (the
   // relief got pushed deeper in an earlier pass to fix a separate "door
@@ -585,6 +657,7 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     plank.rotation.z = rotZ;
     plank.castShadow = true;
     doorFrame.add(plank);
+    boardedPlankParts.push(plank);
 
     [-0.68, 0.68].forEach((along) => {
       const nail = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 8), nailMat);
@@ -592,6 +665,7 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
       const y = 1.05 + Math.sin(rotZ) * along;
       nail.position.set(x, y, 0.17);
       doorFrame.add(nail);
+      boardedPlankParts.push(nail);
     });
   }
   addBoardedPlank(Math.PI / 5);
@@ -639,6 +713,41 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   interactables.push(clawMarks);
   group.add(clawMarks);
 
+  // Small canvas post-processing shared by the three puzzle photos below --
+  // draws directly onto the already-generated family-photo canvas rather
+  // than adding whole new texture-generator functions, since a date stamp
+  // and a torn corner are each just a couple of extra canvas calls.
+  function stampPhotoDate(tex, date) {
+    const ctx = tex.image.getContext('2d');
+    ctx.fillStyle = '#2a2118';
+    ctx.font = 'italic 15px Georgia';
+    ctx.textAlign = 'right';
+    ctx.fillText(date, tex.image.width - 8, tex.image.height - 6);
+    tex.needsUpdate = true;
+    return tex;
+  }
+  function tearPhotoCorner(tex) {
+    const w = tex.image.width;
+    const h = tex.image.height;
+    const ctx = tex.image.getContext('2d');
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(w * 0.62, 0);
+    ctx.lineTo(w * 0.8, h * 0.24);
+    ctx.lineTo(w * 0.68, h * 0.42);
+    ctx.lineTo(w, h * 0.52);
+    ctx.lineTo(w, 0);
+    ctx.closePath();
+    ctx.fillStyle = '#b99364'; // torn-away area shows bare cork, not empty black
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(20,15,10,0.6)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.restore();
+    tex.needsUpdate = true;
+    return tex;
+  }
+
   // ---------- scattered photographs + scratched floor message ----------
   const photoTex = createFamilyPhotoTexture({ scratchedFourth: true });
   for (let i = 0; i < 4; i++) {
@@ -660,6 +769,34 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     interactables.push(photo);
     group.add(photo);
   }
+
+  // The third puzzle photo (used to live in a second nightstand drawer
+  // wedged awkwardly against the bed/wall corner -- removed, see the
+  // drawer system below) lies loose on the floor with the rest of this
+  // pile instead: the same family photo as the other two puzzle photos,
+  // dated 1986 (between the other two), with a corner torn away so it
+  // still reads as visually distinct from the purely decorative photos.
+  const tornPhotoTex = tearPhotoCorner(stampPhotoDate(createFamilyPhotoTexture(), '1986'));
+  const floorPhoto = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.22, 0.17),
+    new THREE.MeshStandardMaterial({ map: tornPhotoTex, roughness: 1 })
+  );
+  floorPhoto.rotation.x = -Math.PI / 2;
+  floorPhoto.rotation.z = -0.4;
+  floorPhoto.position.set(1.6, 0.016, 0.5);
+  floorPhoto.userData.interact = {
+    label: 'Pick up photograph',
+    onInteract: () => {
+      showCaption('A third photograph, torn at the corner. The family again -- dated 1986.');
+      puzzleState.foundPhotos.add('floorPhoto');
+      photoThumbMeshes.floorPhoto.visible = true;
+      floorPhoto.visible = false;
+      const idx = interactables.indexOf(floorPhoto);
+      if (idx >= 0) interactables.splice(idx, 1);
+    }
+  };
+  interactables.push(floorPhoto);
+  group.add(floorPhoto);
 
   const messageTex = createScratchedMessageTexture("DON'T LET IT OUT");
   const messageNormal = createScratchedMessageNormalTexture("DON'T LET IT OUT");
@@ -979,31 +1116,95 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
 
   interactables.push(doorSlab);
   doorSlab.userData.interact = {
-    label: 'Examine boarded door',
-    onInteract: () => showCaption('Two wooden planks, boarded diagonally. Whatever is in this house trapped you inside.')
+    label: 'Open door',
+    onInteract: () => {
+      if (!puzzleState.planksRemoved) {
+        if (puzzleState.hasCrowbar) {
+          puzzleState.planksRemoved = true;
+          puzzleState.hasCrowbar = false;
+          boardedPlankParts.forEach((part) => { part.visible = false; });
+          showCaption('You wedge the crowbar behind the planks and pry them off the door.');
+        } else {
+          showCaption('Two wooden planks, boarded diagonally. Whatever is in this house trapped you inside.');
+        }
+      } else if (!puzzleState.doorUnlocked) {
+        puzzleState.doorUnlocked = true;
+        showCaption('The door creaks open on its hinges. You slip out into the dark hallway...');
+        // Give the hinge swing a beat to actually play out before cutting
+        // to Level 2, rather than transitioning the instant it's unlocked.
+        setTimeout(onDoorOpened, 1400);
+      } else {
+        showCaption('The door hangs open ahead of you.');
+      }
+    }
   };
 
   // ---------- interactive drawer system ----------
   const drawerStates = {
     nightstandLeft: { isOpen: false, contents: ['old photograph', 'battery'] },
-    nightstandRight: { isOpen: false, contents: ['matchbook', 'key'] },
-    dresserTop: { isOpen: false, contents: ['family photo (scratched)'] }
+    dresserTop: { isOpen: false, contents: ['family photo (scratched)'] },
+    bin: { isOpen: false, contents: ['key'] }
   };
 
-  // Nightstand left drawer (freely searchable)
-  const nightstandLeft = new THREE.Mesh(
-    new THREE.BoxGeometry(0.5, 0.15, 0.4),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
-  );
-  nightstandLeft.position.set(-0.3, 0.55, -2.15);
-  group.add(nightstandLeft);
+  // The nightstand used to be a bare invisible hitbox with no furniture
+  // marking it at all. It's now an actual small table (legs + top + a
+  // drawer front you can see) standing in open floor, so there's
+  // something to spot and something to aim at. (There used to be a
+  // second one flanking the bed's other side, wedged into the tight
+  // headboard/wall corner -- removed as redundant clutter; its photo now
+  // just lies on the floor with the other scattered photographs below.)
+  function addNightstand(x, z, rotY = 0) {
+    const ns = new THREE.Group();
+    ns.position.set(x, 0, z);
+    ns.rotation.y = rotY;
+    group.add(ns);
+
+    const legGeo = new THREE.BoxGeometry(0.035, 0.42, 0.035);
+    [[-0.16, -0.13], [0.16, -0.13], [-0.16, 0.13], [0.16, 0.13]].forEach(([lx, lz]) => {
+      const leg = new THREE.Mesh(legGeo, frameMatWood);
+      leg.position.set(lx, 0.21, lz);
+      ns.add(leg);
+    });
+
+    const top = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.03, 0.32), frameMatWood);
+    top.position.y = 0.435;
+    top.castShadow = true;
+    ns.add(top);
+
+    const drawerFront = new THREE.Mesh(
+      new THREE.BoxGeometry(0.36, 0.16, 0.02),
+      new THREE.MeshStandardMaterial({ color: 0x2c1c10, roughness: 0.7 })
+    );
+    drawerFront.position.set(0, 0.32, 0.16);
+    ns.add(drawerFront);
+
+    const knob = new THREE.Mesh(
+      new THREE.SphereGeometry(0.014, 8, 8),
+      new THREE.MeshStandardMaterial({ color: 0x8a7a50, metalness: 0.6, roughness: 0.4 })
+    );
+    knob.position.set(0, 0.32, 0.175);
+    ns.add(knob);
+
+    const hitbox = new THREE.Mesh(
+      new THREE.BoxGeometry(0.42, 0.26, 0.34),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+    );
+    hitbox.position.set(0, 0.32, 0.1);
+    ns.add(hitbox);
+    return hitbox;
+  }
+
+  // Nightstand left drawer (freely searchable) -- against the back wall
+  // between the window and the bed, with clearance to walk up to it.
+  const nightstandLeft = addNightstand(-0.3, -1.95);
   nightstandLeft.userData.interact = {
     label: '[E] Search drawer',
     onInteract: () => {
       if (!drawerStates.nightstandLeft.isOpen) {
         drawerStates.nightstandLeft.isOpen = true;
-        showCaption('Inside the drawer you find a faded family photograph and an old battery.');
+        showCaption('Inside the drawer you find a faded family photograph, dated 1985, and an old battery.');
         puzzleState.foundPhotos.add('nightstandLeft');
+        photoThumbMeshes.nightstandLeft.visible = true;
       } else {
         showCaption('You already searched this drawer.');
       }
@@ -1011,27 +1212,29 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   };
   interactables.push(nightstandLeft);
 
-  // Nightstand right drawer (freely searchable)
-  const nightstandRight = new THREE.Mesh(
-    new THREE.BoxGeometry(0.5, 0.15, 0.4),
+  // Knocked-over waste bin -- holds the key on its own, away from any of
+  // the three photo drawers, so finding it isn't tangled up with the
+  // photo count.
+  const binHitbox = new THREE.Mesh(
+    new THREE.BoxGeometry(0.35, 0.3, 0.35),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
-  nightstandRight.position.set(1.1, 0.55, -2.15);
-  group.add(nightstandRight);
-  nightstandRight.userData.interact = {
-    label: '[E] Search drawer',
+  binHitbox.position.copy(bin.position);
+  binHitbox.position.y += 0.05;
+  group.add(binHitbox);
+  binHitbox.userData.interact = {
+    label: '[E] Search bin',
     onInteract: () => {
-      if (!drawerStates.nightstandRight.isOpen) {
-        drawerStates.nightstandRight.isOpen = true;
-        showCaption('A matchbook and an old brass key inside. The key feels important.');
-        puzzleState.foundPhotos.add('nightstandRight');
+      if (!drawerStates.bin.isOpen) {
+        drawerStates.bin.isOpen = true;
+        showCaption('Buried under the crumpled paper, an old brass key. It feels important.');
         puzzleState.hasKey = true;
       } else {
-        showCaption('You already searched this drawer.');
+        showCaption('Just crumpled paper left in here.');
       }
     }
   };
-  interactables.push(nightstandRight);
+  interactables.push(binHitbox);
 
   // Dresser top drawer (freely searchable)
   const dresserTop = new THREE.Mesh(
@@ -1045,8 +1248,9 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     onInteract: () => {
       if (!drawerStates.dresserTop.isOpen) {
         drawerStates.dresserTop.isOpen = true;
-        showCaption('Under some old trinkets you find another photograph. The fourth person has been scratched out completely.');
+        showCaption('Under some old trinkets you find another photograph, dated 1987. The fourth person has been scratched out completely.');
         puzzleState.foundPhotos.add('dresserTop');
+        photoThumbMeshes.dresserTop.visible = true;
       } else {
         showCaption('You already searched this dresser.');
       }
@@ -1055,47 +1259,112 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   interactables.push(dresserTop);
 
   // ---------- photo arrangement puzzle ----------
-  // Frame on the wall where photos can be arranged
-  const photoHolderGroup = new THREE.Group();
-  photoHolderGroup.position.set(-2.8, 1.2, 1.0);
-  group.add(photoHolderGroup);
+  // A corkboard hinged flush onto the left wall, mounted directly over the
+  // recessed cavity carved out above -- rather than a frame floating in
+  // front of a solid wall (which read as a slab jutting out of it), its
+  // thin axis is aligned with the wall's own normal so it lies flat, and
+  // it's a swinging door on that recess: closed it looks like ordinary
+  // wall decor, but once all three photos are arranged it hinges open
+  // into the room to reveal the cavity -- and the locked box sitting
+  // inside it -- the way a picture conceals a wall safe.
+  const pinboardWidth = pinRecess.w + 0.06;
+  const pinboardHeight = pinRecess.h + 0.06;
+  const pinboardX = -ROOM_W / 2 + 0.12; // flush with the recess's inner (room-facing) face
+  const pinboardHingeZ = pinRecess.z + pinboardWidth / 2; // hinge on the far edge of the gap
+  const pinboardClosedRotY = Math.PI / 2; // matches the left wall's own rotation.y
+  const pinboardOpenSwing = -Math.PI / 2; // swings 90 deg out into the room, clear of the cavity
 
-  const frameBorder = new THREE.Mesh(
-    new THREE.BoxGeometry(0.65, 0.65, 0.04),
-    new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 0.8 })
+  const pinboardHinge = new THREE.Object3D();
+  pinboardHinge.position.set(pinboardX, pinRecess.y, pinboardHingeZ);
+  pinboardHinge.rotation.y = pinboardClosedRotY;
+  group.add(pinboardHinge);
+
+  const photoHolderGroup = new THREE.Group();
+  photoHolderGroup.position.x = pinboardWidth / 2; // recentre on the hinge's local origin
+  pinboardHinge.add(photoHolderGroup);
+
+  const pinboardFrame = new THREE.Mesh(
+    new THREE.BoxGeometry(pinboardWidth, pinboardHeight, 0.03),
+    new THREE.MeshStandardMaterial({ color: 0x2c1c10, roughness: 0.85 })
   );
-  photoHolderGroup.add(frameBorder);
+  photoHolderGroup.add(pinboardFrame);
+
+  const corkPanel = new THREE.Mesh(
+    new THREE.BoxGeometry(pinboardWidth - 0.08, pinboardHeight - 0.08, 0.02),
+    new THREE.MeshStandardMaterial({ color: 0xb99364, roughness: 1 })
+  );
+  corkPanel.position.z = 0.02;
+  photoHolderGroup.add(corkPanel);
+
+  // Each of the three findable photos gets its own pin + a real photo
+  // thumbnail underneath it (hidden until that photo is actually found),
+  // so the corkboard fills in as you search the room instead of staying
+  // an abstract counter. They're purely a preview here, though -- actually
+  // solving the puzzle happens in a dedicated close-up board view (see
+  // onExaminePhotos below) where the photos can be dragged into place,
+  // rather than clicking each one in the 3D world.
+  const pinGeo = new THREE.SphereGeometry(0.015, 8, 6);
+  const photoSlots = {
+    nightstandLeft: { pin: [-0.2, 0.28], pinColor: 0xa02020, photo: [-0.2, 0.16, -0.06], tex: stampPhotoDate(createFamilyPhotoTexture(), '1985'), date: 1985, w: 0.22, h: 0.17 },
+    floorPhoto: { pin: [0.16, 0.31], pinColor: 0x1f4f8f, photo: [0.16, 0.19, 0.05], tex: tornPhotoTex, date: 1986, w: 0.22, h: 0.17 },
+    dresserTop: { pin: [-0.02, -0.08], pinColor: 0xc9a227, photo: [-0.02, -0.2, 0.03], tex: stampPhotoDate(createFamilyPhotoTexture({ scratchedFourth: true }), '1987'), date: 1987, w: 0.22, h: 0.17 }
+  };
+  const photoThumbMeshes = {};
+  Object.entries(photoSlots).forEach(([key, slot]) => {
+    const pin = new THREE.Mesh(pinGeo, new THREE.MeshStandardMaterial({ color: slot.pinColor, roughness: 0.4, metalness: 0.5 }));
+    pin.position.set(slot.pin[0], slot.pin[1], 0.045);
+    photoHolderGroup.add(pin);
+
+    const thumb = new THREE.Mesh(
+      new THREE.PlaneGeometry(slot.w, slot.h),
+      new THREE.MeshStandardMaterial({ map: slot.tex, roughness: 1 })
+    );
+    thumb.position.set(slot.photo[0], slot.photo[1], 0.033);
+    thumb.rotation.z = slot.photo[2];
+    thumb.visible = false;
+    photoHolderGroup.add(thumb);
+    photoThumbMeshes[key] = thumb;
+  });
 
   const photoAreaHitbox = new THREE.Mesh(
-    new THREE.BoxGeometry(0.6, 0.6, 0.1),
+    new THREE.BoxGeometry(pinboardWidth - 0.05, pinboardHeight - 0.05, 0.15),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
   photoAreaHitbox.userData.interact = {
-    label: '[E] Arrange photos',
+    label: 'Examine corkboard',
     onInteract: () => {
-      if (puzzleState.foundPhotos.size >= 3) {
-        if (!puzzleState.photosArranged) {
-          showCaption('You arrange the photographs in order by their dates: 1985, 1986, 1987. Something clicks nearby... You hear a small lock open somewhere in the room.');
-          puzzleState.photosArranged = true;
-          // Make the box visible after photos are arranged
-          boxBody.visible = true;
-          boxLid.visible = true;
-          lockPlate.visible = true;
-        } else {
-          showCaption('The photos are arranged. The lock has been opened.');
-        }
+      if (puzzleState.photosArranged) {
+        showCaption('The corkboard hangs open.');
+      } else if (puzzleState.foundPhotos.size < 3) {
+        showCaption('A corkboard. You could pin photographs up here.');
       } else {
-        showCaption(`You need to find more photographs (${puzzleState.foundPhotos.size}/3 found).`);
+        // Hand off to the close-up board view -- dragging the photos into
+        // place (and figuring out what order they actually belong in) is
+        // the real puzzle, not this in-world interact.
+        onExaminePhotos({
+          photos: Object.entries(photoSlots).map(([key, slot]) => ({
+            key,
+            date: slot.date,
+            dataUrl: slot.tex.image.toDataURL('image/png')
+          })),
+          onSolved: () => {
+            showCaption('Something clicks nearby... The corkboard swings open on a hidden hinge, revealing a hollow in the wall.');
+            puzzleState.photosArranged = true;
+            boxBody.visible = true;
+            boxLid.visible = true;
+            lockPlate.visible = true;
+          }
+        });
       }
     }
   };
   photoHolderGroup.add(photoAreaHitbox);
   interactables.push(photoAreaHitbox);
 
-  // ---------- locked box (sits on the floor, appears after photo puzzle is solved) ----------
+  // ---------- locked box (sits in the wall cavity behind the pinboard, appears after photo puzzle is solved) ----------
   const lockedBoxGroup = new THREE.Group();
-  // Position on the floor near the nightstand where it will be visible
-  lockedBoxGroup.position.set(-0.3, 0.35, -2.0);
+  lockedBoxGroup.position.set(-ROOM_W / 2 - pinRecess.depth * 0.55, pinRecess.y - pinRecess.h / 2 + 0.16, pinRecess.z);
+  lockedBoxGroup.rotation.y = Math.PI / 2; // face the lock plate out toward the room
   group.add(lockedBoxGroup);
 
   const boxBody = new THREE.Mesh(
@@ -1137,6 +1406,7 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
         boxLid.visible = false;
         lockPlate.visible = false;
         puzzleState.hasKey = false;
+        puzzleState.hasCrowbar = true;
       } else if (puzzleState.photosArranged) {
         showCaption('The box is locked. You need to find a key first.');
       } else {
@@ -1173,6 +1443,49 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
       glassMaterial,
       puzzleState
     },
+    // Puts every piece of run-specific state this level owns back to its
+    // starting point -- restart previously only touched the paperclip/
+    // flashlight/chain (handled by main.js directly via refs), which left
+    // the photo puzzle, the box, the boarded door and every drawer still
+    // solved after a restart. Centralised here instead of duplicated in
+    // main.js since most of this state (drawerStates, the hinges, the
+    // photo thumbnails) isn't exposed via refs at all.
+    reset() {
+      paperclip.visible = true;
+      paperclipHitbox.visible = true;
+      if (!interactables.includes(paperclipHitbox)) interactables.push(paperclipHitbox);
+      chain.visible = true;
+
+      flashlight.visible = true;
+      flashlightHitbox.visible = true;
+      if (!interactables.includes(flashlightHitbox)) interactables.push(flashlightHitbox);
+
+      drawerStates.nightstandLeft.isOpen = false;
+      drawerStates.dresserTop.isOpen = false;
+      drawerStates.bin.isOpen = false;
+
+      floorPhoto.visible = true;
+      if (!interactables.includes(floorPhoto)) interactables.push(floorPhoto);
+      Object.values(photoThumbMeshes).forEach((thumb) => { thumb.visible = false; });
+      pinboardHinge.rotation.y = pinboardClosedRotY;
+
+      boxHitbox.visible = true;
+      boxBody.visible = false;
+      boxLid.visible = false;
+      lockPlate.visible = false;
+
+      boardedPlankParts.forEach((part) => { part.visible = true; });
+      doorHinge.rotation.y = 0;
+
+      puzzleState.chainsEscaped = false;
+      puzzleState.hasFlashlight = false;
+      puzzleState.foundPhotos.clear();
+      puzzleState.photosArranged = false;
+      puzzleState.hasKey = false;
+      puzzleState.hasCrowbar = false;
+      puzzleState.planksRemoved = false;
+      puzzleState.doorUnlocked = false;
+    },
     update(dt) {
       this._t = (this._t ?? 0) + dt;
       glassMaterial.uniforms.uTime.value = this._t;
@@ -1181,6 +1494,18 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
       // window pane brightens in sync with the flash instead of on its
       // own separate timer.
       glassMaterial.uniforms.uFlash.value = Math.min(lightning.intensity / 3.2, 1.0);
+
+      // Swing the pinboard open on its hinge once the photo puzzle is
+      // solved, easing toward the target angle rather than snapping so
+      // the reveal reads as a physical door swinging, not a cut.
+      const targetSwing = puzzleState.photosArranged ? pinboardOpenSwing : 0;
+      const targetRotY = pinboardClosedRotY + targetSwing;
+      pinboardHinge.rotation.y += (targetRotY - pinboardHinge.rotation.y) * Math.min(1, dt * 3);
+
+      // Same easing treatment for the front door once the planks are
+      // pried off and it's actually been opened.
+      const targetDoorRotY = puzzleState.doorUnlocked ? doorOpenSwing : 0;
+      doorHinge.rotation.y += (targetDoorRotY - doorHinge.rotation.y) * Math.min(1, dt * 3);
     }
   };
 }

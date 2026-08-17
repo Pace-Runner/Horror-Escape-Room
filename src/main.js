@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { PointerLockPlayer } from './core/PointerLockPlayer.js';
 import { SceneManager } from './core/SceneManager.js';
 import { Interaction } from './core/Interaction.js';
+import { createPhotoBoardUI } from './core/PhotoBoardUI.js';
 import { Storm } from './world/Storm.js';
 import { Rain } from './world/Rain.js';
 import { createDustMotes } from './world/DustMotes.js';
@@ -110,6 +111,15 @@ function showCaption(text) {
 // ---------- levels ----------
 const sceneManager = new SceneManager(worldRoot);
 
+// Close-up photo board: unlocks the pointer so the mouse can drag photos
+// normally, then re-locks on close. Pointer-unlock also drives the
+// pause-screen UI elsewhere (see the `unlock` listener below), so that
+// listener checks `photoBoardUI.isOpen` to skip showing the pause menu
+// underneath the board.
+const photoBoardUI = createPhotoBoardUI({
+  onClose: () => player.lock()
+});
+
 const bedroom = createBedroomLevel({
   showCaption,
   onFreed: () => {
@@ -125,6 +135,11 @@ const bedroom = createBedroomLevel({
   onFlashlightPicked: () => {
     flashlightFound = true;
     setFlashlight(true);
+  },
+  onDoorOpened: () => activateLevel('hallwayBasement'),
+  onExaminePhotos: ({ photos, onSolved }) => {
+    player.unlock();
+    photoBoardUI.open(photos, onSolved);
   }
 });
 sceneManager.register('bedroom', bedroom);
@@ -177,17 +192,7 @@ function activateLevel(key, { lockMovement = false } = {}) {
 
 // ---------- game reset (restart without page refresh) ----------
 function resetGame() {
-  bedroom.refs.paperclip.visible = true;
-  bedroom.refs.paperclipHitbox.visible = true;
-  if (!bedroom.interactables.includes(bedroom.refs.paperclipHitbox)) {
-    bedroom.interactables.push(bedroom.refs.paperclipHitbox);
-  }
-  bedroom.refs.chain.visible = true;
-  bedroom.refs.flashlight.visible = true;
-  bedroom.refs.flashlightHitbox.visible = true;
-  if (!bedroom.interactables.includes(bedroom.refs.flashlightHitbox)) {
-    bedroom.interactables.push(bedroom.refs.flashlightHitbox);
-  }
+  bedroom.reset();
   bedroom.refs.bulbLight.intensity = bedroomStorm.bulbBaseIntensity;
   bedroomStorm.bulbBlown = false;
   flashlightFound = false;
@@ -199,7 +204,16 @@ function resetGame() {
 window.addEventListener('keydown', (e) => {
   if (!player.isLocked) return;
   if (e.code === 'Digit1') activateLevel('bedroom', { lockMovement: false });
-  if (e.code === 'Digit2') activateLevel('hallwayBasement');
+  if (e.code === 'Digit2') {
+    // Gated on the bedroom's own front door actually being open (planks
+    // pried off + door interacted with again) rather than jumping
+    // straight to Level 2 regardless of progress.
+    if (bedroom.refs.puzzleState.doorUnlocked) {
+      activateLevel('hallwayBasement');
+    } else {
+      showCaption("You haven't opened the door yet.");
+    }
+  }
   if (e.code === 'Digit3') activateLevel('study');
   if (e.code === 'KeyF') setFlashlight(!flashlightOn);
   if (e.code === 'KeyR') resetGame();
@@ -263,6 +277,7 @@ player.controls.addEventListener('lock', () => {
 player.controls.addEventListener('unlock', () => {
   audio.pause();
   if (!creditsScreen.classList.contains('hidden')) return;
+  if (photoBoardUI.isOpen) return;
   startTitle.textContent = 'PAUSED';
   startSub.textContent = '';
   startButton.textContent = 'Click to resume';
