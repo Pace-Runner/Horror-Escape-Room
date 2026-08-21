@@ -49,7 +49,7 @@ const ROOM_H = 2.8;
  *    space, so the "left half-open" pose is defined once, relative to
  *    the dresser, rather than as loose world-space furniture.
  */
-export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {}, onFlashlightPicked = () => {}, onDoorOpened = () => {}, onExaminePhotos = () => {} } = {}) {
+export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {}, onFlashlightPicked = () => {}, onDoorOpened = () => {}, onExaminePhotos = () => {}, onExaminePinpad = () => {} } = {}) {
   const group = new THREE.Group();
   group.name = 'Level1_Bedroom';
   const interactables = [];
@@ -884,11 +884,14 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   tableTop.castShadow = true;
   sideTable.add(tableTop);
 
-  // A lamp prop, unlit -- the storyline is explicit that the house's power
-  // is unstable and the one working bulb blows out shortly after the
-  // player stands up, so an actually-glowing second light source here
-  // would undercut that "left in darkness" beat. Purely a decorative,
-  // powered-down fixture, same as everything else in the room.
+  // A lamp prop that reads as dead at a glance -- no steady glow, matching
+  // the storyline's "one working bulb, and it blows out" beat -- but isn't
+  // actually off. A loose wire somewhere in this old house's failing power
+  // is feeding it just enough to flicker, and the flicker isn't random: it
+  // blinks the digits of the nightstand drawer's combination (see
+  // drawerPinDigits below), the way a bad connection actually would if you
+  // stood and counted the pulses. bulbLight/bulbMat below are the parts
+  // update() drives every frame; everything else is static dressing.
   const lampGroup = new THREE.Group();
   lampGroup.position.set(-0.11, 0.8, -0.09);
   sideTable.add(lampGroup);
@@ -910,6 +913,42 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   );
   lampShade.position.y = 0.28;
   lampGroup.add(lampShade);
+
+  // The bulb itself, visible through the open top/bottom of the shade
+  // cylinder, plus a short-range point light so the flicker actually
+  // lights the nightstand rather than just changing the mesh's own colour.
+  // Both start at their dim/"off" values -- update() below pushes them up
+  // for each pulse.
+  const lampBulbMat = new THREE.MeshStandardMaterial({ color: 0xffdca0, emissive: 0xffb347, emissiveIntensity: 0.12 });
+  const lampBulb = new THREE.Mesh(new THREE.SphereGeometry(0.032, 10, 10), lampBulbMat);
+  lampBulb.position.y = 0.24;
+  lampGroup.add(lampBulb);
+  const lampLight = new THREE.PointLight(0xffb347, 0.04, 1.6, 2);
+  lampLight.position.y = 0.24;
+  lampGroup.add(lampLight);
+
+  // The combination for the drawer below, as a flicker pattern: three
+  // pulses, a pause, one pulse, a pause, five pulses, a longer pause,
+  // then it repeats. buildFlickerIntervals turns that digit list into
+  // concrete [start,end) time windows within one repeating cycle, once,
+  // rather than driving a hand-rolled counter/state-machine in update().
+  const drawerPinDigits = [3, 1, 5];
+  const drawerPinCode = drawerPinDigits.join('');
+
+  function buildFlickerIntervals(digits, { pulseOn = 0.16, pulseOff = 0.22, digitPause = 1.0, cyclePause = 3.2 } = {}) {
+    const intervals = [];
+    let t = 0;
+    digits.forEach((count) => {
+      for (let i = 0; i < count; i++) {
+        intervals.push([t, t + pulseOn]);
+        t += pulseOn + pulseOff;
+      }
+      t += digitPause - pulseOff; // stretch the trailing gap into the longer between-digit pause
+    });
+    t += cyclePause - digitPause; // and again at the end, before the whole thing loops
+    return { intervals, total: t };
+  }
+  const lampFlicker = buildFlickerIntervals(drawerPinDigits);
 
   const nightstandBook = new THREE.Mesh(
     new THREE.BoxGeometry(0.16, 0.03, 0.12),
@@ -941,6 +980,61 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     bell.position.set(0, 0.1, side * 0.035);
     clockGroup.add(bell);
   });
+
+  // A locked drawer under the tabletop -- the payoff for reading the
+  // lamp's flicker. Same drawer-front-plus-knob construction as the other
+  // nightstand's addNightstand() above, just built inline since this one
+  // needs its own pin-lock interaction instead of a free "search" one.
+  const lampDrawerFront = new THREE.Mesh(
+    new THREE.BoxGeometry(0.34, 0.18, 0.02),
+    new THREE.MeshStandardMaterial({ color: 0x2c1c10, roughness: 0.7 })
+  );
+  lampDrawerFront.position.set(0, 0.6, 0.19);
+  sideTable.add(lampDrawerFront);
+
+  const lampDrawerKnob = new THREE.Mesh(
+    new THREE.SphereGeometry(0.014, 8, 8),
+    new THREE.MeshStandardMaterial({ color: 0x8a7a50, metalness: 0.6, roughness: 0.4 })
+  );
+  lampDrawerKnob.position.set(0, 0.6, 0.205);
+  sideTable.add(lampDrawerKnob);
+
+  // Small keyhole/lock plate under the knob -- a plain drawer front reads
+  // as freely searchable like the other nightstand's, so this needs its
+  // own visible "this one's locked" cue.
+  const lampDrawerLock = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.008, 0.008, 0.012, 8),
+    new THREE.MeshStandardMaterial({ color: 0x1a1410, metalness: 0.7, roughness: 0.4 })
+  );
+  lampDrawerLock.rotation.x = Math.PI / 2;
+  lampDrawerLock.position.set(0, 0.575, 0.205);
+  sideTable.add(lampDrawerLock);
+
+  const lampDrawerHitbox = new THREE.Mesh(
+    new THREE.BoxGeometry(0.38, 0.24, 0.16),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  lampDrawerHitbox.position.set(0, 0.6, 0.15);
+  sideTable.add(lampDrawerHitbox);
+  lampDrawerHitbox.userData.interact = {
+    label: 'Locked drawer',
+    onInteract: () => {
+      if (drawerStates.lampDrawer.isOpen) {
+        showCaption('The drawer stands open, empty now.');
+        return;
+      }
+      onExaminePinpad({
+        length: drawerPinDigits.length,
+        code: drawerPinCode,
+        onSolved: () => {
+          drawerStates.lampDrawer.isOpen = true;
+          puzzleState.hasKey = true;
+          showCaption('The lock gives with a click. Inside the drawer: an old brass key.');
+        }
+      });
+    }
+  };
+  interactables.push(lampDrawerHitbox);
 
   colliders.push({
     minX: sideTable.position.x - 0.21, maxX: sideTable.position.x + 0.21,
@@ -1143,7 +1237,10 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   const drawerStates = {
     nightstandLeft: { isOpen: false, contents: ['old photograph', 'battery'] },
     dresserTop: { isOpen: false, contents: ['family photo (scratched)'] },
-    bin: { isOpen: false, contents: ['key'] }
+    bin: { isOpen: false, contents: [] },
+    // Locked -- see lampDrawerHitbox above. Opens once the pin pad is
+    // solved with the code the nightstand lamp flickers out.
+    lampDrawer: { isOpen: false, contents: ['key'] }
   };
 
   // The nightstand used to be a bare invisible hitbox with no furniture
@@ -1227,8 +1324,7 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     onInteract: () => {
       if (!drawerStates.bin.isOpen) {
         drawerStates.bin.isOpen = true;
-        showCaption('Buried under the crumpled paper, an old brass key. It feels important.');
-        puzzleState.hasKey = true;
+        showCaption('Just crumpled paper, spilled out when it tipped over. Nothing else in here.');
       } else {
         showCaption('Just crumpled paper left in here.');
       }
@@ -1463,6 +1559,7 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
       drawerStates.nightstandLeft.isOpen = false;
       drawerStates.dresserTop.isOpen = false;
       drawerStates.bin.isOpen = false;
+      drawerStates.lampDrawer.isOpen = false;
 
       floorPhoto.visible = true;
       if (!interactables.includes(floorPhoto)) interactables.push(floorPhoto);
@@ -1489,6 +1586,14 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     update(dt) {
       this._t = (this._t ?? 0) + dt;
       glassMaterial.uniforms.uTime.value = this._t;
+
+      // Drive the nightstand lamp's flicker off the schedule built above --
+      // a low, always-on glow (it never reads as fully "off") with brief
+      // brighter pulses layered on top for each flash in the code.
+      this._lampT = ((this._lampT ?? 0) + dt) % lampFlicker.total;
+      const lampPulseOn = lampFlicker.intervals.some(([s, e]) => this._lampT >= s && this._lampT < e);
+      lampLight.intensity = lampPulseOn ? 0.55 : 0.04;
+      lampBulbMat.emissiveIntensity = lampPulseOn ? 1.1 : 0.12;
       // Storm.js drives `lightning`'s intensity up to ~3.2 during a flash;
       // feed that same value into the shader (normalised to 0-1) so the
       // window pane brightens in sync with the flash instead of on its

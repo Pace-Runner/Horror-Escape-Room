@@ -345,6 +345,107 @@ html, body {
   background: rgba(179, 39, 26, 0.15);
 }
 
+/* ---------- pin pad (combination-lock puzzles) ---------- */
+#pinpad-view {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 3, 2, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 55;
+  cursor: default;
+}
+
+#pinpad-view.hidden {
+  display: none;
+}
+
+#pinpad-panel {
+  width: min(260px, 80vw);
+  padding: 26px;
+  background: #1c1108;
+  border: 6px solid #2c1c10;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+  transition: border-color 0.2s ease;
+}
+
+#pinpad-display {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.pinpad-slot {
+  width: 26px;
+  height: 32px;
+  border: 1px solid #4a443c;
+  background: rgba(0, 0, 0, 0.4);
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.pinpad-slot.filled {
+  background: #8a6a2a;
+  border-color: #c9a227;
+}
+
+#pinpad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.pinpad-key {
+  padding: 12px 0;
+  font-size: 1rem;
+  letter-spacing: 0.05rem;
+  background: #2c1c10;
+  border: 1px solid #4a3624;
+  color: #d8d2c4;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.pinpad-key:hover {
+  background: rgba(179, 39, 26, 0.2);
+  border-color: #b3271a;
+}
+
+.pinpad-wide {
+  grid-column: span 3;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1rem;
+}
+
+#pinpad-view.granted #pinpad-panel {
+  border-color: #3c9c3c;
+}
+
+#pinpad-view.granted .pinpad-slot.filled {
+  background: #3c9c3c;
+  border-color: #6cd66c;
+}
+
+#pinpad-view.denied #pinpad-panel {
+  border-color: #b3271a;
+  animation: pinpad-shake 0.4s ease;
+}
+
+#pinpad-view.denied .pinpad-slot.filled {
+  background: #b3271a;
+  border-color: #e0483a;
+}
+
+@keyframes pinpad-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-8px); }
+  40% { transform: translateX(8px); }
+  60% { transform: translateX(-6px); }
+  80% { transform: translateX(6px); }
+}
+
 /* ---------- credits ---------- */
 #credits-screen {
   position: fixed;

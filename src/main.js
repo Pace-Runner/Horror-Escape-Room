@@ -3,6 +3,7 @@ import { PointerLockPlayer } from './core/PointerLockPlayer.js';
 import { SceneManager } from './core/SceneManager.js';
 import { Interaction } from './core/Interaction.js';
 import { createPhotoBoardUI } from './core/PhotoBoardUI.js';
+import { createPinPadUI } from './core/PinPadUI.js';
 import { Storm } from './world/Storm.js';
 import { Rain } from './world/Rain.js';
 import { createDustMotes } from './world/DustMotes.js';
@@ -120,6 +121,14 @@ const photoBoardUI = createPhotoBoardUI({
   onClose: () => player.lock()
 });
 
+// Same unlock-to-interact / re-lock-on-close pattern as the photo board,
+// for the bedroom's lamp-drawer combination lock (and any future
+// numeric-lock puzzle -- the UI itself doesn't know the code, see
+// PinPadUI.js).
+const pinPadUI = createPinPadUI({
+  onClose: () => player.lock()
+});
+
 const bedroom = createBedroomLevel({
   showCaption,
   onFreed: () => {
@@ -140,6 +149,10 @@ const bedroom = createBedroomLevel({
   onExaminePhotos: ({ photos, onSolved }) => {
     player.unlock();
     photoBoardUI.open(photos, onSolved);
+  },
+  onExaminePinpad: ({ length, code, onSolved }) => {
+    player.unlock();
+    pinPadUI.open({ length, code, onSolved });
   }
 });
 sceneManager.register('bedroom', bedroom);
@@ -278,6 +291,7 @@ player.controls.addEventListener('unlock', () => {
   audio.pause();
   if (!creditsScreen.classList.contains('hidden')) return;
   if (photoBoardUI.isOpen) return;
+  if (pinPadUI.isOpen) return;
   startTitle.textContent = 'PAUSED';
   startSub.textContent = '';
   startButton.textContent = 'Click to resume';
