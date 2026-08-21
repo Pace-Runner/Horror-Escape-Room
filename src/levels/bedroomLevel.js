@@ -503,21 +503,70 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     console.error('Failed to load bed.glb, bed frame will be missing:', err);
   });
 
-  // chain + handcuff, children of the post they're bolted to
-  const chainMat = new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.8, roughness: 0.4 });
+  // chain + handcuff, children of the post they're bolted to. A plain
+  // circular torus looks identical from every angle around its own axis,
+  // so the old per-link `Math.random() * 0.4` tilt never actually read as
+  // alternating links -- it was just uniform rings in a random wobble.
+  // Each link here is instead squashed into an oval (real links aren't
+  // circular either) and tilted to face along a gently sagging run
+  // between the post and the cuff, alternating 90 degrees so consecutive
+  // links genuinely show a different silhouette -- flat oval, then
+  // edge-on -- the way threaded links actually do.
+  const chainMat = new THREE.MeshStandardMaterial({ color: 0x555555, metalness: 0.78, roughness: 0.38 });
+  // Slight per-link tint variation (still greys, just not identical) --
+  // an old chain isn't uniformly machined, and it's a cheap way to break
+  // up what would otherwise be flat repeated geometry.
+  const chainLinkTints = [0x545454, 0x5c5c5c, 0x4c4c4c, 0x606060, 0x505050, 0x585858, 0x4e4e4e, 0x565656];
+
   const chain = new THREE.Group();
   chain.position.set(0.02, 0.75, 0.05);
   headboardPost.add(chain);
-  for (let i = 0; i < 6; i++) {
-    const link = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.012, 6, 10), chainMat);
-    link.position.set(0.1 * i, -0.06 * i, 0);
-    link.rotation.set(Math.random() * 0.4, i * 0.5, 0);
+
+  const CHAIN_LINKS = 8;
+  const CHAIN_SAG = 0.05;
+  const chainRunEnd = new THREE.Vector3(0.58, -0.32, 0.05);
+  function chainPoint(t) {
+    const sag = CHAIN_SAG * 4 * t * (1 - t); // simple parabola, not a true catenary, but reads the same at this scale
+    return new THREE.Vector3(chainRunEnd.x * t, chainRunEnd.y * t - sag, chainRunEnd.z * t);
+  }
+
+  const upAxis = new THREE.Vector3(0, 0, 1);
+  for (let i = 0; i < CHAIN_LINKS; i++) {
+    const t = i / (CHAIN_LINKS - 1);
+    const p = chainPoint(t);
+    const tangent = chainPoint(Math.min(1, t + 0.02)).sub(p).normalize();
+
+    const link = new THREE.Mesh(
+      new THREE.TorusGeometry(0.026, 0.009, 8, 12),
+      new THREE.MeshStandardMaterial({ color: chainLinkTints[i % chainLinkTints.length], metalness: 0.78, roughness: 0.38 })
+    );
+    link.scale.set(1, 1.55, 1); // circle -> oval, in the link's own local space
+    link.quaternion.setFromUnitVectors(upAxis, tangent); // face the ring along the run
+    link.rotateZ((i % 2) * (Math.PI / 2)); // alternate flat/edge-on
+    link.position.copy(p);
+    link.castShadow = true;
+    link.receiveShadow = true;
     chain.add(link);
   }
-  const cuff = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.015, 8, 16), chainMat);
-  cuff.position.set(0.58, -0.32, 0.05);
-  cuff.rotation.x = Math.PI / 2;
+
+  // Handcuff: a ring plus a small hinge/lock block, rather than one bare
+  // torus -- the block is what actually reads as "this is a cuff, not a
+  // curtain ring" at a glance.
+  const cuff = new THREE.Group();
+  cuff.position.copy(chainRunEnd);
   chain.add(cuff);
+
+  const cuffRing = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.013, 10, 20), chainMat);
+  cuffRing.rotation.x = Math.PI / 2;
+  cuffRing.castShadow = true;
+  cuffRing.receiveShadow = true;
+  cuff.add(cuffRing);
+
+  const cuffHinge = new THREE.Mesh(new THREE.BoxGeometry(0.028, 0.05, 0.022), chainMat);
+  cuffHinge.position.set(0.05, 0, 0);
+  cuffHinge.castShadow = true;
+  cuffHinge.receiveShadow = true;
+  cuff.add(cuffHinge);
 
   // ---------- dresser (Blender-authored, see blender/build_dresser.py) ----------
   // Beveled body, small feet, and raised-panel drawer fronts pulled out at
@@ -1042,24 +1091,53 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   });
 
   // ---------- paperclip near the bed frame ----------
-  const paperclip = new THREE.Mesh(
-    new THREE.TorusGeometry(0.025, 0.004, 6, 16, Math.PI * 1.5),
-    new THREE.MeshStandardMaterial({ color: 0xbfbfbf, metalness: 0.9, roughness: 0.3 })
-  );
-  // Positioned along the bed, directly along the spawn's facing
-  // direction and about 35 degrees below eye line -- "hidden next to
-  // the bed frame", findable with a natural downward glance from where
-  // the player wakes up rather than requiring them to turn around or
-  // look at their own feet.
-  paperclip.position.set(1.21, 0.69, -2.27);
+  // A single partial torus (the old geometry) is rotationally symmetric
+  // and reads as a plain bent hook, not a paperclip -- a real one is a
+  // doubled loop, one fold nested just inside the other. Approximated
+  // here with two elongated (non-uniformly scaled, so oval rather than
+  // circular) open torus arcs nested together, which at a glance reads
+  // as the genuine doubled-wire shape instead of a single ring fragment.
+  const paperclip = new THREE.Group();
+  // On the floor beside the headboard, still roughly along the spawn's
+  // facing direction so it's findable with a natural downward glance
+  // rather than requiring the player to turn around. The old Y (0.69,
+  // picked for a "35 degrees below eye line" angle from spawn) actually
+  // sat *inside* the mattress's own bounding box (RoundedBoxGeometry
+  // centred at y=0.63, +-0.11) -- geometrically embedded and invisible
+  // regardless of material or lighting, which is the real reason it was
+  // never visible. Floor level, just outside the mattress/frame footprint
+  // in X, is the only place at this X/Z it can actually be seen.
+  paperclip.position.set(1.13, 0.024, -2.4);
   paperclip.rotation.x = Math.PI / 2;
   group.add(paperclip);
 
-  // The paperclip's real geometry is a hairline torus (0.004 tube
-  // radius) -- correct for how a paperclip should look, but the ray
-  // has to pass almost exactly through that 8mm-wide tube to register
-  // a hit, which makes it effectively unclickable. A padded invisible
-  // sphere is the actual interactable, same approach as the flashlight.
+  // Slightly less metallic/glossy than a true polished wire -- at this
+  // scene's very low ambient light, a near-mirror material (the old
+  // metalness 0.9 / roughness 0.3) only ever catches a razor-thin
+  // specular glint and otherwise reads as black; a bit more roughness
+  // picks up general room light instead of relying on a direct highlight.
+  // Sized up from a real ~3cm paperclip too -- true-to-life scale was
+  // still a barely-there fleck on the floor even once it was no longer
+  // hidden inside the mattress.
+  const paperclipMat = new THREE.MeshStandardMaterial({ color: 0xc2c2be, metalness: 0.7, roughness: 0.45 });
+  const paperclipOuter = new THREE.Mesh(new THREE.TorusGeometry(0.019, 0.0035, 8, 20, Math.PI * 1.7), paperclipMat);
+  paperclipOuter.scale.set(1, 1.9, 1);
+  paperclipOuter.rotation.z = Math.PI * 0.15;
+  paperclipOuter.castShadow = true;
+  paperclip.add(paperclipOuter);
+
+  const paperclipInner = new THREE.Mesh(new THREE.TorusGeometry(0.0125, 0.0035, 8, 20, Math.PI * 1.7), paperclipMat);
+  paperclipInner.scale.set(1, 1.9, 1);
+  paperclipInner.rotation.z = Math.PI * 0.15;
+  paperclipInner.position.set(0.0037, -0.0058, 0);
+  paperclipInner.castShadow = true;
+  paperclip.add(paperclipInner);
+
+  // The paperclip's real geometry is two thin wire loops -- correct for
+  // how a paperclip should look, but the ray has to pass almost exactly
+  // through one of those slender tubes to register a hit, which makes it
+  // effectively unclickable. A padded invisible sphere is the actual
+  // interactable, same approach as the flashlight.
   const paperclipHitbox = new THREE.Mesh(
     new THREE.SphereGeometry(0.13, 8, 8),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
