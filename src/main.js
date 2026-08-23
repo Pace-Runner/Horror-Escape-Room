@@ -159,7 +159,8 @@ sceneManager.register('bedroom', bedroom);
 
 const hallwayBasement = createHallwayBasementLevel({
   showCaption,
-  onExit: () => activateLevel('study')
+  onExit: () => activateLevel('study'),
+  onSpark: () => audio.spark()
 });
 sceneManager.register('hallwayBasement', hallwayBasement);
 
@@ -210,6 +211,7 @@ function resetGame() {
   bedroomStorm.bulbBlown = false;
   flashlightFound = false;
   setFlashlight(false);
+  hallwayBasement.reset();
   activateLevel('bedroom', { lockMovement: true });
 }
 

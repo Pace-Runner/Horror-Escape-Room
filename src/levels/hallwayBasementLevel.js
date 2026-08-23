@@ -22,9 +22,10 @@ const LAB_Z = HALL_LEN + LAB_D / 2 + 0.2;
 /**
  * Level 2: the hallway the creature is glimpsed in, leading down into the
  * industrial basement lab. The camera-feed minigame from the storyline
- * isn't built, but there's a real (if minimal) objective now: flip the
- * fuse box to restore power, which unlocks the locked door at the far end
- * of the lab and lets the player continue on to the study.
+ * isn't built, but there's a real objective: find the correct fuse
+ * (30A) among several decoys, install it in the fuse box to restore
+ * power, which unlocks the locked door at the far end of the lab and
+ * lets the player continue on to the study.
  *
  * Hierarchy notes:
  *  - the CCTV monitor mesh and its screen-glow point light are children
@@ -33,7 +34,7 @@ const LAB_Z = HALL_LEN + LAB_D / 2 + 0.2;
  *  - the fluorescent tube meshes are children of a `fixturesGroup` so the
  *    whole strip can be repositioned or its material swapped in one place.
  */
-export function createHallwayBasementLevel({ showCaption = () => {}, onExit = () => {} } = {}) {
+export function createHallwayBasementLevel({ showCaption = () => {}, onExit = () => {}, onSpark = () => {} } = {}) {
   const group = new THREE.Group();
   group.name = 'Level2_HallwayBasement';
   const interactables = [];
@@ -187,28 +188,160 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
     minZ: LAB_Z + generator.position.z - 0.4, maxZ: LAB_Z + generator.position.z + 0.4
   });
 
-  // ---------- power / locked-door objective ----------
+  // ---------- power / fuse puzzle / locked-door objective ----------
   let powerRestored = false;
+  let sparkTimer = 0;
+
+  const puzzleState = {
+    heldFuse: null,   // amps string currently in the player's hand, or null
+    slotFuse: null,   // amps string currently seated in the fuse box, or null
+    overloaded: false // true while an overrated fuse is seated (drives the light-glare effect)
+  };
+
+  const fuseFailReason = {}; // amps -> 'blown' | 'overrated', keyed per fuse for the dropped-fuse inspect prompt
+  const fuseMeshes = {};     // amps -> mesh, so fuse box logic can move/reset a specific fuse
+
+  const fuseData = [
+    { id: 'fuse15', amps: '15A', radius: 0.025, color: 0xd8d8d8 },
+    { id: 'fuse20', amps: '20A', radius: 0.03, color: 0xd8d8d8 },
+    { id: 'fuse30', amps: '30A', radius: 0.035, color: 0xd8d8d8 }, // correct
+    { id: 'fuse45', amps: '45A', radius: 0.045, color: 0xd8d8d8 }
+  ];
+
+  const fusePositions = [
+    [0.9, 1.05, -2.0],
+    [1.3, 0.05, -0.4],
+    [-1.6, 0.05, 1.9],
+    [1.9, 0.85, 0.6]
+  ];
 
   const fuseBox = new THREE.Mesh(
     new THREE.BoxGeometry(0.5, 0.7, 0.15),
     new THREE.MeshStandardMaterial({ color: 0x3a2e20, roughness: 0.6 })
   );
   fuseBox.position.set(-LAB_W / 2 + 0.12, 1.4, 0);
+
+  const sparkLight = new THREE.PointLight(0xfff2b0, 0, 1.0, 2);
+  sparkLight.position.copy(fuseBox.position);
+  lab.add(sparkLight);
+
   fuseBox.userData.interact = {
-    label: 'Flip the breaker',
+    label: 'Empty fuse slot',
     onInteract: () => {
       if (powerRestored) {
         showCaption('The fuse box is live. Power is already restored.');
         return;
       }
-      powerRestored = true;
-      showCaption('You flip the breaker. Power surges through the lab -- something unlocks at the far end.');
-      metalDoor.userData.interact.label = 'Open the door';
+
+      // A fuse is already seated -- remove it instead of installing
+      if (puzzleState.slotFuse) {
+        const removed = puzzleState.slotFuse;
+        puzzleState.slotFuse = null;
+        puzzleState.overloaded = false;
+        sparkTimer = 0;
+        sparkLight.intensity = 0;
+        fuseBox.userData.interact.label = 'Empty fuse slot';
+        showCaption(`You pull the ${removed} fuse back out. The lab settles back to normal.`);
+
+        const dropped = fuseMeshes[removed];
+        dropped.position.set(fuseBox.position.x + 0.1, 0.05, fuseBox.position.z);
+        dropped.rotation.set(0, 0, 0);
+        dropped.visible = true;
+
+        const reason = fuseFailReason[removed];
+        dropped.userData.interact = {
+          label: reason === 'blown' ? 'Blown fuse' : 'Fuse (rating too high)',
+          onInteract: () => {
+            showCaption(
+              reason === 'blown'
+                ? 'This fuse is blown.'
+                : "This fuse's rating is too high. Try another one."
+            );
+          }
+        };
+        if (!interactables.includes(dropped)) interactables.push(dropped);
+        return;
+      }
+
+      // Slot is empty -- try installing whatever's in hand
+      if (!puzzleState.heldFuse) {
+        showCaption('An empty slot. It needs a fuse -- the right one.');
+        return;
+      }
+
+      const installed = puzzleState.heldFuse;
+      const amps = parseInt(installed, 10);
+      puzzleState.heldFuse = null;
+
+      if (installed === '30A') {
+        powerRestored = true;
+        puzzleState.slotFuse = '30A';
+        showCaption('The fuse clicks in. Power surges through the lab.');
+        fuseBox.userData.interact.label = 'Power restored';
+        metalDoor.userData.interact.label = 'Open the door';
+      } else if (amps < 30) {
+        puzzleState.slotFuse = installed;
+        fuseFailReason[installed] = 'blown';
+        showCaption(`The ${installed} fuse can't take the load -- it flares and burns out.`);
+        onSpark();
+        sparkLight.intensity = 4;
+        sparkTimer = 0.15;
+        fuseBox.userData.interact.label = 'Remove fuse';
+      } else {
+        puzzleState.slotFuse = installed;
+        fuseFailReason[installed] = 'overrated';
+        showCaption(`The ${installed} fuse's rating is too high for this circuit.`);
+        puzzleState.overloaded = true;
+        fuseBox.userData.interact.label = 'Remove fuse';
+      }
     }
   };
   interactables.push(fuseBox);
   lab.add(fuseBox);
+
+  fuseData.forEach((data, i) => {
+    const fuse = new THREE.Mesh(
+      new THREE.CylinderGeometry(data.radius, data.radius, 0.12, 12),
+      new THREE.MeshStandardMaterial({ color: data.color, roughness: 0.4, metalness: 0.2 })
+    );
+    fuse.rotation.z = Math.PI / 2;
+    fuse.position.set(...fusePositions[i]);
+    fuse.userData.interact = {
+      label: `Pick up fuse (${data.amps})`,
+      onInteract: () => {
+        if (puzzleState.heldFuse) {
+          showCaption("You're already holding a fuse. Install or remove it at the fuse box first.");
+          return;
+        }
+        puzzleState.heldFuse = data.amps;
+        showCaption(`You take the ${data.amps} fuse.`);
+        fuse.visible = false;
+        const idx = interactables.indexOf(fuse);
+        if (idx !== -1) interactables.splice(idx, 1);
+      }
+    };
+    interactables.push(fuse);
+    lab.add(fuse);
+    fuseMeshes[data.amps] = fuse;
+  });
+
+  const maintenanceNoteTex = createPaperNoteTexture([
+    'MAINTENANCE LOG',
+    'REPLACE BLOWN FUSE',
+    'RATING: 30A ONLY',
+    'DO NOT SUBSTITUTE'
+  ]);
+  const maintenanceNote = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.3, 0.38),
+    new THREE.MeshStandardMaterial({ map: maintenanceNoteTex, roughness: 1 })
+  );
+  maintenanceNote.position.set(-LAB_W / 2 + 0.7, 1.4, -1.2);
+  maintenanceNote.userData.interact = {
+    label: 'Read maintenance log',
+    onInteract: () => showCaption('"REPLACE BLOWN FUSE. RATING: 30A ONLY. DO NOT SUBSTITUTE."')
+  };
+  interactables.push(maintenanceNote);
+  lab.add(maintenanceNote);
 
   // a hazard sign bolted above the generator, and a couple of cable runs
   // slung between it and the fuse box -- small clutter that sells "this
@@ -412,13 +545,63 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
     // actually face into the level rather than out through the void.
     spawnYaw: Math.PI,
     refs: { fluorescents, hallLight, screenMaterial },
+
+    // Puts every piece of run-specific state this level owns back to its
+    // starting point -- clears the fuse puzzle (held/seated fuse, overload
+    // glare, spark flash), all four fuse meshes back at their original
+    // spots with fresh pickup handlers, and the fuse box / door labels.
+    reset() {
+      powerRestored = false;
+      puzzleState.heldFuse = null;
+      puzzleState.slotFuse = null;
+      puzzleState.overloaded = false;
+      sparkTimer = 0;
+      sparkLight.intensity = 0;
+
+      fuseBox.userData.interact.label = 'Empty fuse slot';
+      metalDoor.userData.interact.label = 'Locked. Restore power first.';
+
+      fuseData.forEach((data, i) => {
+        const fuse = fuseMeshes[data.amps];
+        fuse.position.set(...fusePositions[i]);
+        fuse.rotation.set(0, 0, 0);
+        fuse.rotation.z = Math.PI / 2;
+        fuse.visible = true;
+        fuse.userData.interact = {
+          label: `Pick up fuse (${data.amps})`,
+          onInteract: () => {
+            if (puzzleState.heldFuse) {
+              showCaption("You're already holding a fuse. Install or remove it at the fuse box first.");
+              return;
+            }
+            puzzleState.heldFuse = data.amps;
+            showCaption(`You take the ${data.amps} fuse.`);
+            fuse.visible = false;
+            const idx = interactables.indexOf(fuse);
+            if (idx !== -1) interactables.splice(idx, 1);
+          }
+        };
+        if (!interactables.includes(fuse)) interactables.push(fuse);
+      });
+    },
+
     update(dt) {
       const elapsed = (this._t = (this._t ?? 0) + dt);
       dynamics.forEach((d) => d.update(dt, elapsed));
+
       fluorescents.forEach((l) => {
-        const dip = Math.random() < 0.05 ? 0.3 : 1;
-        l.intensity = (1.17 + Math.random() * 0.31) * dip;
+        if (puzzleState.overloaded) {
+          l.intensity = 6 + Math.random() * 2;
+        } else {
+          const dip = Math.random() < 0.05 ? 0.3 : 1;
+          l.intensity = (1.17 + Math.random() * 0.31) * dip;
+        }
       });
+
+      if (sparkTimer > 0) {
+        sparkTimer -= dt;
+        sparkLight.intensity = Math.max(0, sparkTimer / 0.15) * 4;
+      }
     }
   };
 }

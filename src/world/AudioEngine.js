@@ -98,4 +98,25 @@ export class AudioEngine {
     src.start();
     src.stop(now + 0.6);
   }
+
+  spark() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = this.#noiseBuffer(0.3);
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = 2200;
+
+    const gain = ctx.createGain();
+    const now = ctx.currentTime;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.35, now + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+
+    src.connect(filter).connect(gain).connect(this.master);
+    src.start();
+    src.stop(now + 0.3);
+  }
 }
