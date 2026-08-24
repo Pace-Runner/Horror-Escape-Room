@@ -11,6 +11,9 @@ import { AudioEngine } from './world/AudioEngine.js';
 import { createBedroomLevel } from './levels/bedroomLevel.js';
 import { createHallwayBasementLevel } from './levels/hallwayBasementLevel.js';
 import { createStudyLevel } from './levels/studyLevel.js';
+import { Hands } from './systems/hands/hands.js';
+import { setHandAssetUrl } from './systems/hands/hand-mesh.js';
+import handsModelUrl from './assets/models/hands.glb?url';
 
 // ---------- DOM ----------
 const canvas = document.getElementById('scene');
@@ -89,6 +92,34 @@ const dustMotes = createDustMotes({ coneAngleRad: THREE.MathUtils.degToRad(28), 
 camera.add(dustMotes.points);
 
 scene.add(camera);
+
+// ---------- first-person hands ----------
+// A VIEW MODEL, not a physical object: two rigged hands parented to the
+// camera, so they travel with the view, have no colliders and are not in any
+// collision pass. Copied verbatim from the standalone hands module -- see
+// systems/hands/README.md for the public API and systems/hands/HANDOVER.md
+// for what is and is not implemented yet.
+//
+// The `scene.add(camera)` above is load-bearing for these, not just for the
+// flashlight. WebGLRenderer.render() traverses from `scene` to decide what to
+// draw, so a camera left outside that graph is never visited and everything
+// parented to it is silently skipped -- no error, no warning, just no hands.
+//
+// The module's own default asset path is page-relative
+// ('./models/characters/hands.glb'), which assumes a `public/` runtime asset
+// root. This project keeps its models in src/assets/models and lets Vite hash
+// and rewrite the URL instead, the same as bed/dresser/door -- so point the
+// module's build-time seam at that rather than adding a second convention.
+setHandAssetUrl(handsModelUrl);
+
+const hands = new Hands({ camera, renderer });
+// Deliberately not awaited: the hands are presentation, so they pop in when
+// the 167 KB model lands rather than holding up the rest of the boot. A load
+// failure warns and leaves the game entirely playable -- every method on Hands
+// is safe to call before init() has finished.
+hands.init().catch((err) => {
+  console.error('Failed to initialise the first-person hands:', err);
+});
 
 let flashlightFound = false;
 let flashlightOn = false;
@@ -328,6 +359,10 @@ function tick() {
     rain.update(dt);
   }
   dustMotes.update(dt, elapsed);
+  // Per rendered frame rather than on a fixed step: the hands are
+  // presentation, and pinning them to 60 Hz on a 144 Hz display would throw
+  // away smoothness the display can actually show.
+  hands.update(dt);
   sceneManager.update(dt);
 
   if (player.isLocked) {
