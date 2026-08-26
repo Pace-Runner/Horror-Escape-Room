@@ -24,8 +24,10 @@
  * or in the constructor, never per call. Garbage-collector sawtooth is penalised
  * under two separate rubric categories.
  *
- * Unit 0 status: the CLIP FORMAT and the LAYER NAMES below are the contract.
- * Playback is a stub - Unit 5 implements it, Unit 6 implements the layers.
+ * Status: the LAYERS are implemented - breathe, sway, walkbob and crouch-shift
+ * all run - and update() applies them. CLIP PLAYBACK is still a stub, so step 1
+ * contributes nothing and update() deliberately leaves joint rotations alone;
+ * see its own comment for why that matters.
  */
 
 /* --------------------------------------------------------- clip format */
@@ -53,6 +55,14 @@
  * attaches to the hand two frames before the fingers close.
  */
 
+import * as THREE from "three";
+
+import { breathe } from "./layers/breathe.js";
+import { sway } from "./layers/sway.js";
+import { walkbob } from "./layers/walkbob.js";
+import { tremor } from "./layers/tremor.js";
+import { crouchShift } from "./layers/crouch-shift.js";
+
 /** Easing curve names a keyframe may use. Resolved by Unit 5. */
 export const EASINGS = Object.freeze(["linear", "in", "out", "inout"]);
 
@@ -64,9 +74,10 @@ export const DEFAULT_CROSSFADE = 0.12;
 /**
  * Canonical additive-layer names, as accepted by hands.setLayerWeight().
  *
- * Unit 6 implements breathe / sway / walkbob / tremor (the four with modules in
- * layers/); runbob, crouch-shift and shiver are listed here so the name is
- * fixed now and the harness can show a slider for each from Unit 1 onward.
+ * Implemented: breathe, sway, walkbob, crouch-shift. `tremor` has a module but
+ * its evaluate() is still a stub and nothing drives state.menace yet. `runbob`
+ * and `shiver` are names only, reserved so they are fixed and the harness can
+ * show a slider for each; a weight set on them is simply skipped.
  */
 export const LAYERS = Object.freeze({
   BREATHE: "breathe",
@@ -107,6 +118,43 @@ export const DEFAULT_LAYER_WEIGHTS = Object.freeze({
 export function isLayer(name) {
   return LAYER_NAMES.indexOf(name) !== -1;
 }
+
+/**
+ * Layer name -> implementation. Names with no module yet are simply absent and
+ * are skipped, so a weight can be set on `runbob` today without it throwing.
+ */
+const LAYER_IMPLS = {
+  [LAYERS.BREATHE]: breathe,
+  [LAYERS.SWAY]: sway,
+  [LAYERS.WALKBOB]: walkbob,
+  [LAYERS.TREMOR]: tremor,
+  [LAYERS.CROUCH_SHIFT]: crouchShift,
+};
+
+/* ------------------------------------------------- per-frame scratch (no alloc) */
+
+/**
+ * The accumulator every layer adds into: a position offset in metres and a
+ * rotation offset in radians, both for the hand ROOT.
+ *
+ * One object for the whole module, reset in place each frame. The layer contract
+ * in layers/sway.js calls itself provisional until the animator lands, so this
+ * is that decision: layers describe whole-hand motion, and whole-hand motion is
+ * six numbers, not a pose.
+ */
+const _out = { px: 0, py: 0, pz: 0, rx: 0, ry: 0, rz: 0 };
+
+/** Read-only frame context handed to every layer. Mutated in place, never rebuilt. */
+const _ctx = {
+  dt: 0, elapsed: 0, side: null,
+  lookDeltaX: 0, lookDeltaY: 0,
+  bobPhase: 0, cadence: 0, speed: 0,
+  crouching: false, menace: 0,
+};
+
+const _euler = new THREE.Euler();
+const _offsetQuat = new THREE.Quaternion();
+const _baseQuat = new THREE.Quaternion();
 
 /* ------------------------------------------------------------ animator */
 
@@ -216,18 +264,75 @@ export class Animator {
   }
 
   /**
-   * Advances the playhead, evaluates base + layers, writes to the rig.
+   * Evaluates the additive layers and writes the result to the rig.
    *
-   * UNIT 5 IMPLEMENTS THIS. Must allocate nothing.
+   * WHAT THIS DOES AND DELIBERATELY DOES NOT DO. Only step 2 of the three in the
+   * header - the LAYERS - is implemented. Clip playback (step 1) is still a stub,
+   * so there is no base animation to compose against, and the layers are applied
+   * on their own.
+   *
+   * Consequently this NEVER TOUCHES JOINT ROTATIONS. The static pose put there by
+   * setPose() is the base, and overwriting it every frame with an empty clip
+   * result would wipe the grip. The layers move the hand ROOT instead, which is
+   * both cheaper and, for whole-hand motion like breathing and bob, exactly the
+   * right node - and it carries the sockets, so anything held moves with it.
+   * When clip playback lands, that is where joint composition belongs.
+   *
+   * ZERO ALLOCATION: the accumulator and the context are module-scope singletons
+   * reset in place, and the root's base transform is captured once on the first
+   * frame so offsets are applied to a fixed origin rather than accumulating.
    *
    * @param {number} dt seconds
    * @param {number} elapsed seconds since init, for the procedural layers
    * @param {ReturnType<import('./rig.js').buildRig>} rig
+   * @param {object} [motion] frame's player state; see MOTION_DEFAULTS
    */
-  update(dt, elapsed, rig) {
-    void dt;
-    void elapsed;
-    void rig;
+  update(dt, elapsed, rig, motion) {
+    const root = rig?.root;
+    if (!root) return;
+
+    // The base is whatever hands.js positioned this hand at during init. Captured
+    // lazily because that happens after the animator is constructed.
+    if (!this._base) {
+      this._base = {
+        px: root.position.x, py: root.position.y, pz: root.position.z,
+        qx: root.quaternion.x, qy: root.quaternion.y,
+        qz: root.quaternion.z, qw: root.quaternion.w,
+      };
+    }
+
+    _out.px = 0; _out.py = 0; _out.pz = 0;
+    _out.rx = 0; _out.ry = 0; _out.rz = 0;
+
+    _ctx.dt = dt;
+    _ctx.elapsed = elapsed;
+    _ctx.side = this.side;
+    _ctx.lookDeltaX = motion?.lookDeltaX ?? 0;
+    _ctx.lookDeltaY = motion?.lookDeltaY ?? 0;
+    _ctx.bobPhase = motion?.bobPhase ?? 0;
+    _ctx.cadence = motion?.cadence ?? 0;
+    _ctx.speed = motion?.speed ?? 0;
+    _ctx.crouching = motion?.crouching ?? false;
+    _ctx.menace = motion?.menace ?? 0;
+
+    for (let i = 0; i < LAYER_NAMES.length; i++) {
+      const name = LAYER_NAMES[i];
+      const weight = this.layerWeights[name];
+      // A layer at weight 0 is skipped and evaluate() is never called, which is
+      // the contract layers/sway.js documents.
+      if (!(weight > 0)) continue;
+      const layer = LAYER_IMPLS[name];
+      if (layer) layer.evaluate(_out, _ctx, weight);
+    }
+
+    const base = this._base;
+    root.position.set(base.px + _out.px, base.py + _out.py, base.pz + _out.pz);
+    _euler.set(_out.rx, _out.ry, _out.rz);
+    _offsetQuat.setFromEuler(_euler);
+    _baseQuat.set(base.qx, base.qy, base.qz, base.qw);
+    // base * offset, so the offset acts about the hand's own axes rather than
+    // the camera's - a bob that tilts with the wrist, not with the view.
+    root.quaternion.copy(_baseQuat).multiply(_offsetQuat);
   }
 
   dispose() {

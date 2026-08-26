@@ -187,6 +187,15 @@ const _torchVec = new THREE.Vector3();
 const _torchQuat = new THREE.Quaternion();
 
 /**
+ * The frame's player motion, handed to the hands' procedural layers.
+ *
+ * One object reused every frame, not a fresh literal: this crosses into
+ * per-frame code that the hands module holds to a zero-allocation rule, and a
+ * new object here sixty times a second would defeat that from the outside.
+ */
+const handMotion = { lookDeltaX: 0, lookDeltaY: 0, bobPhase: 0, speed: 0, crouching: false };
+
+/**
  * Spins the hand about the beam and re-frames it, keeping the torch put.
  *
  * The roll goes on `hands.root` as a RIGID rotation rather than into the wrist
@@ -571,7 +580,23 @@ function tick() {
   // Per rendered frame rather than on a fixed step: the hands are
   // presentation, and pinning them to 60 Hz on a 144 Hz display would throw
   // away smoothness the display can actually show.
-  hands.update(dt);
+  //
+  // The torch is what the player actually sees move here - the glove is hidden
+  // once it is picked up - and it moves because these layers offset the hand
+  // root, which the grip socket hangs off. walkbob's weight follows the player's
+  // own smoothed movement so it fades in and out with walking rather than
+  // snapping; breathe and sway are on by default and never switch off, which is
+  // what keeps the torch alive when standing still.
+  handMotion.lookDeltaX = player.lookDeltaX;
+  handMotion.lookDeltaY = player.lookDeltaY;
+  handMotion.bobPhase = player.bobPhase;
+  handMotion.speed = player.moving;
+  handMotion.crouching = player.crouch > 0.5;
+  hands.setLayerWeight('walkbob', player.moving);
+  // The player's smoothed crouch IS the layer weight, so the hands ease in and
+  // out of the tucked pose with the camera's drop rather than snapping.
+  hands.setLayerWeight('crouch-shift', player.crouch);
+  hands.update(dt, elapsed, handMotion);
   sceneManager.update(dt);
 
   if (player.isLocked) {

@@ -353,7 +353,7 @@ export class Hands {
    * @param {number} dt seconds since the last frame
    * @param {number} [elapsed] seconds since init; tracked internally when omitted
    */
-  update(dt, elapsed) {
+  update(dt, elapsed, motion) {
     if (!this.ready || this.disposed) return;
 
     this.elapsed += dt;
@@ -361,7 +361,11 @@ export class Hands {
 
     for (let i = 0; i < this._active.length; i++) {
       const record = this._active[i];
-      record.animator.update(dt, time, record.rig);
+      // `motion` is the frame's player state - look delta, bob phase, speed -
+      // which the procedural layers need and this module must not go and fetch
+      // for itself. Optional: passing nothing leaves the layers at rest, which
+      // is what the dev harness does.
+      record.animator.update(dt, time, record.rig, motion);
     }
   }
 
