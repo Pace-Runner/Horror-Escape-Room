@@ -26,6 +26,7 @@ import { loadModel, applyTextureByMaterialName } from '../world/modelLoader.js';
 import bedModelUrl from '../assets/models/bed.glb?url';
 import dresserModelUrl from '../assets/models/dresser.glb?url';
 import doorModelUrl from '../assets/models/door.glb?url';
+import flashlightModelUrl from '../assets/models/flashlight.glb?url';
 
 const ROOM_W = 6.4;
 const ROOM_D = 5.2;
@@ -871,22 +872,49 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   // ---------- flashlight prop (pickup handled by main.js via callback hook) ----------
   // Height matches the nightstand top below (0.72, close to the mattress's
   // own 0.74) -- was previously pinned to a knee-high 0.42 m table.
+  // The prop is blender/build_flashlight.py -> flashlight.glb, replacing the
+  // two primitive cylinders that used to stand in for it. Still a Group with
+  // the same name and the same role, so the hitbox below, the refs block and
+  // reset() are all untouched by the swap -- only what is inside the group
+  // changed.
+  //
+  // Resting height, not the old 0.78: the nightstand's top slab is centred at
+  // 0.78 and 0.04 thick, so its surface is at 0.80, and the placeholder was
+  // sitting half sunk into it. 0.025 is the bezel radius, which is the widest
+  // point and therefore what a torch lying on a table actually rests on, so
+  // 0.825 puts it exactly flush.
+  //
+  // It also can no longer sit dead centre. The old placeholder was a 0.22 m
+  // cylinder at the middle of the top, which was already clipping the lamp;
+  // the real model has to thread between the lamp (back left), the alarm
+  // clock (back right) and the book (front right). This spot is the one with
+  // the largest clearance from all three -- 36 mm to the nearest, 40 mm
+  // inside the table edge -- so the torch reads as set down in the free
+  // corner rather than floating through the dressing.
   const flashlight = new THREE.Group();
-  flashlight.position.set(-2.5, 0.78, 1.7);
-  const flashBody = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.03, 0.035, 0.22, 10),
-    new THREE.MeshStandardMaterial({ color: 0x2a2a2a, metalness: 0.6, roughness: 0.4 })
-  );
-  flashBody.rotation.z = Math.PI / 2;
-  flashlight.add(flashBody);
-  const flashLens = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.032, 0.032, 0.02, 10),
-    new THREE.MeshStandardMaterial({ color: 0xfff2c0, emissive: 0xfff2c0, emissiveIntensity: 0.4 })
-  );
-  flashLens.rotation.z = Math.PI / 2;
-  flashLens.position.x = 0.12;
-  flashlight.add(flashLens);
+  flashlight.position.set(-2.552, 0.825, 1.776);
+  // The model is authored beam-down-+Y per the socket convention in
+  // systems/hands/sockets.js, i.e. standing on its tail. Rolling -90 degrees
+  // about Z lays that axis into the horizontal plane, and the Y term then
+  // aims it across the nightstand. Euler order is three's default XYZ, so Z
+  // is applied first and Y swings the already-horizontal torch.
+  flashlight.rotation.set(0, 0.873, -Math.PI / 2);
   group.add(flashlight);
+
+  loadModel(flashlightModelUrl).then((flashlightModel) => {
+    flashlightModel.traverse((child) => {
+      if (!child.isMesh) return;
+      child.receiveShadow = true;
+      // Everything casts except the glass: TorchLens exports as alphaMode
+      // BLEND, and a transparent caster is resolved against the shadow map as
+      // if it were solid, which would stamp an opaque black disc across the
+      // reflector it is supposed to be showing through.
+      child.castShadow = child.material.name !== 'TorchLens';
+    });
+    flashlight.add(flashlightModel);
+  }).catch((err) => {
+    console.error('Failed to load flashlight.glb, the flashlight prop will be missing:', err);
+  });
 
   // The flashlight's visual meshes are a THREE.Group, which has no
   // raycast of its own (Object3D.raycast is a no-op; only Mesh/Line/

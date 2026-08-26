@@ -22,8 +22,10 @@ This is the **world foundation**, not the finished game. It delivers:
   called out in the storyline, so props can be looked at and read
   before their puzzle logic exists.
 - One custom GLSL shader (the basement CCTV monitor's static).
-- Procedural textures and synthesised audio, so the repo has zero
-  binary assets to path or credit.
+- Procedural textures and synthesised audio, so the only binary assets
+  to path or credit are the Blender-authored `.glb` models and one
+  breathing loop (`src/assets/audio/breathing.m4a`, which the game also
+  runs without).
 
 What is **not** yet built: the power-restore puzzle, the camera-feed
 minigame, the three-lock sequence, the visor mechanic, the creature AI,
@@ -91,7 +93,13 @@ flagging exactly what is still a blockout.
   outside the bedroom window.
 - `src/world/AudioEngine.js` synthesises a low wind drone, a thunder
   hit (fired every lightning flash), and a creak/footstep cue -- all
-  generated with the Web Audio API rather than loaded from files.
+  generated with the Web Audio API rather than loaded from files. The
+  one loaded sound is the breathing loop, on its own gain node, played
+  through a looping `AudioBufferSourceNode` (the only reliably gapless
+  option) inside a measured `loopStart`/`loopEnd` window. It runs for
+  the whole session once audio is unlocked; only its intensity answers
+  to the story beats. See the README for the loop-window numbers and
+  what happens when the file is missing.
 - `src/world/StaticScreenMaterial.js` is a custom `ShaderMaterial`
   (hand-written vertex + fragment stages, not a built-in material)
   used on the basement CCTV monitor. `uTime` is advanced every frame

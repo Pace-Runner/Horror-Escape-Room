@@ -258,6 +258,30 @@ function walkChain(start) {
 /** Target wrist-to-fingertip length, metres. Matches RIG_SPEC's own hand. */
 const TARGET_HAND_LENGTH = 0.19;
 
+/**
+ * How much of the asset is kept, as a multiple of the hand's own length.
+ *
+ * This asset is not a hand - it is a whole arm, clavicle to fingertips - and
+ * alignHand() scales the hierarchy so the HAND measures TARGET_HAND_LENGTH.
+ * Since the hand is a small fraction of the arm, that same factor stretches the
+ * arm to around fifty metres, and it renders as a wall of geometry beside the
+ * hand. README.md's intent is a hand and a cuff: "the flared cuff is what hides
+ * the fact that the arm simply stops."
+ *
+ * CURRENTLY DISABLED (0) at the project owner's request. The trim is no longer
+ * load-bearing: main.js hides the glove entirely once the torch is picked up, and
+ * that hides the arm with it, since both are the same skinned meshes. So the arm
+ * is only ever on screen BEFORE the pickup, which is how the game behaved before
+ * any of this.
+ *
+ * To switch it back on, set this to 1.35. Not 1.0: the hand does not end at one
+ * hand-length - the fingertips reach 1.16x and the fingernail primitive reaches
+ * 1.25x, so a cut at 1.0x removes the ends of the fingers. Measured on this
+ * asset the kept triangle count is identical anywhere from 1.25x to 3.0x, there
+ * being a wide empty gap between hand and arm, so the value is not delicate.
+ */
+const ARM_TRIM_RADIUS = 0;
+
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _c = new THREE.Vector3();
@@ -344,6 +368,103 @@ function alignHand(root, joints) {
   };
 }
 
+/* ------------------------------------------------------------ arm trimming */
+
+/**
+ * Drops the arm geometry, keeping the hand and a short collar at the wrist.
+ *
+ * ONLY THE INDEX BUFFER IS REBUILT. Vertex attributes are left exactly as they
+ * are, so position / skinIndex / skinWeight stay in lockstep and there is no
+ * remapping to get wrong - the single nastiest way to break a skinned mesh.
+ * Triangles that are dropped simply stop being referenced, and a vertex no index
+ * points at is never submitted to the vertex shader, so the arm costs nothing to
+ * draw. The few hundred orphaned vertices are tens of kilobytes of buffer.
+ *
+ * WHY VERTEX POSITIONS ARE COMPARED AGAINST BONE WORLD POSITIONS. For a skinned
+ * mesh glTF ignores the containing node's transform, and at the bind pose each
+ * skin matrix (boneWorld * inverseBind) comes out as the identity - so the raw
+ * position attribute and the bone world positions are already in one frame.
+ * Verified on this asset: measured against the wrist bone, hand vertices all sit
+ * within 0.19 units and the nearest arm vertex is 35 units out.
+ *
+ * Runs on the ORIGINAL asset, before buildHandMesh clones it, because clones
+ * share geometry - so this is one pass for both hands.
+ *
+ * @returns {string} a line for the mesh handle's report
+ */
+function trimArm(root) {
+  if (!root || ARM_TRIM_RADIUS <= 0) return "arm not trimmed: disabled";
+
+  root.updateMatrixWorld(true);
+  const { joints } = mapArmature(root);
+  const wrist = joints.get(JOINTS.WRIST);
+  const tip = joints.get(JOINTS.MIDDLE_03) ?? joints.get(JOINTS.INDEX_03);
+  if (!wrist || !tip) return "arm not trimmed: wrist or fingertip not mapped";
+
+  wrist.getWorldPosition(_a);
+  const handLength = _a.distanceTo(tip.getWorldPosition(_b));
+  if (!(handLength > 1e-6)) return "arm not trimmed: hand length measured as zero";
+
+  const radius = handLength * ARM_TRIM_RADIUS;
+  const radiusSq = radius * radius;
+  let kept = 0;
+  let dropped = 0;
+  let skipped = 0;
+
+  root.traverse((node) => {
+    if (!node.isMesh && !node.isSkinnedMesh) return;
+    const geometry = node.geometry;
+    const position = geometry?.attributes?.position;
+    const index = geometry?.index;
+    if (!position || !index) return;
+    // Material groups index into the index buffer, so rebuilding it would leave
+    // them addressing the wrong triangles. glTF primitives arrive as separate
+    // meshes, so there should be none; if a replacement asset has them, leave
+    // that geometry alone rather than corrupt it.
+    if (geometry.groups?.length > 0) {
+      skipped++;
+      return;
+    }
+
+    const near = new Uint8Array(position.count);
+    for (let i = 0; i < position.count; i++) {
+      _c.fromBufferAttribute(position, i);
+      near[i] = _c.distanceToSquared(_a) <= radiusSq ? 1 : 0;
+    }
+
+    const src = index.array;
+    const survivors = [];
+    for (let i = 0; i < src.length; i += 3) {
+      const a = src[i];
+      const b = src[i + 1];
+      const c = src[i + 2];
+      if (near[a] && near[b] && near[c]) survivors.push(a, b, c);
+    }
+
+    // A replacement asset whose vertices are NOT in the bone frame would fail
+    // the distance test everywhere and this would erase the hand. Losing most of
+    // a mesh is never the intent, so treat it as a bad measurement and keep the
+    // arm rather than delete the hand.
+    const total = src.length / 3;
+    if (survivors.length / 3 < total * 0.25) {
+      skipped++;
+      return;
+    }
+
+    kept += survivors.length / 3;
+    dropped += total - survivors.length / 3;
+    geometry.setIndex(survivors);
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+  });
+
+  return (
+    `arm trimmed at ${ARM_TRIM_RADIUS}x hand length (${radius.toFixed(4)}): ` +
+    `kept ${kept} tris, dropped ${dropped}` +
+    (skipped ? `, left ${skipped} mesh(es) alone` : "")
+  );
+}
+
 /* --------------------------------------------------------------- loading */
 
 /**
@@ -361,9 +482,13 @@ function alignHand(root, joints) {
 export async function loadHandAsset({ url = assetUrl } = {}) {
   const loader = new GLTFLoader();
   const gltf = await loader.loadAsync(url);
+  // Before anything clones the scene: clones share geometry, so trimming here
+  // is one pass that serves both hands.
+  const trimReport = trimArm(gltf.scene);
   return {
     url,
     scene: gltf.scene,
+    trimReport,
     /** Releases the ORIGINAL. Clones own their own skeletons but share geometry. */
     dispose() {
       this.scene?.traverse((node) => {
@@ -376,6 +501,71 @@ export async function loadHandAsset({ url = assetUrl } = {}) {
       });
     },
   };
+}
+
+/* ----------------------------------------------------------- nail mesh */
+
+/**
+ * Names of the bones at the END of every digit, plus their descendants.
+ *
+ * The thumb matters here: mapArmature deliberately keeps only the FIRST TWO
+ * bones of the thumb chain (a real thumb has two phalanges), so this asset's
+ * thumb-nail bone - a third, unmapped one - would be missed by looking at the
+ * mapped joints alone. Walking the descendants picks it up.
+ */
+function tipBoneNames(joints) {
+  const names = new Set();
+  for (const finger of FINGERS) {
+    const tip = joints.get(finger.joints[finger.joints.length - 1]);
+    if (!tip) continue;
+    tip.traverse((n) => {
+      if (n.isBone) names.add(n.name);
+    });
+  }
+  return names;
+}
+
+/**
+ * Is this mesh the fingernails?
+ *
+ * Decided from the SKINNING, not from a vertex count or a material name. A nail
+ * can only be attached to the last bone of a digit, so a primitive whose every
+ * vertex is dominated by a tip bone is nails, and one that also covers the palm
+ * and wrist is not. That holds regardless of how the asset was named or how many
+ * vertices the artist spent, and it needs no CPU skinning to evaluate.
+ *
+ * The asset in this project splits nails out as their own primitive of 84
+ * vertices; if a replacement model welds them into the skin mesh instead, this
+ * returns false and everything simply gets the skin material, as before.
+ */
+function isNailMesh(node, tipBones) {
+  if (!node.isSkinnedMesh || tipBones.size === 0) return false;
+  const geometry = node.geometry;
+  const si = geometry?.attributes?.skinIndex;
+  const sw = geometry?.attributes?.skinWeight;
+  const bones = node.skeleton?.bones;
+  if (!si || !sw || !bones) return false;
+
+  // A whole hand is thousands of vertices; nails are tens. Anything large is
+  // the skin mesh, and this guard keeps a single-primitive asset from ever
+  // being mistaken for nails.
+  if (si.count > 400) return false;
+
+  let onTip = 0;
+  for (let i = 0; i < si.count; i++) {
+    let topWeight = -1;
+    let topBone = null;
+    for (let c = 0; c < 4; c++) {
+      const weight = sw.getComponent(i, c);
+      const bone = bones[si.getComponent(i, c)];
+      if (bone && weight > topWeight) {
+        topWeight = weight;
+        topBone = bone;
+      }
+    }
+    if (topBone && tipBones.has(topBone.name)) onTip++;
+  }
+  return onTip / si.count >= 0.9;
 }
 
 /* ----------------------------------------------------------- the build */
@@ -402,7 +592,7 @@ export async function loadHandAsset({ url = assetUrl } = {}) {
  *   dispose(): void
  * }}
  */
-export function buildHandMesh({ asset, side, material } = {}) {
+export function buildHandMesh({ asset, side, material, nailMaterial } = {}) {
   const handle = {
     root: null,
     joints: new Map(),
@@ -440,6 +630,7 @@ export function buildHandMesh({ asset, side, material } = {}) {
   handle.root = root;
   handle.joints = joints;
   handle.report = report;
+  if (asset.trimReport) report.push(asset.trimReport);
 
   // Done while root is still unparented, so world space IS root-local space.
   const alignment = alignHand(root, joints);
@@ -451,10 +642,15 @@ export function buildHandMesh({ asset, side, material } = {}) {
       : `NOT aligned: ${alignment.reason}`,
   );
 
+  const tipBones = tipBoneNames(joints);
+
   root.traverse((node) => {
     if (!node.isMesh && !node.isSkinnedMesh) return;
 
-    if (material) node.material = material;
+    const isNails = isNailMesh(node, tipBones);
+    if (isNails) handle.report.push(`nails <- ${node.name} (${node.geometry.attributes.position.count} verts)`);
+    if (isNails && nailMaterial) node.material = nailMaterial;
+    else if (material) node.material = material;
 
     // View-model geometry parented to the camera can be wrongly culled against
     // that same camera's frustum - hands blinking out at certain angles is the

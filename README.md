@@ -56,13 +56,55 @@ reasoning behind the scenegraph hierarchy.
   and the custom CCTV static shader.
 - `docs/WORLD_DESIGN.md` -- story-to-hierarchy mapping and design notes.
 
-## No external assets
+## Assets
 
-Every texture is generated on `<canvas>` at runtime and every sound is
-synthesised with the Web Audio API -- there are no image or audio
-files to path, credit, or break on a case-sensitive server. Three.js
-and its `PointerLockControls` example module are the only third-party
-code, credited in-game via the credits screen (`C`).
+Every texture is generated on `<canvas>` at runtime, so there are no
+image files to path, credit, or break on a case-sensitive server. Wind,
+thunder and creaks are synthesised with the Web Audio API. The models
+(bed, dresser, door, flashlight, hands) are Blender-authored `.glb`
+files in `src/assets/models/`, imported as `?url` so Vite hashes them
+and rewrites the path for the subdirectory deploy. Three.js and its
+`PointerLockControls` example module are the only third-party code,
+credited in-game via the credits screen (`C`).
+
+### The breathing loop -- the one audio file
+
+`src/assets/audio/breathing.m4a` (AAC-LC, 48 kHz, 61.2 s) is the only
+audio file in the project. It loops continuously from the moment audio
+is unlocked on the start screen until the tab closes, on its own gain
+node, and survives a restart (`R`) without a gap or a second copy
+stacking on top.
+
+The loader globs `breathing.*`, so re-exporting as `.mp3`, `.ogg` or
+`.wav` needs no code change -- and if the file is missing entirely the
+game still runs, warning once to the console. `AudioEngine` deliberately
+does not `import` it directly, so a build never fails over a missing
+asset.
+
+Two things worth knowing about the file as it stands: at 1.5 MB (48 kHz
+stereo, 192 kbps) it is the largest single asset in the build, and its
+two channels are bit-identical, so a mono re-export at ~96 kbps would be
+roughly a quarter of the size with nothing audible lost. And AAC decodes
+in Chrome, Edge and Safari, and in Firefox on Windows and macOS via the
+platform decoders -- an `.ogg` or `.wav` export is the safer choice if a
+Linux Firefox without system codecs ever has to play it.
+
+Two things to know if the recording is ever replaced:
+
+- `BREATH_LOOP_START` / `BREATH_LOOP_END` at the top of
+  `src/world/AudioEngine.js` are the loop window in seconds, currently
+  `3.69` -> `59.7`. They are measured off *this* recording: they cut a
+  handling thump at 1.39 s and a fading tail, and land on the quiet gaps
+  between breaths so the seam is inaudible. A different file needs a
+  different window (or `0` / `0` to loop the whole buffer, if it has
+  already been trimmed to a clean loop -- whole number of breath cycles,
+  zero crossings at both ends, no lead-in silence).
+- `BREATH_MAKEUP` in the same file compensates for how quiet the
+  recording is (peak -23.7 dBFS); re-measure it for a louder file.
+
+The track is credited in-game: fill in the placeholder breathing-loop
+line in the `CREDITS` array in `src/main.js` with its source, author and
+licence (or delete that line if the team recorded it themselves).
 
 ## Deploying to the LAMP server
 

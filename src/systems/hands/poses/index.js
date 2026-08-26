@@ -22,6 +22,7 @@ import { fist } from "./fist.js";
 import { point } from "./point.js";
 import { pinch } from "./pinch.js";
 import { gripCylinder } from "./grip-cylinder.js";
+import { holdTorch } from "./hold-torch.js";
 import { gripFlat } from "./grip-flat.js";
 import { reach } from "./reach.js";
 import { press } from "./press.js";
@@ -34,6 +35,7 @@ export const POSES = Object.freeze({
   point,
   pinch,
   "grip-cylinder": gripCylinder,
+  "hold-torch": holdTorch,
   "grip-flat": gripFlat,
   reach,
   press,

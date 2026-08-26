@@ -47,8 +47,10 @@ import * as THREE from "three";
 
 // Only what the body actually uses is imported; the re-export block below is
 // what makes the rest of the module's vocabulary reachable through this file.
+// SIDES is deliberately NOT imported here any more - the body iterates
+// ACTIVE_SIDES instead. It is still re-exported below, so consumers can ask the
+// rig layer what sides exist in principle.
 import {
-  SIDES,
   isSide,
   adoptRig,
   applyPose,
@@ -116,6 +118,28 @@ function warnOnce(key, message) {
   _warned.add(key);
   console.warn(`[hands] ${message}`);
 }
+
+/* --------------------------------------------------------- active hands */
+
+/**
+ * WHICH HANDS ARE ACTUALLY BUILT. The game currently shows the RIGHT HAND ONLY.
+ *
+ * This is a deliberate art decision, not an oversight, and it is a real removal
+ * rather than a hidden object: the left hand is never cloned, never rigged, never
+ * added to the scene graph, never posed and never updated. It costs no geometry,
+ * no draw call and no frame time. Put "left" back in this array and the left hand
+ * returns, mirrored, with no other change - `rig.js` still defines both sides and
+ * every pose file already drives either.
+ *
+ * Two consequences worth knowing:
+ *   - Anything addressed to the left hand - setPose('left', ...), attach('left',
+ *     ...) - now warns once and does nothing, which is the module's documented
+ *     behaviour for an absent hand rather than a new failure mode.
+ *   - The handedness convention in README.md (torch in the left, interactions in
+ *     the right) cannot hold with one hand. If a torch ever needs holding, it
+ *     goes in the right hand's `grip` socket, or the left comes back.
+ */
+const ACTIVE_SIDES = Object.freeze(["right"]);
 
 /* ---------------------------------------------------------------- Hands */
 
@@ -207,10 +231,19 @@ export class Hands {
       warnOnce("asset-load", `could not load the hand model: ${error?.message ?? error}`);
     }
 
-    for (let i = 0; i < SIDES.length; i++) {
-      const side = SIDES[i];
+    for (let i = 0; i < ACTIVE_SIDES.length; i++) {
+      const side = ACTIVE_SIDES[i];
 
-      const mesh = buildHandMesh({ asset: this.asset, side, material: this.materialSet.material });
+      const mesh = buildHandMesh({
+        asset: this.asset,
+        side,
+        material: this.materialSet.material,
+        // The nails are their own primitive in the asset and want the opposite
+        // treatment to skin - paler and glossy. hand-mesh.js works out which
+        // primitive they are from the skinning; if a replacement model welds
+        // them into the skin mesh, this is simply unused.
+        nailMaterial: this.materialSet.nailMaterial,
+      });
       const rig = adoptRig({ root: mesh.root, joints: mesh.joints, side });
       const socketSet = buildSockets({ rig, side });
 
@@ -302,7 +335,7 @@ export class Hands {
      * After `ready`, so setPose() resolves the per-side record instead of
      * warning that the module is uninitialised.
      */
-    for (let i = 0; i < SIDES.length; i++) this.setPose(SIDES[i], "relaxed");
+    for (let i = 0; i < ACTIVE_SIDES.length; i++) this.setPose(ACTIVE_SIDES[i], "relaxed");
 
     return this;
   }
@@ -621,7 +654,25 @@ export class Hands {
       warnOnce(`not-ready:${caller}`, `${caller}() called before init() (or after dispose()).`);
       return null;
     }
-    return this._records[side];
+    const record = this._records[side];
+    /**
+     * A VALID SIDE THAT WAS NEVER BUILT. Before ACTIVE_SIDES existed both hands
+     * always existed once `ready`, so this branch could not happen and the method
+     * returned null in silence. With the left hand switched off it can, and
+     * silence is the wrong answer: a caller written against the README's
+     * handedness convention (torch in the left hand) would do nothing at all,
+     * with no diagnostic, which is exactly the failure mode this module's
+     * warn-once policy exists to prevent.
+     */
+    if (!record) {
+      warnOnce(
+        `inactive:${caller}:${side}`,
+        `${caller}() addressed the ${side} hand, which is not built. ` +
+          `Active hands: ${ACTIVE_SIDES.join(", ")}. See ACTIVE_SIDES in hands.js.`,
+      );
+      return null;
+    }
+    return record;
   }
 
   /**
