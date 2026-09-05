@@ -163,6 +163,20 @@ export class PointerLockPlayer {
   }
 
   /**
+   * The orientation this class owns. Exposed because a cutscene has to hand the
+   * camera back consistently with them, and reading them off the quaternion
+   * from outside would be deriving the source of truth from the thing derived
+   * from it.
+   */
+  get yaw() {
+    return this._yaw;
+  }
+
+  get pitch() {
+    return this._pitch;
+  }
+
+  /**
    * Takes the pointer lock, asking for RAW mouse deltas.
    *
    * Deliberately not controls.lock(), which calls requestPointerLock() with no

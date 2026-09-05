@@ -17,6 +17,7 @@ import { gameState, resetState } from './core/GameState.js';
 import { CaptionSequencer } from './core/CaptionSequencer.js';
 import { createDocumentUI } from './core/DocumentUI.js';
 import { createPostFX } from './world/Postprocessing.js';
+import { createCutsceneRunner } from './core/Cutscene.js';
 import { Hands } from './systems/hands/hands.js';
 import { HELD_MAGNIFICATION } from './systems/hands/sockets.js';
 import { setHandAssetUrl } from './systems/hands/hand-mesh.js';
@@ -460,6 +461,13 @@ const documentUI = createDocumentUI({
   onClose: () => player.lock()
 });
 
+// Scripted camera shots. Built here because it needs the hands and the dust
+// motes, both of which have to be hidden for any shot that leaves the player's
+// head -- see core/Cutscene.js.
+const cutscene = createCutsceneRunner({
+  camera, player, interaction, hands, dustMotes, captions, fade
+});
+
 const bedroom = createBedroomLevel({
   showCaption,
   onFreed: () => {
@@ -574,6 +582,9 @@ function activateLevel(key, { lockMovement = false } = {}) {
   documentUI.close();
   // Snapped rather than eased: a restart should not show the visor fading off.
   postFX.reset();
+  // Same reason abortTransition() exists: a restart taken mid-shot must hand
+  // the camera back, or the player restarts into a frozen third-person view.
+  cutscene.cancel();
   player.movementEnabled = !lockMovement;
   return level;
 }
@@ -887,6 +898,7 @@ if (import.meta.env.DEV) {
     sceneManager,
     player,
     postFX,
+    cutscene,
     captions,
     documentUI,
     audio,
