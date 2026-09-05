@@ -15,6 +15,7 @@ import { createBackroomsLevel } from './levels/backroomsLevel.js';
 import { createScreenFade, wait } from './core/ScreenFade.js';
 import { gameState, resetState } from './core/GameState.js';
 import { CaptionSequencer } from './core/CaptionSequencer.js';
+import { createDocumentUI } from './core/DocumentUI.js';
 import { Hands } from './systems/hands/hands.js';
 import { HELD_MAGNIFICATION } from './systems/hands/sockets.js';
 import { setHandAssetUrl } from './systems/hands/hand-mesh.js';
@@ -437,6 +438,12 @@ const pinPadUI = createPinPadUI({
   onClose: () => player.lock()
 });
 
+// The reading surface for every letter, note, file and transcript in the game.
+// Same unlock-to-interact / re-lock-on-close contract as the two above.
+const documentUI = createDocumentUI({
+  onClose: () => player.lock()
+});
+
 const bedroom = createBedroomLevel({
   showCaption,
   onFreed: () => {
@@ -545,6 +552,7 @@ function activateLevel(key, { lockMovement = false } = {}) {
   // Hard-cancel rather than just hiding the box: a queued sequence would
   // otherwise keep advancing and fade its next line in over the new room.
   captions.cancel();
+  documentUI.close();
   player.movementEnabled = !lockMovement;
   return level;
 }
@@ -808,14 +816,26 @@ player.controls.addEventListener('lock', () => {
 });
 
 player.controls.addEventListener('unlock', () => {
-  audio.pause();
-  // Paused with the audio, on the same event, so a voiced line and its caption
-  // cannot drift apart across an Esc. This is the whole reason captions are on
-  // the frame clock instead of setTimeout.
-  captions.setPaused(true);
-  if (!creditsScreen.classList.contains('hidden')) return;
+  // Three reasons the pointer unlocks, and they are NOT the same thing.
+  //
+  // 1. A diegetic close-up -- the photo board, the keypad, a document. The
+  //    pointer is released so the mouse can be used; the game is still running
+  //    behind it. audio.pause() used to run at the top of this listener, ahead
+  //    of these checks, so opening any of them killed the sound and froze the
+  //    captions. A tape playing while you read the letter it came with is
+  //    exactly the beat the story wants, and it was impossible.
   if (photoBoardUI.isOpen) return;
   if (pinPadUI.isOpen) return;
+  if (documentUI.isOpen) return;
+
+  // 2. and 3. are both real pauses -- the credits screen and Esc -- and both
+  //    should suspend everything. Captions pause on the same event as the
+  //    audio, which is the whole reason they run on the frame clock rather
+  //    than setTimeout: a voiced line and its caption cannot drift apart.
+  audio.pause();
+  captions.setPaused(true);
+
+  if (!creditsScreen.classList.contains('hidden')) return;
   startTitle.textContent = 'PAUSED';
   startSub.textContent = '';
   startButton.textContent = 'Click to resume';
