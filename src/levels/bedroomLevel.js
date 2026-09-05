@@ -28,6 +28,29 @@ import dresserModelUrl from '../assets/models/dresser.glb?url';
 import doorModelUrl from '../assets/models/door.glb?url';
 import flashlightModelUrl from '../assets/models/flashlight.glb?url';
 
+/**
+ * How much larger than life the paperclip is drawn.
+ *
+ * A real Gem clip is about 33 x 8 mm, which from the ~1.3m the chained player
+ * views it at is a couple of dozen pixels of 1.6mm wire -- findable only if you
+ * already know it is there. Scaling the whole group keeps the proportions and
+ * takes the hitbox with it.
+ *
+ * THIS IS THE NUMBER TO TURN UP if it is still hard to spot. 1.0 is true to
+ * life; 4.0 is comically large but unmissable.
+ */
+const PAPERCLIP_SCALE = 3.0;
+
+/**
+ * Wire gauge, in metres, before PAPERCLIP_SCALE multiplies it.
+ *
+ * Real paperclip wire is about 0.8mm. Kept a little over that because at this
+ * viewing distance a true-gauge wire is sub-pixel in places and breaks up into
+ * dashes. Lower it for a finer, more delicate clip; raise it if it starts
+ * disappearing against the blanket.
+ */
+const PAPERCLIP_WIRE_RADIUS = 0.0011;
+
 const ROOM_W = 6.4;
 const ROOM_D = 5.2;
 const ROOM_H = 2.8;
@@ -1118,56 +1141,103 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     minZ: sideTable.position.z - 0.21, maxZ: sideTable.position.z + 0.21
   });
 
-  // ---------- paperclip near the bed frame ----------
-  // A single partial torus (the old geometry) is rotationally symmetric
-  // and reads as a plain bent hook, not a paperclip -- a real one is a
-  // doubled loop, one fold nested just inside the other. Approximated
-  // here with two elongated (non-uniformly scaled, so oval rather than
-  // circular) open torus arcs nested together, which at a glance reads
-  // as the genuine doubled-wire shape instead of a single ring fragment.
+  // ---------- paperclip, on the blanket within reach of the cuffed hand ----------
+  //
+  // WHY IT USED TO BE INVISIBLE, since the previous two attempts both got this
+  // wrong: it was never a material or a lighting problem. The spawn point
+  // (1.9, -1.0) is INSIDE the bed's own footprint (x 1.15..2.65, z -2.5..-0.5)
+  // -- there is no bed collider, so the player wakes up standing in it -- and
+  // from that eye position the sightline to the old floor spot passed straight
+  // through the blanket, then the mattress, then the bed base. Interaction
+  // raycasts only the interactables list (Interaction.js), so nothing occludes
+  // the hitbox and E kept working while the player was looking at red blanket.
+  // That mismatch is the whole "interactable but invisible" signature.
+  //
+  // This spot was chosen by ray-marching the sightline from the spawn eye
+  // against every solid on the bed (blanket slab, the three ridge bumps, the
+  // mattress, the base, the left rail, the headboard and both pillow
+  // ellipsoids). At y 0.80 / z -1.95 the clear band runs the full 140cm width
+  // of the bed; the bare mattress at the head end, which is where this
+  // obviously wants to go, has only an 8-13cm slot beside the near pillow and
+  // would break the moment anyone nudged the pillow.
+  //
+  // 1.29m from the eye, 38 degrees below the horizon -- which is past the 35
+  // degree half-FOV, so the bedroom also sets a spawnPitch (see the returned
+  // contract) to wake the player looking slightly down. That is the right beat
+  // anyway: you come to cuffed to a bed, so you look at your own hand.
+  //
+  // 0.56m from the cuff at (1.90, 0.98, -2.35), i.e. inside the reach of the
+  // hand that is actually chained -- the old floor position was 1.23m away and
+  // under the bed frame, which no cuffed person could have got to.
   const paperclip = new THREE.Group();
-  // On the floor beside the headboard, still roughly along the spawn's
-  // facing direction so it's findable with a natural downward glance
-  // rather than requiring the player to turn around. The old Y (0.69,
-  // picked for a "35 degrees below eye line" angle from spawn) actually
-  // sat *inside* the mattress's own bounding box (RoundedBoxGeometry
-  // centred at y=0.63, +-0.11) -- geometrically embedded and invisible
-  // regardless of material or lighting, which is the real reason it was
-  // never visible. Floor level, just outside the mattress/frame footprint
-  // in X, is the only place at this X/Z it can actually be seen.
-  paperclip.position.set(1.13, 0.024, -2.4);
-  paperclip.rotation.x = Math.PI / 2;
+  paperclip.position.set(1.55, 0.80, -1.95);
+  paperclip.rotation.y = 0.7;
+  paperclip.scale.setScalar(PAPERCLIP_SCALE);
   group.add(paperclip);
 
-  // Slightly less metallic/glossy than a true polished wire -- at this
-  // scene's very low ambient light, a near-mirror material (the old
-  // metalness 0.9 / roughness 0.3) only ever catches a razor-thin
-  // specular glint and otherwise reads as black; a bit more roughness
-  // picks up general room light instead of relying on a direct highlight.
-  // Sized up from a real ~3cm paperclip too -- true-to-life scale was
-  // still a barely-there fleck on the floor even once it was no longer
-  // hidden inside the mattress.
-  const paperclipMat = new THREE.MeshStandardMaterial({ color: 0xc2c2be, metalness: 0.7, roughness: 0.45 });
-  const paperclipOuter = new THREE.Mesh(new THREE.TorusGeometry(0.019, 0.0035, 8, 20, Math.PI * 1.7), paperclipMat);
-  paperclipOuter.scale.set(1, 1.9, 1);
-  paperclipOuter.rotation.z = Math.PI * 0.15;
-  paperclipOuter.castShadow = true;
-  paperclip.add(paperclipOuter);
+  // One continuous folded wire, swept along the real Gem-clip path, rather than
+  // two nested torus arcs. The old approximation's own comment admitted it read
+  // as "a plain bent hook"; a paperclip is a single length of wire doubled back
+  // on itself twice, and the returns are what make the silhouette legible.
+  //
+  // Authored at true scale (a real clip is ~33 x 8mm) and then multiplied by
+  // PAPERCLIP_SCALE on the group above, so the wire gauge, the loop spacing and
+  // the hitbox all grow together and it stays a paperclip instead of turning
+  // into a bent girder.
+  const CLIP_W = 0.008;   // half-width of the wire path
+  const CLIP_L = 0.033;   // full length
+  const clipPath = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-CLIP_W * 0.55, 0, CLIP_L * 0.28),
+    new THREE.Vector3(-CLIP_W, 0, -CLIP_L * 0.30),
+    new THREE.Vector3(-CLIP_W * 0.72, 0, -CLIP_L * 0.46),
+    new THREE.Vector3(0, 0, -CLIP_L * 0.50),
+    new THREE.Vector3(CLIP_W * 0.72, 0, -CLIP_L * 0.46),
+    new THREE.Vector3(CLIP_W, 0, -CLIP_L * 0.30),
+    new THREE.Vector3(CLIP_W, 0, CLIP_L * 0.36),
+    new THREE.Vector3(CLIP_W * 0.62, 0, CLIP_L * 0.48),
+    new THREE.Vector3(0, 0, CLIP_L * 0.50),
+    new THREE.Vector3(-CLIP_W * 0.40, 0, CLIP_L * 0.44),
+    new THREE.Vector3(-CLIP_W * 0.42, 0, CLIP_L * 0.10),
+    new THREE.Vector3(-CLIP_W * 0.30, 0, -CLIP_L * 0.34)
+  ], false, 'catmullrom', 0.4);
 
-  const paperclipInner = new THREE.Mesh(new THREE.TorusGeometry(0.0125, 0.0035, 8, 20, Math.PI * 1.7), paperclipMat);
-  paperclipInner.scale.set(1, 1.9, 1);
-  paperclipInner.rotation.z = Math.PI * 0.15;
-  paperclipInner.position.set(0.0037, -0.0058, 0);
-  paperclipInner.castShadow = true;
-  paperclip.add(paperclipInner);
+  // Nickel-plated steel wire. A high metalness is only correct here because
+  // main.js now installs an environment for metal to reflect -- this same
+  // material at 0.7 metalness was rendering near-black back when the scene had
+  // no environment at all, since a MeshStandardMaterial sends roughly
+  // `metalness` of its response to a reflection and there was nothing there.
+  //
+  // The colour on a metal is the SPECULAR tint, not a diffuse albedo: a slightly
+  // cool near-white is what reads as plated steel rather than as gold or copper.
+  //
+  // A trace of emissive, and no more. It is the only non-light-source emissive
+  // in the project and it exists purely so a thin wire keeps an edge alive when
+  // the bulb is behind it -- push it any higher and the surface goes flat and
+  // stops looking like metal at all, because emission is view-independent and
+  // metal is nothing but view-dependent reflection.
+  const paperclipMat = new THREE.MeshStandardMaterial({
+    color: 0xe2e7ec,
+    metalness: 0.95,
+    roughness: 0.2,
+    emissive: 0x2a2d31,
+    emissiveIntensity: 0.25
+  });
+  const paperclipWire = new THREE.Mesh(
+    // 10 radial segments, not 6: at this gauge a hexagonal tube shows its facets
+    // as a visible flat-shaded stripe down the wire.
+    new THREE.TubeGeometry(clipPath, 128, PAPERCLIP_WIRE_RADIUS, 10, true),
+    paperclipMat
+  );
+  paperclipWire.castShadow = true;
+  paperclip.add(paperclipWire);
 
-  // The paperclip's real geometry is two thin wire loops -- correct for
-  // how a paperclip should look, but the ray has to pass almost exactly
-  // through one of those slender tubes to register a hit, which makes it
-  // effectively unclickable. A padded invisible sphere is the actual
-  // interactable, same approach as the flashlight.
+  // The wire is 1.6mm thick, so the ray would have to thread the tube itself to
+  // register -- effectively unclickable. A padded invisible sphere is the real
+  // interactable, same approach as the flashlight. Derived from the same
+  // constant as the model so the two can never drift apart: turning
+  // PAPERCLIP_SCALE up must grow what you aim at, not just what you see.
   const paperclipHitbox = new THREE.Mesh(
-    new THREE.SphereGeometry(0.13, 8, 8),
+    new THREE.SphereGeometry(0.055 + 0.03 * PAPERCLIP_SCALE, 8, 8),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
   paperclipHitbox.position.copy(paperclip.position);
@@ -1642,6 +1712,15 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     // not toward the door behind the player, which left the one prop
     // they must interact with while still chained out of view entirely.
     spawnYaw: 0.5,
+    // Wake up looking slightly DOWN. The paperclip sits 38 degrees below the
+    // horizon and the camera's half-FOV is 35, so at a level pitch it would be
+    // just off the bottom edge of the screen -- the geometry is genuinely tight
+    // here, with the eye only 0.85m above the bed and the bed 1.3m away.
+    //
+    // It is also simply the right beat: you come round cuffed to a bed frame,
+    // and the first thing anyone would do is look at their own hand. Every other
+    // level omits spawnPitch and is unaffected.
+    spawnPitch: -0.30,
     refs: {
       bulbLight,
       lightning,

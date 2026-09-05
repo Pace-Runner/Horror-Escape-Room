@@ -43,7 +43,7 @@ export class SceneManager {
     // player.controls.object.rotation from out here. That bypassed the look
     // state the player owns and silently zeroed pitch, so a level jump both
     // snapped the view level and handed the hands a bogus one-frame look delta.
-    player.spawn(level.spawn[0], level.spawn[1], level.spawnYaw ?? 0);
+    player.spawn(level.spawn[0], level.spawn[1], level.spawnYaw ?? 0, level.spawnPitch ?? 0);
     return level;
   }
 

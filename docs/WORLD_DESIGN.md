@@ -104,18 +104,23 @@ table decides that this means "through the corridor, then to Level 2".
   0.14 where every other room uses 0.37-0.43: its wallpaper is roughly
   2.7x brighter than the Level 2 plaster, so the usual value would
   flatten the dark gaps into flat mustard.
-- **Every branch dead-ends, deliberately.** Nine of them now, in four
-  shapes: a straight dark stub, a false continuation, bends that fold
-  back on themselves, a fork whose both prongs terminate, and one branch
-  hanging off another branch's wall. The point is that no path is ever a
-  shortcut -- the exit door is the only way on, so exploring can cost
-  you time but never progress.
-- **One `WALL_RUNS` table generates every wall mesh AND its collider**,
-  and every run terminates at the outer face of the perpendicular slab
-  it meets, so corners always overlap. A seam here would not show black
-  void: the floor and ceiling are single quads spanning the whole
-  bounding box, so a gap shows a lit carpeted room the player can walk
-  into and then straight off the edge of the world.
+- **The layout is a list of corridor rectangles, and the walls are
+  derived from it.** `CORRIDORS` is the only description of the maze;
+  `buildWallRuns()` sweeps a grid over their union and emits a wall
+  wherever an inside cell meets an outside one. The level used to
+  hand-author 52 wall runs and cut each branch mouth as a manually
+  computed gap in one of them, which is what put three decals in mid-air
+  and two more the moment the walls moved. Editing the maze is now
+  editing eight numbers.
+- **The corridor graph must be a tree, and that is asserted at boot.**
+  A tree has exactly one junction fewer than it has corridors; an extra
+  junction means some dead end quietly rejoins the route. Expressing
+  "no shortcuts" as a property of the data rather than something to
+  remember is the whole reason the rectangles are the source of truth.
+- **A seam would not show black void.** The floor and ceiling are single
+  quads spanning the whole bounding box, so a gap shows the lit carpeted
+  room next door, which the player can walk into and then straight off
+  the edge of the world. Hence the T/2 padding on every generated run.
 - **Decal placement is checked against that same table** at build time
   (`wallBehind`). The corridor's side walls are broken wherever a branch
   opens off, so a decal placed at one of those gaps hangs in mid-air --

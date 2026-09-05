@@ -37,146 +37,179 @@ import doorModelUrl from '../assets/models/door.glb?url';
  *     olive-brown. One material, two moods. This is why the ambient here is
  *     0.14 against the 0.37-0.43 every other level uses -- see the note on it.
  *
- *  2. INFINITY IS FAKED FOUR DIFFERENT WAYS, one per branch, so it never reads
- *     as the same trick twice: too dark to see the end (B1), an opening at the
- *     end that isn't one (B2), it bends out of sight (B3), and it's marked as
- *     a mistake (B4). Darkness, fog and geometry each hide a different branch.
+ *  2. IT IS A MAZE THAT IS NOT ACTUALLY HARD. The route turns three times and
+ *     every turn is a T-junction where carrying straight on is the mistake, so
+ *     there are real decisions to get wrong -- but the corridor graph is a TREE,
+ *     which means every wrong turn is a guaranteed dead end rather than a
+ *     shortcut, and the wrong turns are mostly short. About 33m, ~16 seconds if
+ *     you walk it straight.
  *
- *  3. THE ARROWS ARE A TRAIL, AND THE TRAIL PANICS. They get lower, bigger,
- *     more frequent and more crooked toward the door, and the last three are
- *     still wet.
+ *  3. THE ARROWS ARE THE SIGNAL, NOT THE DECORATION. There are five, one at
+ *     each turn plus one to start you off and one at the door. The level used to
+ *     carry twenty-seven along a corridor with no decisions in it, where they
+ *     could only ever be scenery. Now the only places you can go wrong are the
+ *     places that are marked, which is simultaneously far fewer arrows and
+ *     impossible to get properly stuck on.
  *
  * Hierarchy note: everything is a direct child of `group`, with no intermediate
  * offset groups. worldRoot sits at the origin and levels never set
  * group.position, so level space IS world space and every collider number is
  * literally the number that placed the mesh. hallwayBasementLevel uses an
  * offset `hallway`/`lab` group and then has to write `LAB_Z + x` by hand in
- * every collider; with 26 colliders here, that is not a mistake worth
- * repeating.
+ * every collider; that is not a mistake worth repeating.
  */
 
-const HALL_W = 3.2;    // 2.2m of walkable width after bodyRadius 0.35 both sides
-const HALL_LEN = 22.0; // ~11s at the player's 2.015 m/s -- an interstitial, not a level
-const HALL_H = 2.35;   // 3.2:2.35 is WIDER than tall. The bedroom is 2.29:1 and the
-                       // Level 2 hallway is 0.89:1 (taller than wide, the house-corridor
-                       // proportion). Squat is the strongest proportional tell of a
-                       // commercial drop-ceiling corridor.
-                       //
-                       // Dropped from 2.45 when the eye height came down 1.70 -> 1.60:
-                       // the corridor was designed around 0.75m of headroom, and keeping
-                       // the ceiling put would have made it feel taller, which is the
-                       // opposite of the intent.
+const CORRIDOR_W = 3.2;  // 2.2m of walkable width after the player's 0.35 body radius
+const HALL_H = 2.35;     // 3.2:2.35 is WIDER than tall. The bedroom is 2.29:1 and the
+                         // Level 2 hallway is 0.89:1 (taller than wide, the house-corridor
+                         // proportion). Squat is the strongest proportional tell of a
+                         // commercial drop-ceiling corridor.
 
-const T = 0.30;        // collider slab thickness, straddling the wall plane
-
-// Bounding box of everything, including the branches -- the floor and ceiling
-// are single planes across all of it, so the branches get both for free. Two
-// oversized quads is cheaper than stitching a plane per branch.
-// Grown west and east for the new branches. The floor and ceiling are single
-// quads sized from these, and beyond them there is no floor at all -- and since
-// nothing sets scene.background, FogExp2 does not fog it, so an overrun reads as
-// a hard-edged black pit rather than a fogged fade.
-//
-// BOX_MIN_X moved by exactly 3.6m = 6 x 0.6m ON PURPOSE. The ceiling texture is
-// a 4x4 grid of 0.6m tiles anchored to BOX_MIN_X, so any shift that is not a
-// whole number of tiles slides the whole T-bar grid and desyncs it from the
-// hand-placed tileHole. BOX_MAX_X has no such constraint -- growing east is free.
-const BOX_MIN_X = -11.5;
-const BOX_MAX_X = 8.0;
-const BOX_MIN_Z = -0.2;
-const BOX_MAX_Z = 22.2;
+const T = 0.30;          // collider slab thickness, straddling the wall plane
 
 /**
- * EVERY wall in the level. Geometry and colliders are both generated from this
- * one table, so they cannot drift -- unlike bedroomLevel and
- * hallwayBasementLevel, where each plane and its AABB are two independent
- * literals that happen to agree. With four branch mouths and an L-bend there
- * are 52 of these, and a single mistyped digit is a hole in the world.
+ * THE MAZE, as corridor rectangles. `[x0, x1, z0, z1]` is the walkable interior.
  *
- * Every run terminates at the OUTER FACE of the perpendicular slab it meets
- * (perpendicular.at +/- T/2), so corners always overlap and can never leave a
- * seam. A seam here does not show black void -- the floor and ceiling span the
- * whole bounding box, so it shows a lit, carpeted room the player can walk into
- * and then straight off the edge of the world.
+ * This is the only thing that describes the layout: the walls, their colliders
+ * and the tide-line are all DERIVED from it by buildWallRuns() below. The level
+ * used to hand-author 52 wall runs and cut each branch mouth as a manually
+ * computed gap in one of them, which is what produced three decals floating in
+ * mid-air last pass and two more the moment the walls moved. With a real maze --
+ * openings on both sides of the route -- that does not scale.
  *
- *   axis 'x' -> a wall standing at x = at, running from z = from to z = to
- *   axis 'z' -> a wall standing at z = at, running from x = from to x = to
+ * TWO RULES:
  *
- * Runs deliberately OVERLAP by ~0.15 at every corner: the collision resolver
- * (PointerLockPlayer.#resolveCollision) runs each box independently, so overlap
- * costs nothing and a 1cm seam would be a hole.
+ *  1. Corridors must genuinely OVERLAP at a junction, by more than the player's
+ *     diameter on both axes. Merely touching is a zero-width seam the player
+ *     cannot walk through.
+ *
+ *  2. The corridor graph must be a TREE -- exactly one junction fewer than there
+ *     are corridors. That is what makes every wrong turn a guaranteed dead end
+ *     rather than a shortcut, and assertCorridorTree() below checks it at boot.
+ *     "No loops" stops being something to remember and becomes something the
+ *     data cannot express.
+ *
+ * The route is NS1 -> EW1 -> NS2 -> EW2: north, west, north, east to the door.
+ * Three turns, each a T-junction where carrying straight on is the mistake.
+ * Measured at 32.6m, about 16 seconds' walk.
  */
-const WALL_RUNS = [
-  // --- main corridor, left wall (x = -1.6): B1, B6, B2 ---
-  { axis: 'x', at: -1.6, from: -0.10, to: 5.20 },
-  { axis: 'x', at: -1.6, from: 7.40, to: 8.40 },
-  { axis: 'x', at: -1.6, from: 10.60, to: 12.40 },
-  { axis: 'x', at: -1.6, from: 14.60, to: 22.10 },
-  // --- main corridor, right wall (x = +1.6): B5, B3, B7, B4 ---
-  { axis: 'x', at: 1.6, from: -0.10, to: 2.40 },
-  { axis: 'x', at: 1.6, from: 4.60, to: 12.40 },
-  { axis: 'x', at: 1.6, from: 14.60, to: 15.40 },
-  { axis: 'x', at: 1.6, from: 17.40, to: 18.40 },
-  { axis: 'x', at: 1.6, from: 20.60, to: 22.10 },
-  // --- the two ends. NEVER break these: the exit door is decorative and the
-  //     sealed entry is a panel, so these walls are what actually contain the
-  //     player at both ends of the corridor. ---
-  { axis: 'z', at: 0.0, from: -1.75, to: 1.75 },
-  { axis: 'z', at: 22.0, from: -1.75, to: 1.75 },
-  // --- B1: 6m deep, pitch dark. Hidden by darkness, not fog. Its south wall is
-  //     split to open B8, a branch hanging off a branch. ---
-  { axis: 'z', at: 5.20, from: -7.75, to: -4.60 },
-  { axis: 'z', at: 5.20, from: -2.80, to: -1.45 },
-  { axis: 'z', at: 7.40, from: -7.75, to: -1.45 },
-  { axis: 'x', at: -7.60, from: 5.05, to: 7.55 },
-  // --- B8 "the nested stub": hangs off B1's own south wall, runs south. ---
-  { axis: 'x', at: -4.60, from: 2.45, to: 5.35 },
-  { axis: 'x', at: -2.80, from: 2.45, to: 5.35 },
-  { axis: 'z', at: 2.60, from: -4.75, to: -2.65 },
-  // --- B2: 4.2m, with a false continuation onto a 0.9m alcove. ---
-  { axis: 'z', at: 12.40, from: -5.95, to: -1.45 },
-  { axis: 'z', at: 14.60, from: -5.95, to: -1.45 },
-  { axis: 'x', at: -5.80, from: 12.25, to: 12.65 },
-  { axis: 'x', at: -5.80, from: 14.35, to: 14.75 },
-  { axis: 'z', at: 12.65, from: -6.85, to: -5.65 },
-  { axis: 'z', at: 14.35, from: -6.85, to: -5.65 },
-  { axis: 'x', at: -6.70, from: 12.50, to: 14.50 },
-  // --- B6 "the snake": west, then SOUTH, then EAST. Three turns, ~39m2, and it
-  //     ends pointing back at a corridor you can no longer see. ---
-  { axis: 'z', at: 8.40, from: -8.30, to: -1.45 },
-  { axis: 'z', at: 10.60, from: -10.65, to: -1.45 },
-  { axis: 'x', at: -10.50, from: 1.85, to: 10.75 },
-  { axis: 'x', at: -8.30, from: 4.20, to: 8.55 },
-  { axis: 'z', at: 2.00, from: -10.65, to: -5.85 },
-  { axis: 'z', at: 4.20, from: -8.45, to: -5.85 },
-  { axis: 'x', at: -6.00, from: 1.85, to: 4.35 },
-  // --- B3: a 3m stub that BENDS, running 3.2m back toward the entry. ---
-  { axis: 'z', at: 12.40, from: 1.45, to: 2.40 },
-  { axis: 'z', at: 14.60, from: 1.45, to: 4.75 },
-  { axis: 'x', at: 4.60, from: 9.05, to: 14.75 },
-  { axis: 'x', at: 2.40, from: 9.05, to: 12.55 },
-  { axis: 'z', at: 9.20, from: 2.25, to: 4.75 },
-  // --- B5 "the fork": a stem east into a north-south cross bar whose BOTH ends
-  //     dead-end. The first branch that makes you choose, and punishes either. ---
-  { axis: 'z', at: 2.40, from: 1.45, to: 3.95 },
-  { axis: 'z', at: 4.60, from: 1.45, to: 3.95 },
-  { axis: 'x', at: 3.80, from: 0.25, to: 2.55 },
-  { axis: 'x', at: 3.80, from: 4.45, to: 7.75 },
-  { axis: 'x', at: 6.00, from: 0.25, to: 7.75 },
-  { axis: 'z', at: 0.40, from: 3.65, to: 6.15 },
-  { axis: 'z', at: 7.60, from: 3.65, to: 6.15 },
-  // --- B7 "the long hook": east, then north, running parallel to B4 with a
-  //     sealed void between them so the two dead ends never connect. ---
-  { axis: 'z', at: 15.40, from: 1.45, to: 7.65 },
-  { axis: 'z', at: 17.40, from: 1.45, to: 5.30 },
-  { axis: 'x', at: 7.50, from: 15.25, to: 20.75 },
-  { axis: 'x', at: 5.30, from: 17.25, to: 20.75 },
-  { axis: 'z', at: 20.60, from: 5.15, to: 7.65 },
-  // --- B4: shallow and dark, with a floor arrow inside pointing back out. ---
-  { axis: 'z', at: 18.40, from: 1.45, to: 4.35 },
-  { axis: 'z', at: 20.60, from: 1.45, to: 4.35 },
-  { axis: 'x', at: 4.20, from: 18.25, to: 20.75 }
-];
+const CORRIDORS = {
+  NS1: [-1.6, 1.6, 0.0, 9.6],      // the spine, north from the sealed entry
+  EW1: [-13.6, 8.0, 6.4, 9.6],     // TURN 1 -- route goes WEST; east is the long decoy
+  NS2: [-10.4, -7.2, 6.4, 22.0],   // TURN 2 -- route goes NORTH; north past the turn decoys
+  EW2: [-10.4, 2.4, 15.2, 18.4],   // TURN 3 -- route goes EAST, to the door
+  sA: [0.6, 4.4, 2.0, 4.4],        // short stubs. They exist to make the maze look busier
+  sB: [4.8, 7.6, 2.4, 7.4],        // than it is -- every one is visibly a dead end from
+  sC: [-13.2, -9.4, 11.6, 14.0],   // its own mouth, so none of them costs real time.
+  sD: [-3.6, -0.8, 17.4, 21.0]
+};
+
+/** The corridors the correct route passes through, in order. */
+const ROUTE = ['NS1', 'EW1', 'NS2', 'EW2'];
+
+// Bounding box for the floor and ceiling quads. Beyond them there is no floor at
+// all, and since nothing sets scene.background FogExp2 does not fog the void --
+// an overrun reads as a hard-edged black pit rather than a fade.
+//
+// BOTH MINIMUMS move in whole multiples of 0.6m, and that is not optional: the
+// ceiling texture is a 4x4 grid of 0.6m tiles whose UV origin is anchored at
+// (BOX_MIN_X, BOX_MIN_Z), so any other shift slides the entire T-bar grid.
+// (The old comment claimed only BOX_MIN_X carried this constraint. It does not.)
+// The maximums only change the repeat count and both textures wrap, so growing
+// north or east is free.
+const BOX_MIN_X = -15.1;   // was -11.5, moved by 3.6 = 6 x 0.6
+const BOX_MAX_X = 9.0;
+const BOX_MIN_Z = -1.4;    // was -0.2, moved by 1.2 = 2 x 0.6
+const BOX_MAX_Z = 23.0;
+
+/**
+ * Every wall in the level, derived as the boundary of the corridor union.
+ *
+ * Sweeps a 10cm grid, marks a wall wherever an inside cell meets an outside one,
+ * merges collinear cells into runs, then pads each run by T/2 at both ends so
+ * corners always overlap. That padding is load-bearing: the collision resolver
+ * tests each AABB independently, so overlap costs nothing and a 1cm seam is a
+ * hole -- and a hole here does not show black void, it shows the lit carpeted
+ * room next door, which the player can walk into and then straight off the edge
+ * of the world.
+ */
+function buildWallRuns() {
+  const G = 0.10;
+  const rects = Object.values(CORRIDORS);
+  const minX = Math.min(...rects.map((r) => r[0])) - 1;
+  const maxX = Math.max(...rects.map((r) => r[1])) + 1;
+  const minZ = Math.min(...rects.map((r) => r[2])) - 1;
+  const maxZ = Math.max(...rects.map((r) => r[3])) + 1;
+  const nx = Math.round((maxX - minX) / G);
+  const nz = Math.round((maxZ - minZ) / G);
+
+  const inside = new Uint8Array(nx * nz);
+  for (let i = 0; i < nx; i++) {
+    for (let j = 0; j < nz; j++) {
+      const x = minX + (i + 0.5) * G;
+      const z = minZ + (j + 0.5) * G;
+      if (rects.some(([a, b, c, d]) => x > a && x < b && z > c && z < d)) inside[j * nx + i] = 1;
+    }
+  }
+
+  const snap = (v) => Math.round(v * 100) / 100;
+  const runs = [];
+  // walls standing at constant x, on the boundary between columns i-1 and i
+  for (let i = 1; i < nx; i++) {
+    let start = null;
+    for (let j = 0; j <= nz; j++) {
+      const edge = j < nz && (inside[j * nx + i - 1] ^ inside[j * nx + i]);
+      if (edge && start === null) start = j;
+      else if (!edge && start !== null) {
+        runs.push({ axis: 'x', at: snap(minX + i * G), from: snap(minZ + start * G - T / 2), to: snap(minZ + j * G + T / 2) });
+        start = null;
+      }
+    }
+  }
+  // walls standing at constant z, on the boundary between rows j-1 and j
+  for (let j = 1; j < nz; j++) {
+    let start = null;
+    for (let i = 0; i <= nx; i++) {
+      const edge = i < nx && (inside[(j - 1) * nx + i] ^ inside[j * nx + i]);
+      if (edge && start === null) start = i;
+      else if (!edge && start !== null) {
+        runs.push({ axis: 'z', at: snap(minZ + j * G), from: snap(minX + start * G - T / 2), to: snap(minX + i * G + T / 2) });
+        start = null;
+      }
+    }
+  }
+  return runs;
+}
+
+/**
+ * Fails loudly if the corridors form anything but a tree.
+ *
+ * A tree has exactly one junction fewer than it has corridors. One extra
+ * junction means two corridors meet in a second place, i.e. some "dead end"
+ * quietly loops back to the route and the maze has a shortcut. Cheap to check,
+ * and impossible to spot by eye once there are more than a handful of rectangles.
+ */
+function assertCorridorTree() {
+  const names = Object.keys(CORRIDORS);
+  const R = 0.35;
+  let junctions = 0;
+  for (let i = 0; i < names.length; i++) {
+    for (let j = i + 1; j < names.length; j++) {
+      const a = CORRIDORS[names[i]];
+      const b = CORRIDORS[names[j]];
+      const w = Math.min(a[1], b[1]) - Math.max(a[0], b[0]);
+      const h = Math.min(a[3], b[3]) - Math.max(a[2], b[2]);
+      if (w > 2 * R && h > 2 * R) junctions++;
+    }
+  }
+  if (junctions !== names.length - 1) {
+    console.error('backrooms: ' + names.length + ' corridors but ' + junctions + ' junctions -- '
+      + 'the layout is not a tree, so at least one wrong turn loops back to the route.');
+  }
+}
+assertCorridorTree();
+
+const WALL_RUNS = buildWallRuns();
 
 export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {} } = {}) {
   const group = new THREE.Group();
@@ -304,9 +337,10 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
    * is how real fixtures hang and which turns each pool into a bright BAND on
    * the carpet -- the classic backrooms floor pattern.
    */
-  function addFixture(x, z, { mode, colour, base, dist, decay, emissive, emissiveIntensity }) {
+  function addFixture(x, z, { along = 'x', mode, colour, base, dist, decay, emissive, emissiveIntensity }) {
+    const acrossX = along === 'x';
     const housing = new THREE.Mesh(
-      new THREE.BoxGeometry(1.22, 0.05, 0.62),
+      acrossX ? new THREE.BoxGeometry(1.22, 0.05, 0.62) : new THREE.BoxGeometry(0.62, 0.05, 1.22),
       new THREE.MeshStandardMaterial({ color: 0xd8d2c0, roughness: 0.55 })
     );
     housing.position.set(x, HALL_H - 0.025, z);
@@ -321,9 +355,12 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
       emissive,
       emissiveIntensity
     });
-    [-0.14, 0.14].forEach((dz) => {
-      const tube = new THREE.Mesh(new THREE.BoxGeometry(1.14, 0.035, 0.09), tubeMat);
-      tube.position.set(x, HALL_H - 0.06, z + dz);
+    [-0.14, 0.14].forEach((d) => {
+      const tube = new THREE.Mesh(
+        acrossX ? new THREE.BoxGeometry(1.14, 0.035, 0.09) : new THREE.BoxGeometry(0.09, 0.035, 1.14),
+        tubeMat
+      );
+      tube.position.set(acrossX ? x : x + d, HALL_H - 0.06, acrossX ? z + d : z);
       group.add(tube);
     });
 
@@ -345,21 +382,26 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     });
   }
 
-  // Three living pools at z 5.5 / 13.5 / 21.0, with ~8m dark gaps between them
-  // and a physically-present dead fixture sitting in the middle of each gap.
-  // Traversable with the flashlight (range 9, intensity 2.4), and the pools
-  // read as glowing smears through the fog from ~14m.
-  addFixture(0, 1.5, { mode: 'dying', colour: 0xffd07a, base: 1.5, dist: 8, decay: 1.7, emissive: 0xffdca0, emissiveIntensity: 1.9 });
-  addFixture(0, 5.5, { mode: 'steady', colour: 0xffd98a, base: 1.7, dist: 10, decay: 1.55, emissive: 0xffe9a0, emissiveIntensity: 1.7 });
-  addFixture(0, 9.5, { mode: null, emissive: 0x24221c, emissiveIntensity: 0 });
-  addFixture(0, 13.5, { mode: 'flicker', colour: 0xffd07a, base: 1.6, dist: 10, decay: 1.6, emissive: 0xffe9a0, emissiveIntensity: 1.7 });
-  addFixture(0, 17.5, { mode: null, emissive: 0x24221c, emissiveIntensity: 0 });
-  // The only steady, warm, bright light in the level sits over the exit. The
-  // destination is the one stable thing here -- no EXIT sign needed, the light
-  // does the signage.
-  addFixture(0, 21.0, { mode: 'steady', colour: 0xffe0a4, base: 1.95, dist: 12, decay: 1.5, emissive: 0xfff0c0, emissiveIntensity: 1.9 });
-  // The tease at the back of B2's false continuation.
-  addFixture(-6.25, 13.5, { mode: 'dying', colour: 0xffcf78, base: 0.8, dist: 5, decay: 1.8, emissive: 0xffcf78, emissiveIntensity: 1.2 });
+  // A lit pool at every junction, and darkness between them.
+  //
+  // The turns are the only places the player can go wrong, so they are the only
+  // places that get light -- you arrive at a decision already able to see it.
+  // The stretches between are dark, which is what makes a wrong turn read as
+  // wrong before you have walked it, and the decoys get no fixture at all.
+  //
+  // `along` is the axis the fixture's housing runs across: an east-west corridor
+  // needs the tube turned 90 degrees or it lies ALONG the corridor instead of
+  // banding across it, and the band on the carpet is the whole backrooms look.
+  addFixture(0, 2.0, { along: 'x', mode: 'dying', colour: 0xffd07a, base: 1.5, dist: 8, decay: 1.7, emissive: 0xffdca0, emissiveIntensity: 1.9 });
+  addFixture(0, 8.0, { along: 'x', mode: 'steady', colour: 0xffd98a, base: 1.7, dist: 10, decay: 1.55, emissive: 0xffe9a0, emissiveIntensity: 1.7 });   // TURN 1
+  addFixture(-4.0, 8.0, { along: 'z', mode: null, emissive: 0x24221c, emissiveIntensity: 0 });
+  addFixture(-8.8, 8.0, { along: 'x', mode: 'flicker', colour: 0xffd07a, base: 1.6, dist: 10, decay: 1.6, emissive: 0xffe9a0, emissiveIntensity: 1.7 }); // TURN 2
+  addFixture(-8.8, 13.0, { along: 'x', mode: null, emissive: 0x24221c, emissiveIntensity: 0 });
+  addFixture(-8.8, 16.8, { along: 'x', mode: 'steady', colour: 0xffe0a4, base: 1.7, dist: 10, decay: 1.55, emissive: 0xffe9a0, emissiveIntensity: 1.7 }); // TURN 3
+  addFixture(-2.0, 16.8, { along: 'z', mode: null, emissive: 0x24221c, emissiveIntensity: 0 });
+  // The only bright steady light in the level sits over the exit. The
+  // destination is the one stable thing here -- the light does the signage.
+  addFixture(1.4, 16.8, { along: 'z', mode: 'steady', colour: 0xffe0a4, base: 1.95, dist: 12, decay: 1.5, emissive: 0xfff0c0, emissiveIntensity: 1.9 });
 
   // ---------- blood arrows ----------
   // Three dry + three wet variants per direction, built once and cycled.
@@ -430,6 +472,18 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     warnIfFloating('blood arrow', x, y, z, rotY);
     const localX = [Math.cos(rotY), -Math.sin(rotY)];
     const dot = point[0] * localX[0] + point[1] * localX[1];
+    // A wall arrow can ONLY point along the wall, because the art runs along the
+    // plane's local +X and the plane is flat against the wall. So a wall at
+    // rotY 0 or PI (facing +/-Z) can express east and west and nothing else, and
+    // a wall at +/-PI/2 can express north and south and nothing else. Asking for
+    // a perpendicular direction does not fail -- `dir` just rounds to +/-1 and
+    // you silently get an arrow pointing 90 degrees away from where you meant.
+    // Use a floor arrow there instead; it has no such constraint.
+    if (Math.abs(dot) < 0.7) {
+      console.warn('backrooms: blood arrow at (' + x + ', ' + y + ', ' + z + ') asks to point ['
+        + point + '] but the wall it is on can only point along [' + localX.map((v) => v.toFixed(0))
+        + ']. It will point the wrong way -- use addFloorArrow for this direction.');
+    }
     const dir = dot >= 0 ? 1 : -1;
     const maps = pickVariant(dir, wet);
     const a = new THREE.Mesh(
@@ -485,60 +539,22 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     arrows.push(a);
   }
 
-  const L = -1.6;  // left wall x
-  const R = 1.6;   // right wall x
-  const LROT = Math.PI / 2;
-  const RROT = -Math.PI / 2;
-
-  // Zone 1 -- sparse, neat, eye height. Whoever drew these was still upright.
-  addBloodArrow(L, 1.50, 1.0, LROT, 0.50);
-  // 5.2, not 4.4: opening B5's mouth (right wall now absent 2.40-4.60) left
-  // this one hanging over the gap. Caught by warnIfFloating, not by eye.
-  addBloodArrow(R, 1.52, 5.2, RROT, 0.50);
-  // 7.9, not 6.8: 6.8 sat inside B1's mouth (the left wall is absent from
-  // 5.20 to 7.40), so this arrow used to hang in mid-air over the opening.
-  addBloodArrow(L, 1.45, 7.9, LROT, 0.55, { roll: 0.04 });
-
-  // Zone 2 -- the cross-junction. The beat: they went the wrong way, came back.
-  addBloodArrow(R, 1.42, 9.2, RROT, 0.60);
-  addBloodArrow(L, 1.35, 11.6, LROT, 0.60, { roll: 0.07 });
-  addFloorArrow(-2.5, 13.5, -Math.PI / 2, 0.7);              // into B2 -- the mistake
-  addFloorArrow(-4.1, 13.5, Math.PI / 2, 0.8);               // 1.6m deeper, pointing back out
-  // On B2's own side wall (rotY 0, so it faces +Z): points back out along
-  // +X toward the branch mouth, not down the corridor.
-  addBloodArrow(-4.1, 1.15, 12.4, 0, 0.6, { point: [1, 0], roll: 0.2 });
-  addBloodArrow(L, 1.30, 14.9, LROT, 0.65);
-  addBloodArrow(R, 1.25, 15.4, RROT, 0.65, { roll: -0.09 });
-
-  // Zone 3 -- frantic. Lower, doubled up, crooked, then wet.
-  addBloodArrow(L, 1.08, 16.8, LROT, 0.72, { roll: 0.14 });
-  addBloodArrow(L, 1.58, 17.5, LROT, 0.48, { roll: -0.05 });
-  // 17.8, not 19.0: 19.0 sat inside B4's mouth (right wall absent 18.40-20.60).
-  addBloodArrow(R, 0.98, 17.8, RROT, 0.78, { roll: -0.19 });
-  addBloodArrow(L, 1.30, 20.4, LROT, 0.72, { roll: 0.11, wet: true });
-  addBloodArrow(R, 1.15, 21.2, RROT, 0.72, { roll: -0.13, wet: true });
-  addFloorArrow(0.3, 18.4, 0, 0.9);
-  addFloorArrow(2.9, 19.5, -Math.PI / 2, 0.7);               // inside B4: not this way
-  addFloorArrow(0.0, 21.1, 0, 1.0, { wet: true });           // straight at the door
-
-  // --- the new branches ---
-  // Appended deliberately after the corridor trail: pickVariant cycles one
-  // shared counter, so inserting these earlier would reshuffle which blood
-  // variant every established arrow gets.
+  // FIVE arrows, where there used to be twenty-seven.
   //
-  // Every one of these points BACK OUT. The trail in the corridor is someone
-  // finding the door; these are the same person finding out a branch was wrong,
-  // and they are the only reason a dead end reads as a mistake someone already
-  // made rather than as level furniture.
-  addBloodArrow(6.00, 1.30, 6.8, RROT, 0.60, { point: [0, -1], roll: 0.12 });   // B5 north prong
-  addFloorArrow(4.9, 6.9, Math.PI, 0.7);                                        // B5 north prong
-  addFloorArrow(4.9, 1.1, 0, 0.7);                                              // B5 south prong
-  addBloodArrow(-10.50, 1.25, 5.5, LROT, 0.62, { point: [0, 1], roll: -0.15 }); // B6 leg B
-  addFloorArrow(-6.6, 3.1, -Math.PI / 2, 0.7);                                  // B6 leg C
-  addBloodArrow(5.30, 1.35, 19.5, LROT, 0.60, { point: [0, -1], roll: 0.10 });  // B7 leg B
-  addFloorArrow(6.4, 19.8, Math.PI, 0.7);                                       // B7 leg B
-  addBloodArrow(-2.80, 1.20, 3.4, RROT, 0.55, { point: [0, 1], roll: 0.18 });   // B8
-  addFloorArrow(-3.7, 3.2, 0, 0.7);                                             // B8
+  // The old trail lined a straight corridor you could not possibly get lost in,
+  // so every arrow was decoration. Now there is exactly one at each place the
+  // route turns, plus one to start you off and one at the door -- which is both
+  // far fewer arrows AND impossible to get properly stuck on, because the only
+  // places you can make a mistake are the places that are marked.
+  //
+  // `point` is passed explicitly on every one. Its default is [0, 1], documented
+  // as "toward the exit", which was true when the exit was always +Z; on a maze
+  // with east-west legs that default is silently WRONG rather than merely absent.
+  addBloodArrow(-1.6, 1.42, 2.5, Math.PI / 2, 0.55, { point: [0, 1], roll: 0.04 });        // go north
+  addBloodArrow(0, 1.38, 9.6, Math.PI, 0.62, { point: [-1, 0], roll: -0.06 });             // TURN 1: west
+  addFloorArrow(-8.8, 7.6, 0, 0.85);                                                       // TURN 2: north
+  addBloodArrow(-6.8, 1.30, 15.2, 0, 0.7, { point: [1, 0], roll: -0.12, wet: true });       // TURN 3: east
+  addFloorArrow(1.2, 16.8, Math.PI / 2, 1.0, { wet: true });                               // at the door
 
   // ---------- the exit door ----------
   let opened = false;
@@ -557,12 +573,13 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
   const furnitureWoodNormal = createFurnitureWoodNormalTexture();
 
   const doorFrame = new THREE.Group();
-  doorFrame.position.set(0, 0, HALL_LEN - 0.06);
+  doorFrame.position.set(2.34, 0, 16.8);
   // door.glb is authored facing +Z: blender/build_door.py puts the knob at
-  // Blender y = -0.035, and the glTF Y-up conversion lands that at +Z. So the
-  // frame turns 180 degrees for its knob face to look back down the corridor at
-  // the player, and its 0.06m frame depth then runs into the end wall.
-  doorFrame.rotation.y = Math.PI;
+  // Blender y = -0.035, and the glTF Y-up conversion lands that at +Z. The door
+  // now sits at the EAST end of EW2, so it turns -90 degrees for its knob face
+  // to look back west down the corridor at the approaching player, and its 0.06m
+  // frame depth runs into the end wall behind it.
+  doorFrame.rotation.y = -Math.PI / 2;
   group.add(doorFrame);
 
   const doorHinge = new THREE.Object3D();
@@ -764,18 +781,16 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
   // 19.3, not 8.6: opening B6's mouth (left wall now absent 8.40-10.60) left
   // this one floating too. Moved rather than nudged, so it is not crowding
   // the blood arrow that already sits on the short 7.40-8.40 stub.
-  addPeeling(L, 1.78, 19.3, LROT, 0.85);
-  addPeeling(R, 1.25, 10.4, RROT, 0.7);
-  addPeeling(L, 1.90, 16.2, LROT, 0.8);
-  addPeeling(R, 1.62, 17.9, RROT, 0.6);
-  // 11.9, not 12.9: 12.9 sat inside B2's mouth (left wall absent 12.40-14.60).
-  addPeeling(-1.6, 1.05, 11.9, LROT, 0.55);
-  // New branches. rotY points along the wall's OUTWARD normal, i.e. into the
-  // walkable side -- get the sign wrong and the flap is buried inside the wall,
-  // and the DoubleSide wall material means there is no backwards-plane tell.
-  addPeeling(-7.0, 1.60, 10.60, Math.PI, 0.80);        // B6 leg A, north wall
-  addPeeling(6.00, 1.70, 5.20, RROT, 0.75);            // B5 cross bar, east wall
-  addPeeling(5.5, 1.50, 15.40, 0, 0.70);               // B7 leg A, south wall
+  // rotY points along the wall's OUTWARD normal, i.e. into the walkable side.
+  // Get the sign wrong and the flap is buried inside the wall, and because the
+  // wall material is DoubleSide there is no backwards-plane tell -- it simply
+  // vanishes. warnIfFloating catches the wrong WALL; only care catches the wrong
+  // FACE.
+  addPeeling(-1.6, 1.60, 4.2, Math.PI / 2, 0.80);      // NS1 west wall
+  addPeeling(1.6, 1.30, 5.2, -Math.PI / 2, 0.70);      // NS1 east wall
+  addPeeling(-5.0, 1.80, 9.6, Math.PI, 0.80);          // EW1 north wall
+  addPeeling(-10.4, 1.55, 19.5, Math.PI / 2, 0.75);    // NS2 west wall
+  addPeeling(-3.0, 1.45, 15.2, 0, 0.70);               // EW2 south wall
 
   // Cobwebs ONLY in the dead-end branches. Webs mean undisturbed; their absence
   // in the main corridor means traffic. That is the trail's whole backstory,
@@ -799,30 +814,29 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     web.rotation.set(tiltX, rotY, tiltZ);
     group.add(web);
   }
-  addCobweb(-7.5, HALL_H - 0.15, 5.35, Math.PI / 4);
-  addCobweb(-7.5, HALL_H - 0.15, 7.25, -Math.PI / 4, -0.3, -0.3);
-  addCobweb(4.5, HALL_H - 0.15, 9.35, Math.PI / 4);
-  addCobweb(-6.6, HALL_H - 0.18, 13.5, Math.PI / 4, -0.3, -0.3);
-  // The new dead ends. Still nothing in the main corridor -- webs mean
-  // undisturbed, so their absence along the route is what says the trail is the
-  // trafficked way through.
-  addCobweb(5.9, HALL_H - 0.15, 7.45, -Math.PI / 4, -0.3, -0.3);   // B5 north prong
-  addCobweb(5.9, HALL_H - 0.15, 0.55, Math.PI / 4);                // B5 south prong
-  addCobweb(-6.1, HALL_H - 0.15, 4.05, -Math.PI / 4, -0.3, -0.3);  // B6 leg C
-  addCobweb(-10.4, HALL_H - 0.15, 2.15, Math.PI / 4);              // B6 leg B corner
-  addCobweb(7.4, HALL_H - 0.15, 20.45, -Math.PI / 4, -0.3, -0.3);  // B7 leg B
-  addCobweb(-4.5, HALL_H - 0.15, 2.75, Math.PI / 4);               // B8
+  addCobweb(7.85, HALL_H - 0.15, 9.45, -Math.PI / 4, -0.3, -0.3);  // EW1 east dead end
+  addCobweb(7.85, HALL_H - 0.15, 6.55, Math.PI / 4);               // EW1 east dead end
+  addCobweb(-13.45, HALL_H - 0.15, 9.45, -Math.PI / 4, -0.3, -0.3);// EW1 west dead end
+  addCobweb(-10.25, HALL_H - 0.15, 21.85, Math.PI / 4);            // NS2 north dead end
+  addCobweb(-7.35, HALL_H - 0.15, 21.85, -Math.PI / 4, -0.3, -0.3);// NS2 north dead end
+  addCobweb(4.25, HALL_H - 0.15, 4.25, -Math.PI / 4, -0.3, -0.3);  // sA
+  addCobweb(7.45, HALL_H - 0.15, 2.55, Math.PI / 4);               // sB
+  addCobweb(-13.05, HALL_H - 0.15, 13.85, -Math.PI / 4, -0.3, -0.3);// sC
+  addCobweb(-3.45, HALL_H - 0.15, 20.85, Math.PI / 4);             // sD
 
   // Dead flies under the living fixtures -- the single most fluorescent-lit
   // detail there is, and nothing else in this game has it.
   const flyGeo = new THREE.IcosahedronGeometry(0.008, 0);
   const flyMat = new THREE.MeshStandardMaterial({ color: 0x14120c, roughness: 0.6 });
-  [1.5, 5.5, 13.5, 21.0].forEach((z) => {
+  // Under the LIVING fixtures only, and now taking an (x, z) pair -- the old
+  // loop took a z list and hardcoded x = 0, which only worked while every
+  // fixture sat on one straight centreline.
+  [[0, 2.0], [0, 8.0], [-8.8, 8.0], [-8.8, 16.8], [1.4, 16.8]].forEach(([fx, fz]) => {
     for (let i = 0; i < 6; i++) {
       const fly = new THREE.Mesh(flyGeo, flyMat);
       const a = Math.random() * Math.PI * 2;
       const d = Math.random() * 0.45;
-      fly.position.set(Math.cos(a) * d, 0.008, z + Math.sin(a) * d);
+      fly.position.set(fx + Math.cos(a) * d, 0.008, fz + Math.sin(a) * d);
       group.add(fly);
     }
   });
@@ -836,7 +850,7 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
       map: tiled(ceilTex, 0.25, 0.25), roughness: 0.9
     })
   );
-  fallenTile.position.set(0.42, 0.011, 9.35);
+  fallenTile.position.set(-4.35, 0.011, 7.6);
   fallenTile.rotation.y = 0.6;
   fallenTile.rotation.z = 0.04;
   group.add(fallenTile);
@@ -846,7 +860,7 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     new THREE.MeshBasicMaterial({ color: 0x050403 })
   );
   tileHole.rotation.x = Math.PI / 2;
-  tileHole.position.set(0, HALL_H - 0.01, 9.5);
+  tileHole.position.set(-4.0, HALL_H - 0.01, 8.0);
   group.add(tileHole);
 
   // Water pooled on the carpet. Zero new textures -- under a moving flashlight
@@ -865,7 +879,7 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     opacity: 0.55,
     depthWrite: false
   });
-  [[0.2, 5.6, 1.0, 0.7], [-0.5, 9.9, 1.3, 0.8], [0.6, 17.2, 0.9, 1.2]].forEach(([x, z, sx, sz]) => {
+  [[0.2, 3.5, 1.0, 0.7], [-5.6, 8.6, 1.3, 0.8], [-8.8, 12.2, 0.9, 1.2], [-3.4, 17.4, 1.1, 0.8]].forEach(([x, z, sx, sz]) => {
     const pool = new THREE.Mesh(new THREE.CircleGeometry(0.5, 20), puddleMat);
     pool.rotation.x = -Math.PI / 2;
     pool.position.set(x, 0.012, z);

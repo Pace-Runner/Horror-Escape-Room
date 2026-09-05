@@ -62,7 +62,78 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 // (Three's default, no tone mapping) and fixed the actual light energy
 // per level instead -- see each level file.
 
+/**
+ * A dim environment, so metal has something to reflect.
+ *
+ * Every metallic material in this project was rendering far darker than
+ * intended -- 23 of them, from the handcuff chain and the brass doorknob to the
+ * study's "one uncracked mirror" at metalness 1.0 -- because a
+ * MeshStandardMaterial sends roughly `metalness` of its response to a
+ * reflection, and there was no environment anywhere to reflect. The same bug
+ * turned the corridor's puddles into black holes and its exit door into a black
+ * rectangle before it was caught there.
+ *
+ * Deliberately NOT three's RoomEnvironment, which ships with the library: it is
+ * a bright neutral studio and would flatten a game whose per-level light energy
+ * was measured and tuned by hand, and whose author already rejected ACES tone
+ * mapping for making rooms darker (see the note above the renderer).
+ *
+ * Built instead from a tiny procedural gradient -- warm and dim above, near
+ * black below, like an unlit room with one weak bulb in it. That also keeps the
+ * project's stated invariant that every texture is generated at runtime with no
+ * image assets, which the credits screen asserts.
+ */
+function buildDimEnvironment(rendererRef) {
+  // 2:1 LANDSCAPE, and that ratio is not cosmetic. An equirectangular map puts
+  // longitude across the width and latitude down the height, so it must be
+  // twice as wide as it is tall. Built portrait first (16x64) and PMREM
+  // produced a degenerate 336x16 atlas that contributed literally nothing --
+  // a pure white environment at intensity 1 left a mirrored sphere at 0
+  // luminance. Measured, not guessed.
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 128;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 0, c.height);
+  g.addColorStop(0.00, '#2a2418');   // ceiling: the warm bulb bounce
+  g.addColorStop(0.45, '#14131a');   // walls: cold and dim
+  g.addColorStop(1.00, '#050505');   // floor: almost nothing comes back up
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, c.width, c.height);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.mapping = THREE.EquirectangularReflectionMapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+
+  const pmrem = new THREE.PMREMGenerator(rendererRef);
+  const env = pmrem.fromEquirectangular(tex).texture;
+  pmrem.dispose();
+  tex.dispose();
+  return env;
+}
+
 const scene = new THREE.Scene();
+scene.environment = buildDimEnvironment(renderer);
+// Scene-wide multiplier. The environment feeds diffuse image-based lighting as
+// well as metal reflection, so at 1.0 it would lift every surface in the game
+// and undo the per-level tuning. Low enough to give metal its definition back
+// without brightening the rooms -- turn this down first if the mood shifts.
+// Measured in the study, comparing the whole-room mean against the mirror glass
+// (metalness 1.0, the worst-affected surface in the game):
+//
+//   intensity   room brightness   mirror
+//     0.0         baseline          baseline (a flat black rectangle)
+//     0.3          +13%              +200%
+//     0.5          +25%              +350%
+//     1.0          +47%              +690%
+//     3.0         +137%             +1715%
+//
+// The environment feeds diffuse image-based lighting as well as metal
+// reflection, so there is no setting that fixes metal for free -- the room
+// always comes up with it. 0.5 buys most of the metal back while keeping the
+// rooms within the deliberately low exposure the levels were tuned to. Turn it
+// DOWN first if the mood ever feels lifted.
+scene.environmentIntensity = 0.5;
 const worldRoot = new THREE.Group();
 scene.add(worldRoot);
 

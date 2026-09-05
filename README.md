@@ -41,16 +41,15 @@ reasoning behind the scenegraph hierarchy.
   black and you come up in a short, wrong-feeling yellow corridor --
   damp wallpaper, a drop ceiling, mostly-dead fluorescents -- with
   blood-stained arrows pointing you to a door at the far end. Four
-  dead-end side branches sell "this goes on forever" without any
-  teleport trick: one is too dark to see the end of, one opens onto a
-  lit alcove that looks like it keeps going, one bends back on itself,
-  and one is marked with an arrow pointing back out. Four more twist
-  further: a fork whose *both* prongs dead-end, a three-turn snake that
-  leaves you with no idea which way the corridor is, a hook running
-  parallel to another dead end, and a branch hidden inside another
-  branch. Every one of them terminates -- there are no loops and no
-  shortcuts, so the door at the end stays the only way on. The way you
-  came in has wallpaper running straight across it.
+  it is a small maze. The route turns three times, and each turn is a
+  T-junction where carrying straight on is the mistake -- but the
+  corridor graph is a tree, so every wrong turn is a guaranteed dead
+  end rather than a shortcut, and most of them are short enough to see
+  the back wall from the mouth. About 33 m, roughly 16 seconds if you
+  walk it straight. Five blood arrows mark the route: one at each turn,
+  one to start you off and one at the door, and nothing anywhere else --
+  so the only places you can go wrong are the places that are marked.
+  The way you came in has wallpaper running straight across it.
 - First-person WASD + mouse look, pointer-locked, with simple
   wall/furniture collision. The look asks for **raw** mouse input
   (`unadjustedMovement`) so the OS pointer-acceleration curve is not
