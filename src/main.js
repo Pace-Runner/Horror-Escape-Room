@@ -13,6 +13,7 @@ import { createHallwayBasementLevel } from './levels/hallwayBasementLevel.js';
 import { createStudyLevel } from './levels/studyLevel.js';
 import { createBackroomsLevel } from './levels/backroomsLevel.js';
 import { createScreenFade, wait } from './core/ScreenFade.js';
+import { gameState, resetState } from './core/GameState.js';
 import { Hands } from './systems/hands/hands.js';
 import { HELD_MAGNIFICATION } from './systems/hands/sockets.js';
 import { setHandAssetUrl } from './systems/hands/hand-mesh.js';
@@ -651,6 +652,10 @@ function resetGame() {
   // Was bedroom.reset() alone, which left Level 2's breaker flipped and its
   // door still reading "Open the door" across an R.
   sceneManager.resetAll();
+  // Everything the STORY carries across levels -- the visor, the locks, the
+  // tapes, the ending. One call rather than a growing list of hand-resets,
+  // which is the mistake the comment above records.
+  resetState();
   bedroom.refs.bulbLight.intensity = bedroomStorm.bulbBaseIntensity;
   bedroomStorm.bulbBlown = false;
   flashlightFound = false;
