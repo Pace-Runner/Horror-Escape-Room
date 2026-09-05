@@ -129,6 +129,11 @@ export class PointerLockPlayer {
     this._pendingPitch = 0;
     /** Cleared during transitions, so looking freezes without dropping the lock. */
     this.lookEnabled = true;
+    /**
+     * While true, update() returns immediately and the camera is not touched at
+     * all -- for scripted shots. See the note at the top of update().
+     */
+    this.cinematic = false;
 
     window.addEventListener('keydown', (e) => this.#onKey(e, true));
     window.addEventListener('keyup', (e) => this.#onKey(e, false));
@@ -253,6 +258,19 @@ export class PointerLockPlayer {
   }
 
   update(dt) {
+    // Hand the camera over completely.
+    //
+    // movementEnabled = false is NOT enough for a scripted shot: the disabled
+    // branch below still runs #applyEyeHeight() every frame, which writes
+    // position.y unconditionally. Anything a cutscene does to the camera would
+    // be stomped on the very next tick. This returns before any of that, so
+    // while it is set the camera belongs entirely to whoever set it.
+    //
+    // The caller is responsible for handing it back: set cinematic = false and
+    // then spawn(), so the yaw/pitch this class owns agree with wherever the
+    // camera was actually left.
+    if (this.cinematic) return;
+
     this._t += dt;
 
     /**

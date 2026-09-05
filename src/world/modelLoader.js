@@ -9,7 +9,15 @@ export function loadModel(url) {
   return new Promise((resolve, reject) => {
     loader.load(
       url,
-      (gltf) => resolve(gltf.scene),
+      // Resolves the SCENE, not the whole gltf, because every existing call site
+      // wants the scene and nothing else. The clips are attached to it as
+      // `userData.animations` rather than thrown away -- glTF puts animations on
+      // the gltf root, not the scene, so loading a rigged character used to make
+      // its clips unreachable no matter what the .glb contained.
+      (gltf) => {
+        gltf.scene.userData.animations = gltf.animations ?? [];
+        resolve(gltf.scene);
+      },
       undefined,
       (err) => reject(err)
     );
