@@ -16,6 +16,7 @@ import { createScreenFade, wait } from './core/ScreenFade.js';
 import { gameState, resetState } from './core/GameState.js';
 import { CaptionSequencer } from './core/CaptionSequencer.js';
 import { createDocumentUI } from './core/DocumentUI.js';
+import { createPostFX } from './world/Postprocessing.js';
 import { Hands } from './systems/hands/hands.js';
 import { HELD_MAGNIFICATION } from './systems/hands/sockets.js';
 import { setHandAssetUrl } from './systems/hands/hand-mesh.js';
@@ -146,7 +147,16 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  // The composer keeps its own render targets, so resizing the renderer alone
+  // leaves the whole game rendering at the old resolution and stretched.
+  postFX.setSize(window.innerWidth, window.innerHeight);
 });
+
+// ---------- post-processing ----------
+// Everything now draws through this rather than renderer.render(). See
+// world/Postprocessing.js -- in particular why OutputPass and MSAA samples are
+// both load-bearing rather than nice to have.
+const postFX = createPostFX(renderer, scene, camera);
 
 // ---------- player ----------
 const player = new PointerLockPlayer(camera, renderer.domElement);
@@ -562,6 +572,8 @@ function activateLevel(key, { lockMovement = false } = {}) {
   // was mid-sentence keeps talking over the freshly reset room.
   audio.stopVoice();
   documentUI.close();
+  // Snapped rather than eased: a restart should not show the visor fading off.
+  postFX.reset();
   player.movementEnabled = !lockMovement;
   return level;
 }
@@ -855,6 +867,34 @@ player.controls.addEventListener('unlock', () => {
   promptEl.style.display = 'none';
 });
 
+// ---------- dev-only test hook ----------
+//
+// Stripped from production builds: import.meta.env.DEV is a compile-time
+// constant, so this whole block is dead code that Rollup removes.
+//
+// It exists because the level-preview number keys are gated on
+// `player.isLocked`, and a headless browser has no Pointer Lock API at all --
+// so the smoke harness could reach the bedroom and nothing else. That was worse
+// than it sounds: the level-jump assertion in the harness was passing while
+// silently testing the same room four times.
+//
+// Nothing here grants a capability a player does not have with the keyboard.
+if (import.meta.env.DEV) {
+  window.__game = {
+    activateLevel,
+    exitLevel,
+    resetGame,
+    sceneManager,
+    player,
+    postFX,
+    captions,
+    documentUI,
+    audio,
+    gameState,
+    get level() { return sceneManager.activeKey; }
+  };
+}
+
 // ---------- loading screen (procedural world, so this is a short polish beat) ----------
 let progress = 0;
 const loadTimer = setInterval(() => {
@@ -908,7 +948,8 @@ function tick() {
     interaction.update();
   }
 
-  renderer.render(scene, camera);
+  postFX.update(dt);
+  postFX.render();
   requestAnimationFrame(tick);
 }
 
