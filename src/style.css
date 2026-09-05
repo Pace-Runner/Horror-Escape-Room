@@ -506,3 +506,29 @@ html, body {
 .hidden {
   display: none !important;
 }
+
+/* ---------- level-transition fade ---------- */
+/* Never uses the .hidden class above: `display: none !important` outranks any
+   ID selector, which is why the `transition: opacity` on #loading-screen and
+   #start-screen never actually runs. Opacity is set from JS instead --
+   see src/core/ScreenFade.js. */
+#fade-overlay {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  opacity: 0;
+  /* Mandatory: the click that re-acquires pointer lock goes to the canvas
+     underneath, and an overlay that swallows it soft-locks the pause menu. */
+  pointer-events: none;
+  /* Over the HUD (15), caption (18) and crosshair (20) so nothing shows
+     through the black -- but UNDER the pause screen (40), the puzzle modals
+     (55) and the credits (60), so pressing Escape mid-fade shows PAUSED
+     rather than a featureless void. */
+  z-index: 30;
+  transition: opacity 700ms ease;
+  will-change: opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #fade-overlay { transition-duration: 120ms; }
+}

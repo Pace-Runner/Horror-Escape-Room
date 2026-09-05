@@ -25,9 +25,38 @@ const IDLE_RATE = 1.55;
 const BOB_BLEND = 0.16;
 
 /**
- * Crouching. CROUCH_DROP takes the default 1.7 m eye height down to 1.15 m,
- * which is a low crouch rather than a duck - enough that the change in sightline
- * is obvious in a corridor.
+ * MOUSE LOOK.
+ *
+ * This class owns looking outright; PointerLockControls is kept only to manage
+ * the pointer lock itself and to fire the lock/unlock events the pause menu
+ * listens for. Its own handler is neutralised (pointerSpeed 0) because it
+ * rewrites the camera quaternion IMMEDIATELY on every pointermove event, outside
+ * the render loop, with no smoothing and no time basis at all. Rotation then
+ * arrived in event-sized chunks while translation was dt-smoothed, and the two
+ * visibly disagreed whenever frame time jittered - which is what read as the
+ * camera "snapping".
+ *
+ * LOOK_SENSITIVITY is radians of look per raw mouse count. This project used to
+ * run PointerLockControls at pointerSpeed 1.8 against its own 0.002 factor, i.e.
+ * 0.0036 rad/count - a 180 degree turn in about a centimetre of mouse travel.
+ * This is the one number to tune for feel.
+ *
+ * LOOK_SMOOTH_TIME is the smoothing time constant in seconds. It exists to
+ * absorb uneven mouse-event delivery between frames, so it only needs to be on
+ * the order of a frame: at 0.022 a flick is 90% applied in about 50ms (~3 frames
+ * at 60Hz), which reads as smooth without feeling like the view is lagging the
+ * hand. Raising it smooths more and adds aim latency; 0.05 is about where that
+ * latency starts to be felt.
+ */
+const LOOK_SENSITIVITY = 0.0023;
+const LOOK_SMOOTH_TIME = 0.022;
+/** Just shy of straight up/down, so the view can never flip through the pole. */
+const PITCH_LIMIT = Math.PI / 2 - 0.001;
+
+/**
+ * Crouching. CROUCH_DROP takes the 1.6 m eye height down to 1.05 m, which is a
+ * low crouch rather than a duck - enough that the change in sightline is obvious
+ * in a corridor.
  *
  * Held, not toggled: this is a horror game and holding a key is a small ongoing
  * cost that suits hiding. A toggle is kinder on the hand but makes it easy to
@@ -45,10 +74,15 @@ const CROUCH_BLEND = 0.12;
 // simple axis-aligned box collision, so the player can walk through each
 // room without clipping through the walls and furniture that define it.
 export class PointerLockPlayer {
-  constructor(camera, domElement, eyeHeight = 1.7) {
+  constructor(camera, domElement, eyeHeight = 1.6) {
     this.camera = camera;
     this.controls = new PointerLockControls(camera, domElement);
-    this.controls.pointerSpeed = 1.8; // default (1.0) reads as sluggish for this game's pace
+    // Neutralised, not tuned: this class applies the look itself in update(),
+    // smoothed and on the frame clock. Leaving the library's handler live at any
+    // non-zero speed would fight it. Its euler round-trip at 0 is the identity
+    // for a camera with no roll, so it costs nothing to leave connected -- and
+    // leaving it connected is what keeps its lock/unlock events working.
+    this.controls.pointerSpeed = 0;
     this.eyeHeight = eyeHeight;
     // 3.1 originally. 0.65 of that: the rooms are small and the original pace
     // crossed them fast enough to undercut the tension.
@@ -75,12 +109,35 @@ export class PointerLockPlayer {
     this.crouch = 0;
     this.lookDeltaX = 0;
     this.lookDeltaY = 0;
-    this._lookYaw = 0;
-    this._lookPitch = 0;
     this._t = 0;
+
+    /**
+     * The camera's orientation, owned here as yaw/pitch rather than read back
+     * out of the quaternion.
+     *
+     * The old code recovered lookDeltaX/Y by differencing the quaternion against
+     * a cached yaw/pitch that nothing reset when the camera was teleported, so
+     * the first frame in a new level reported a bogus delta of up to pi radians.
+     * That fed the hands' sway spring as an impulse and whipped the on-screen
+     * torch. Holding the angles as the source of truth and DERIVING the
+     * quaternion from them makes that class of disagreement impossible.
+     */
+    this._yaw = 0;
+    this._pitch = 0;
+    /** Raw mouse counts received but not yet applied. Drained in update(). */
+    this._pendingYaw = 0;
+    this._pendingPitch = 0;
+    /** Cleared during transitions, so looking freezes without dropping the lock. */
+    this.lookEnabled = true;
 
     window.addEventListener('keydown', (e) => this.#onKey(e, true));
     window.addEventListener('keyup', (e) => this.#onKey(e, false));
+    // Accumulate only; the camera is written once a frame in update().
+    domElement.ownerDocument.addEventListener('pointermove', (e) => {
+      if (!this.isLocked || !this.lookEnabled) return;
+      this._pendingYaw += e.movementX || 0;
+      this._pendingPitch += e.movementY || 0;
+    });
   }
 
   #onKey(e, isDown) {
@@ -99,8 +156,37 @@ export class PointerLockPlayer {
     return this.controls.object;
   }
 
+  /**
+   * Takes the pointer lock, asking for RAW mouse deltas.
+   *
+   * Deliberately not controls.lock(), which calls requestPointerLock() with no
+   * options at all. Without `unadjustedMovement` the browser hands over deltas
+   * that have already been through the OS pointer-acceleration curve, and
+   * "Enhance pointer precision" is on by default on Windows - so fast flicks
+   * come through disproportionately large and slow moves disproportionately
+   * small. That inconsistency is the biggest single cause of the look feeling
+   * snappy, and it is not correctable by any sensitivity value.
+   *
+   * Safe to bypass the library here: its pointerlockchange handler only checks
+   * WHICH element holds the lock, so isLocked and the lock/unlock events that
+   * drive the pause menu still behave exactly as before.
+   */
   lock() {
-    this.controls.lock();
+    const el = this.controls.domElement;
+    let req;
+    try {
+      req = el.requestPointerLock({ unadjustedMovement: true });
+    } catch {
+      // Older signature: throws rather than returning a rejected promise.
+      el.requestPointerLock();
+      return;
+    }
+    // Chromium returns a promise and rejects with NotSupportedError where raw
+    // input is unavailable (some Linux/X11 setups); Firefox/Safari return
+    // undefined and ignore the option. Fall back to a plain lock either way.
+    if (req && typeof req.catch === 'function') {
+      req.catch(() => el.requestPointerLock());
+    }
   }
 
   unlock() {
@@ -111,10 +197,34 @@ export class PointerLockPlayer {
     return this.controls.isLocked;
   }
 
-  // Eye height is fixed by the controller (no crouch/jump in this world),
-  // so spawn points only ever need an X/Z position.
+  /**
+   * Put the player somewhere, facing somewhere. The ONE way the camera is moved.
+   *
+   * SceneManager used to teleport and then reach in and write
+   * `player.controls.object.rotation` itself, which both bypassed the look state
+   * this class owns and silently zeroed pitch. Funnelling it through here keeps
+   * the angles and the quaternion in agreement, and clearing the accumulator
+   * means no half-applied mouse movement survives the jump.
+   */
+  spawn(x, z, yaw = 0, pitch = 0) {
+    this.object.position.set(x, this.eyeHeight, z);
+    this._yaw = yaw;
+    this._pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch));
+    this._pendingYaw = 0;
+    this._pendingPitch = 0;
+    this.lookDeltaX = 0;
+    this.lookDeltaY = 0;
+    this.#applyLook();
+  }
+
+  /** Kept for callers that only want to move without re-aiming. */
   teleport(x, z) {
     this.object.position.set(x, this.eyeHeight, z);
+  }
+
+  #applyLook() {
+    LOOK.set(this._pitch, this._yaw, 0, 'YXZ');
+    this.camera.quaternion.setFromEuler(LOOK);
   }
 
   // Colliders are simple { minX, maxX, minZ, maxZ } boxes in world space
@@ -146,29 +256,43 @@ export class PointerLockPlayer {
     this._t += dt;
 
     /**
-     * Look delta, derived from the camera's own orientation rather than from
-     * mouse events. PointerLockControls does not expose its deltas, and reading
-     * the result means anything else that turns the view is picked up too. YXZ
-     * order so yaw and pitch come out separated.
+     * Apply the mouse movement banked since the last frame.
+     *
+     * An exponential DRAIN, not an averaging lowpass: every count that came in
+     * is eventually applied in full, so aim stays exactly 1:1 with the mouse and
+     * a sweep out and back returns you to the same heading. A filter that
+     * averaged would quietly eat input and make the view feel like it was
+     * fighting you. 1 - exp(-dt/tau) makes the rate frame-rate independent, so
+     * 144Hz and 60Hz feel identical rather than the faster one feeling snappier.
+     *
+     * lookDeltaX/Y are now exactly what was applied here, so the hands' sway
+     * layer can never be handed a spike from something else moving the camera.
      */
-    LOOK.setFromQuaternion(this.camera.quaternion);
-    let dYaw = LOOK.y - this._lookYaw;
-    // Shortest way round, so crossing the +/-pi seam does not register as a
-    // full-circle whip and fling the hands.
-    if (dYaw > Math.PI) dYaw -= Math.PI * 2;
-    else if (dYaw < -Math.PI) dYaw += Math.PI * 2;
-    this.lookDeltaX = dYaw;
-    this.lookDeltaY = LOOK.x - this._lookPitch;
-    this._lookYaw = LOOK.y;
-    this._lookPitch = LOOK.x;
+    const drain = 1 - Math.exp(-dt / LOOK_SMOOTH_TIME);
+    const dYaw = this._pendingYaw * drain;
+    const dPitch = this._pendingPitch * drain;
+    this._pendingYaw -= dYaw;
+    this._pendingPitch -= dPitch;
+
+    this.lookDeltaX = -dYaw * LOOK_SENSITIVITY;
+    this.lookDeltaY = -dPitch * LOOK_SENSITIVITY;
+    if (dYaw !== 0 || dPitch !== 0) {
+      this._yaw += this.lookDeltaX;
+      this._pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this._pitch + this.lookDeltaY));
+      this.#applyLook();
+    }
 
     if (!this.isLocked || !this.movementEnabled) {
       // Still settle the bob out and keep breathing, so pausing does not leave
-      // the view frozen mid-step. The crouch stands back up for the same reason:
-      // the scripted beats that clear movementEnabled (chained to the bed) have
-      // no business leaving the player stuck in a crouch they cannot exit.
+      // the view frozen mid-step.
       this.moving += (0 - this.moving) * Math.min(1, dt / BOB_BLEND);
-      this.crouch += (0 - this.crouch) * Math.min(1, dt / CROUCH_BLEND);
+      // The crouch is HELD here, not decayed. It used to ease back to standing,
+      // which meant a transition -- which clears movementEnabled 700ms before
+      // the screen is actually black -- stood the camera up 0.55m in plain
+      // sight, and dropped it again after the fade-in if Ctrl was still held.
+      // Two 55cm camera moves per doorway. The scripted beat that clears
+      // movementEnabled (chained to the bed) starts standing anyway, so there is
+      // nothing here to get stuck in.
       this.#applyEyeHeight();
       return;
     }

@@ -47,19 +47,19 @@ const BREATH_FADE = 0.6;
 
 // Intensity changes are story beats (the bulb blowing, the creature getting
 // nearer), so they slide over about a breath rather than a frame.
-const BREATH_LEVEL_RAMP = 1.5;
+const BREATH_LEVEL_RAMP = 1.1;
 
 // The recording is quiet -- measured peak -23.7 dBFS, RMS -52.2 dBFS -- so
 // even a dial value of 1.0 fed straight to the gain node would sit under the
 // wind drone and be lost. This fixed makeup gain is what makes the 0..1
 // intensity dial mean something audible, without callers having to know
 // anything about the file's level. Re-measure it if the file is replaced.
-const BREATH_MAKEUP = 6;
+const BREATH_MAKEUP = 1;
 
 // Exported because main.js's resetGame() has to put the intensity back to the
 // level the game opens on, and two copies of that number in two files would
 // drift the moment either is tuned.
-export const BREATH_BASE_LEVEL = 0.35;
+export const BREATH_BASE_LEVEL = 0.1;
 
 export class AudioEngine {
   constructor() {

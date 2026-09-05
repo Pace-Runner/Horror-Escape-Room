@@ -11,6 +11,8 @@ import { AudioEngine, BREATH_BASE_LEVEL } from './world/AudioEngine.js';
 import { createBedroomLevel } from './levels/bedroomLevel.js';
 import { createHallwayBasementLevel } from './levels/hallwayBasementLevel.js';
 import { createStudyLevel } from './levels/studyLevel.js';
+import { createBackroomsLevel } from './levels/backroomsLevel.js';
+import { createScreenFade, wait } from './core/ScreenFade.js';
 import { Hands } from './systems/hands/hands.js';
 import { HELD_MAGNIFICATION } from './systems/hands/sockets.js';
 import { setHandAssetUrl } from './systems/hands/hand-mesh.js';
@@ -36,6 +38,12 @@ const flashlightStateEl = document.getElementById('flashlight-state');
 const creditsScreen = document.getElementById('credits-screen');
 const creditsList = document.getElementById('credits-list');
 const creditsCloseBtn = document.getElementById('credits-close');
+const fadeOverlay = document.getElementById('fade-overlay');
+
+// The black between levels. Deliberately not a `.hidden` toggle like every
+// other overlay in this file -- see core/ScreenFade.js for why that would snap
+// instead of fading.
+const fade = createScreenFade(fadeOverlay);
 
 // ---------- renderer / scene / camera ----------
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -373,7 +381,7 @@ const bedroom = createBedroomLevel({
     setFlashlight(true);
     equipTorch();
   },
-  onDoorOpened: () => activateLevel('hallwayBasement'),
+  onDoorOpened: () => exitLevel('bedroom'),
   onExaminePhotos: ({ photos, onSolved }) => {
     player.unlock();
     photoBoardUI.open(photos, onSolved);
@@ -387,12 +395,22 @@ sceneManager.register('bedroom', bedroom);
 
 const hallwayBasement = createHallwayBasementLevel({
   showCaption,
-  onExit: () => activateLevel('study')
+  onExit: () => exitLevel('hallwayBasement')
 });
 sceneManager.register('hallwayBasement', hallwayBasement);
 
 const study = createStudyLevel({ showCaption });
 sceneManager.register('study', study);
+
+// Not a "level 4": ONE interstitial instance, re-armed per crossing by
+// setRoute(). It hands its route back through onExit rather than reading a
+// module-level global, so there is exactly one way to arm it and no way to
+// activate it unarmed.
+const backrooms = createBackroomsLevel({
+  showCaption,
+  onExit: (route) => transitionTo(route?.to ?? 'hallwayBasement')
+});
+sceneManager.register('backrooms', backrooms);
 
 const bedroomStorm = new Storm({
   bulbLight: bedroom.refs.bulbLight,
@@ -412,28 +430,156 @@ bedroom.group.add(rain.points);
 const LEVEL_OBJECTIVES = {
   bedroom: 'You wake up chained to the bed frame. Find a way free.',
   hallwayBasement: 'Restore power in the basement, then get through the locked door.',
-  study: 'Preview: the study and front door (Level 3 blockout).'
+  study: 'Preview: the study and front door (Level 3 blockout).',
+  backrooms: 'Follow the arrows.'
 };
 
 const LEVEL_FOG = {
   bedroom: new THREE.FogExp2(0x05070a, 0.065),
   hallwayBasement: new THREE.FogExp2(0x0a0c0a, 0.03),
-  study: new THREE.FogExp2(0x0c0a06, 0.02)
+  study: new THREE.FogExp2(0x0c0a06, 0.02),
+  // A murky olive-brown rather than near-black: distant geometry fades into a
+  // dim yellow haze instead of into nothing, which is what makes the corridor
+  // read as receding forever rather than ending in a dark wall. At 0.075 the
+  // 22m far end is ~93% fogged, so the exit is invisible from the spawn and
+  // the lit pools resolve as smears from about 14m.
+  backrooms: new THREE.FogExp2(0x161206, 0.075)
+};
+
+// Where each level's exit leads. Keyed by the level you are LEAVING, because
+// in this game every level has exactly one exit -- so an exit callback only
+// ever has to say "I am done", never "and here is where I go", which is the
+// coupling the interstitial exists to remove.
+//   via: which registered level to pass through, or null for a direct cut
+//   to:  the level on the far side of the interstitial's exit door
+const TRANSITIONS = {
+  bedroom: { to: 'hallwayBasement', via: 'backrooms' },
+  hallwayBasement: { to: 'study', via: 'backrooms' },
+  study: { to: null, via: null }
 };
 
 function activateLevel(key, { lockMovement = false } = {}) {
   const level = sceneManager.activate(key, player);
+  // Was a TypeError on an unregistered key -- a routing typo should cost a
+  // wrong room, never a crash mid-transition.
+  if (!level) return null;
   interaction.setTargets(level.interactables);
-  scene.fog = LEVEL_FOG[key];
-  objectiveEl.textContent = LEVEL_OBJECTIVES[key];
+  scene.fog = LEVEL_FOG[key] ?? null;
+  objectiveEl.textContent = LEVEL_OBJECTIVES[key] ?? '';
   captionEl.classList.remove('visible');
   player.movementEnabled = !lockMovement;
   return level;
 }
 
+// ---------- level transitions (fade -> swap -> fade) ----------
+// A layer ON TOP of activateLevel, never a replacement for it: activateLevel
+// stays synchronous because beginGame calls player.lock() on the very next
+// line, resetGame has to have the level swapped before it returns to its click
+// handler, and the debug keys are fire-and-forget. Making it async would
+// silently turn all of those into races.
+
+let transitionInFlight = false;
+let transitionGeneration = 0;
+
+function freezePlayerForTransition() {
+  // Frozen BEFORE the screen darkens: the fade-out is 700ms of still-visible
+  // world, and drifting into a wall during it reads as a bug.
+  player.movementEnabled = false;
+  interaction.setEnabled(false);
+  // Freezes LOOKING without dropping pointer lock -- player.unlock() would fire
+  // the 'unlock' listener and pop the pause menu up over the transition. It also
+  // stops the player rotating away from the new level's spawnYaw during the
+  // fade-in and arriving face-first into a wall.
+  //
+  // The flag DISCARDS movement rather than banking it, which is the point: the
+  // player cannot see anything for 1.7s, and releasing every mouse count made
+  // behind the black screen in one go on fade-in would be a lurch.
+  player.lookEnabled = false;
+}
+
+function unfreezePlayerAfterTransition() {
+  interaction.setEnabled(true);
+  player.lookEnabled = true;
+  // movementEnabled is restored by transitionTo's finally, from its own
+  // lockMovement argument -- one owner, not two.
+}
+
+/**
+ * Cancels whatever the transition system is mid-way through and puts the player
+ * back in a playable state. Every instant jump (the debug keys, restart) calls
+ * this FIRST -- a jump taken while the screen is black would otherwise strand
+ * the player behind an overlay that is no longer going to lift.
+ */
+function abortTransition() {
+  transitionGeneration++;
+  transitionInFlight = false;
+  fade.clear();
+  interaction.setEnabled(true);
+  player.lookEnabled = true;
+}
+
+async function transitionTo(key, { lockMovement = false, outMs = 700, holdMs = 140, inMs = 900 } = {}) {
+  if (transitionInFlight) return null;
+  transitionInFlight = true;
+  const mine = ++transitionGeneration;
+  freezePlayerForTransition();
+
+  try {
+    await fade.fadeOut(outMs);
+    if (mine !== transitionGeneration) return null;   // aborted mid-fade
+    const level = activateLevel(key, { lockMovement: true });
+    if (!level) {
+      // Fade back in rather than leaving a black screen: a bad route must never
+      // be able to brick the run.
+      console.error('transitionTo: no level registered under "' + key + '"');
+      await fade.fadeIn(inMs);
+      return null;
+    }
+    await wait(holdMs);
+    if (mine !== transitionGeneration) return null;
+    await fade.fadeIn(inMs);
+    return level;
+  } finally {
+    // finally, not the happy path: an exception in here would otherwise leave
+    // transitionInFlight stuck true and kill every door in the game. Guarded on
+    // the generation so an abort that already restored state is not stomped by
+    // a stale transition unwinding behind it.
+    if (mine === transitionGeneration) {
+      transitionInFlight = false;
+      unfreezePlayerAfterTransition();
+      player.movementEnabled = !lockMovement;
+    }
+  }
+}
+
+/** "I am finished with this level" -- the only thing an exit callback says. */
+async function exitLevel(fromKey) {
+  if (transitionInFlight) return;
+  const route = TRANSITIONS[fromKey];
+  if (!route?.to) {
+    console.warn('exitLevel: no route out of "' + fromKey + '"');
+    return;
+  }
+  if (!route.via) { await transitionTo(route.to); return; }
+
+  const interstitial = sceneManager.get(route.via);
+  // Degrade to a plain cut rather than trapping the player, if the interstitial
+  // is ever missing or does not implement the arming contract.
+  if (!interstitial?.setRoute) { await transitionTo(route.to); return; }
+  // Armed BEFORE activateLevel, so the destination, the re-armed exit door and
+  // spawn/spawnYaw are all in place by the time SceneManager reads them.
+  interstitial.setRoute({ from: fromKey, ...route });
+  await transitionTo(route.via);
+}
+
 // ---------- game reset (restart without page refresh) ----------
 function resetGame() {
-  bedroom.reset();
+  // A restart from the pause menu can land mid-fade; without this the freshly
+  // reset bedroom would come up behind a black overlay that never lifts.
+  abortTransition();
+  // Was bedroom.reset() alone, which left Level 2's breaker flipped and its
+  // door still reading "Open the door" across an R.
+  sceneManager.resetAll();
   bedroom.refs.bulbLight.intensity = bedroomStorm.bulbBaseIntensity;
   bedroomStorm.bulbBlown = false;
   flashlightFound = false;
@@ -454,21 +600,63 @@ function resetGame() {
 // ---------- level preview switching (debug / mentor demo) ----------
 window.addEventListener('keydown', (e) => {
   if (!player.isLocked) return;
-  if (e.code === 'Digit1') activateLevel('bedroom', { lockMovement: false });
+  // Deliberately INSTANT, not faded: these are a mentor-demo tool and 1.7s of
+  // black per press is friction. But each one aborts first, or a jump taken
+  // mid-fade lands behind an overlay that will never lift.
+  if (e.code === 'Digit1') { abortTransition(); activateLevel('bedroom', { lockMovement: false }); }
   if (e.code === 'Digit2') {
     // Gated on the bedroom's own front door actually being open (planks
     // pried off + door interacted with again) rather than jumping
-    // straight to Level 2 regardless of progress.
+    // straight to Level 2 regardless of progress. With the interstitial in
+    // place, 2 now means "put me in Level 2 NOW", skipping the corridor.
     if (bedroom.refs.puzzleState.doorUnlocked) {
+      abortTransition();
       activateLevel('hallwayBasement');
     } else {
       showCaption("You haven't opened the door yet.");
     }
   }
-  if (e.code === 'Digit3') activateLevel('study');
+  if (e.code === 'Digit3') { abortTransition(); activateLevel('study'); }
+  if (e.code === 'Digit4') {
+    // Routed off the CURRENT level, so the debug key exercises the same table
+    // the real exits do. Falls back when jumped to from inside the corridor.
+    const route = TRANSITIONS[sceneManager.activeKey] ?? { to: 'hallwayBasement' };
+    abortTransition();
+    backrooms.setRoute({ from: sceneManager.activeKey, ...route });
+    activateLevel('backrooms');
+  }
+  if (e.code === 'KeyG') {
+    // Debug: skip the whole Level 1 puzzle chain and take the REAL exit.
+    //
+    // Different from Digit4, which teleports into the corridor instantly:
+    // this drives the actual door -> hinge swing -> fade -> corridor path, so
+    // it is the one that tests the transition rather than the destination.
+    //
+    // Works by handing the door its own crowbar and calling its real interact
+    // twice (first press pries the planks, second opens it) rather than
+    // reaching in and setting puzzleState.doorUnlocked directly -- that way the
+    // plank meshes, captions and exit timing all come from the shipping code
+    // path instead of a debug copy of it that could drift.
+    if (sceneManager.activeKey !== 'bedroom') {
+      showCaption('[debug] G only works from the bedroom.');
+    } else {
+      // The corridor's dark gaps are designed around having a torch, and
+      // skipping the chain means never picking one up.
+      flashlightFound = true;
+      setFlashlight(true);
+      equipTorch();
+      // The opening beat leaves the player chained; the door does not free
+      // them, onFreed does.
+      player.movementEnabled = true;
+      bedroom.refs.puzzleState.hasCrowbar = true;
+      const door = bedroom.refs.doorSlab.userData.interact;
+      door.onInteract();   // pries the planks off
+      door.onInteract();   // opens it -> exitLevel('bedroom')
+    }
+  }
   if (e.code === 'KeyF') setFlashlight(!flashlightOn);
   if (e.code === 'KeyR') resetGame();
-  if (e.code === 'KeyC') toggleCredits(true);
+  if (e.code === 'KeyC' && !transitionInFlight) toggleCredits(true);
 });
 
 // ---------- credits ----------

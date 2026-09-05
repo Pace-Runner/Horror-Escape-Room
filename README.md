@@ -36,22 +36,46 @@ reasoning behind the scenegraph hierarchy.
   bookshelves, the family portrait, the one uncracked mirror, the
   three-lock front door), but the lock sequence, visor mechanic and
   branching ending aren't implemented yet.
+- **The backrooms corridor -- the space between levels**: leaving a
+  level no longer cuts straight to the next one. The screen fades to
+  black and you come up in a short, wrong-feeling yellow corridor --
+  damp wallpaper, a drop ceiling, mostly-dead fluorescents -- with
+  blood-stained arrows pointing you to a door at the far end. Four
+  dead-end side branches sell "this goes on forever" without any
+  teleport trick: one is too dark to see the end of, one opens onto a
+  lit alcove that looks like it keeps going, one bends back on itself,
+  and one is marked with an arrow pointing back out. Four more twist
+  further: a fork whose *both* prongs dead-end, a three-turn snake that
+  leaves you with no idea which way the corridor is, a hook running
+  parallel to another dead end, and a branch hidden inside another
+  branch. Every one of them terminates -- there are no loops and no
+  shortcuts, so the door at the end stays the only way on. The way you
+  came in has wallpaper running straight across it.
 - First-person WASD + mouse look, pointer-locked, with simple
-  wall/furniture collision.
+  wall/furniture collision. The look asks for **raw** mouse input
+  (`unadjustedMovement`) so the OS pointer-acceleration curve is not
+  applied on top, and is smoothed on the frame clock rather than being
+  written straight from the mouse event -- see the header comment in
+  `src/core/PointerLockPlayer.js` for why both matter.
 - A raycast "examine" system (`E`) already wired to every story prop.
 - Restart without reloading the page (`R`), a credits screen (`C`),
   and a loading screen.
-- `1` / `2` / `3` jump straight to each level, for quickly showing the
-  whole house to a mentor before the level-to-level progression exists.
+- `1` / `2` / `3` jump straight to each level, and `4` drops you into
+  the backrooms corridor routed off wherever you currently are -- for
+  quickly showing the whole house to a mentor. They are deliberately
+  instant rather than faded.
 
 ## Project layout
 
 - `src/main.js` -- entry point: renderer/camera/scene setup, HUD
   wiring, level activation, restart, credits, render loop.
 - `src/core/` -- reusable engine bits (pointer-lock player + collision,
-  the interaction raycaster, the level/scene manager).
+  the interaction raycaster, the level/scene manager, the transition
+  fade).
 - `src/levels/` -- one file per level, each returning its group,
-  interactable list, colliders and spawn point.
+  interactable list, colliders and spawn point. `backroomsLevel.js` is
+  the interstitial rather than a numbered level: one instance, armed
+  with a destination by `setRoute()` before each crossing.
 - `src/world/` -- procedural textures, the storm/rain/audio systems,
   and the custom CCTV static shader.
 - `docs/WORLD_DESIGN.md` -- story-to-hierarchy mapping and design notes.

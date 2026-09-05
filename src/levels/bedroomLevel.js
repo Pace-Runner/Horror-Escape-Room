@@ -1328,11 +1328,20 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
           showCaption('Two wooden planks, boarded diagonally. Whatever is in this house trapped you inside.');
         }
       } else if (!puzzleState.doorUnlocked) {
+        // Set synchronously, which is what makes spamming E safe: the third
+        // branch below catches every press after the first.
         puzzleState.doorUnlocked = true;
         showCaption('The door creaks open on its hinges. You slip out into the dark hallway...');
-        // Give the hinge swing a beat to actually play out before cutting
-        // to Level 2, rather than transitioning the instant it's unlocked.
-        setTimeout(onDoorOpened, 1400);
+        // Enough of the hinge swing to read as a door opening, and no more.
+        // This used to be 1400ms and cut straight to Level 2; now a 700ms fade
+        // follows it, so at 1400 the pair was over two seconds of dead air.
+        // At 600 the fade runs over the TAIL of the swing and the player
+        // watches the door open into the dark, which is the beat worth having.
+        //
+        // Not hoisted into the transition system: this delay is specific to
+        // this door's hinge, and another level's exit may want none at all.
+        // Making transitionTo aware of it would make it content-aware.
+        exitTimer = setTimeout(() => { exitTimer = null; onDoorOpened(); }, 600);
       } else {
         showCaption('The door hangs open ahead of you.');
       }
@@ -1340,6 +1349,9 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   };
 
   // ---------- interactive drawer system ----------
+  // Handle on the pending exit, so reset() can cancel it -- see reset() below.
+  let exitTimer = null;
+
   const drawerStates = {
     nightstandLeft: { isOpen: false, contents: ['old photograph', 'battery'] },
     dresserTop: { isOpen: false, contents: ['family photo (scratched)'] },
@@ -1653,6 +1665,12 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     // main.js since most of this state (drawerStates, the hinges, the
     // photo thumbnails) isn't exposed via refs at all.
     reset() {
+      // Cancel a pending exit. Pressing E on the door and then R inside the
+      // delay above used to let the timeout fire and yank the player straight
+      // back out of the bedroom it had just reset.
+      clearTimeout(exitTimer);
+      exitTimer = null;
+
       paperclip.visible = true;
       paperclipHitbox.visible = true;
       if (!interactables.includes(paperclipHitbox)) interactables.push(paperclipHitbox);

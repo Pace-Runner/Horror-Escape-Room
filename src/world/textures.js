@@ -1191,3 +1191,664 @@ export function createFabricTexture({ color = [156, 148, 132], stitch = 22 } = {
 export function createFabricNormalTexture({ stitch = 22 } = {}) {
   return finishBump(heightToNormalMap(buildFabricHeightCanvas({ stitch }), 1.4), 2, 2);
 }
+
+// ===========================================================================
+// Level 0 -- the backrooms corridor
+// ===========================================================================
+//
+// A note on memoisation, which the older builders in this file get wrong.
+// buildWallpaperHeightCanvas(), buildClawMarksHeightCanvas(), the rug and the
+// fabric all draw with Math.random(), and their colour and normal functions
+// each call the builder separately -- so despite the comments above promising
+// that the colour texture and normal map "always agree on exactly where the
+// pattern sits", they are in fact two independent random draws whose stains
+// land in different places. The builders below are cached so that promise
+// actually holds: one canvas per surface, shared by both maps.
+
+/**
+ * Same canvas, different real-world scale.
+ *
+ * Texture.clone() shares the underlying Source, so this costs one Texture
+ * object and NO extra GPU upload -- which is what makes "one wallpaper canvas,
+ * thirteen wall runs of different lengths" affordable. Deliberately does not
+ * touch needsUpdate: the source is already uploaded, and flagging it would
+ * force a pointless re-upload for every clone.
+ */
+export function tiled(tex, repeatX, repeatY) {
+  const t = tex.clone();
+  t.repeat.set(repeatX, repeatY);
+  return t;
+}
+
+// ---------- yellow damp wallpaper ----------
+
+let _backroomsWallHeight = null;
+function backroomsWallHeight() {
+  return (_backroomsWallHeight ??= buildBackroomsWallpaperHeightCanvas());
+}
+
+function buildBackroomsWallpaperHeightCanvas() {
+  const canvas = makeCanvas(512, 512);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Roll drop-seams: the most recognisable wallpaper feature, and the thing
+  // that stops a flat yellow wall reading as painted plaster. A groove with a
+  // lifted lip beside it every 128px -- which at the level's tiling
+  // (512px == 2.12m) is a seam every 0.53m, a real roll width.
+  for (let x = 0; x < canvas.width; x += 128) {
+    ctx.strokeStyle = 'rgba(46, 46, 46, 0.85)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x + 0.5, 0);
+    ctx.lineTo(x + 0.5, canvas.height);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(210, 210, 210, 0.4)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x + 2.5, 0);
+    ctx.lineTo(x + 2.5, canvas.height);
+    ctx.stroke();
+  }
+
+  // Orange-peel emboss -- what makes it read as paper rather than paint when
+  // the flashlight rakes across it.
+  for (let i = 0; i < 1800; i++) {
+    const x = Math.random() * canvas.width;
+    const y = Math.random() * canvas.height;
+    const r = 2 + Math.random() * 3;
+    const up = Math.random() < 0.5;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, up ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)');
+    g.addColorStop(1, 'rgba(128,128,128,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Blistering: paper lifting off the wall where it is damp. Raised, and
+  // biased low, because moisture wicks UP from the carpet.
+  for (let i = 0; i < 14; i++) {
+    const x = Math.random() * canvas.width;
+    const y = canvas.height * (0.45 + Math.random() * 0.55);
+    const r = 20 + Math.random() * 28;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(255,255,255,0.18)');
+    g.addColorStop(1, 'rgba(128,128,128,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Missing patches, cut deep. The colour pass thresholds on this to paint
+  // bare plaster, so the hole and its shading can never disagree -- the same
+  // trick createRugTexture uses for its colour bands.
+  // NO torn-through patches here, deliberately. They looked right in isolation
+  // but this canvas tiles every 2.12m along a 22m wall, so each one became the
+  // same silhouette repeated a dozen times across the level -- the single most
+  // artificial thing in frame. Torn paper is carried instead by the peeling
+  // flaps the level places individually (createPeelingWallpaperTexture), which
+  // do not tile and so can never repeat.
+
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < imgData.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 11;
+    imgData.data[i] += n;
+    imgData.data[i + 1] += n;
+    imgData.data[i + 2] += n;
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+
+/**
+ * The backrooms wall.
+ *
+ * `base` is an ochre, not a primary yellow -- blue crushed to roughly 48% of
+ * red. It is deliberately BRIGHT: the corridor lights it in pools rather than
+ * evenly, so a lit stretch reads as unmistakable backrooms yellow while the
+ * same material in the dark gaps between fixtures falls to a murky olive. One
+ * material, two moods, no extra cost. That brightness is also why the level
+ * runs a far lower ambient than every other room in this game -- see the note
+ * on the AmbientLight in backroomsLevel.js.
+ */
+export function createBackroomsWallpaperTexture({
+  base = [198, 178, 96],
+  lit = [222, 202, 122],
+  damp = [74, 60, 26],
+  // Kept in the signature for the height-threshold branch below, which is now
+  // only reached by the deepest damp pits.
+  bare = [128, 116, 86]
+} = {}) {
+  const height = backroomsWallHeight();
+  const hData = height.getContext('2d').getImageData(0, 0, height.width, height.height).data;
+
+  const canvas = makeCanvas(height.width, height.height);
+  const ctx = canvas.getContext('2d');
+  const out = ctx.createImageData(canvas.width, canvas.height);
+  for (let i = 0; i < hData.length; i += 4) {
+    const h = hData[i];
+    if (h < 46) {
+      out.data[i] = bare[0];
+      out.data[i + 1] = bare[1];
+      out.data[i + 2] = bare[2];
+    } else {
+      const t = Math.max(0, Math.min(1, (h - 70) / 110));
+      out.data[i] = base[0] + (lit[0] - base[0]) * t;
+      out.data[i + 1] = base[1] + (lit[1] - base[1]) * t;
+      out.data[i + 2] = base[2] + (lit[2] - base[2]) * t;
+    }
+    out.data[i + 3] = 255;
+  }
+  ctx.putImageData(out, 0, 0);
+
+  // Damp staining, drawn as ellipses TALLER than wide because water runs down,
+  // and anchored to the top and bottom bands of the canvas. The level maps
+  // exactly one canvas height onto each wall, so those bands land on the real
+  // ceiling and skirting lines instead of floating mid-wall.
+  const stains = [];
+  for (let i = 0; i < 8; i++) {
+    const cx = Math.random() * canvas.width;
+    const cy = i < 4 ? canvas.height * (0.85 + Math.random() * 0.15)
+      : i < 6 ? canvas.height * Math.random() * 0.10
+        : Math.random() * canvas.height;
+    const r = 28 + Math.random() * 54;
+    stains.push([cx, cy, r]);
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(1, 1.9 + Math.random());
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+    g.addColorStop(0, 'rgba(' + damp[0] + ',' + damp[1] + ',' + damp[2] + ',0.50)');
+    g.addColorStop(1, 'rgba(' + damp[0] + ',' + damp[1] + ',' + damp[2] + ',0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Tide-line. Real water stains concentrate their solute at the edge, and
+    // this one detail is the difference between "a water stain" and "a brown
+    // smudge".
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(1, 1.9);
+    // Soft: at 0.34/3px these arcs were crisp enough to read as drawn circles
+    // once the canvas tiled along a 22m wall.
+    ctx.strokeStyle = 'rgba(96, 76, 32, 0.15)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 0.85, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Mildew speckle, rejection-sampled so it only lands inside the stains.
+  ctx.fillStyle = 'rgba(24, 20, 10, 0.35)';
+  for (let i = 0; i < 320; i++) {
+    const s = stains[Math.floor(Math.random() * stains.length)];
+    const a = Math.random() * Math.PI * 2;
+    const d = Math.random() * s[2];
+    ctx.beginPath();
+    ctx.arc(s[0] + Math.cos(a) * d, s[1] + Math.sin(a) * d * 1.9, 0.5 + Math.random() * 1.5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Run streaks from the ceiling line -- createPlasterWallTexture's idiom,
+  // browner, and only ever downward.
+  ctx.strokeStyle = 'rgba(46, 36, 14, 0.13)';
+  for (let i = 0; i < 8; i++) {
+    const x = Math.random() * canvas.width;
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x + (Math.random() - 0.5) * 26, 150 + Math.random() * 362);
+    ctx.lineWidth = 4 + Math.random() * 10;
+    ctx.stroke();
+  }
+
+  // repeat 1,1: the level sets its own per-wall repeat with tiled(), because
+  // every wall run is a different length and the VERTICAL repeat has to stay
+  // at exactly 1 for the damp bands to land on the floor and ceiling.
+  return finish(canvas, 1, 1);
+}
+
+export function createBackroomsWallpaperNormalTexture() {
+  return finishBump(heightToNormalMap(backroomsWallHeight(), 1.6), 1, 1);
+}
+
+// ---------- damp beige carpet ----------
+
+let _dampCarpetHeight = null;
+function dampCarpetHeight() {
+  return (_dampCarpetHeight ??= buildDampCarpetHeightCanvas());
+}
+
+function buildDampCarpetHeightCanvas() {
+  const canvas = makeCanvas(512, 512);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Much coarser base noise than the wall -- that roughness IS the pile.
+  let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < imgData.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 34;
+    imgData.data[i] += n;
+    imgData.data[i + 1] += n;
+    imgData.data[i + 2] += n;
+  }
+  ctx.putImageData(imgData, 0, 0);
+
+  // Loop highlights. Short strokes rather than thousands of arc() calls --
+  // roughly four times cheaper and indistinguishable at this density.
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+  ctx.lineCap = 'round';
+  ctx.lineWidth = 1.2;
+  for (let i = 0; i < 2200; i++) {
+    const x = Math.random() * canvas.width;
+    const y = Math.random() * canvas.height;
+    const a = Math.random() * Math.PI * 2;
+    const len = 2 + Math.random();
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
+    ctx.stroke();
+  }
+  ctx.lineCap = 'butt';
+
+  // Woven backing grid -- what stops the whole thing reading as sand.
+  ctx.strokeStyle = 'rgba(0, 0, 0, 0.05)';
+  ctx.lineWidth = 1;
+  for (let g = 0; g < canvas.width; g += 6) {
+    ctx.beginPath();
+    ctx.moveTo(g + 0.5, 0);
+    ctx.lineTo(g + 0.5, canvas.height);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, g + 0.5);
+    ctx.lineTo(canvas.width, g + 0.5);
+    ctx.stroke();
+  }
+
+  // Wet patches. Recessed, because wet carpet mats DOWN -- and the colour pass
+  // thresholds on the same values, so stain and normal stay registered.
+  for (let i = 0; i < 9; i++) {
+    const x = Math.random() * canvas.width;
+    const y = Math.random() * canvas.height;
+    const r = 40 + Math.random() * 70;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(30,30,30,0.55)');
+    g.addColorStop(1, 'rgba(128,128,128,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Worn traffic lane straight down the middle.
+  const lane = ctx.createLinearGradient(canvas.width * 0.3, 0, canvas.width * 0.7, 0);
+  lane.addColorStop(0, 'rgba(0,0,0,0)');
+  lane.addColorStop(0.5, 'rgba(0,0,0,0.10)');
+  lane.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = lane;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Bald patches: flatten the pile by half-blending grey back over it.
+  ctx.fillStyle = 'rgba(128, 128, 128, 0.5)';
+  for (let i = 0; i < 3; i++) {
+    const cx = canvas.width * (0.35 + Math.random() * 0.3);
+    const cy = Math.random() * canvas.height;
+    ctx.beginPath();
+    for (let p = 0; p <= 8; p++) {
+      const a = (p / 8) * Math.PI * 2;
+      const r = (22 + Math.random() * 20);
+      const px = cx + Math.cos(a) * r;
+      const py = cy + Math.sin(a) * r;
+      if (p === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  return canvas;
+}
+
+export function createDampCarpetTexture({
+  base = [150, 136, 92],
+  wet = [74, 65, 42],
+  mould = [34, 32, 20]
+} = {}) {
+  const height = dampCarpetHeight();
+  const hData = height.getContext('2d').getImageData(0, 0, height.width, height.height).data;
+
+  const canvas = makeCanvas(height.width, height.height);
+  const ctx = canvas.getContext('2d');
+  const out = ctx.createImageData(canvas.width, canvas.height);
+  for (let i = 0; i < hData.length; i += 4) {
+    const h = hData[i];
+    const t = h / 255;
+    const shade = 0.78 + t * 0.42;
+    let r = base[0] * shade;
+    let g = base[1] * shade;
+    let b = base[2] * shade;
+    // Same threshold the height pass used for its wet patches, so the damp
+    // colour can never drift off the matted pile it belongs to.
+    if (h < 92) {
+      const w = (92 - h) / 92;
+      r += (wet[0] - r) * w;
+      g += (wet[1] - g) * w;
+      b += (wet[2] - b) * w;
+    }
+    out.data[i] = Math.min(255, r);
+    out.data[i + 1] = Math.min(255, g);
+    out.data[i + 2] = Math.min(255, b);
+    out.data[i + 3] = 255;
+  }
+  ctx.putImageData(out, 0, 0);
+
+  // Mould, as soft blooms rather than stroked rings. Hard-edged circles were
+  // the one feature in this canvas that survived tiling as an obviously
+  // repeated shape -- a floor covered in identical drawn rings. Soft radial
+  // gradients blend into their neighbours and read as staining instead.
+  for (let i = 0; i < 6; i++) {
+    const x = Math.random() * canvas.width;
+    const y = Math.random() * canvas.height;
+    const r = 34 + Math.random() * 64;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(' + mould[0] + ',' + mould[1] + ',' + mould[2] + ',0.20)');
+    g.addColorStop(1, 'rgba(' + mould[0] + ',' + mould[1] + ',' + mould[2] + ',0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  return finish(canvas, 1, 1);
+}
+
+export function createDampCarpetNormalTexture() {
+  return finishBump(heightToNormalMap(dampCarpetHeight(), 1.1), 1, 1);
+}
+
+// ---------- suspended ceiling tiles ----------
+
+let _ceilingTileHeight = null;
+function ceilingTileHeight() {
+  return (_ceilingTileHeight ??= buildCeilingTileHeightCanvas());
+}
+
+function buildCeilingTileHeightCanvas() {
+  const canvas = makeCanvas(512, 512);
+  const ctx = canvas.getContext('2d');
+  const TILE = 128; // 4x4 tiles -> 0.6m tiles at the level's tiling
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Acoustic pinholes, on a jittered grid so they do not moire.
+  ctx.fillStyle = 'rgba(60, 60, 60, 0.35)';
+  for (let x = 4; x < canvas.width; x += 11) {
+    for (let y = 4; y < canvas.height; y += 11) {
+      ctx.beginPath();
+      ctx.arc(x + (Math.random() - 0.5) * 3, y + (Math.random() - 0.5) * 3, 1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Three water-stained tiles, picked from the sixteen.
+  const order = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+  for (let i = order.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const tmp = order[i]; order[i] = order[j]; order[j] = tmp;
+  }
+  for (let s = 0; s < 3; s++) {
+    const ti = order[s];
+    const cx = (ti % 4) * TILE + TILE / 2;
+    const cy = Math.floor(ti / 4) * TILE + TILE / 2;
+    const r = 26 + Math.random() * 30;
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    g.addColorStop(0, 'rgba(40,40,40,0.6)');
+    g.addColorStop(1, 'rgba(128,128,128,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(52, 52, 52, 0.55)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.82, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // One tile sagged almost to black -- the colour pass paints it as a hole.
+  const sag = order[3];
+  const sx = (sag % 4) * TILE;
+  const sy = Math.floor(sag / 4) * TILE;
+  const sg = ctx.createRadialGradient(sx + TILE / 2, sy + TILE / 2, 6, sx + TILE / 2, sy + TILE / 2, TILE * 0.55);
+  sg.addColorStop(0, 'rgba(20,20,20,1)');
+  sg.addColorStop(1, 'rgba(128,128,128,0)');
+  ctx.fillStyle = sg;
+  ctx.fillRect(sx, sy, TILE, TILE);
+
+  // T-bar grid LAST, so nothing above draws over it: recessed channel with a
+  // light lip either side, because the metal grid catches the fluorescents.
+  for (let g = 0; g <= canvas.width; g += TILE) {
+    ctx.strokeStyle = 'rgba(40, 40, 40, 0.9)';
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(g, 0); ctx.lineTo(g, canvas.height); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, g); ctx.lineTo(canvas.width, g); ctx.stroke();
+    ctx.strokeStyle = 'rgba(200, 200, 200, 0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(g - 2.5, 0); ctx.lineTo(g - 2.5, canvas.height); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(g + 2.5, 0); ctx.lineTo(g + 2.5, canvas.height); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, g - 2.5); ctx.lineTo(canvas.width, g - 2.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, g + 2.5); ctx.lineTo(canvas.width, g + 2.5); ctx.stroke();
+  }
+
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < imgData.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 8;
+    imgData.data[i] += n;
+    imgData.data[i + 1] += n;
+    imgData.data[i + 2] += n;
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+
+export function createCeilingTileTexture({
+  base = [178, 166, 120],
+  stain = [96, 74, 34],
+  hole = [10, 9, 6]
+} = {}) {
+  const height = ceilingTileHeight();
+  const hData = height.getContext('2d').getImageData(0, 0, height.width, height.height).data;
+
+  const canvas = makeCanvas(height.width, height.height);
+  const ctx = canvas.getContext('2d');
+  const out = ctx.createImageData(canvas.width, canvas.height);
+  for (let i = 0; i < hData.length; i += 4) {
+    const h = hData[i];
+    let r; let g; let b;
+    if (h < 40) {
+      // the sagged/missing tile
+      r = hole[0]; g = hole[1]; b = hole[2];
+    } else if (h < 96) {
+      // water staining, and the recessed T-bar channel, both read dark
+      const t = (96 - h) / 56;
+      r = base[0] + (stain[0] - base[0]) * t;
+      g = base[1] + (stain[1] - base[1]) * t;
+      b = base[2] + (stain[2] - base[2]) * t;
+    } else {
+      const shade = 0.86 + (h / 255) * 0.30;
+      r = base[0] * shade; g = base[1] * shade; b = base[2] * shade;
+    }
+    out.data[i] = Math.min(255, r);
+    out.data[i + 1] = Math.min(255, g);
+    out.data[i + 2] = Math.min(255, b);
+    out.data[i + 3] = 255;
+  }
+  ctx.putImageData(out, 0, 0);
+  return finish(canvas, 1, 1);
+}
+
+export function createCeilingTileNormalTexture() {
+  return finishBump(heightToNormalMap(ceilingTileHeight(), 1.3), 1, 1);
+}
+
+// ---------- blood arrows ----------
+
+function buildBloodArrowHeightCanvas(dir) {
+  const canvas = makeCanvas(256, 256);
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // The arrow is authored pointing at canvas +X with its drips running to
+  // canvas +Y. Mirroring here rather than with a negative mesh scale: a
+  // negative scale would invert the plane's normal and black out its lighting.
+  // Only the X axis flips, so the drips stay vertical either way.
+  if (dir < 0) {
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+  }
+
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = '#ffffff';
+
+  // Many overlapping tapering segments along a slightly bent path -- the same
+  // build as buildScratchedMessageHeightCanvas, for the same reason: a single
+  // clean stroke reads as printed, not as something dragged by a hand.
+  function smear(x0, y0, x1, y1, w0, w1) {
+    const cxp = (x0 + x1) / 2 + (Math.random() - 0.5) * 20;
+    const cyp = (y0 + y1) / 2 + (Math.random() - 0.5) * 20;
+    const SEG = 14;
+    let px = x0; let py = y0;
+    for (let i = 1; i <= SEG; i++) {
+      const t = i / SEG;
+      const mt = 1 - t;
+      const nx = mt * mt * x0 + 2 * mt * t * cxp + t * t * x1;
+      const ny = mt * mt * y0 + 2 * mt * t * cyp + t * t * y1;
+      ctx.lineWidth = (w0 + (w1 - w0) * t) * (0.75 + Math.random() * 0.5);
+      ctx.globalAlpha = 0.55 + Math.random() * 0.45;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(nx, ny);
+      ctx.stroke();
+      px = nx; py = ny;
+    }
+  }
+
+  smear(30, 128, 168, 128, 22, 20);   // shaft
+  smear(216, 128, 140, 58, 24, 10);   // head, upper barb
+  smear(216, 128, 140, 198, 24, 10);  // head, lower barb
+  ctx.globalAlpha = 1;
+
+  // Finger gaps -- a hand painted this, so it has separations in it.
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.globalAlpha = 0.5;
+  for (let i = 0; i < 6; i++) {
+    const y = 108 + Math.random() * 40;
+    ctx.lineWidth = 2 + Math.random();
+    ctx.beginPath();
+    ctx.moveTo(30 + Math.random() * 40, y);
+    ctx.lineTo(150 + Math.random() * 60, y + (Math.random() - 0.5) * 10);
+    ctx.stroke();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+
+  // Drips, from the lowest edge of the shape downward.
+  for (let i = 0; i < 5; i++) {
+    const x = 50 + Math.random() * 150;
+    const yTop = 140 + Math.random() * 12;
+    const len = 40 + Math.random() * 70;
+    const SEG = 10;
+    for (let s = 0; s < SEG; s++) {
+      const t = s / SEG;
+      ctx.lineWidth = 7 - t * 5;
+      ctx.globalAlpha = 0.85 - t * 0.35;
+      ctx.beginPath();
+      ctx.moveTo(x + Math.sin(t * 6) * 2, yTop + len * t);
+      ctx.lineTo(x + Math.sin((t + 1 / SEG) * 6) * 2, yTop + len * (t + 1 / SEG));
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 0.8;
+    ctx.beginPath();
+    ctx.arc(x, yTop + len, 3 + Math.random() * 3, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+  }
+
+  // Stray flecks.
+  ctx.globalAlpha = 0.4;
+  ctx.fillStyle = '#ffffff';
+  for (let i = 0; i < 30; i++) {
+    ctx.beginPath();
+    ctx.arc(20 + Math.random() * 220, 40 + Math.random() * 180, 1 + Math.random() * 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  ctx.lineCap = 'butt';
+  return canvas;
+}
+
+/**
+ * Returns BOTH maps for one arrow, from one shared height canvas.
+ *
+ * Every other decal in this file exposes createXTexture() and
+ * createXNormalTexture() as two entry points, which only works when the builder
+ * is deterministic. This one randomises the smear per call -- each arrow should
+ * be its own drag of a hand -- so two separate entry points would hand back the
+ * colour map of one arrow and the normal map of a different one. (Which is
+ * exactly what createClawMarksTexture/createClawMarksNormalTexture do above.)
+ *
+ * `dir` is +1 for an arrow pointing along the plane's local +X, -1 for -X.
+ * `wet` only changes the colour ramp; the caller also drops the material's
+ * roughness, which is what actually makes it glisten.
+ */
+export function createBloodArrowMaps({ dir = 1, wet = false } = {}) {
+  const height = buildBloodArrowHeightCanvas(dir);
+  const hData = height.getContext('2d').getImageData(0, 0, height.width, height.height).data;
+
+  const canvas = makeCanvas(height.width, height.height);
+  const ctx = canvas.getContext('2d');
+  const out = ctx.createImageData(canvas.width, canvas.height);
+
+  // Dried blood is oxblood-brown, not red -- and against yellow wallpaper under
+  // a warm fluorescent, brown is what actually reads. The thick centre goes
+  // near-black while the thin smeared edges stay redder, so the outline still
+  // catches the flashlight instead of sinking into the wall's own dark values.
+  const thin = wet ? [138, 44, 30] : [110, 38, 26];
+  const thick = wet ? [84, 14, 12] : [58, 9, 8];
+
+  for (let i = 0; i < hData.length; i += 4) {
+    const t = hData[i + 3] / 255;
+    out.data[i] = thin[0] + (thick[0] - thin[0]) * t;
+    out.data[i + 1] = thin[1] + (thick[1] - thin[1]) * t;
+    out.data[i + 2] = thin[2] + (thick[2] - thin[2]) * t;
+    out.data[i + 3] = Math.min(255, t * 250);
+  }
+  ctx.putImageData(out, 0, 0);
+
+  const map = new THREE.CanvasTexture(canvas);
+  map.colorSpace = THREE.SRGBColorSpace;
+
+  // heightToNormalMap reads the RED channel, but this canvas carries its shape
+  // in ALPHA (it is a decal on transparency), so flatten alpha into a grey
+  // height canvas first rather than handing it a mostly-black red channel.
+  const flat = makeCanvas(height.width, height.height);
+  const fctx = flat.getContext('2d');
+  const fimg = fctx.createImageData(flat.width, flat.height);
+  for (let i = 0; i < hData.length; i += 4) {
+    const a = hData[i + 3];
+    fimg.data[i] = a;
+    fimg.data[i + 1] = a;
+    fimg.data[i + 2] = a;
+    fimg.data[i + 3] = 255;
+  }
+  fctx.putImageData(fimg, 0, 0);
+
+  return { map, normalMap: finishBump(heightToNormalMap(flat, 2.0)) };
+}

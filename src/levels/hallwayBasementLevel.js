@@ -412,6 +412,15 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
     // actually face into the level rather than out through the void.
     spawnYaw: Math.PI,
     refs: { fluorescents, hallLight, screenMaterial },
+    /**
+     * Previously absent, which is why restarting the game left this level with
+     * its breaker already flipped and its exit door still reading "Open the
+     * door" -- SceneManager.resetAll() now has something to call here.
+     */
+    reset() {
+      powerRestored = false;
+      metalDoor.userData.interact.label = 'Locked. Restore power first.';
+    },
     update(dt) {
       const elapsed = (this._t = (this._t ?? 0) + dt);
       dynamics.forEach((d) => d.update(dt, elapsed));
