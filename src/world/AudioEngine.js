@@ -23,6 +23,31 @@ const BREATHING_FILES = import.meta.glob('../assets/audio/breathing.*', {
 });
 const BREATHING_URL = Object.values(BREATHING_FILES)[0] ?? null;
 
+// Voice clips -- the four cassette tapes and the two closing news reports.
+// Globbed for exactly the reason the breathing loop is: the game ships with
+// text now and audio later, and a plain import of a file that is not there
+// fails the BUILD. A glob that matches nothing is an empty object, so the game
+// runs, captions still play, and the lines are simply silent. Keys are the
+// bare filename without extension, matching the `voice` field in story/lines.js
+// -- so dropping tape-1.m4a into src/assets/voice/ is the entire integration.
+const VOICE_FILES = import.meta.glob('../assets/voice/*.{m4a,mp3,ogg,wav}', {
+  query: '?url',
+  import: 'default',
+  eager: true
+});
+const VOICE_URLS = {};
+for (const [path, url] of Object.entries(VOICE_FILES)) {
+  const key = path.split('/').pop().replace(/\.[^.]+$/, '');
+  VOICE_URLS[key] = url;
+}
+
+// Voice sits above the ambience: a line that has to compete with the wind for
+// intelligibility is a line the player will miss, and these carry the plot.
+const VOICE_LEVEL = 0.9;
+// Long enough not to click, short enough that cutting one line off for the
+// next is not audibly a fade.
+const VOICE_FADE = 0.12;
+
 // Loop window in seconds, MEASURED off the supplied recording rather than
 // guessed at. breathing.m4a decodes to 61.163 s and neither end of it is
 // loopable as it stands: the first 10 ms are the AAC encoder's priming
@@ -79,6 +104,15 @@ export class AudioEngine {
     this.breathWanted = false;
     this.breathWarned = false;
     this.breathLevel = BREATH_BASE_LEVEL;
+
+    // Voice bus. Like the breathing state above, this lives on the instance
+    // rather than in start(), so playVoice() is safe to call at any point in
+    // the load order -- the story fires lines from level scripts that know
+    // nothing about whether audio has been unlocked yet.
+    this.voiceGain = null;
+    this.voiceSource = null;
+    this.voiceBuffers = new Map();
+    this.voiceWarned = new Set();
   }
 
   start() {
@@ -94,6 +128,12 @@ export class AudioEngine {
     this.breathGain = this.ctx.createGain();
     this.breathGain.gain.value = this.breathLevel * BREATH_MAKEUP;
     this.breathGain.connect(this.master);
+
+    // Its own bus, beside breathGain rather than under it: the story's menace
+    // dial must never change how loud a plot line is.
+    this.voiceGain = this.ctx.createGain();
+    this.voiceGain.gain.value = VOICE_LEVEL;
+    this.voiceGain.connect(this.master);
 
     // Fetched here and not at module load: decodeAudioData needs a context,
     // and a context before the user gesture is a context the browser blocks.
@@ -238,6 +278,104 @@ export class AudioEngine {
     console.warn(`[audio] ${message}`);
   }
 
+  // ---------- voice ----------
+
+  /**
+   * Play one voice clip, cutting off whatever was speaking.
+   *
+   * One voice at a time on purpose, and it matches the caption box: two lines
+   * cannot be on screen at once, so two voices must not be either. Returns
+   * true if a clip actually started, so a caller can tell the difference
+   * between "spoken" and "text-only" -- which is the state the whole game
+   * ships in until the clips are recorded.
+   *
+   * A missing key is not an error. Text is the primary channel here; audio is
+   * an enhancement that may never arrive for a given line.
+   */
+  playVoice(key) {
+    if (!key || !this.ctx || !this.voiceGain) return false;
+    const url = VOICE_URLS[key];
+    if (!url) {
+      if (!this.voiceWarned.has(key)) {
+        this.voiceWarned.add(key);
+        console.info(`[audio] no voice clip for "${key}" -- caption only`);
+      }
+      return false;
+    }
+
+    const cached = this.voiceBuffers.get(key);
+    if (cached instanceof AudioBuffer) {
+      this.#startVoice(cached);
+      return true;
+    }
+    // Already in flight: let the pending decode start it when it lands, rather
+    // than firing a second fetch for the same clip.
+    if (cached) return true;
+
+    const pending = fetch(url)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.arrayBuffer();
+      })
+      .then((bytes) => this.ctx.decodeAudioData(bytes))
+      .then((buffer) => {
+        if (!this.ctx) return;
+        this.voiceBuffers.set(key, buffer);
+        this.#startVoice(buffer);
+      })
+      .catch((err) => {
+        // Dropped from the cache so a later attempt can retry rather than
+        // being stuck behind a promise that already failed.
+        this.voiceBuffers.delete(key);
+        if (!this.voiceWarned.has(key)) {
+          this.voiceWarned.add(key);
+          console.warn(`[audio] could not load voice clip "${key}": ${err.message}`);
+        }
+      });
+    this.voiceBuffers.set(key, pending);
+    return true;
+  }
+
+  /** Cuts the current line. Called on restart and when a sequence is cancelled. */
+  stopVoice() {
+    const src = this.voiceSource;
+    this.voiceSource = null;
+    if (!src || !this.ctx) return;
+    const now = this.ctx.currentTime;
+    const gain = src.__fade;
+    if (gain) {
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setValueAtTime(gain.gain.value, now);
+      gain.gain.linearRampToValueAtTime(0, now + VOICE_FADE);
+    }
+    src.stop(now + VOICE_FADE);
+  }
+
+  #startVoice(buffer) {
+    if (!this.ctx || !this.voiceGain) return;
+    this.stopVoice();
+    const ctx = this.ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+
+    // Per-source fade, so cutting one line short cannot leave the bus turned
+    // down for the next -- the same reason the breathing loop has one.
+    const fade = ctx.createGain();
+    const now = ctx.currentTime;
+    fade.gain.setValueAtTime(0, now);
+    fade.gain.linearRampToValueAtTime(1, now + VOICE_FADE);
+
+    src.connect(fade).connect(this.voiceGain);
+    src.__fade = fade;
+    src.onended = () => {
+      src.disconnect();
+      fade.disconnect();
+      if (this.voiceSource === src) this.voiceSource = null;
+    };
+    src.start(now);
+    this.voiceSource = src;
+  }
+
   #noiseBuffer(seconds = 2) {
     const ctx = this.ctx;
     const buffer = ctx.createBuffer(1, ctx.sampleRate * seconds, ctx.sampleRate);
@@ -314,11 +452,13 @@ export class AudioEngine {
   dispose() {
     this.breathWanted = false;
     this.#releaseBreathing(0);
+    this.stopVoice();
     if (!this.ctx) return;
 
     this.windSource?.stop();
     this.windSource?.disconnect();
     this.breathGain?.disconnect();
+    this.voiceGain?.disconnect();
     this.master?.disconnect();
     this.ctx.close();
 
@@ -328,5 +468,9 @@ export class AudioEngine {
     this.breathGain = null;
     this.breathBuffer = null;
     this.breathLoading = null;
+    this.voiceGain = null;
+    // The decoded buffers belong to the context that is now closed, so they
+    // cannot be reused and must be refetched if start() is called again.
+    this.voiceBuffers.clear();
   }
 }

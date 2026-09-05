@@ -414,6 +414,12 @@ const audio = new AudioEngine();
 // to it; story beats call captions.play([...]) and can await the result.
 const captions = new CaptionSequencer(captionEl);
 const interaction = new Interaction(camera, promptEl, captions);
+// Voice follows the caption rather than the other way round: the caption is
+// the primary channel and always exists, the clip may not. A line with no
+// `voice` key, or whose clip has not been recorded yet, is simply silent.
+captions.onLineStart = (line) => {
+  if (line.voice) audio.playVoice(line.voice);
+};
 function showCaption(text) {
   interaction.showCaption(text);
 }
@@ -552,6 +558,9 @@ function activateLevel(key, { lockMovement = false } = {}) {
   // Hard-cancel rather than just hiding the box: a queued sequence would
   // otherwise keep advancing and fade its next line in over the new room.
   captions.cancel();
+  // Cancelling the captions has to take the voice with it, or the line that
+  // was mid-sentence keeps talking over the freshly reset room.
+  audio.stopVoice();
   documentUI.close();
   player.movementEnabled = !lockMovement;
   return level;
