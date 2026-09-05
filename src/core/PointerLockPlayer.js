@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
+import { resolveCircle } from './collision.js';
 
 const FORWARD = new THREE.Vector3();
 const RIGHT = new THREE.Vector3();
@@ -239,21 +240,13 @@ export class PointerLockPlayer {
     this.colliders = boxes;
   }
 
+  // Moved to core/collision.js when the creature needed to walk. Two copies of
+  // a push-out would be two things to keep in step, and the failure mode is
+  // nasty: a creature resolving even slightly differently from the player can
+  // stand where the player cannot reach, or slip through a gap the player is
+  // blocked by. Both read as the AI cheating.
   #resolveCollision(nextPos) {
-    const r = this.bodyRadius;
-    for (const box of this.colliders) {
-      const closestX = Math.max(box.minX, Math.min(nextPos.x, box.maxX));
-      const closestZ = Math.max(box.minZ, Math.min(nextPos.z, box.maxZ));
-      const dx = nextPos.x - closestX;
-      const dz = nextPos.z - closestZ;
-      const distSq = dx * dx + dz * dz;
-      if (distSq < r * r) {
-        const dist = Math.sqrt(distSq) || 0.0001;
-        const push = r - dist;
-        nextPos.x += (dx / dist) * push;
-        nextPos.z += (dz / dist) * push;
-      }
-    }
+    resolveCircle(nextPos, this.bodyRadius, this.colliders);
     return nextPos;
   }
 
