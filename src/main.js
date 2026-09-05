@@ -14,6 +14,7 @@ import { createStudyLevel } from './levels/studyLevel.js';
 import { createBackroomsLevel } from './levels/backroomsLevel.js';
 import { createScreenFade, wait } from './core/ScreenFade.js';
 import { gameState, resetState } from './core/GameState.js';
+import { CaptionSequencer } from './core/CaptionSequencer.js';
 import { Hands } from './systems/hands/hands.js';
 import { HELD_MAGNIFICATION } from './systems/hands/sockets.js';
 import { setHandAssetUrl } from './systems/hands/hand-mesh.js';
@@ -408,7 +409,10 @@ function setFlashlight(on) {
 const audio = new AudioEngine();
 
 // ---------- interaction / captions ----------
-const interaction = new Interaction(camera, promptEl, captionEl);
+// One caption authority for the whole game. Interaction forwards examine text
+// to it; story beats call captions.play([...]) and can await the result.
+const captions = new CaptionSequencer(captionEl);
+const interaction = new Interaction(camera, promptEl, captions);
 function showCaption(text) {
   interaction.showCaption(text);
 }
@@ -538,7 +542,9 @@ function activateLevel(key, { lockMovement = false } = {}) {
   interaction.setTargets(level.interactables);
   scene.fog = LEVEL_FOG[key] ?? null;
   objectiveEl.textContent = LEVEL_OBJECTIVES[key] ?? '';
-  captionEl.classList.remove('visible');
+  // Hard-cancel rather than just hiding the box: a queued sequence would
+  // otherwise keep advancing and fade its next line in over the new room.
+  captions.cancel();
   player.movementEnabled = !lockMovement;
   return level;
 }
@@ -795,6 +801,7 @@ restartButton.addEventListener('click', () => {
 
 player.controls.addEventListener('lock', () => {
   audio.resume();
+  captions.setPaused(false);
   startScreen.classList.add('hidden');
   hud.style.display = 'block';
   crosshair.style.display = 'block';
@@ -802,6 +809,10 @@ player.controls.addEventListener('lock', () => {
 
 player.controls.addEventListener('unlock', () => {
   audio.pause();
+  // Paused with the audio, on the same event, so a voiced line and its caption
+  // cannot drift apart across an Esc. This is the whole reason captions are on
+  // the frame clock instead of setTimeout.
+  captions.setPaused(true);
   if (!creditsScreen.classList.contains('hidden')) return;
   if (photoBoardUI.isOpen) return;
   if (pinPadUI.isOpen) return;
@@ -840,6 +851,7 @@ function tick() {
     bedroomStorm.update(dt);
     rain.update(dt);
   }
+  captions.update(dt);
   dustMotes.update(dt, elapsed);
   // Per rendered frame rather than on a fixed step: the hands are
   // presentation, and pinning them to 60 Hz on a 144 Hz display would throw
