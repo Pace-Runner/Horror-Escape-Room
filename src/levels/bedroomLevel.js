@@ -187,8 +187,32 @@ export function createBedroomLevel({
    * not OCCLUDE, so light passed straight through these walls as though they
    * were glass.
    */
+  /**
+   * WORLD-SPACE TEXTURE DENSITY.
+   *
+   * Every wall shares one material and one texture at UV 0..1, and the walls
+   * are different sizes -- 6.4 m across the back, 5.2 m down the sides, and
+   * four slabs around the window between 0.6 m and 2.5 m. The same damask
+   * therefore stretched to fit each one, so the motif was a different size on
+   * every surface and wildly different on the pieces framing the window, which
+   * meet each other at visible seams.
+   *
+   * Scaling the UVs by the mesh's real size fixes it without a second material
+   * or a second texture: one repeat of the pattern is now TILE metres
+   * everywhere, whatever it is drawn on.
+   */
+  const WALL_TILE = 1.7;
+  function tileUVs(geometry, w, h, tile = WALL_TILE) {
+    const uv = geometry.attributes.uv;
+    for (let i = 0; i < uv.count; i++) {
+      uv.setXY(i, uv.getX(i) * (w / tile), uv.getY(i) * (h / tile));
+    }
+    uv.needsUpdate = true;
+    return geometry;
+  }
+
   function addWall(w, h, x, y, z, ry) {
-    const wall = new THREE.Mesh(new THREE.PlaneGeometry(w, h), wallMat);
+    const wall = new THREE.Mesh(tileUVs(new THREE.PlaneGeometry(w, h), w, h), wallMat);
     wall.position.set(x, y, z);
     wall.rotation.y = ry;
     wall.castShadow = true;
@@ -211,7 +235,11 @@ export function createBedroomLevel({
     const wallZ = z + depth / 2;
 
     const slab = (sw, sh, sx, sy) => {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(sw, sh, depth), wallMat);
+      // Same treatment for the four slabs framing the window. Their front faces
+      // are the ones that meet the plain walls, and they were the worst
+      // offenders -- the strip above the window is 1.3 m wide by 0.75 m tall and
+      // was showing a whole damask repeat squeezed into it.
+      const mesh = new THREE.Mesh(tileUVs(new THREE.BoxGeometry(sw, sh, depth), sw, sh), wallMat);
       mesh.position.set(sx, sy, wallZ);
       // The four slabs around the window are what actually CUT the window
       // shape out of the lightning. Without castShadow the flash pours through
@@ -1480,17 +1508,54 @@ export function createBedroomLevel({
   interactables.push(paperclipHitbox);
   group.add(paperclipHitbox);
 
-  // fallen chair for the "abandoned in a hurry" dressing
+  /**
+   * The fallen chair -- which had no legs.
+   *
+   * A seat slab and a back slab, tipped on their side. Lying down, that is two
+   * planks on the floor, and the one piece of dressing whose whole job is to say
+   * "somebody left in a hurry" read as debris. It also sat low enough that the
+   * seat's corner passed through the floorboards.
+   *
+   * Four turned legs and a pair of stretchers now, and the group is lifted so
+   * the lowest point of the rotated frame rests ON the boards rather than in
+   * them. Lying on its side is exactly the pose that shows a chair's legs off,
+   * which is why it was the worst place in the room to leave them out.
+   */
   const chairGroup = new THREE.Group();
-  chairGroup.position.set(-1.6, 0, 0.4);
   chairGroup.rotation.set(0, 0.6, Math.PI / 2.2);
   const chairSeat = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.05, 0.45), frameMatWood);
   chairSeat.position.y = 0.42;
+  chairSeat.castShadow = true;
   chairGroup.add(chairSeat);
   const chairBack = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.5, 0.05), frameMatWood);
   chairBack.position.set(0, 0.65, -0.2);
+  chairBack.castShadow = true;
   chairGroup.add(chairBack);
+  for (const lx of [-0.19, 0.19]) {
+    for (const lz of [-0.19, 0.19]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.018, 0.42, 7), frameMatWood);
+      leg.position.set(lx, 0.21, lz);
+      leg.castShadow = true;
+      chairGroup.add(leg);
+    }
+  }
+  // Stretchers between the legs, which is what stops a lying chair reading as
+  // four loose dowels beside a plank.
+  for (const sz of [-0.19, 0.19]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.022, 0.022), frameMatWood);
+    rail.position.set(0, 0.13, sz);
+    rail.castShadow = true;
+    chairGroup.add(rail);
+  }
   group.add(chairGroup);
+  // Sit it ON the boards. Measured from the assembled group rather than guessed,
+  // so adding another part later cannot quietly sink it again.
+  chairGroup.position.set(-1.6, 0, 0.4);
+  chairGroup.updateMatrixWorld(true);
+  {
+    const box = new THREE.Box3().setFromObject(chairGroup);
+    chairGroup.position.y += Math.max(0, -box.min.y) + 0.004;
+  }
 
   // ---------- knocked-over waste bin (abandoned-in-a-hurry dressing) ----------
   const binMat = new THREE.MeshStandardMaterial({ color: 0x34342f, metalness: 0.5, roughness: 0.6 });

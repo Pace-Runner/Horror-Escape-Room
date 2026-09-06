@@ -169,7 +169,21 @@ const player = new PointerLockPlayer(camera, renderer.domElement);
 
 // handheld flashlight -- a spotlight attached to the camera so it always
 // points wherever the player looks, only added to the camera once found
-const flashlightSpot = new THREE.SpotLight(0xfff2c0, 0, 9, THREE.MathUtils.degToRad(28), 0.4, 1.4);
+/**
+ * THE TORCH IS TWO LIGHTS, not one.
+ *
+ * It used to be a single 56-degree cone at penumbra 0.4 -- one soft blob with no
+ * centre, which gives the player nothing to aim. A real torch has a hot spot
+ * thrown by the reflector and a much dimmer spill around it, and the hot spot
+ * is the part you point at things.
+ *
+ * The spill stays wide so the player keeps their peripheral orientation in a
+ * black room; the hot spot is narrow and hard-edged enough to pick a single
+ * object out of the dark at four metres. Both hang off the camera, so they
+ * stay aligned with each other for free.
+ */
+const flashlightSpot = new THREE.SpotLight(0xfff2c0, 0, 9, THREE.MathUtils.degToRad(28), 0.75, 1.4);
+const flashlightHot = new THREE.SpotLight(0xfff6d8, 0, 11, THREE.MathUtils.degToRad(11), 0.28, 1.5);
 // SpotLight is the one Object3D subclass that defaults its own local
 // position to (0, 1, 0) instead of the origin (it's built to act like an
 // overhead stage light pointing down at 0,0,0 by default). Left alone,
@@ -184,6 +198,14 @@ flashlightTarget.position.set(0, 0, -1);
 camera.add(flashlightTarget);
 flashlightSpot.target = flashlightTarget;
 camera.add(flashlightSpot);
+
+// The hot spot shares the spill's target, so the two can never drift apart.
+// Only the spill casts shadows: two shadow-casting spotlights on the camera is
+// two 512-square renders a frame for one torch, and the wide one already covers
+// everything the narrow one lights.
+flashlightHot.position.set(0, 0, 0);
+flashlightHot.target = flashlightTarget;
+camera.add(flashlightHot);
 
 // dust motes drifting through the flashlight cone (custom shader material,
 // see world/DustMotes.js) -- shares the spotlight's own angle/distance so
@@ -416,7 +438,11 @@ let flashlightFound = false;
 let flashlightOn = false;
 function setFlashlight(on) {
   flashlightOn = on && flashlightFound;
-  flashlightSpot.intensity = flashlightOn ? 2.4 : 0;
+  // The spill drops well below the old 2.4: it is now filling AROUND a hot
+  // spot rather than being the whole beam, and leaving both at full strength
+  // would just be a brighter blob.
+  flashlightSpot.intensity = flashlightOn ? 1.35 : 0;
+  flashlightHot.intensity = flashlightOn ? 3.1 : 0;
   dustMotes.setBeamOn(flashlightOn);
   flashlightStateEl.textContent = !flashlightFound ? 'not found' : flashlightOn ? 'on' : 'off';
   flashlightStateEl.classList.toggle('on', flashlightOn);
@@ -1425,6 +1451,11 @@ if (import.meta.env.DEV) {
     creature,
     creatureAI,
     visor,
+    // The F key is in the pointer-lock-gated listener, so a headless harness
+    // has no way to turn the torch on -- and the torch is what the player sees
+    // by for most of the game.
+    setFlashlight,
+    equipTorch,
     storm: bedroomStorm,
     captions,
     documentUI,
