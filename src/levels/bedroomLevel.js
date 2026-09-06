@@ -1378,7 +1378,11 @@ export function createBedroomLevel({
       const idx = interactables.indexOf(paperclipHitbox);
       if (idx >= 0) interactables.splice(idx, 1);
       chain.visible = false;
-      setTimeout(onFreed, 900);
+      // TRACKED, like the door's exit timer below. A bare setTimeout here
+      // meant pressing R inside the 900 ms window fired onFreed against the
+      // freshly restarted room -- unchaining a player who is supposed to be
+      // chained and starting the bulb beat on a game that had just reset.
+      freeTimer = setTimeout(() => { freeTimer = null; onFreed(); }, 900);
     }
   };
   interactables.push(paperclipHitbox);
@@ -1549,6 +1553,8 @@ export function createBedroomLevel({
   // ---------- interactive drawer system ----------
   // Handle on the pending exit, so reset() can cancel it -- see reset() below.
   let exitTimer = null;
+  /** The paperclip's delay before the player is actually freed. */
+  let freeTimer = null;
 
   const drawerStates = {
     nightstandLeft: { isOpen: false, contents: ['old photograph', 'battery'] },
@@ -1888,6 +1894,8 @@ export function createBedroomLevel({
       // back out of the bedroom it had just reset.
       clearTimeout(exitTimer);
       exitTimer = null;
+      clearTimeout(freeTimer);
+      freeTimer = null;
 
       paperclip.visible = true;
       paperclipHitbox.visible = true;
