@@ -73,7 +73,19 @@ const ROOM_H = 2.8;
  *    space, so the "left half-open" pose is defined once, relative to
  *    the dresser, rather than as loose world-space furniture.
  */
-export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {}, onFlashlightPicked = () => {}, onDoorOpened = () => {}, onExaminePhotos = () => {}, onExaminePinpad = () => {} } = {}) {
+export function createBedroomLevel({
+  showCaption = () => {},
+  onFreed = () => {},
+  onFlashlightPicked = () => {},
+  onDoorOpened = () => {},
+  onExaminePhotos = () => {},
+  onExaminePinpad = () => {},
+  // The scratched floor message is a STORY beat, not just a caption: reading it
+  // is what brings the thing past the door. The level reports the read and
+  // main.js decides what happens, the same split every other callback here uses.
+  onReadMessage = () => {},
+  onExaminePolaroid = () => {}
+} = {}) {
   const group = new THREE.Group();
   group.name = 'Level1_Bedroom';
   const interactables = [];
@@ -88,7 +100,11 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     hasKey: false,
     hasCrowbar: false,
     planksRemoved: false,
-    doorUnlocked: false // true once the door has actually been swung open
+    doorUnlocked: false, // true once the door has actually been swung open
+    // Story beats, tracked so each fires once. Examining a prop a second time
+    // should give you the description again, not replay the scene.
+    messageRead: false,
+    polaroidRead: false
   };
 
   // Darker stained wood + ornate damask wallpaper (both normal-mapped, not
@@ -641,6 +657,66 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   doorFrame.add(doorHinge);
   const doorOpenSwing = Math.PI / 2;
 
+  /**
+   * "Something moves past the door."
+   *
+   * The storyline's beat, and it did not exist in any form. The door is shut
+   * and boarded, so there is nothing to SEE past it -- which is the whole
+   * problem and also the answer: what you see is the strip of light under the
+   * door, and what happens is that something breaks it.
+   *
+   * Two meshes. A thin emissive strip along the threshold, off until the beat
+   * runs, and a black quad that slides across it. No lights and no shadow
+   * casting: a real light in the hallway would have to be occluded by real
+   * geometry that does not exist out there, and at this scale the strip reads
+   * better anyway because the eye is drawn to the one bright thing in a room
+   * that is otherwise at 6/255.
+   *
+   * Deliberately understated. The strip is dim, the pass is slow, and it
+   * happens once. A player who is looking at the door sees it clearly; a player
+   * who is not hears the footsteps and turns around too late, which is the
+   * better version of the beat.
+   */
+  const DOOR_LEAF_W = 1.0;
+  const gapGroup = new THREE.Group();
+  // Just inside the room from the door plane, a centimetre off the floor.
+  gapGroup.position.set(0, 0.012, -0.06);
+  doorFrame.add(gapGroup);
+
+  const doorGapMat = new THREE.MeshBasicMaterial({
+    color: 0xb08a3c,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false
+  });
+  const doorGap = new THREE.Mesh(new THREE.PlaneGeometry(DOOR_LEAF_W, 0.055), doorGapMat);
+  doorGap.rotation.x = -Math.PI / 2;
+  gapGroup.add(doorGap);
+
+  // The blocker. Wider than a leg on purpose: it is a body's worth of shadow
+  // seen edge-on through a 5 cm gap, not a silhouette.
+  const doorGapBlockMat = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false
+  });
+  const doorGapBlock = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.075), doorGapBlockMat);
+  doorGapBlock.rotation.x = -Math.PI / 2;
+  doorGapBlock.position.y = 0.002;
+  // Explicit, because the two planes are 2 mm apart with depthWrite off, and
+  // three sorts transparent objects by camera distance -- at that separation
+  // the order is a coin toss, and losing it draws the shadow UNDER the light.
+  doorGap.renderOrder = 1;
+  doorGapBlock.renderOrder = 2;
+  gapGroup.add(doorGapBlock);
+
+  /**
+   * Beat state. `phase` runs 0..1 across the whole pass; the light comes up,
+   * the shadow crosses, the light goes out again.
+   */
+  const doorPass = { active: false, phase: 0, duration: 5.4 };
+
   // Blender-authored, see blender/build_door.py: a beveled frame around a
   // two-panel raised door (real stile-and-rail relief with a mid-rail gap,
   // not a flat slab) plus a turned knob. doorSlab stays a plain invisible
@@ -754,7 +830,14 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   doorFrame.add(polaroid);
   polaroid.userData.interact = {
     label: 'Examine polaroid',
-    onInteract: () => showCaption('A polaroid of a shadowy figure, stuck to the door frame. Written on it: "PROJECT HOLLOW", June 1987.')
+    onInteract: () => {
+      if (puzzleState.polaroidRead) {
+        showCaption('A polaroid of a shadowy figure, stuck to the door frame. Written on it: "PROJECT HOLLOW", June 1987.');
+        return;
+      }
+      puzzleState.polaroidRead = true;
+      onExaminePolaroid();
+    }
   };
   interactables.push(polaroid);
 
@@ -887,7 +970,16 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   message.position.set(1.35, 0.011, -1.0);
   message.userData.interact = {
     label: 'Read the floor',
-    onInteract: () => showCaption('Scratched into the floorboards, in shaking letters: "Don\'t let it out."')
+    onInteract: () => {
+      // First read is the story beat; afterwards it is just a thing on the
+      // floor, so re-examining does not replay the whole sequence.
+      if (puzzleState.messageRead) {
+        showCaption('Scratched into the floorboards, in shaking letters: "Don\'t let it out."');
+        return;
+      }
+      puzzleState.messageRead = true;
+      onReadMessage();
+    }
   };
   interactables.push(message);
   group.add(message);
@@ -1731,6 +1823,16 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
       paperclipHitbox,
       chain,
       doorSlab,
+      /**
+       * Runs the "something moves past the door" beat once. Returns how long it
+       * takes, so a script can wait exactly that long instead of guessing.
+       */
+      playDoorPass: () => {
+        doorPass.active = true;
+        doorPass.phase = 0;
+        return doorPass.duration;
+      },
+      doorPass,
       messagePlane: message,
       ambient,
       glassMaterial,
@@ -1777,6 +1879,11 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
       boardedPlankParts.forEach((part) => { part.visible = true; });
       doorHinge.rotation.y = 0;
 
+      doorPass.active = false;
+      doorPass.phase = 0;
+      doorGapMat.opacity = 0;
+      doorGapBlockMat.opacity = 0;
+
       puzzleState.chainsEscaped = false;
       puzzleState.hasFlashlight = false;
       puzzleState.foundPhotos.clear();
@@ -1785,6 +1892,8 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
       puzzleState.hasCrowbar = false;
       puzzleState.planksRemoved = false;
       puzzleState.doorUnlocked = false;
+      puzzleState.messageRead = false;
+      puzzleState.polaroidRead = false;
     },
     update(dt) {
       this._t = (this._t ?? 0) + dt;
@@ -1814,6 +1923,39 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
       // pried off and it's actually been opened.
       const targetDoorRotY = puzzleState.doorUnlocked ? doorOpenSwing : 0;
       doorHinge.rotation.y += (targetDoorRotY - doorHinge.rotation.y) * Math.min(1, dt * 3);
+
+      // "Something moves past the door." See the note where these were built.
+      if (doorPass.active) {
+        doorPass.phase += dt / doorPass.duration;
+        if (doorPass.phase >= 1) {
+          doorPass.active = false;
+          doorPass.phase = 0;
+          doorGapMat.opacity = 0;
+          doorGapBlockMat.opacity = 0;
+        } else {
+          const p = doorPass.phase;
+          // Light in over the first fifth, out over the last fifth, so it does
+          // not switch on and off -- the hall light was always on, the player
+          // simply had no reason to look at the floor until now.
+          const up = Math.min(1, p / 0.2);
+          const down = Math.min(1, (1 - p) / 0.2);
+          doorGapMat.opacity = 0.5 * Math.min(up, down);
+          // The crossing occupies the middle 45% of the beat, so there is a
+          // beat of steady light before and after. The pause is what makes the
+          // interruption read as something rather than as a flicker.
+          const cross = (p - 0.32) / 0.45;
+          if (cross >= 0 && cross <= 1) {
+            // Fully opaque at the strip's full brightness, not merely as
+            // opaque as the strip -- black at 0.5 over light at 0.5 only
+            // HALVES it, which on screen is a dip rather than a shadow. It
+            // still fades with the strip so the beat can end cleanly.
+            doorGapBlockMat.opacity = Math.min(1, doorGapMat.opacity / 0.5);
+            doorGapBlock.position.x = -DOOR_LEAF_W * 0.75 + cross * DOOR_LEAF_W * 1.5;
+          } else {
+            doorGapBlockMat.opacity = 0;
+          }
+        }
+      }
     }
   };
 }

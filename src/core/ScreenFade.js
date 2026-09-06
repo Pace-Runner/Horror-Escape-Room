@@ -27,6 +27,16 @@ export function createScreenFade(el, { defaultMs = 700 } = {}) {
   return {
     fadeOut: (ms = defaultMs) => to(1, ms),
     fadeIn: (ms = defaultMs) => to(0, ms),
+    /**
+     * Instant black, no transition. The mirror of clear(), for a beat that has
+     * to START black -- waking up, and the endings. fadeOut(0) does the same
+     * thing, but naming it stops every caller having to know that.
+     */
+    snapToBlack() {
+      el.style.transitionDuration = '0ms';
+      void el.offsetWidth;
+      el.style.opacity = '1';
+    },
     /** Instant, no transition. For aborts and restarts. */
     clear() {
       el.style.transitionDuration = '0ms';

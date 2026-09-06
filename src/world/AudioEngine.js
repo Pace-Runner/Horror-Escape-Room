@@ -423,6 +423,73 @@ export class AudioEngine {
     src.stop(now + 1.4);
   }
 
+  /**
+   * Slow, heavy footsteps on boards, receding or approaching.
+   *
+   * Synthesised like the thunder and the creak rather than sampled, for the
+   * reason at the top of this file. A footstep is a low thump plus a short
+   * board-resonance ring, so it is a filtered noise burst with a fast attack
+   * and a bandpass partial on top -- a plain lowpass thump alone reads as a
+   * door closing, not as weight on a floorboard.
+   *
+   * @param count  how many steps
+   * @param spacing seconds between them. 0.62 is a slow walk; anything under
+   *                0.4 reads as running, which this creature never does past a
+   *                closed door.
+   * @param pan    -1 to 1, swept across the steps, so the thing passes rather
+   *                than pacing on the spot. The whole beat is worthless without
+   *                it: footsteps with no travel are just noise.
+   */
+  footsteps({ count = 6, spacing = 0.62, pan = 0, panTo = null, level = 0.5 } = {}) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const start = ctx.currentTime + 0.02;
+    for (let i = 0; i < count; i++) {
+      const at = start + i * spacing;
+      const t = count > 1 ? i / (count - 1) : 0;
+      const where = panTo === null ? pan : pan + (panTo - pan) * t;
+
+      const panner = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+      if (panner) panner.pan.setValueAtTime(Math.max(-1, Math.min(1, where)), at);
+
+      const out = ctx.createGain();
+      // Alternating weight, because a person does not put both feet down
+      // equally hard, and a perfectly even tread sounds like a metronome.
+      const weight = level * (i % 2 === 0 ? 1 : 0.78);
+      out.gain.setValueAtTime(0.0001, at);
+      out.gain.exponentialRampToValueAtTime(weight, at + 0.012);
+      out.gain.exponentialRampToValueAtTime(0.0001, at + 0.34);
+
+      const thump = ctx.createBufferSource();
+      thump.buffer = this.#noiseBuffer(0.4);
+      const low = ctx.createBiquadFilter();
+      low.type = 'lowpass';
+      low.frequency.value = 130;
+
+      const board = ctx.createBufferSource();
+      board.buffer = this.#noiseBuffer(0.4);
+      const ring = ctx.createBiquadFilter();
+      ring.type = 'bandpass';
+      ring.frequency.value = 320 + Math.random() * 180;
+      ring.Q.value = 6;
+      const ringGain = ctx.createGain();
+      ringGain.gain.value = 0.35;
+
+      thump.connect(low).connect(out);
+      board.connect(ring).connect(ringGain).connect(out);
+      if (panner) out.connect(panner).connect(this.master);
+      else out.connect(this.master);
+
+      thump.start(at);
+      thump.stop(at + 0.4);
+      board.start(at);
+      board.stop(at + 0.4);
+    }
+    // Seconds the whole run occupies, so a script can wait exactly as long as
+    // it actually takes rather than guessing.
+    return count * spacing + 0.34;
+  }
+
   creak() {
     if (!this.ctx) return;
     const ctx = this.ctx;

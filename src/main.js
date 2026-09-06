@@ -18,6 +18,8 @@ import { CaptionSequencer } from './core/CaptionSequencer.js';
 import { createDocumentUI } from './core/DocumentUI.js';
 import { createPostFX } from './world/Postprocessing.js';
 import { createCutsceneRunner } from './core/Cutscene.js';
+import { createScriptRunner } from './core/Script.js';
+import { BEATS, DOCUMENTS } from './story/lines.js';
 import { Hands } from './systems/hands/hands.js';
 import { HELD_MAGNIFICATION } from './systems/hands/sockets.js';
 import { setHandAssetUrl } from './systems/hands/hand-mesh.js';
@@ -468,27 +470,75 @@ const cutscene = createCutsceneRunner({
   camera, player, interaction, hands, dustMotes, captions, fade
 });
 
+// Story beats. Every delayed beat in the game runs through this so a restart
+// can cancel it -- see core/Script.js for the bug that made it necessary.
+const script = createScriptRunner({ captions });
+
 const bedroom = createBedroomLevel({
   showCaption,
   onFreed: () => {
     player.movementEnabled = true;
     objectiveEl.textContent = 'Escape the house without getting caught.';
-    showCaption('You stand up. Somewhere in the dark, floorboards creak.');
-    setTimeout(() => {
-      bedroomStorm.blowBulb();
-      showCaption('The bulb flickers and blows. You are in the dark.');
-      // Losing the bulb is the beat where the presence stops being background
-      // texture, so the breathing comes up with the darkness.
-      audio.setBreathing(0.8);
-    }, 4200);
-    setTimeout(() => audio.creak(), 9000);
+    // Was two bare setTimeouts at 4200 and 9000 ms that nothing cancelled, so
+    // pressing R inside that window blew the bulb of the freshly restarted room
+    // several seconds later with no way to work out why. Now a script: every
+    // await returns false once a restart has bumped the generation.
+    script.run(async (s) => {
+      if (!await s.play(BEATS.freed)) return;
+      if (!await s.wait(1.4)) return;
+      s.do(() => {
+        bedroomStorm.blowBulb();
+        // Losing the bulb is the beat where the presence stops being background
+        // texture, so the breathing comes up with the darkness.
+        audio.setBreathing(0.8);
+      });
+      if (!await s.play(BEATS.bulbBlows)) return;
+      if (!await s.wait(1.8)) return;
+      s.do(() => audio.creak());
+    });
   },
   onFlashlightPicked: () => {
     flashlightFound = true;
     setFlashlight(true);
     equipTorch();
+    captions.play(BEATS.flashlightOn);
   },
   onDoorOpened: () => exitLevel('bedroom'),
+
+  /**
+   * The scratched floor message, and what it brings.
+   *
+   * This is the beat the storyline builds Level 1 around and it did not exist
+   * in any form: "After reading this, you hear something move outside the door.
+   * Footsteps. Floorboards creaking. Heavy breathing. Something moves past the
+   * door." The objective changes here because this is the moment the game stops
+   * being about a locked room and starts being about what else is in the house.
+   */
+  onReadMessage: () => {
+    script.run(async (s) => {
+      if (!await s.play(BEATS.scratches)) return;
+      if (!await s.wait(0.8)) return;
+      s.do(() => {
+        // Sound and picture start together. The steps sweep left to right past
+        // the door, and the strip of light under it is broken as they pass.
+        audio.footsteps({ count: 7, spacing: 0.62, pan: -0.8, panTo: 0.8, level: 0.55 });
+        bedroom.refs.playDoorPass();
+        // It is right outside. Nothing in the game has been this close yet.
+        audio.setBreathing(0.95);
+      });
+      if (!await s.play(BEATS.pastTheDoor)) return;
+      s.do(() => {
+        objectiveEl.textContent = 'Escape the house without getting caught.';
+        // Back down, but not to where it was: the house is worse now than it
+        // was five minutes ago, and it stays that way.
+        audio.setBreathing(0.55);
+      });
+    });
+  },
+
+  onExaminePolaroid: () => {
+    captions.play(BEATS.polaroid);
+  },
   onExaminePhotos: ({ photos, onSolved }) => {
     player.unlock();
     photoBoardUI.open(photos, onSolved);
@@ -585,6 +635,9 @@ function activateLevel(key, { lockMovement = false } = {}) {
   // Same reason abortTransition() exists: a restart taken mid-shot must hand
   // the camera back, or the player restarts into a frozen third-person view.
   cutscene.cancel();
+  // The whole reason Script.js exists: onFreed used to arm timers that nothing
+  // cancelled, so a restart mid-beat blew the new room's bulb seconds later.
+  script.cancel();
   player.movementEnabled = !lockMovement;
   return level;
 }
@@ -820,6 +873,21 @@ function beginGame() {
   audio.startBreathing();
   activateLevel('bedroom', { lockMovement: true });
   player.lock();
+
+  /**
+   * The wake-up. The fade overlay has existed since the transition system went
+   * in and beginGame() never used it -- the game simply cut to a lit room with
+   * the player already in it, which is not waking up, it is loading a save.
+   *
+   * Black first, then the room arrives around them while the first three lines
+   * play. Slow: 2.6s is long for a fade and exactly right for eyes opening.
+   */
+  script.run(async (s) => {
+    s.do(() => fade.snapToBlack());
+    if (!await s.wait(0.9)) return;
+    fade.fadeIn(2600);
+    await s.play(BEATS.wake);
+  });
 }
 
 let gameStarted = false;
@@ -899,6 +967,7 @@ if (import.meta.env.DEV) {
     player,
     postFX,
     cutscene,
+    script,
     captions,
     documentUI,
     audio,
