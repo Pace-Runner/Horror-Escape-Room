@@ -33,7 +33,14 @@ const LAB_Z = HALL_LEN + LAB_D / 2 + 0.2;
  *  - the fluorescent tube meshes are children of a `fixturesGroup` so the
  *    whole strip can be repositioned or its material swapped in one place.
  */
-export function createHallwayBasementLevel({ showCaption = () => {}, onExit = () => {} } = {}) {
+export function createHallwayBasementLevel({
+  showCaption = () => {},
+  onExit = () => {},
+  // Fired when the breaker goes in. The level changes its own lights and its
+  // own screen; this is for everything OUTSIDE the level that the beat drives
+  // -- the story captions, the CCTV sighting, the creature.
+  onPowerRestored = () => {}
+} = {}) {
   const group = new THREE.Group();
   group.name = 'Level2_HallwayBasement';
   const interactables = [];
@@ -95,6 +102,20 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
   hallLight2.position.set(0, HALL_H - 0.4, 1.4);
   hallway.add(hallLight2);
 
+  /**
+   * The end cap. The hallway had walls down both sides and nothing at all
+   * behind the spawn point, so walking backwards took the player straight out
+   * of the level and into the void -- there was no collider and nothing drawn.
+   * This is the door they came in through, so it should be shut behind them.
+   */
+  const hallEndWall = new THREE.Mesh(
+    new THREE.PlaneGeometry(HALL_W, HALL_H),
+    hallWallMat
+  );
+  hallEndWall.position.set(0, HALL_H / 2, -HALL_LEN / 2);
+  hallway.add(hallEndWall);
+  colliders.push({ minX: -HALL_W / 2, maxX: HALL_W / 2, minZ: -0.2, maxZ: 0 });
+
   addBaseboard(hallway, { width: HALL_W, depth: HALL_LEN, color: 0x141210 });
 
   // No staircase here: the hallway and lab are both at y=0 (see the note
@@ -138,7 +159,41 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
     lab.add(wall);
     return wall;
   }
-  labWall(LAB_W, 0, -LAB_D / 2, 0);
+  /**
+   * THE ENTRANCE WALL, which used to be one solid opaque plane spanning all 8 m
+   * with no doorway cut in it and no collider behind it. The player walked
+   * straight THROUGH the wall out of the hallway, and once inside could not see
+   * the hallway they had come from at all -- a PlaneGeometry is single-sided,
+   * so from the lab side the hallway's own walls are back-faces and simply are
+   * not drawn. The room the storyline describes you walking into was a room you
+   * arrived in by clipping through a wall.
+   *
+   * Now: two segments with a doorway between them the width of the hallway, a
+   * lintel over it, and colliders on both segments so the wall is real.
+   */
+  const DOORWAY_W = HALL_W;
+  const DOORWAY_H = 2.15;
+  const jambW = (LAB_W - DOORWAY_W) / 2;
+  for (const side of [-1, 1]) {
+    const x = side * (DOORWAY_W / 2 + jambW / 2);
+    const jamb = new THREE.Mesh(new THREE.PlaneGeometry(jambW, LAB_H), labWallMat);
+    jamb.position.set(x, LAB_H / 2, -LAB_D / 2);
+    // DoubleSide, unlike every other wall here: this is the one the player
+    // stands in the doorway of and looks at from both directions.
+    jamb.material = labWallMat;
+    lab.add(jamb);
+    colliders.push({
+      minX: x - jambW / 2, maxX: x + jambW / 2,
+      minZ: LAB_Z - LAB_D / 2 - 0.1, maxZ: LAB_Z - LAB_D / 2 + 0.15
+    });
+  }
+  const lintel = new THREE.Mesh(
+    new THREE.PlaneGeometry(DOORWAY_W, LAB_H - DOORWAY_H),
+    labWallMat
+  );
+  lintel.position.set(0, DOORWAY_H + (LAB_H - DOORWAY_H) / 2, -LAB_D / 2);
+  lab.add(lintel);
+
   labWall(LAB_D, -LAB_W / 2, 0, Math.PI / 2);
   labWall(LAB_D, LAB_W / 2, 0, -Math.PI / 2);
   const backWall = labWall(LAB_W, 0, LAB_D / 2, Math.PI);
@@ -149,23 +204,69 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
     { minX: -LAB_W / 2, maxX: LAB_W / 2, minZ: LAB_Z + LAB_D / 2 - 0.15, maxZ: LAB_Z + LAB_D / 2 + 0.1 }
   );
 
+  /**
+   * The threshold. The hallway floor ends at z = HALL_LEN and the lab floor
+   * starts at z = LAB_Z - LAB_D/2, which is 0.2 m further on -- so there was a
+   * strip of nothing between the two rooms that the player walked across,
+   * looking down into the void under the level.
+   *
+   * Patched with a strip rather than by moving LAB_Z, because LAB_Z is the
+   * origin every collider in this file is written against and shifting it would
+   * silently move all of them.
+   */
+  const threshold = new THREE.Mesh(
+    new THREE.PlaneGeometry(DOORWAY_W + 0.4, (LAB_Z - LAB_D / 2) - HALL_LEN + 0.1),
+    new THREE.MeshStandardMaterial({ map: concreteTex, bumpMap: concreteBump, bumpScale: 0.3, roughness: 1 })
+  );
+  threshold.rotation.x = -Math.PI / 2;
+  threshold.position.set(0, 0.001, (HALL_LEN + (LAB_Z - LAB_D / 2)) / 2 - 0.025);
+  threshold.receiveShadow = true;
+  group.add(threshold);
+
   // flickering fluorescent strip lights
   const fixturesGroup = new THREE.Group();
   lab.add(fixturesGroup);
-  const tubeMat = new THREE.MeshStandardMaterial({ color: 0xdfe8ff, emissive: 0x9fc0ff, emissiveIntensity: 1.6 });
+  /**
+   * The fluorescents used to run the same random flicker every frame whether or
+   * not the breaker had been flipped, which meant the one objective in this
+   * level -- restore the power -- changed nothing you could see. The whole beat
+   * was a caption.
+   *
+   * Now there are two states and they look nothing like each other. Unpowered,
+   * the tubes are dead except for one that stutters faintly and rarely, which
+   * is what a failing tube on a dying circuit actually does and which keeps the
+   * "flickering fluorescent lights" the storyline puts in the room. Powered,
+   * all three come up bright, with only an occasional dip.
+   *
+   * Each tube gets its OWN material clone: one shared material cannot show two
+   * tubes at different brightnesses, so the emissive would have stayed a single
+   * global value while the lights underneath it diverged.
+   */
   const fluorescents = [];
   for (let i = -1; i <= 1; i++) {
+    const tubeMat = new THREE.MeshStandardMaterial({
+      color: 0xdfe8ff, emissive: 0x9fc0ff, emissiveIntensity: 0.06
+    });
     const tube = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.06, 0.1), tubeMat);
     tube.position.set(i * 2.4, LAB_H - 0.05, -1);
     fixturesGroup.add(tube);
-    const tubeLight = new THREE.PointLight(0xaec4ff, 1.35, 9, 1.5);
+    const tubeLight = new THREE.PointLight(0xaec4ff, 0, 9, 1.5);
     tubeLight.position.copy(tube.position);
     tubeLight.position.y -= 0.3;
     fixturesGroup.add(tubeLight);
-    fluorescents.push(tubeLight);
+    // The middle tube is the one that stutters before the power is on.
+    fluorescents.push({ light: tubeLight, mat: tubeMat, isDying: i === 0 });
   }
 
-  const labAmbient = new THREE.AmbientLight(0x3d4658, 0.40);
+  /**
+   * Ambient is the other half of "the breaker does something". At 0.40 the room
+   * was legible with every tube dark, so switching them on barely registered.
+   * Unpowered it drops to a quarter of that -- enough to move by with a torch,
+   * not enough to read the room -- and comes back up with the lights.
+   */
+  const LAB_AMBIENT_ON = 0.40;
+  const LAB_AMBIENT_OFF = 0.10;
+  const labAmbient = new THREE.AmbientLight(0x3d4658, LAB_AMBIENT_OFF);
   lab.add(labAmbient);
 
   // exposed pipes along the back wall
@@ -205,6 +306,12 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
       powerRestored = true;
       showCaption('You flip the breaker. Power surges through the lab -- something unlocks at the far end.');
       metalDoor.userData.interact.label = 'Open the door';
+      labAmbient.intensity = LAB_AMBIENT_ON;
+      // The screen stops being pure static. Unit 12 replaces this with real
+      // feeds; until then, powered simply looks different from unpowered.
+      screenMaterial.uniforms.uNoiseStrength.value = 0.35;
+      monitorBody.userData.interact.label = 'View camera feeds';
+      onPowerRestored();
     }
   };
   interactables.push(fuseBox);
@@ -246,8 +353,20 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
   }
 
   // retro computer desk with the CCTV monitor (custom shader material)
+  /**
+   * The desk USED TO FACE THE BACK WALL. The monitor and its screen sat on the
+   * +Z side of the desk group, and the desk stood 1.4 m off the back wall, so
+   * the only place to read the screen from was a 0.90 m slot between the desk's
+   * collider and the wall's -- 0.20 m of actual standing room once the player's
+   * 0.35 m radius is taken off both sides. Reaching the one interactable the
+   * whole level is built around meant squeezing behind the furniture.
+   *
+   * Turned round to face into the room and pushed back against the wall, so it
+   * is approached from the open floor like every other prop in the game.
+   */
   const desk = new THREE.Group();
-  desk.position.set(1.6, 0, LAB_D / 2 - 1.4);
+  desk.position.set(1.6, 0, LAB_D / 2 - 0.55);
+  desk.rotation.y = Math.PI;
   lab.add(desk);
 
   const deskTop = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.06, 0.6), frameWoodMat());
@@ -279,8 +398,18 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
   desk.add(screenGlow);
 
   monitorBody.userData.interact = {
-    label: 'View camera feeds',
-    onInteract: () => showCaption('Five cameras. All static. No power.')
+    // Reads "no power" until there is power, rather than inviting the player to
+    // view feeds that cannot exist yet.
+    label: 'Examine the monitor',
+    onInteract: () => {
+      if (!powerRestored) {
+        showCaption('Five camera feeds, and every one of them is static. No power.');
+        return;
+      }
+      // Said "No power" even after the breaker was flipped, which told the
+      // player their one objective had not worked.
+      showCaption('Five feeds, live now. The kitchen. A hallway. The porch. A study. And this room.');
+    }
   };
   interactables.push(monitorBody);
 
@@ -299,6 +428,16 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
     minX: desk.position.x - 0.65, maxX: desk.position.x + 0.65,
     minZ: LAB_Z + desk.position.z - 0.35, maxZ: LAB_Z + desk.position.z + 0.35
   });
+  // Sanity, checked at build time rather than discovered by walking into it:
+  // the desk must not leave a gap against the back wall that is too narrow to
+  // stand in but wide enough to look like a route. Either flush, or wide enough.
+  {
+    const gap = (LAB_D / 2 - 0.15) - (desk.position.z + 0.35);
+    const standing = gap - 0.7;   // the player is 0.35 in radius
+    if (standing > 0 && standing < 0.6) {
+      console.warn(`[lab] ${standing.toFixed(2)}m of standing room behind the desk -- too narrow to use, wide enough to look like a way through`);
+    }
+  }
 
   // Locked metal door at the far end of the lab -- opposite the entrance
   // from the hallway, per the storyline ("at the opposite end of the
@@ -368,7 +507,17 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
   });
 
   const crateMat = new THREE.MeshStandardMaterial({ color: 0x2e2418, roughness: 0.9 });
-  [[1.5, 1.5, 0], [1.75, 1.7, 0.4], [-1.6, 2.2, 0]].forEach(([x, z, stackY], i) => {
+  /**
+   * The stacked crates used to stand at x=1.5, which left a 0.50 m gap between
+   * their collider and the shelving at x=2.3. The player is 0.70 m across, so
+   * that gap was impassable -- and it was the ONLY way into the back-right
+   * quarter of the lab. 4.7 square metres of room, including the floor in front
+   * of the CCTV desk, could never be reached at all. Found by flood-filling the
+   * level's real colliders rather than by looking at it.
+   *
+   * Moved west to x=0.9, which opens the gap to 1.10 m.
+   */
+  [[0.9, 1.5, 0], [1.15, 1.7, 0.4], [-1.6, 2.2, 0]].forEach(([x, z, stackY], i) => {
     const crate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), crateMat);
     crate.position.set(x, 0.25 + stackY, z);
     crate.rotation.y = i * 0.6;
@@ -411,7 +560,16 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
     // +Z from the spawn point, so it has to be turned 180 degrees to
     // actually face into the level rather than out through the void.
     spawnYaw: Math.PI,
-    refs: { fluorescents, hallLight, screenMaterial },
+    refs: {
+      fluorescents,
+      hallLight,
+      screenMaterial,
+      labAmbient,
+      monitorBody,
+      metalDoor,
+      /** Read by tests and by main.js; the level owns the flag itself. */
+      get powerRestored() { return powerRestored; }
+    },
     /**
      * Previously absent, which is why restarting the game left this level with
      * its breaker already flipped and its exit door still reading "Open the
@@ -420,13 +578,36 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
     reset() {
       powerRestored = false;
       metalDoor.userData.interact.label = 'Locked. Restore power first.';
+      // Everything the breaker changed has to change back, or a restart drops
+      // the player into a lit lab whose breaker is off.
+      labAmbient.intensity = LAB_AMBIENT_OFF;
+      screenMaterial.uniforms.uNoiseStrength.value = 1.0;
+      monitorBody.userData.interact.label = 'Examine the monitor';
+      fluorescents.forEach(({ light, mat }) => {
+        light.intensity = 0;
+        mat.emissiveIntensity = 0.06;
+      });
     },
     update(dt) {
       const elapsed = (this._t = (this._t ?? 0) + dt);
       dynamics.forEach((d) => d.update(dt, elapsed));
-      fluorescents.forEach((l) => {
-        const dip = Math.random() < 0.05 ? 0.3 : 1;
-        l.intensity = (1.17 + Math.random() * 0.31) * dip;
+      fluorescents.forEach(({ light, mat, isDying }) => {
+        if (powerRestored) {
+          // Lit, with the small instability of a strip light on an old supply.
+          const dip = Math.random() < 0.05 ? 0.3 : 1;
+          light.intensity = (1.17 + Math.random() * 0.31) * dip;
+          mat.emissiveIntensity = 1.6 * dip;
+        } else if (isDying) {
+          // One tube, trying and failing. Rare and brief: a 3% chance per frame
+          // is roughly twice a second, which reads as struggling rather than as
+          // a strobe.
+          const strike = Math.random() < 0.03;
+          light.intensity = strike ? 0.5 + Math.random() * 0.35 : 0;
+          mat.emissiveIntensity = strike ? 0.9 : 0.06;
+        } else {
+          light.intensity = 0;
+          mat.emissiveIntensity = 0.06;
+        }
       });
     }
   };

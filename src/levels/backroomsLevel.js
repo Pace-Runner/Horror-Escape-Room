@@ -932,7 +932,21 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     // hallwayBasementLevel. It also means the player spawns with their back to
     // the sealed door, so finding it is a choice to turn around.
     spawnYaw: Math.PI,
-    refs: { doorHinge, lamps, arrows, sealed },
+    refs: {
+      doorHinge,
+      lamps,
+      arrows,
+      sealed,
+      /**
+       * The corridor rectangles this maze is generated from. Exposed because
+       * "is anywhere standable unreachable?" is meaningless here without them:
+       * the solid space BETWEEN corridors has no collider in it, so a generic
+       * audit sees acres of walkable floor that is not floor at all. With these
+       * it can ask the only question that matters -- is any part of an actual
+       * corridor cut off?
+       */
+      corridors: CORRIDORS
+    },
 
     /**
      * Arms the corridor for one crossing.

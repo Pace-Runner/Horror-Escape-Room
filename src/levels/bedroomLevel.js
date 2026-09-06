@@ -1575,7 +1575,7 @@ export function createBedroomLevel({
   // between the window and the bed, with clearance to walk up to it.
   const nightstandLeft = addNightstand(-0.3, -1.95);
   nightstandLeft.userData.interact = {
-    label: '[E] Search drawer',
+    label: 'Search drawer',
     onInteract: () => {
       if (!drawerStates.nightstandLeft.isOpen) {
         drawerStates.nightstandLeft.isOpen = true;
@@ -1600,7 +1600,7 @@ export function createBedroomLevel({
   binHitbox.position.y += 0.05;
   group.add(binHitbox);
   binHitbox.userData.interact = {
-    label: '[E] Search bin',
+    label: 'Search bin',
     onInteract: () => {
       if (!drawerStates.bin.isOpen) {
         drawerStates.bin.isOpen = true;
@@ -1620,7 +1620,7 @@ export function createBedroomLevel({
   dresserTop.position.set(2.7, 1.1, 1.6);
   group.add(dresserTop);
   dresserTop.userData.interact = {
-    label: '[E] Search dresser',
+    label: 'Search dresser',
     onInteract: () => {
       if (!drawerStates.dresserTop.isOpen) {
         drawerStates.dresserTop.isOpen = true;
@@ -1773,7 +1773,7 @@ export function createBedroomLevel({
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
   boxHitbox.userData.interact = {
-    label: '[E] Open box',
+    label: 'Open box',
     onInteract: () => {
       if (puzzleState.photosArranged && puzzleState.hasKey) {
         showCaption('The key fits! Inside the box you find a crowbar. This should remove those wooden planks...');
