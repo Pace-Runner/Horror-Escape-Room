@@ -566,23 +566,47 @@ export function createPaperNoteTexture(lines = []) {
   return tex;
 }
 
-export function createFamilyPhotoTexture({ scratchedFourth = false } = {}) {
+/**
+ * The family photograph, and the reveal the whole ending turns on.
+ *
+ * `figures` is 3 or 4, and the LAYOUT IS ALWAYS FOUR SLOTS. That is the entire
+ * point: the three people who are there stand in identical positions in both
+ * versions, so the four-figure print is unmistakably the same photograph with
+ * someone added, rather than a differently-composed one. It also leaves a
+ * conspicuous gap on the end of the three-figure print -- a space where a person
+ * should be, which the player has no reason to think about until much later.
+ *
+ * This used to hardcode `const figures = 4` and only toggle the scratching out,
+ * and BOTH the bedroom and the study passed scratchedFourth: true. So the
+ * Level 1 -> Level 3 contrast the storyline builds its reveal on ("the same
+ * family picture seen in the first room, this time with a 4th person, scratched
+ * out with marker") did not exist in the game at all: both prints were already
+ * the end state.
+ *
+ * Why the player cannot see the fourth without the visor: they are not missing
+ * from the photograph, they are missing from the PLAYER. Broken sight cannot
+ * resolve the scratched-out figure. The lenses correct that, exactly as they
+ * correct everything else.
+ */
+export function createFamilyPhotoTexture({ figures = 3, scratchedFourth = false } = {}) {
   const canvas = makeCanvas(256, 200);
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#d8cfb8';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.fillStyle = '#3a3226';
   ctx.fillRect(10, 10, canvas.width - 20, canvas.height - 20);
-  const figures = 4;
-  const spacing = (canvas.width - 40) / figures;
-  for (let i = 0; i < figures; i++) {
+  // Four slots, always. Only `figures` of them are occupied.
+  const SLOTS = 4;
+  const spacing = (canvas.width - 40) / SLOTS;
+  const shown = Math.max(1, Math.min(SLOTS, figures));
+  for (let i = 0; i < shown; i++) {
     const x = 30 + spacing * i + spacing / 2;
     ctx.fillStyle = '#c9b98f';
     ctx.beginPath();
     ctx.arc(x, 70, 16, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillRect(x - 14, 86, 28, 60);
-    if (scratchedFourth && i === figures - 1) {
+    if (scratchedFourth && i === SLOTS - 1) {
       ctx.strokeStyle = 'rgba(10,10,10,0.9)';
       ctx.lineWidth = 3;
       for (let s = 0; s < 6; s++) {

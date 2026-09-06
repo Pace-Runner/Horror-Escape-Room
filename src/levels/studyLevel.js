@@ -145,17 +145,31 @@ export function createStudyLevel({ showCaption = () => {} } = {}) {
   rug.position.set(desk.position.x + 0.7, 0.008, desk.position.z + 0.9);
   group.add(rug);
 
-  // portrait with the scratched-out fourth family member
-  const portraitTex = createFamilyPhotoTexture({ scratchedFourth: true });
-  const portrait = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.9, 0.7),
-    new THREE.MeshStandardMaterial({ map: portraitTex })
-  );
+  /**
+   * The portrait, in two states.
+   *
+   * Uncorrected it is the same three people the bedroom's photographs show.
+   * Through the visor there are four, and the fourth is scratched out -- which
+   * is the storyline's reveal: "the same family picture seen in the first room,
+   * this time with a 4th person, scratched out with marker."
+   *
+   * Both textures are built up front and swapped, rather than one being redrawn,
+   * so putting the visor on and taking it off is instant and can be done as many
+   * times as the player likes without repainting a canvas.
+   */
+  const portraitTexPlain = createFamilyPhotoTexture();
+  const portraitTexTrue = createFamilyPhotoTexture({ figures: 4, scratchedFourth: true });
+  const portraitMat = new THREE.MeshStandardMaterial({ map: portraitTexPlain });
+  const portrait = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.7), portraitMat);
   portrait.position.set(-ROOM_W / 2 + 0.05, 1.7, 1);
   portrait.rotation.y = Math.PI / 2;
   portrait.userData.interact = {
     label: 'Examine family portrait',
-    onInteract: () => showCaption('The same family photo from the bedroom. Four people. The fourth scratched out.')
+    onInteract: () => {
+      showCaption(portraitMat.map === portraitTexTrue
+        ? 'The same photograph from the bedroom. Four people now. The fourth has been scratched out with marker.'
+        : 'The same family photo from the bedroom. Three people, and the same gap on the end.');
+    }
   };
   interactables.push(portrait);
   group.add(portrait);
@@ -216,7 +230,21 @@ export function createStudyLevel({ showCaption = () => {} } = {}) {
     // face -Z, back toward the desk/bookshelves/mirror rather than out
     // through the front door, so the room reads immediately on entry.
     spawnYaw: 0,
-    refs: { lamp, doorLamp },
+    refs: {
+      lamp,
+      doorLamp,
+      portraitMat,
+      portraitTexPlain,
+      portraitTexTrue,
+      /**
+       * What the visor does to this room. Unit 15 will grow this; today it is
+       * the portrait, which is the one reveal already built.
+       */
+      setCorrectedSight(on) {
+        portraitMat.map = on ? portraitTexTrue : portraitTexPlain;
+        portraitMat.needsUpdate = true;
+      }
+    },
     update() {}
   };
 }

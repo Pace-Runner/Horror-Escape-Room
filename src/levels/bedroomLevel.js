@@ -941,7 +941,7 @@ export function createBedroomLevel({
   }
 
   // ---------- scattered photographs + scratched floor message ----------
-  const photoTex = createFamilyPhotoTexture({ scratchedFourth: true });
+  const photoTex = createFamilyPhotoTexture();
   for (let i = 0; i < 4; i++) {
     const photo = new THREE.Mesh(
       new THREE.PlaneGeometry(0.22, 0.17),
@@ -954,7 +954,7 @@ export function createBedroomLevel({
       label: i === 0 ? 'Examine family photograph' : 'Examine photograph',
       onInteract: () => showCaption(
         i === 0
-          ? 'A family photo. Four people. The fourth has been scratched out with marker.'
+          ? 'A family photo. Three people, and a gap on the end where a fourth would stand.'
           : 'An old photograph, face down among the mess.'
       )
     };
@@ -1660,7 +1660,7 @@ export function createBedroomLevel({
     onInteract: () => {
       if (!drawerStates.dresserTop.isOpen) {
         drawerStates.dresserTop.isOpen = true;
-        showCaption('Under some old trinkets you find another photograph, dated 1987. The fourth person has been scratched out completely.');
+        showCaption('Under some old trinkets, another photograph, dated 1987. The same three faces. The same empty space beside them.');
         puzzleState.foundPhotos.add('dresserTop');
         photoThumbMeshes.dresserTop.visible = true;
       } else {
@@ -1719,7 +1719,7 @@ export function createBedroomLevel({
   const photoSlots = {
     nightstandLeft: { pin: [-0.2, 0.28], pinColor: 0xa02020, photo: [-0.2, 0.16, -0.06], tex: stampPhotoDate(createFamilyPhotoTexture(), '1985'), date: 1985, w: 0.22, h: 0.17 },
     floorPhoto: { pin: [0.16, 0.31], pinColor: 0x1f4f8f, photo: [0.16, 0.19, 0.05], tex: tornPhotoTex, date: 1986, w: 0.22, h: 0.17 },
-    dresserTop: { pin: [-0.02, -0.08], pinColor: 0xc9a227, photo: [-0.02, -0.2, 0.03], tex: stampPhotoDate(createFamilyPhotoTexture({ scratchedFourth: true }), '1987'), date: 1987, w: 0.22, h: 0.17 }
+    dresserTop: { pin: [-0.02, -0.08], pinColor: 0xc9a227, photo: [-0.02, -0.2, 0.03], tex: stampPhotoDate(createFamilyPhotoTexture(), '1987'), date: 1987, w: 0.22, h: 0.17 }
   };
   const photoThumbMeshes = {};
   Object.entries(photoSlots).forEach(([key, slot]) => {
