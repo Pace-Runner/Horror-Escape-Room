@@ -490,6 +490,48 @@ export class AudioEngine {
     return count * spacing + 0.34;
   }
 
+  /**
+   * A filament failing: a rising mains whine that stops dead, and the glass.
+   *
+   * The whine is a 60 Hz sine (mains hum, doubled) swelling as the bulb draws
+   * harder, cut off rather than faded -- a fade would read as the bulb dimming,
+   * and it does not dim, it stops. The pop on top is a short bandpassed noise
+   * burst, which is what a small glass envelope actually sounds like.
+   */
+  bulbPop() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+
+    const whine = ctx.createOscillator();
+    whine.type = 'sine';
+    whine.frequency.setValueAtTime(60, now);
+    whine.frequency.linearRampToValueAtTime(96, now + 0.62);
+    const whineGain = ctx.createGain();
+    whineGain.gain.setValueAtTime(0.0001, now);
+    whineGain.gain.exponentialRampToValueAtTime(0.11, now + 0.6);
+    // Cut, not faded. It stops; it does not dim.
+    whineGain.gain.setValueAtTime(0.11, now + 0.66);
+    whineGain.gain.linearRampToValueAtTime(0, now + 0.675);
+    whine.connect(whineGain).connect(this.master);
+    whine.start(now);
+    whine.stop(now + 0.7);
+
+    const pop = ctx.createBufferSource();
+    pop.buffer = this.#noiseBuffer(0.3);
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.frequency.value = 2200;
+    band.Q.value = 1.6;
+    const popGain = ctx.createGain();
+    popGain.gain.setValueAtTime(0.0001, now + 0.66);
+    popGain.gain.exponentialRampToValueAtTime(0.34, now + 0.672);
+    popGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.79);
+    pop.connect(band).connect(popGain).connect(this.master);
+    pop.start(now + 0.66);
+    pop.stop(now + 0.82);
+  }
+
   creak() {
     if (!this.ctx) return;
     const ctx = this.ctx;

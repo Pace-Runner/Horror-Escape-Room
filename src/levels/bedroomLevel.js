@@ -272,10 +272,13 @@ export function createBedroomLevel({
   bulbBase.position.y = -0.505;
   ceilingAnchor.add(bulbBase);
 
-  const bulbMesh = new THREE.Mesh(
-    new THREE.SphereGeometry(0.055, 12, 12),
-    new THREE.MeshStandardMaterial({ color: 0xffdca0, emissive: 0xffb347, emissiveIntensity: 1.4 })
-  );
+  // Held in its own const so Storm can put it out. Without this the light goes
+  // to zero and the glass keeps glowing at emissive 1.4 -- the brightest object
+  // in a room the player has just been told is dark.
+  const bulbMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffdca0, emissive: 0xffb347, emissiveIntensity: 1.4
+  });
+  const bulbMesh = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 12), bulbMaterial);
   bulbMesh.position.y = -0.565;
   ceilingAnchor.add(bulbMesh);
 
@@ -319,9 +322,42 @@ export function createBedroomLevel({
   windowGroup.position.set(-2.1, 1.5, -ROOM_D / 2 + 0.02);
   group.add(windowGroup);
 
+  /**
+   * THE FRAME IS A FRAME. It used to be one solid BoxGeometry(1.3, 1.5, 0.08)
+   * -- an opaque slab exactly filling the aperture that addWallWithGap had gone
+   * to the trouble of cutting.
+   *
+   * The consequences were the whole reason this room has a storm at all. Behind
+   * that slab sat 400 rain particles, a rain-streaked glass shader and a
+   * lightning light, none of which the player could see: the window showed a
+   * pane of glass with a brown board behind it. Every atmosphere system in
+   * Level 1 was aimed through a hole that had been filled in.
+   *
+   * Four bars now, leaving the aperture genuinely open. The board was probably
+   * meant as the outside seen through the glass -- but the outside is the storm,
+   * and the storm was already built.
+   */
   const frameMat = new THREE.MeshStandardMaterial({ color: 0x2c2620, roughness: 0.8 });
-  const frameOuter = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.5, 0.08), frameMat);
-  windowGroup.add(frameOuter);
+  const FRAME_W = 1.3;
+  const FRAME_H = 1.5;
+  const APERTURE_W = 1.1;
+  const APERTURE_H = 1.3;
+  const FRAME_D = 0.08;
+  const barX = (FRAME_W - APERTURE_W) / 2;
+  const barY = (FRAME_H - APERTURE_H) / 2;
+  const frameParts = [
+    [FRAME_W, barY, 0, (APERTURE_H + barY) / 2],       // head
+    [FRAME_W, barY, 0, -(APERTURE_H + barY) / 2],      // sill
+    [barX, APERTURE_H, -(APERTURE_W + barX) / 2, 0],   // left jamb
+    [barX, APERTURE_H, (APERTURE_W + barX) / 2, 0]     // right jamb
+  ];
+  for (const [w, h, x, y] of frameParts) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(w, h, FRAME_D), frameMat);
+    bar.position.set(x, y, 0);
+    bar.castShadow = true;
+    bar.receiveShadow = true;
+    windowGroup.add(bar);
+  }
   // Custom shader material (see world/RainGlassMaterial.js): streaks rain
   // down the pane and flashes with the storm's lightning, instead of a
   // static tinted-transparent built-in material.
@@ -1815,6 +1851,7 @@ export function createBedroomLevel({
     spawnPitch: -0.30,
     refs: {
       bulbLight,
+      bulbMaterial,
       lightning,
       windowGroup,
       flashlight,

@@ -514,6 +514,15 @@ const bedroom = createBedroomLevel({
         // texture, so the breathing comes up with the darkness.
         audio.setBreathing(0.8);
       });
+      // The caption waits for the filament to actually go, rather than
+      // announcing it over the top of the surge.
+      if (!await s.wait(0.9)) return;
+      s.do(() => {
+        // "Only the lightning now" has to mean something. The room's light
+        // FLOOR drops with the bulb -- it was identical before and after, so
+        // the darkness the line promises never arrived.
+        bedroom.refs.ambient.intensity = AMBIENT_DARK;
+      });
       if (!await s.play(BEATS.bulbBlows)) return;
       if (!await s.wait(1.8)) return;
       s.do(() => audio.creak());
@@ -523,6 +532,9 @@ const bedroom = createBedroomLevel({
     flashlightFound = true;
     setFlashlight(true);
     equipTorch();
+    // The storm goes back to a normal rhythm: the player can see for themselves
+    // now, so the lightning stops being the only way to navigate.
+    bedroomStorm.calm();
     captions.play(BEATS.flashlightOn);
   },
   onDoorOpened: () => exitLevel('bedroom'),
@@ -687,10 +699,24 @@ const backrooms = createBackroomsLevel({
 });
 sceneManager.register('backrooms', backrooms);
 
+/**
+ * The bedroom's ambient light floor, before and after the bulb.
+ *
+ * 0.31 is what the level builds with. Dropping to 0.13 is the only place this
+ * game gets DARKER on purpose, and it is the right place: the caption says
+ * "Only the lightning now", and until this the light floor after the bulb blew
+ * was identical to the lit room.
+ */
+const AMBIENT_LIT = 0.31;
+const AMBIENT_DARK = 0.13;
+
 const bedroomStorm = new Storm({
   bulbLight: bedroom.refs.bulbLight,
   lightningLight: bedroom.refs.lightning,
-  onFlash: () => audio.thunder()
+  // The mesh as well as the light. Without it the glass keeps glowing.
+  bulbMaterial: bedroom.refs.bulbMaterial,
+  onFlash: () => audio.thunder(),
+  onBlow: () => audio.bulbPop()
 });
 
 const rain = new Rain({
@@ -913,8 +939,10 @@ function resetGame() {
   // tapes, the ending. One call rather than a growing list of hand-resets,
   // which is the mistake the comment above records.
   resetState();
-  bedroom.refs.bulbLight.intensity = bedroomStorm.bulbBaseIntensity;
-  bedroomStorm.bulbBlown = false;
+  // One call, and it puts the mesh back too -- setting bulbBlown by hand from
+  // out here left the glass dark on the second run.
+  bedroomStorm.relight();
+  bedroom.refs.ambient.intensity = AMBIENT_LIT;
   flashlightFound = false;
   setFlashlight(false);
   unequipTorch();
@@ -1128,6 +1156,7 @@ if (import.meta.env.DEV) {
     script,
     creature,
     creatureAI,
+    storm: bedroomStorm,
     captions,
     documentUI,
     audio,
