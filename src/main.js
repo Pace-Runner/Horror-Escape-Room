@@ -686,7 +686,35 @@ const hallwayBasement = createHallwayBasementLevel({
 });
 sceneManager.register('hallwayBasement', hallwayBasement);
 
-const study = createStudyLevel({ showCaption });
+const study = createStudyLevel({
+  showCaption,
+  // The study is the last room, so its exit is the ENDING rather than another
+  // level. Unit 17 replaces this; until then it says so plainly instead of
+  // silently doing nothing, which is what an unimplemented exit used to do.
+  onExit: () => {
+    captions.play([
+      'The porch. Rain, and the treeline past the fence.',
+      'The gate is padlocked, and the key is not on this side of it.'
+    ]);
+  },
+  onExaminePinpad: ({ length, code, onSolved }) => {
+    player.unlock();
+    pinPadUI.open({ length, code, onSolved });
+  },
+  onReadNote: () => {
+    player.unlock();
+    documentUI.open({
+      title: '',
+      variant: 'note',
+      body: DOCUMENTS.frontDoorNote.body
+    });
+  },
+  onAllLocksOpen: () => {
+    script.run(async (s) => {
+      if (!await s.play(BEATS.shadowWrong)) return;
+    });
+  }
+});
 sceneManager.register('study', study);
 
 // Not a "level 4": ONE interstitial instance, re-armed per crossing by

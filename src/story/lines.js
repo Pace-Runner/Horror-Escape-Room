@@ -336,6 +336,24 @@ export const DOCUMENTS = {
   },
 
   /**
+   * The note folded beside the front-door key. It carries the combination for
+   * lock 2, so the code is FOUND rather than guessed -- and it is the date from
+   * the Level 1 polaroid, which is the first thing tying the two rooms together.
+   */
+  frontDoorNote: {
+    title: '',
+    variant: 'note',
+    body: [
+      'A. —',
+      'If you are reading this you have already been through the desk, so you know I am not going to make it hard for you.',
+      'The middle lock is 06 87. You will remember why.',
+      'The bottom one takes the brass key in the drawer.',
+      'The top one I could not make simple. You will have to be able to see it. The lenses are somewhere in this room and I am sorry I cannot remember where I put them.',
+      '— M'
+    ]
+  },
+
+  /**
    * The sketch from the basement floor. The drawing itself is a texture (see
    * world/textures.js createCreatureSketchTexture); this is what is written
    * around it in the margins, which the player can only read close up.
