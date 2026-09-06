@@ -56,6 +56,8 @@ export function createStudyLevel({
   onTakeGateKey = () => {},
   onLookInMirror = () => {},
   onReadLetter = () => {},
+  /** 'released' | 'contained'. The last decision in the game. */
+  onChooseEnding = () => {},
   onReadNote = () => {},
   /** Fired with the lock id each time one opens, and again when all three are. */
   onLockOpened = () => {},
@@ -830,6 +832,7 @@ export function createStudyLevel({
       puzzle.gateOpen = true;
       setGateSolid(false);
       showCaption('The padlock opens. The gate swings out into the rain.');
+      offerTheChoice();
     }
   };
   interactables.push(gateHit);
@@ -860,6 +863,142 @@ export function createStudyLevel({
    * The lamp over the door is the house; the cold fill from beyond the gate is
    * the night, and having them disagree in colour is what says "outside".
    */
+  /**
+   * THE CHOICE, and it is deliberately made of two things you can walk up to
+   * rather than a menu.
+   *
+   * The storyline gives two endings: walk out, which saves Annabelle and puts
+   * the Hollow into the world; or shut the door, which contains the Hollow and
+   * leaves her to bleed. Both are on the porch, facing opposite ways -- forward
+   * through the gate, or turn around and close what you just opened. Nothing
+   * labels either of them as the good one, because neither is.
+   *
+   * They only appear once the gate is open, so the player cannot stumble into
+   * the end of the game before they have been told what they are.
+   */
+  const leaveHit = new THREE.Mesh(
+    new THREE.BoxGeometry(2.6, 2.0, 0.5),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  leaveHit.position.set(DOOR_X, 1.0, ROOM_D / 2 + PORCH_D + 0.35);
+  leaveHit.userData.interact = {
+    label: 'Walk out',
+    onInteract: () => onChooseEnding('released')
+  };
+  group.add(leaveHit);
+
+  const shutHit = new THREE.Mesh(
+    new THREE.BoxGeometry(1.3, 2.1, 0.4),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  shutHit.position.set(DOOR_X, 1.05, ROOM_D / 2 + 0.42);
+  shutHit.userData.interact = {
+    label: 'Close the door behind you',
+    onInteract: () => onChooseEnding('contained')
+  };
+  group.add(shutHit);
+
+  function offerTheChoice() {
+    for (const h of [leaveHit, shutHit]) {
+      if (!interactables.includes(h)) interactables.push(h);
+    }
+  }
+  function withdrawTheChoice() {
+    for (const h of [leaveHit, shutHit]) {
+      const i = interactables.indexOf(h);
+      if (i >= 0) interactables.splice(i, 1);
+    }
+  }
+
+  /**
+   * THE OUTSIDE OF THE HOUSE.
+   *
+   * The closing shot flies the camera out over the treeline and looks back, and
+   * until this there was nothing to look back AT: every wall in this level is a
+   * single-sided plane facing inward, so from outside the study was an open
+   * dollhouse with its furniture on display, floating in pure black. A camera
+   * move is only as good as what it moves through.
+   *
+   * None of this is visible during play. The interior walls are opaque from the
+   * inside, which is exactly what hides it -- so this costs the player nothing
+   * and only exists for the twenty seconds at the end when it is the only thing
+   * on screen.
+   */
+  const exterior = new THREE.Group();
+  group.add(exterior);
+
+  // Ground. Wet, dark, and big enough that the camera never reaches its edge.
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(140, 140),
+    new THREE.MeshStandardMaterial({ color: 0x14161a, roughness: 0.72, metalness: 0.05 })
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -0.02;
+  ground.receiveShadow = true;
+  exterior.add(ground);
+
+  // The shell: outward-facing walls just outside the interior ones, so the
+  // house reads as a solid object from any angle the ending flies through.
+  const sidingMat = new THREE.MeshStandardMaterial({ color: 0x1d1a16, roughness: 0.95 });
+  const OUT = 0.22;
+  const SHELL_H = 3.4;
+  const shellSpecs = [
+    [ROOM_W + OUT * 2, 0, -ROOM_D / 2 - OUT, Math.PI],
+    [ROOM_D + OUT * 2, -ROOM_W / 2 - OUT, 0, -Math.PI / 2],
+    [ROOM_D + OUT * 2, ROOM_W / 2 + OUT, 0, Math.PI / 2]
+  ];
+  for (const [w, x, z, ry] of shellSpecs) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, SHELL_H), sidingMat);
+    m.position.set(x, SHELL_H / 2, z);
+    m.rotation.y = ry;
+    m.castShadow = true;
+    exterior.add(m);
+  }
+  // The front, in two pieces so the porch opening stays open.
+  for (const [w, x] of [
+    [(DOOR_X - 1.55) - (-ROOM_W / 2 - OUT), (-ROOM_W / 2 - OUT + DOOR_X - 1.55) / 2],
+    [(ROOM_W / 2 + OUT) - (DOOR_X + 1.55), (ROOM_W / 2 + OUT + DOOR_X + 1.55) / 2]
+  ]) {
+    if (w <= 0.01) continue;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, SHELL_H), sidingMat);
+    m.position.set(x, SHELL_H / 2, ROOM_D / 2 + OUT);
+    m.castShadow = true;
+    exterior.add(m);
+  }
+
+  const roof = new THREE.Mesh(
+    new THREE.BoxGeometry(ROOM_W + OUT * 3, 0.22, ROOM_D + OUT * 3),
+    new THREE.MeshStandardMaterial({ color: 0x0f0d0b, roughness: 1 })
+  );
+  roof.position.set(0, SHELL_H + 0.11, 0);
+  roof.castShadow = true;
+  exterior.add(roof);
+
+  /**
+   * The treeline. Cones, because at the distance the ending views them from,
+   * a pine is a triangle -- and forty triangles read as a forest where forty
+   * modelled trees would read as forty models.
+   */
+  const treeMat = new THREE.MeshStandardMaterial({ color: 0x0a0d0b, roughness: 1 });
+  for (let i = 0; i < 44; i++) {
+    // Deterministic placement: the same wood every time the game is played.
+    const a = (i / 44) * Math.PI * 2 + Math.sin(i * 2.7) * 0.05;
+    const r = 17 + ((Math.sin(i * 5.13) + 1) / 2) * 13;
+    const h = 5.5 + ((Math.sin(i * 3.31) + 1) / 2) * 6.5;
+    const tree = new THREE.Mesh(new THREE.ConeGeometry(1.15 + h * 0.055, h, 6), treeMat);
+    tree.position.set(Math.cos(a) * r, h / 2 - 0.2, Math.sin(a) * r + 2.0);
+    exterior.add(tree);
+  }
+
+  // A cold wash over the whole outside, so the house has a night to sit in
+  // rather than a black void. Hemisphere rather than ambient: the ground reads
+  // darker than the sky, which is most of what says "outdoors".
+  const sky = new THREE.HemisphereLight(0x2a3550, 0x07090c, 0.55);
+  exterior.add(sky);
+  const moon = new THREE.DirectionalLight(0x93a8cc, 0.35);
+  moon.position.set(-14, 20, -18);
+  exterior.add(moon);
+
   const porchLight = new THREE.PointLight(0xffd8a0, 1.15, 7, 2);
   porchLight.position.set(0, 2.35, -0.5);
   porchLight.castShadow = true;
@@ -904,6 +1043,11 @@ export function createStudyLevel({
       visorOnly,
       gateKey,
       letterHit,
+      exterior,
+      leaveHit,
+      shutHit,
+      /** Where Annabelle stands once the letter has been read. */
+      annabelleSpot: [-2.9, -2.4],
       puzzle,
       lockMeshes,
       doorState,
@@ -944,6 +1088,7 @@ export function createStudyLevel({
       portraitMat.map = portraitTexPlain;
       portraitMat.needsUpdate = true;
 
+      withdrawTheChoice();
       puzzle.hasGateKey = false;
       puzzle.gateOpen = false;
       setGateSolid(true);

@@ -22,7 +22,7 @@ import { createScriptRunner } from './core/Script.js';
 import { createCreature } from './systems/Creature.js';
 import { createCreatureAI } from './systems/CreatureAI.js';
 import { createVisor } from './core/Visor.js';
-import { BEATS, DOCUMENTS } from './story/lines.js';
+import { BEATS, DOCUMENTS, ENDINGS } from './story/lines.js';
 import { Hands } from './systems/hands/hands.js';
 import { HELD_MAGNIFICATION } from './systems/hands/sockets.js';
 import { setHandAssetUrl } from './systems/hands/hand-mesh.js';
@@ -753,12 +753,35 @@ const study = createStudyLevel({
         script.run(async (s) => {
           if (!await s.wait(0.6)) return;
           if (!await s.play(BEATS.realisation)) return;
-          s.do(() => { objectiveEl.textContent = 'The figure in the corner has stood up.'; });
-          await s.play(BEATS.annabelle);
+          s.do(() => {
+            /**
+             * She has been in the corner the whole time. The same rig, at
+             * correction 1 because the visor is on -- which is the entire point:
+             * the player is looking at the thing they have spent the game running
+             * from, and it is a woman.
+             */
+            const spot = study.refs.annabelleSpot;
+            creature.reset();
+            creature.setCorrection(1);
+            creature.setPosition(spot[0], spot[1]);
+            creature.setYaw(Math.atan2(-(camera.position.x - spot[0]), -(camera.position.z - spot[1])));
+            creature.setSpeed(0);
+            creature.visible = true;
+            creatureStanding = true;
+            objectiveEl.textContent = 'The figure in the corner has stood up.';
+            // She is hurt and she is not hiding any more, so the breathing that
+            // has been menace for the whole game becomes just a person breathing.
+            audio.setBreathing(0.28);
+          });
+          if (!await s.play(BEATS.annabelle)) return;
+          s.do(() => { objectiveEl.textContent = 'Decide.'; });
+          await s.play(BEATS.theChoice);
         });
       }
     });
   },
+
+  onChooseEnding: (which) => { playEnding(which); },
 
   onTakeGateKey: () => {
     captions.play([
@@ -915,6 +938,9 @@ function activateLevel(key, { lockMovement = false } = {}) {
   // resetState() has already cleared the flags; this pushes that through to the
   // pass, the creature and the room, none of which read GameState themselves.
   visor.reset();
+  // Back to the licence list on its own, or a second run's credits carry the
+  // first run's ending.
+  buildCredits();
   // Same reason abortTransition() exists: a restart taken mid-shot must hand
   // the camera back, or the player restarts into a frozen third-person view.
   cutscene.cancel();
@@ -1134,6 +1160,97 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyC' && !transitionInFlight) toggleCredits(true);
 });
 
+/**
+ * THE TWO ENDINGS.
+ *
+ * Both are the same shot -- the camera leaving the house and climbing away over
+ * the trees while a news bulletin plays -- and they differ in what the player
+ * did a second earlier and in what the reporter says happened. That symmetry is
+ * the argument: the game does not editorialise about which one was right,
+ * because the storyline does not either.
+ *
+ * `restoreBeam: false` and a fade to black are the default in playToBlack(),
+ * which matters here because the hands and the torch are camera children and a
+ * third-person pan would otherwise fly a disembodied glove over the treeline.
+ */
+const ENDING_TITLES = {
+  released: 'THE HOLLOW IS OUT',
+  contained: 'THE HOUSE HELD'
+};
+
+const ENDING_CREDITS = {
+  released: [
+    'She got out. So did you.',
+    'Nobody outside this house knows what you are, and by morning everybody will.'
+  ],
+  contained: [
+    'You shut the door, and the three locks your own hands designed went home.',
+    'Annabelle stayed. She always did.'
+  ]
+};
+
+let endingInFlight = false;
+
+async function playEnding(which) {
+  if (endingInFlight) return;
+  endingInFlight = true;
+  gameState.endingChosen = which;
+  try {
+    // Take the choice away immediately: both hitboxes are still in front of the
+    // player and a second E during the fade would start the other ending.
+    interaction.setEnabled(false);
+
+    if (which === 'contained') {
+      // The door shuts, and the bolts go across. Heard, not just described.
+      study.refs.doorState.open = false;
+      audio.creak();
+      script.run(async (s) => {
+        for (let i = 0; i < 3; i++) {
+          if (!await s.wait(0.55)) return;
+          s.do(() => audio.creak());
+        }
+      });
+      await wait(900);
+    }
+
+    // Out through the gate and up over the treeline, looking back at the house.
+    const from = which === 'released'
+      ? [2.5, 1.6, 7.2]
+      : [2.5, 1.6, 6.4];
+    await cutscene.playToBlack({
+      points: [from, [2.2, 3.2, 12.0], [0.6, 7.5, 20.0], [-1.5, 12.0, 30.0]],
+      lookAt: (t) => [2.5, 1.4 + t * 1.2, 3.0],
+      seconds: 13,
+      fadeMs: 2200,
+      body: () => captions.play(ENDINGS[which])
+    });
+
+    showEndScreen(which);
+  } finally {
+    endingInFlight = false;
+  }
+}
+
+/**
+ * The end screen reuses #start-screen, which is already doing double duty as
+ * the pause menu -- a third state rather than a third overlay.
+ */
+function showEndScreen(which) {
+  creature.visible = false;
+  creatureStanding = false;
+  audio.setBreathing(BREATH_BASE_LEVEL);
+  startTitle.textContent = ENDING_TITLES[which];
+  startSub.textContent = 'THE END';
+  startButton.textContent = 'Play again';
+  restartButton.classList.add('hidden');
+  startScreen.classList.remove('hidden');
+  hud.style.display = 'none';
+  crosshair.style.display = 'none';
+  promptEl.style.display = 'none';
+  buildCredits(which);
+  toggleCredits(true);
+}
+
 // ---------- credits ----------
 const CREDITS = [
   'Three.js -- 3D rendering library (three.js authors, MIT licence) -- threejs.org',
@@ -1148,11 +1265,24 @@ const CREDITS = [
   'Breathing loop -- [SOURCE / AUTHOR / LICENCE TO BE FILLED IN].',
   'Game concept, story, world and code: the project team, for COMS3006A/COMS3025A.'
 ];
-CREDITS.forEach((line) => {
-  const li = document.createElement('li');
-  li.textContent = line;
-  creditsList.appendChild(li);
-});
+/**
+ * Built through a function rather than appended once at module load, because an
+ * ending prepends its own two lines and a player who reaches both endings in one
+ * session would otherwise get the licence list twice, then three times.
+ * Clearing first is the whole fix.
+ */
+function buildCredits(ending = null) {
+  creditsList.innerHTML = '';
+  const lines = ending ? [...ENDING_CREDITS[ending], '', ...CREDITS] : CREDITS;
+  for (const line of lines) {
+    const li = document.createElement('li');
+    li.textContent = line;
+    // A blank entry is a spacer between the ending's own lines and the licences.
+    if (!line) li.style.height = '0.9rem';
+    creditsList.appendChild(li);
+  }
+}
+buildCredits();
 function toggleCredits(show) {
   creditsScreen.classList.toggle('hidden', !show);
   if (show && player.isLocked) player.unlock();
@@ -1161,6 +1291,11 @@ creditsCloseBtn.addEventListener('click', () => toggleCredits(false));
 
 // ---------- pointer lock flow ----------
 function beginGame() {
+  // A fresh run by definition, so it starts from fresh story state. Without
+  // this the only thing that ever cleared endingChosen was resetGame(), and a
+  // first play that somehow followed an ending would carry it in.
+  resetState();
+  buildCredits();
   startTitle.textContent = "DON'T LET IT OUT";
   startSub.textContent = 'Project HOLLOW -- June 1987';
   startButton.textContent = 'Click to begin';
@@ -1196,6 +1331,13 @@ startButton.addEventListener('click', () => {
   if (!gameStarted) {
     gameStarted = true;
     beginGame();
+  } else if (gameState.endingChosen) {
+    // The end screen reuses this button as "Play again", and this branch is
+    // what makes that true -- without it the click just re-locked the pointer
+    // and dropped the player back into the finished game behind the credits.
+    restartButton.classList.remove('hidden');
+    resetGame();
+    player.lock();
   } else {
     player.lock();
   }
