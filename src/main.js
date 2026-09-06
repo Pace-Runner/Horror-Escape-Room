@@ -550,9 +550,56 @@ const bedroom = createBedroomLevel({
 });
 sceneManager.register('bedroom', bedroom);
 
+/**
+ * Which CCTV sightings have already played this run. Local rather than in
+ * GameState because they do not cross a level boundary -- and a restart rebuilds
+ * this level anyway, so its reset() clears them.
+ */
+const cctvSeen = new Set();
+
 const hallwayBasement = createHallwayBasementLevel({
   showCaption,
-  onExit: () => exitLevel('hallwayBasement')
+  onExit: () => exitLevel('hallwayBasement'),
+
+  onPowerRestored: () => {
+    script.run(async (s) => {
+      if (!await s.play(BEATS.powerRestored)) return;
+    });
+  },
+
+  /**
+   * The two sightings, both of which happen ON THE SCREEN rather than in the
+   * world. That is the point: the player is looking at a monitor, so the game
+   * can put the creature exactly where it wants, for exactly as long as it
+   * wants, and be certain they saw it -- which is not true of anything that
+   * happens behind them in a dark room.
+   */
+  onViewFeed: (id) => {
+    if (cctvSeen.has(id)) return;
+    cctvSeen.add(id);
+
+    if (id === 'hallway') {
+      // Under a second, across the lit far end. Short enough to doubt.
+      hallwayBasement.refs.feeds.scheduleHallwayDash(1.1);
+      script.run(async (s) => {
+        if (!await s.wait(1.2)) return;
+        s.do(() => audio.setBreathing(0.8));
+        await s.play(BEATS.cctvDash);
+      });
+      return;
+    }
+
+    if (id === 'basement') {
+      // Camera five is this room. There is a figure standing in it.
+      hallwayBasement.refs.feeds.showBasementFigure(3.4);
+      script.run(async (s) => {
+        if (!await s.wait(0.6)) return;
+        s.do(() => audio.setBreathing(0.95));
+        if (!await s.play(BEATS.cctvBasement)) return;
+        s.do(() => audio.creak());
+      });
+    }
+  }
 });
 sceneManager.register('hallwayBasement', hallwayBasement);
 
@@ -632,6 +679,8 @@ function activateLevel(key, { lockMovement = false } = {}) {
   documentUI.close();
   // Snapped rather than eased: a restart should not show the visor fading off.
   postFX.reset();
+  // Otherwise a second run flicks to camera two and nothing crosses it.
+  cctvSeen.clear();
   // Same reason abortTransition() exists: a restart taken mid-shot must hand
   // the camera back, or the player restarts into a frozen third-person view.
   cutscene.cancel();

@@ -9,6 +9,7 @@ import {
   createPaperNoteTexture
 } from '../world/textures.js';
 import { createStaticScreenMaterial } from '../world/StaticScreenMaterial.js';
+import { createCctvFeeds, FEED_IDS, FEED_LABELS } from '../world/CctvFeeds.js';
 import { addBaseboard } from '../world/trim.js';
 
 const HALL_W = 2.4;
@@ -39,7 +40,9 @@ export function createHallwayBasementLevel({
   // Fired when the breaker goes in. The level changes its own lights and its
   // own screen; this is for everything OUTSIDE the level that the beat drives
   // -- the story captions, the CCTV sighting, the creature.
-  onPowerRestored = () => {}
+  onPowerRestored = () => {},
+  /** Fired with a camera id each time a feed is selected. Drives the sightings. */
+  onViewFeed = () => {}
 } = {}) {
   const group = new THREE.Group();
   group.name = 'Level2_HallwayBasement';
@@ -310,7 +313,11 @@ export function createHallwayBasementLevel({
       // The screen stops being pure static. Unit 12 replaces this with real
       // feeds; until then, powered simply looks different from unpowered.
       screenMaterial.uniforms.uNoiseStrength.value = 0.35;
+      // The picture fights its way through the interference rather than
+      // appearing. uStaticMix is what the shader crossfades on.
+      screenMaterial.uniforms.uStaticMix.value = 0.18;
       monitorBody.userData.interact.label = 'View camera feeds';
+      feedButtons[0].mesh.material.emissive.setHex(0x2e6b3a);
       onPowerRestored();
     }
   };
@@ -387,11 +394,27 @@ export function createHallwayBasementLevel({
   monitorBody.position.set(0, 1.0, -0.05);
   desk.add(monitorBody);
 
-  const screenMaterial = createStaticScreenMaterial({ noiseStrength: 1.0 });
+  /**
+   * The five feeds. Drawn onto canvases rather than rendered, because three of
+   * the five cameras the storyline names look at rooms this game does not have
+   * -- see world/CctvFeeds.js for the full argument.
+   */
+  const feeds = createCctvFeeds();
+  const screenMaterial = createStaticScreenMaterial({
+    noiseStrength: 1.0,
+    feed: feeds.textures.kitchen
+  });
   const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.28), screenMaterial);
   screen.position.set(0, 1.0, 0.17);
   desk.add(screen);
-  dynamics.push({ update: (dt, elapsed) => { screenMaterial.uniforms.uTime.value = elapsed; } });
+  dynamics.push({
+    update: (dt, elapsed) => {
+      screenMaterial.uniforms.uTime.value = elapsed;
+      // Only redraw a feed once there is power. Before that the screen is pure
+      // static and the canvases would be painting for nobody.
+      if (powerRestored) feeds.update(dt);
+    }
+  });
 
   const screenGlow = new THREE.PointLight(0x8fd0ff, 0.5, 1.5, 2);
   screenGlow.position.set(0, 1.0, 0.3);
@@ -412,6 +435,51 @@ export function createHallwayBasementLevel({
     }
   };
   interactables.push(monitorBody);
+
+  /**
+   * The remote. Five buttons on the front edge of the desk.
+   *
+   * Each button is pushed into `interactables` SEPARATELY and none of them is a
+   * child of a shared hitbox, because Interaction raycasts NON-recursively --
+   * `intersectObjects(this.targets, false)`. A parent group with five children
+   * would never register a hit at all.
+   */
+  const remoteBase = new THREE.Mesh(
+    new THREE.BoxGeometry(0.30, 0.025, 0.10),
+    new THREE.MeshStandardMaterial({ color: 0x1e1f1c, roughness: 0.7 })
+  );
+  remoteBase.position.set(0, 0.79, 0.22);
+  desk.add(remoteBase);
+
+  const feedButtons = [];
+  FEED_IDS.forEach((id, i) => {
+    const lit = new THREE.MeshStandardMaterial({
+      color: 0x2a2c26,
+      emissive: 0x000000,
+      roughness: 0.5
+    });
+    const btn = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.016, 0.05), lit);
+    btn.position.set(-0.11 + i * 0.055, 0.806, 0.22);
+    btn.userData.interact = {
+      label: FEED_LABELS[id],
+      onInteract: () => {
+        if (!powerRestored) {
+          showCaption('The remote is dead. Nothing on this desk has power.');
+          return;
+        }
+        feeds.setActive(id);
+        screenMaterial.uniforms.uFeed.value = feeds.textures[id];
+        feedButtons.forEach(({ mesh, feedId }) => {
+          mesh.material.emissive.setHex(feedId === id ? 0x2e6b3a : 0x000000);
+        });
+        onViewFeed(id);
+      }
+    };
+    desk.add(btn);
+    // Individually, not as a group. See the note above.
+    interactables.push(btn);
+    feedButtons.push({ mesh: btn, feedId: id, material: lit });
+  });
 
   const noteTex = createStickyNoteTexture("Restore power and pray it doesn't hear you.");
   const sticky = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.16), new THREE.MeshStandardMaterial({ map: noteTex }));
@@ -567,6 +635,8 @@ export function createHallwayBasementLevel({
       labAmbient,
       monitorBody,
       metalDoor,
+      feeds,
+      feedButtons,
       /** Read by tests and by main.js; the level owns the flag itself. */
       get powerRestored() { return powerRestored; }
     },
@@ -582,6 +652,10 @@ export function createHallwayBasementLevel({
       // the player into a lit lab whose breaker is off.
       labAmbient.intensity = LAB_AMBIENT_OFF;
       screenMaterial.uniforms.uNoiseStrength.value = 1.0;
+      screenMaterial.uniforms.uStaticMix.value = 1;
+      screenMaterial.uniforms.uFeed.value = feeds.textures.kitchen;
+      feeds.reset();
+      feedButtons.forEach(({ mesh }) => mesh.material.emissive.setHex(0x000000));
       monitorBody.userData.interact.label = 'Examine the monitor';
       fluorescents.forEach(({ light, mat }) => {
         light.intensity = 0;
