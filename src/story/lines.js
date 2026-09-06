@@ -336,6 +336,22 @@ export const DOCUMENTS = {
   },
 
   /**
+   * The sketch from the basement floor. The drawing itself is a texture (see
+   * world/textures.js createCreatureSketchTexture); this is what is written
+   * around it in the margins, which the player can only read close up.
+   */
+  creatureSketch: {
+    title: 'A sketch, in pencil',
+    variant: 'note',
+    body: [
+      'A figure, drawn from the front and gone over twice. Long arms, hanging past the knee. A thin body. A back that curves forward. A small head, set at an angle.',
+      'Down one side, in the same hand as the torn pages: "week 11 — still climbing".',
+      'An arrow points at the arms. Beside it: "arms ~1.5x".',
+      'Lower down, pressed hard enough to score the paper: "it is not finished".'
+    ]
+  },
+
+  /**
    * Mark's letter. The whole game resolves here, so it is reproduced in full
    * rather than summarised -- reading it to the end is what sets
    * gameState.letterRead, and the ending is written on the assumption that the

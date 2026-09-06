@@ -1852,3 +1852,146 @@ export function createBloodArrowMaps({ dir = 1, wet = false } = {}) {
 
   return { map, normalMap: finishBump(heightToNormalMap(flat, 2.0)) };
 }
+
+/**
+ * The creature sketch found on the basement floor.
+ *
+ * Drawn to match the ACTUAL proportions of systems/Creature.js at correction 0
+ * -- long arms hanging past the knee, thin body, hunched back, small head at an
+ * angle. That correspondence is the point: this is somebody's attempt to record
+ * what they were living with, and a player who has seen the thing should
+ * recognise the drawing, and vice versa.
+ *
+ * Pressed hard and gone over twice, because the storyline says the notes down
+ * here are in "messy handwriting" and this was not drawn calmly.
+ */
+export function createCreatureSketchTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 384;
+  canvas.height = 496;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width;
+  const H = canvas.height;
+
+  // Paper: cheap lab notepad, foxed and grubby at the edges.
+  ctx.fillStyle = '#cfc7b0';
+  ctx.fillRect(0, 0, W, H);
+  for (let i = 0; i < 900; i++) {
+    const x = Math.random() * W;
+    const y = Math.random() * H;
+    const r = Math.random() * 2.6;
+    ctx.fillStyle = `rgba(120,104,74,${0.02 + Math.random() * 0.05})`;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Darkened edges, as if it has been on a concrete floor for a while.
+  const edge = ctx.createRadialGradient(W / 2, H / 2, H * 0.28, W / 2, H / 2, H * 0.62);
+  edge.addColorStop(0, 'rgba(0,0,0,0)');
+  edge.addColorStop(1, 'rgba(46,38,26,0.42)');
+  ctx.fillStyle = edge;
+  ctx.fillRect(0, 0, W, H);
+
+  const ink = 'rgba(26,22,18,';
+  const cx = W * 0.5;
+  const groundY = H * 0.86;
+  const s = H / 520;   // scale so the figure fills the sheet
+
+  /** Two passes over every line: nobody drew this once and stopped. */
+  function stroke(path, width, alpha) {
+    for (let pass = 0; pass < 2; pass++) {
+      ctx.beginPath();
+      ctx.lineWidth = width * (pass ? 0.7 : 1);
+      ctx.strokeStyle = ink + (alpha * (pass ? 0.55 : 1)) + ')';
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      const j = pass ? 1.6 : 0;
+      path.forEach(([x, y], i) => {
+        const px = x + (Math.random() - 0.5) * j;
+        const py = y + (Math.random() - 0.5) * j;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      });
+      ctx.stroke();
+    }
+  }
+
+  // Legs -- close to human length. That contrast is what makes the arms read.
+  stroke([[cx - 14 * s, groundY], [cx - 16 * s, groundY - 96 * s], [cx - 10 * s, groundY - 170 * s]], 5 * s, 0.85);
+  stroke([[cx + 16 * s, groundY], [cx + 14 * s, groundY - 96 * s], [cx + 8 * s, groundY - 170 * s]], 5 * s, 0.85);
+  // Feet
+  stroke([[cx - 22 * s, groundY], [cx - 2 * s, groundY]], 5 * s, 0.8);
+  stroke([[cx + 8 * s, groundY], [cx + 28 * s, groundY]], 5 * s, 0.8);
+
+  // Torso, narrow, and a spine that curves forward at the top -- the hunch.
+  stroke([
+    [cx - 10 * s, groundY - 170 * s],
+    [cx - 16 * s, groundY - 240 * s],
+    [cx - 14 * s, groundY - 300 * s],
+    [cx - 4 * s, groundY - 336 * s]
+  ], 5 * s, 0.9);
+  stroke([
+    [cx + 8 * s, groundY - 170 * s],
+    [cx + 16 * s, groundY - 240 * s],
+    [cx + 16 * s, groundY - 300 * s],
+    [cx + 12 * s, groundY - 332 * s]
+  ], 5 * s, 0.9);
+  // Ribs, sketched in: "thin body"
+  for (let i = 0; i < 5; i++) {
+    const y = groundY - (200 + i * 26) * s;
+    stroke([[cx - 12 * s, y], [cx + 12 * s, y - 4 * s]], 2.2 * s, 0.35);
+  }
+
+  // ARMS. The whole point of the drawing. Shoulder to fingertip is longer than
+  // hip to floor, so the hands hang past the knees.
+  stroke([
+    [cx - 12 * s, groundY - 322 * s],
+    [cx - 42 * s, groundY - 250 * s],
+    [cx - 50 * s, groundY - 150 * s],
+    [cx - 46 * s, groundY - 88 * s]
+  ], 5 * s, 0.9);
+  stroke([
+    [cx + 14 * s, groundY - 320 * s],
+    [cx + 44 * s, groundY - 248 * s],
+    [cx + 52 * s, groundY - 146 * s],
+    [cx + 48 * s, groundY - 80 * s]
+  ], 5 * s, 0.9);
+  // Fingers, too many strokes and too long
+  for (let side = -1; side <= 1; side += 2) {
+    const hx = cx + side * (side < 0 ? 46 : 48) * s;
+    const hy = groundY - (side < 0 ? 88 : 80) * s;
+    for (let f = 0; f < 4; f++) {
+      stroke([[hx, hy], [hx + side * (2 + f * 3) * s, hy + (26 + f * 5) * s]], 2.6 * s, 0.8);
+    }
+  }
+
+  // Head: small, set forward of the shoulders, and tilted.
+  ctx.save();
+  ctx.translate(cx + 6 * s, groundY - 356 * s);
+  ctx.rotate(0.34);
+  for (let pass = 0; pass < 2; pass++) {
+    ctx.beginPath();
+    ctx.lineWidth = (pass ? 3 : 4.5) * s;
+    ctx.strokeStyle = ink + (pass ? 0.5 : 0.9) + ')';
+    ctx.ellipse(0, 0, 20 * s, 26 * s, 0, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // The annotations, in the same hand as the torn notes.
+  ctx.fillStyle = ink + '0.8)';
+  ctx.font = `${Math.round(21 * s)}px monospace`;
+  ctx.fillText('arms  ~1.5x', W * 0.60, H * 0.42);
+  ctx.fillText('week 11', W * 0.07, H * 0.10);
+  ctx.font = `${Math.round(18 * s)}px monospace`;
+  ctx.fillText('still climbing', W * 0.07, H * 0.145);
+  ctx.fillText('it is not', W * 0.62, H * 0.72);
+  ctx.fillText('finished', W * 0.62, H * 0.755);
+
+  // An arrow from the note to the arm, scratched in afterwards.
+  stroke([[W * 0.60, H * 0.435], [W * 0.44, H * 0.47]], 2.4 * s, 0.7);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}

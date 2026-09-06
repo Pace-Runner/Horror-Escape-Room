@@ -19,6 +19,8 @@ import { createDocumentUI } from './core/DocumentUI.js';
 import { createPostFX } from './world/Postprocessing.js';
 import { createCutsceneRunner } from './core/Cutscene.js';
 import { createScriptRunner } from './core/Script.js';
+import { createCreature } from './systems/Creature.js';
+import { createCreatureAI } from './systems/CreatureAI.js';
 import { BEATS, DOCUMENTS } from './story/lines.js';
 import { Hands } from './systems/hands/hands.js';
 import { HELD_MAGNIFICATION } from './systems/hands/sockets.js';
@@ -474,6 +476,26 @@ const cutscene = createCutsceneRunner({
 // can cancel it -- see core/Script.js for the bug that made it necessary.
 const script = createScriptRunner({ captions });
 
+/**
+ * ONE creature for the whole game, parented to the world root rather than to
+ * any level.
+ *
+ * It is the same person in every room -- that is the entire twist -- so giving
+ * each level its own would be building the lie into the code. It lives here,
+ * hidden, and a level's beats make it visible where they want it. Levels sit at
+ * the world origin, so level coordinates and world coordinates are the same
+ * numbers, which is what makes this safe.
+ */
+const creature = createCreature();
+creature.visible = false;
+worldRoot.add(creature.group);
+
+const creatureAI = createCreatureAI({
+  creature,
+  getPlayer: () => ({ x: camera.position.x, z: camera.position.z, yaw: player.yaw }),
+  onBreathing: (level) => audio.setBreathing(level)
+});
+
 const bedroom = createBedroomLevel({
   showCaption,
   onFreed: () => {
@@ -557,6 +579,14 @@ sceneManager.register('bedroom', bedroom);
  */
 const cctvSeen = new Set();
 
+/**
+ * Where it stands after camera five. The far corner of the lab, on the opposite
+ * side from the desk, so turning round from the monitor puts it in frame.
+ */
+const CORNER = [-2.6, 7.7];
+/** True while it is standing there, so the frame loop keeps it breathing. */
+let creatureStanding = false;
+
 const hallwayBasement = createHallwayBasementLevel({
   showCaption,
   onExit: () => exitLevel('hallwayBasement'),
@@ -574,6 +604,16 @@ const hallwayBasement = createHallwayBasementLevel({
    * wants, and be certain they saw it -- which is not true of anything that
    * happens behind them in a dark room.
    */
+  onExamineSketch: () => {
+    player.unlock();
+    documentUI.open({
+      title: 'A sketch, in pencil',
+      variant: 'note',
+      body: DOCUMENTS.creatureSketch.body,
+      onRead: () => captions.play(BEATS.creatureSketch)
+    });
+  },
+
   onViewFeed: (id) => {
     if (cctvSeen.has(id)) return;
     cctvSeen.add(id);
@@ -597,6 +637,37 @@ const hallwayBasement = createHallwayBasementLevel({
         s.do(() => audio.setBreathing(0.95));
         if (!await s.play(BEATS.cctvBasement)) return;
         s.do(() => audio.creak());
+
+        /**
+         * And then it is behind you.
+         *
+         * The storyline: "Turning around you see the creature standing in the
+         * corner, staring at you, but not moving. Then it disappears back up
+         * the stairs, leaving a black pool where it was standing."
+         *
+         * It is placed, not spawned into the AI -- it must NOT wander, flee or
+         * block anything here. It stands, it is looked at, it goes. The AI takes
+         * over in Level 3, where the player has room to be chased.
+         */
+        if (!await s.wait(0.7)) return;
+        s.do(() => {
+          creature.reset();
+          creature.setPosition(CORNER[0], CORNER[1]);
+          creature.setYaw(Math.atan2(-(camera.position.x - CORNER[0]), -(camera.position.z - CORNER[1])));
+          creature.setSpeed(0);
+          creature.visible = true;
+          creatureStanding = true;
+        });
+        if (!await s.play(BEATS.creatureCorner)) return;
+        s.do(() => {
+          creature.visible = false;
+          creatureStanding = false;
+          hallwayBasement.refs.revealPool();
+          // Back off: it has gone, and the room is only as bad as it was.
+          audio.setBreathing(0.6);
+        });
+        if (!await s.wait(0.6)) return;
+        await s.play(BEATS.blackPool);
       });
     }
   }
@@ -662,6 +733,39 @@ const TRANSITIONS = {
   study: { to: null, via: null }
 };
 
+/**
+ * Beats that fire when a level is ENTERED, rather than when a prop is touched.
+ * Keyed by level so activateLevel does not grow a switch statement.
+ */
+const ON_ENTER = {
+  /**
+   * The hallway sighting. One strike, and it is standing at the far end.
+   *
+   * A running storm would make this a coin toss -- the flash has to land while
+   * the player is looking down the corridor, and a random one usually will not.
+   * Firing the strike from the same script that places the creature is what
+   * guarantees the player is shown the thing the level is about.
+   */
+  hallwayBasement: () => {
+    script.run(async (s) => {
+      if (!await s.wait(1.6)) return;
+      s.do(() => {
+        creature.reset();
+        creature.setPosition(0, 5.0);
+        creature.setYaw(Math.PI);        // facing back down the hallway at you
+        creature.setSpeed(0);
+        creature.visible = true;
+        hallwayBasement.refs.strike(0.55);
+        audio.thunder();
+      });
+      // Gone before the light is. It was only ever there for the flash.
+      if (!await s.wait(0.45)) return;
+      s.do(() => { creature.visible = false; });
+      await s.play(BEATS.hallwaySighting);
+    });
+  }
+};
+
 function activateLevel(key, { lockMovement = false } = {}) {
   const level = sceneManager.activate(key, player);
   // Was a TypeError on an unregistered key -- a routing typo should cost a
@@ -681,6 +785,8 @@ function activateLevel(key, { lockMovement = false } = {}) {
   postFX.reset();
   // Otherwise a second run flicks to camera two and nothing crosses it.
   cctvSeen.clear();
+  creatureStanding = false;
+  creatureAI.reset();
   // Same reason abortTransition() exists: a restart taken mid-shot must hand
   // the camera back, or the player restarts into a frozen third-person view.
   cutscene.cancel();
@@ -688,6 +794,9 @@ function activateLevel(key, { lockMovement = false } = {}) {
   // cancelled, so a restart mid-beat blew the new room's bulb seconds later.
   script.cancel();
   player.movementEnabled = !lockMovement;
+  // AFTER script.cancel() above, or the beat this fires is cancelled by the
+  // very activation that started it.
+  ON_ENTER[key]?.();
   return level;
 }
 
@@ -1017,6 +1126,8 @@ if (import.meta.env.DEV) {
     postFX,
     cutscene,
     script,
+    creature,
+    creatureAI,
     captions,
     documentUI,
     audio,
@@ -1051,6 +1162,11 @@ function tick() {
     rain.update(dt);
   }
   captions.update(dt);
+  // Only while it is actually on screen. The AI is not driving it in Level 2 --
+  // it is placed by a script -- but it still has to breathe, or a figure
+  // standing in a corner reads as a statue rather than as something watching.
+  if (creatureStanding) creature.update(dt);
+  creatureAI.update(dt);
   dustMotes.update(dt, elapsed);
   // Per rendered frame rather than on a fixed step: the hands are
   // presentation, and pinning them to 60 Hz on a 144 Hz display would throw

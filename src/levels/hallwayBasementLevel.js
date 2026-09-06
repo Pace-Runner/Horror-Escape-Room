@@ -10,6 +10,7 @@ import {
 } from '../world/textures.js';
 import { createStaticScreenMaterial } from '../world/StaticScreenMaterial.js';
 import { createCctvFeeds, FEED_IDS, FEED_LABELS } from '../world/CctvFeeds.js';
+import { createCreatureSketchTexture } from '../world/textures.js';
 import { addBaseboard } from '../world/trim.js';
 
 const HALL_W = 2.4;
@@ -42,7 +43,8 @@ export function createHallwayBasementLevel({
   // -- the story captions, the CCTV sighting, the creature.
   onPowerRestored = () => {},
   /** Fired with a camera id each time a feed is selected. Drives the sightings. */
-  onViewFeed = () => {}
+  onViewFeed = () => {},
+  onExamineSketch = () => {}
 } = {}) {
   const group = new THREE.Group();
   group.name = 'Level2_HallwayBasement';
@@ -103,6 +105,24 @@ export function createHallwayBasementLevel({
 
   const hallLight2 = new THREE.PointLight(0x9aa4c2, 0.86, 6, 1.6);
   hallLight2.position.set(0, HALL_H - 0.4, 1.4);
+
+  /**
+   * One flash, on demand. NOT a Storm.
+   *
+   * The storyline's beat is "the creature standing at the end of the hallway,
+   * only visible for a second when the thunder crashes". A running storm would
+   * make that a coin toss -- the flash has to land while the player is looking
+   * down the corridor, and a random one will usually not. Firing a single flash
+   * from the script that also places the creature guarantees the player is
+   * shown the thing the whole level is about.
+   *
+   * It is also cheaper and simpler than a second Storm instance, which would
+   * need a window to justify it, in a hallway that has none.
+   */
+  const hallLightning = new THREE.PointLight(0xbcd0ff, 0, 14, 1.4);
+  hallLightning.position.set(0, HALL_H - 0.2, HALL_LEN * 0.75);
+  hallway.add(hallLightning);
+  const flash = { t: 0, duration: 0 };
   hallway.add(hallLight2);
 
   /**
@@ -531,6 +551,35 @@ export function createHallwayBasementLevel({
   interactables.push(metalDoor);
   lab.add(metalDoor);
 
+  /**
+   * The pool it leaves behind. Same recipe as the corridor's puddles: no new
+   * texture, semi-transparent with just enough gloss that a moving torch beam
+   * finds a highlight in it. Darker and less transparent than water, because
+   * this is not water.
+   *
+   * Hidden until the creature has stood there and gone. It is the evidence --
+   * "It must be injured" -- and on a second playthrough it is the moment the
+   * player realises they were the one who hurt her.
+   */
+  const poolMat = new THREE.MeshStandardMaterial({
+    color: 0x0d0b0c,
+    roughness: 0.22,
+    metalness: 0,
+    transparent: true,
+    opacity: 0.82,
+    depthWrite: false
+  });
+  const blackPool = new THREE.Mesh(new THREE.CircleGeometry(0.5, 24), poolMat);
+  blackPool.rotation.x = -Math.PI / 2;
+  blackPool.position.set(-LAB_W / 2 + 1.5, 0.014, -LAB_D / 2 + 1.2);
+  blackPool.scale.set(0.85, 1.15, 1);
+  blackPool.visible = false;
+  blackPool.userData.interact = {
+    label: 'Examine the pool',
+    onInteract: () => showCaption('Whatever it is, it is not water, and it is still wet.')
+  };
+  lab.add(blackPool);
+
   // broken restraints / chair dressing near the middle of the lab
   const restraint = new THREE.Mesh(
     new THREE.TorusGeometry(0.15, 0.02, 8, 16),
@@ -595,6 +644,30 @@ export function createHallwayBasementLevel({
     }
   });
 
+  /**
+   * The sketch. The storyline is specific: "on the floor is what seems to be a
+   * sketch of the creature. It looks human, yet monstrous. Long arms, thin body,
+   * hunched back, long fingers, crooked head."
+   *
+   * This is the single most important prop in the basement, because it is the
+   * player's first good look at the shape -- and on a second playthrough it is
+   * a drawing of the player, made by someone trying to describe what they were
+   * living with.
+   */
+  const sketch = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.34, 0.44),
+    new THREE.MeshStandardMaterial({ map: createCreatureSketchTexture(), roughness: 1 })
+  );
+  sketch.rotation.x = -Math.PI / 2;
+  sketch.rotation.z = -0.32;
+  sketch.position.set(-1.35, 0.013, 0.85);
+  sketch.userData.interact = {
+    label: 'Pick up the sketch',
+    onInteract: () => onExamineSketch()
+  };
+  interactables.push(sketch);
+  lab.add(sketch);
+
   // torn pages of notes on the workbench -- the creature's own case file,
   // called out in the storyline but previously missing from the world
   const tornNoteTex = createPaperNoteTexture([
@@ -637,6 +710,20 @@ export function createHallwayBasementLevel({
       metalDoor,
       feeds,
       feedButtons,
+      hallLightning,
+      blackPool,
+      /** One lightning strike down the hallway. Returns how long it lasts. */
+      strike: (duration = 0.55) => {
+        flash.duration = duration;
+        flash.t = duration;
+        return duration;
+      },
+      /** Reveals the pool and makes it examinable. Once the creature has gone. */
+      revealPool: () => {
+        if (blackPool.visible) return;
+        blackPool.visible = true;
+        interactables.push(blackPool);
+      },
       /** Read by tests and by main.js; the level owns the flag itself. */
       get powerRestored() { return powerRestored; }
     },
@@ -655,6 +742,13 @@ export function createHallwayBasementLevel({
       screenMaterial.uniforms.uStaticMix.value = 1;
       screenMaterial.uniforms.uFeed.value = feeds.textures.kitchen;
       feeds.reset();
+      flash.t = 0;
+      hallLightning.intensity = 0;
+      if (blackPool.visible) {
+        blackPool.visible = false;
+        const i = interactables.indexOf(blackPool);
+        if (i >= 0) interactables.splice(i, 1);
+      }
       feedButtons.forEach(({ mesh }) => mesh.material.emissive.setHex(0x000000));
       monitorBody.userData.interact.label = 'Examine the monitor';
       fluorescents.forEach(({ light, mat }) => {
@@ -665,6 +759,16 @@ export function createHallwayBasementLevel({
     update(dt) {
       const elapsed = (this._t = (this._t ?? 0) + dt);
       dynamics.forEach((d) => d.update(dt, elapsed));
+
+      // The scripted lightning. Fast up, slower down, with the intensity
+      // jittered so it reads as a strike rather than a lamp being switched.
+      if (flash.t > 0) {
+        flash.t = Math.max(0, flash.t - dt);
+        const k = flash.t / flash.duration;
+        hallLightning.intensity = k * k * 5.2 * (0.55 + Math.random() * 0.45);
+      } else if (hallLightning.intensity !== 0) {
+        hallLightning.intensity = 0;
+      }
       fluorescents.forEach(({ light, mat, isDying }) => {
         if (powerRestored) {
           // Lit, with the small instability of a strip light on an old supply.
