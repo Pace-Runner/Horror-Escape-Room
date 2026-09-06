@@ -106,8 +106,67 @@ function buildWoodFloorHeightCanvas() {
 // grooves and the grain streaks get a little relief, so raking light from
 // the bedroom's bulb/lightning actually catches the floor's structure
 // instead of it reading as a flat painted plane.
+/**
+ * A roughness map, derived from a height canvas.
+ *
+ * NOTHING IN THIS PROJECT HAD ONE. Every surface -- floorboards, plaster,
+ * varnished wood, cast iron -- carried a single scalar roughness, which means
+ * every surface answered the torch with one identical specular lobe. That is
+ * the single biggest reason a room full of carefully generated colour and
+ * normal maps still reads as flat: the normal map changes which way the light
+ * bounces, and the roughness map changes HOW MUCH, and only having the first
+ * gives you shape without material.
+ *
+ * Derived from the same height canvas the bump and normal maps use, so the
+ * three can never disagree about where the grain is. Low ground (a plank seam,
+ * a gouge, a crack in plaster) is rougher: dirt and wear collect in the low
+ * places, and that is exactly where a real floor stops being shiny.
+ *
+ * @param low   roughness in the recesses (matte)
+ * @param high  roughness on the high points (glossier)
+ */
+function heightToRoughnessCanvas(heightCanvas, low = 0.96, high = 0.55) {
+  const w = heightCanvas.width;
+  const h = heightCanvas.height;
+  const src = heightCanvas.getContext('2d').getImageData(0, 0, w, h);
+  const out = makeCanvas(w, h);
+  const dst = out.getContext('2d').createImageData(w, h);
+  for (let i = 0; i < src.data.length; i += 4) {
+    const height = src.data[i] / 255;
+    // Only the RED channel is read as roughness by three.js's standard
+    // material, but writing all three keeps the canvas legible if it is ever
+    // dumped to look at.
+    const r = Math.round(255 * (low + (high - low) * height));
+    dst.data[i] = r;
+    dst.data[i + 1] = r;
+    dst.data[i + 2] = r;
+    dst.data[i + 3] = 255;
+  }
+  out.getContext('2d').putImageData(dst, 0, 0);
+  return out;
+}
+
 export function createWoodFloorBumpTexture() {
   return finishBump(buildWoodFloorHeightCanvas(), 4, 4);
+}
+
+/**
+ * Floorboards: matte in the seams and where the varnish has worn through,
+ * glossier along the middle of each board where feet have polished it.
+ */
+export function createWoodFloorRoughnessTexture() {
+  return finishBump(heightToRoughnessCanvas(buildWoodFloorHeightCanvas(), 0.97, 0.42), 4, 4);
+}
+
+/**
+ * Plaster. A much narrower range than wood -- old plaster is matte everywhere,
+ * and the only variation is that the raised texture catches slightly more.
+ */
+export function createPlasterRoughnessTexture() {
+  // SAME repeat as the bump map (2, 2). A roughness map tiling at a different
+  // rate than the normal map it is paired with slides the gloss across the
+  // relief, which reads as the wall being wet in moving patches.
+  return finishBump(heightToRoughnessCanvas(buildPlasterHeightCanvas(), 0.98, 0.80), 2, 2);
 }
 
 // Normal-map counterpart of the above -- swap this in wherever a surface
@@ -120,7 +179,18 @@ export function createWoodFloorNormalTexture() {
 // Companion bump map for createPlasterWallTexture(): mostly fine noise
 // (matching the colour map's grain) plus the same water-damage streaks
 // recessed slightly, so the wall isn't perfectly flat under a grazing light.
-export function createPlasterBumpTexture() {
+/**
+ * Built ONCE and reused, unlike the inline version this replaces.
+ *
+ * The plaster height is full of Math.random(), so calling the generator twice
+ * produced two different walls -- which was fine while only the bump map used
+ * it, and stops being fine the moment a roughness map is derived from it too.
+ * A bump map and a roughness map that disagree about where the cracks are is
+ * worse than having neither, because the light and the gloss argue.
+ */
+let plasterHeightCanvas = null;
+function buildPlasterHeightCanvas() {
+  if (plasterHeightCanvas) return plasterHeightCanvas;
   const canvas = makeCanvas(256, 256);
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#808080';
@@ -142,7 +212,12 @@ export function createPlasterBumpTexture() {
     ctx.lineWidth = 4 + Math.random() * 8;
     ctx.stroke();
   }
-  return finishBump(canvas, 2, 2);
+  plasterHeightCanvas = canvas;
+  return canvas;
+}
+
+export function createPlasterBumpTexture() {
+  return finishBump(buildPlasterHeightCanvas(), 2, 2);
 }
 
 // Companion bump map for createConcreteTexture(): coarse noise plus deep

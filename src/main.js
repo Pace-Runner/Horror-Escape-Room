@@ -837,7 +837,19 @@ const bedroomStorm = new Storm({
   lightningLight: bedroom.refs.lightning,
   // The mesh as well as the light. Without it the glass keeps glowing.
   bulbMaterial: bedroom.refs.bulbMaterial,
-  onFlash: () => audio.thunder(),
+  onFlash: () => {
+    audio.thunder();
+    /**
+     * The one frame the lightning's shadow map is rendered.
+     *
+     * The light keeps autoUpdate = false because it is dark for most of the
+     * game and three.js would otherwise re-render its map every frame anyway.
+     * The room is static for the flash's whole duration, so one render per
+     * strike is exact rather than an approximation. This lives here rather than
+     * in Storm.js because Storm has no business knowing a light has a shadow.
+     */
+    bedroom.refs.lightning.shadow.needsUpdate = true;
+  },
   onBlow: () => audio.bulbPop()
 });
 

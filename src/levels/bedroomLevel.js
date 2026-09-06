@@ -5,6 +5,8 @@ import {
   createWoodFloorNormalTexture,
   createDamaskWallpaperTexture,
   createWallpaperNormalTexture,
+  createWoodFloorRoughnessTexture,
+  createPlasterRoughnessTexture,
   createScratchedMessageTexture,
   createScratchedMessageNormalTexture,
   createPolaroidTexture,
@@ -136,20 +138,61 @@ export function createBedroomLevel({
   floor.receiveShadow = true;
   structure.add(floor);
 
+  /**
+   * The ceiling was 33 square metres of one flat colour -- and it is the single
+   * biggest surface the bulb lights directly, so it was also the biggest
+   * uninterrupted nothing in the room. It carries the plaster relief the walls
+   * use, tinted right down, so the swinging bulb and a lightning flash both
+   * find something up there to rake across instead of a dead grey field.
+   */
   const ceiling = new THREE.Mesh(
     new THREE.PlaneGeometry(ROOM_W, ROOM_D),
-    new THREE.MeshStandardMaterial({ color: 0x1c1a17, roughness: 1 })
+    new THREE.MeshStandardMaterial({
+      // RELIEF WITHOUT ALBEDO. The first attempt gave it the plaster colour map
+      // as well, and a lightning flash turned the ceiling into a bright
+      // speckled field -- louder than the flat grey it replaced, and it pulled
+      // the eye straight up to the least interesting surface in the room.
+      // Keeping the normal and roughness maps and dropping the colour map gives
+      // it something for raking light to find while it stays as dark as it was.
+      // ROUGHNESS ONLY, no normal map. The plaster height field is per-pixel
+      // random noise, which is fine on a wall two metres away and reads as
+      // salt-and-pepper GRAIN across 33 square metres of ceiling half a metre
+      // from a bare bulb. Roughness varies the sheen without pushing the
+      // surface normal around, so the ceiling gains material without gaining
+      // static.
+      color: 0x1c1a17,
+      roughnessMap: createPlasterRoughnessTexture(),
+      roughness: 1
+    })
   );
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.y = ROOM_H;
+  ceiling.receiveShadow = true;
   structure.add(ceiling);
 
   const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, normalMap: wallNormal, normalScale: new THREE.Vector2(0.55, 0.55), roughness: 0.88 });
 
+  /**
+   * WALLS CAST AND RECEIVE NOW, and they did neither.
+   *
+   * `grep receiveShadow` over this file used to find the floor and a handful of
+   * props -- no wall, ever. In three.js a surface absent from that list is not
+   * lit by any shadow calculation at all, so every shadow in this room fell on
+   * the floorboards and stopped. The torch could not throw the bed up the wall;
+   * the bulb could not put the door frame across the plaster; and the lightning
+   * (below) could not have cast the window even if it had been asked to,
+   * because there was nothing to catch it and nothing to block it.
+   *
+   * castShadow matters just as much: a mesh missing from the shadow map does
+   * not OCCLUDE, so light passed straight through these walls as though they
+   * were glass.
+   */
   function addWall(w, h, x, y, z, ry) {
     const wall = new THREE.Mesh(new THREE.PlaneGeometry(w, h), wallMat);
     wall.position.set(x, y, z);
     wall.rotation.y = ry;
+    wall.castShadow = true;
+    wall.receiveShadow = true;
     structure.add(wall);
     return wall;
   }
@@ -170,6 +213,11 @@ export function createBedroomLevel({
     const slab = (sw, sh, sx, sy) => {
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(sw, sh, depth), wallMat);
       mesh.position.set(sx, sy, wallZ);
+      // The four slabs around the window are what actually CUT the window
+      // shape out of the lightning. Without castShadow the flash pours through
+      // the wall as if it were not there, and the aperture means nothing.
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
       structure.add(mesh);
     };
 
@@ -305,15 +353,55 @@ export function createBedroomLevel({
   bulbLight.position.y = -0.565;
   bulbLight.castShadow = true;
   bulbLight.shadow.mapSize.set(512, 512);
+  /**
+   * A PointLight's shadow camera defaults to far = 500. In a room 6.4 m across
+   * that spreads the depth buffer's precision over eighty times the distance it
+   * needs, which is where shadow acne and peter-panning come from -- and it is
+   * six cube faces being rendered at that range every frame. Sized to the room.
+   */
+  bulbLight.shadow.camera.near = 0.08;
+  bulbLight.shadow.camera.far = 9;
+  bulbLight.shadow.bias = -0.0015;
   ceilingAnchor.add(bulbLight);
 
   // ---------- ambient / storm baseline ----------
   const ambient = new THREE.AmbientLight(0x2e3342, 0.31);
   group.add(ambient);
 
+  /**
+   * LIGHTNING THAT ACTUALLY COMES THROUGH THE WINDOW.
+   *
+   * It stayed a DirectionalLight -- its flat parallel fill is what reads as sky
+   * rather than as a searchlight -- but it now casts, and it is aimed along a
+   * line that puts the window's shadow somewhere worth looking.
+   *
+   * The old aim was (-3, 2.4, -3.5) toward (-3, 0, -2.6): 21 degrees off
+   * VERTICAL, so even with shadows on, the window's patch would have landed
+   * about half a metre from the wall base, behind the radiator. It now comes in
+   * at roughly 25 degrees above horizontal, which throws the mullion cross
+   * several metres across the floorboards and up the far wall.
+   *
+   * autoUpdate = false is what makes it affordable. three.js re-renders a
+   * casting light's shadow map EVERY FRAME regardless of its intensity being
+   * zero, and this light is dark for 5 to 14 seconds at a time. main.js sets
+   * needsUpdate on the frame a flash begins (see the onFlash callback); the
+   * room is static for the flash's whole 0.12-0.3 s, so one 1024-square render
+   * per strike is the entire cost.
+   */
   const lightning = new THREE.DirectionalLight(0xbcd4ff, 0);
-  lightning.position.set(-3, 2.4, -3.5);
-  lightning.target.position.set(-3, 0, -ROOM_D / 2);
+  lightning.position.set(-4.2, 3.4, -7.5);
+  lightning.target.position.set(-0.6, 0, -0.4);
+  lightning.castShadow = true;
+  lightning.shadow.mapSize.set(1024, 1024);
+  lightning.shadow.camera.left = -3.4;
+  lightning.shadow.camera.right = 3.4;
+  lightning.shadow.camera.top = 3.0;
+  lightning.shadow.camera.bottom = -3.0;
+  lightning.shadow.camera.near = 0.5;
+  lightning.shadow.camera.far = 16;
+  // Negative bias, or the floorboards acne under PCFSoftShadowMap.
+  lightning.shadow.bias = -0.0006;
+  lightning.shadow.autoUpdate = false;
   group.add(lightning);
   group.add(lightning.target);
 
@@ -367,11 +455,15 @@ export function createBedroomLevel({
   windowGroup.add(glass);
   // mullion cross
   const mullionMat = new THREE.MeshStandardMaterial({ color: 0x1c1712 });
+  // The cross has to CAST, or a flash throws a plain bright rectangle on the
+  // floor instead of a window. This pair of boxes is the whole image.
   const mV = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.3, 0.06), mullionMat);
   mV.position.z = 0.06;
+  mV.castShadow = true;
   windowGroup.add(mV);
   const mH = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.04, 0.06), mullionMat);
   mH.position.z = 0.06;
+  mH.castShadow = true;
   windowGroup.add(mH);
 
   // ---------- old cast-iron radiator beneath the window ----------
