@@ -9,6 +9,7 @@ import {
 } from '../world/textures.js';
 import { addBaseboard, makeHandle } from '../world/trim.js';
 import { gameState } from '../core/GameState.js';
+import { createHiddenWritingTexture, createFootmarkTexture } from '../world/textures.js';
 
 /**
  * The combination on lock 2. Written on the note in the desk drawer, so it is
@@ -51,6 +52,10 @@ export function createStudyLevel({
   showCaption = () => {},
   onExit = () => {},
   onExaminePinpad = () => {},
+  onTakeVisor = () => {},
+  onTakeGateKey = () => {},
+  onLookInMirror = () => {},
+  onReadLetter = () => {},
   onReadNote = () => {},
   /** Fired with the lock id each time one opens, and again when all three are. */
   onLockOpened = () => {},
@@ -156,7 +161,9 @@ export function createStudyLevel({
   const puzzle = {
     drawerOpen: false,
     hasDoorKey: false,
-    noteRead: false
+    noteRead: false,
+    hasGateKey: false,
+    gateOpen: false
   };
 
   /**
@@ -333,6 +340,168 @@ export function createStudyLevel({
   interactables.push(portrait);
   group.add(portrait);
 
+  /**
+   * THE VISOR, lying face down on the floor where it was dropped.
+   *
+   * Deliberately not hidden behind a puzzle. Finding it is not the challenge --
+   * putting it on and believing what it shows you is. It is placed in the open,
+   * across the room from the door, so a player who is only looking for a way
+   * out can walk past it several times before the third lock forces them back.
+   */
+  const visorGroup = new THREE.Group();
+  visorGroup.position.set(-2.4, 0.02, 1.6);
+  visorGroup.rotation.set(-Math.PI / 2, 0, 0.6);
+  group.add(visorGroup);
+
+  const visorBandMat = new THREE.MeshStandardMaterial({ color: 0x23262a, roughness: 0.55, metalness: 0.25 });
+  const visorLensMat = new THREE.MeshStandardMaterial({
+    color: 0x2f6fae,
+    roughness: 0.12,
+    metalness: 0.1,
+    transparent: true,
+    opacity: 0.72,
+    // It is the only blue thing in the house, and it has to be findable in a
+    // room lit at 8/255. A little emission keeps an edge alive on the glass.
+    emissive: 0x123a5e,
+    emissiveIntensity: 0.5
+  });
+  const visorBand = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.035, 0.055), visorBandMat);
+  visorBand.castShadow = true;
+  visorGroup.add(visorBand);
+  for (const lx of [-0.045, 0.045]) {
+    const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.031, 0.031, 0.016, 16), visorLensMat);
+    lens.rotation.x = Math.PI / 2;
+    lens.position.set(lx, -0.004, 0.03);
+    visorGroup.add(lens);
+  }
+  for (const ax of [-0.095, 0.095]) {
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.012, 0.12), visorBandMat);
+    arm.position.set(ax, 0, -0.08);
+    visorGroup.add(arm);
+  }
+
+  const visorHitbox = new THREE.Mesh(
+    new THREE.SphereGeometry(0.16, 8, 8),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  visorHitbox.position.copy(visorGroup.position);
+  visorHitbox.userData.interact = {
+    label: 'Pick up the visor',
+    onInteract: () => {
+      visorGroup.visible = false;
+      visorHitbox.visible = false;
+      const i = interactables.indexOf(visorHitbox);
+      if (i >= 0) interactables.splice(i, 1);
+      onTakeVisor();
+    }
+  };
+  interactables.push(visorHitbox);
+  group.add(visorHitbox);
+
+  /**
+   * EVERYTHING A BROKEN EYE CANNOT RESOLVE.
+   *
+   * One group, hidden by default, shown by setCorrectedSight(). Keeping it as a
+   * single group rather than a list of individually-toggled props is what makes
+   * "the room corrects" a single operation that cannot get half-done -- and it
+   * means adding another reveal later is one more child, not another line in a
+   * toggle function somebody will forget to update.
+   */
+  const visorOnly = new THREE.Group();
+  visorOnly.visible = false;
+  group.add(visorOnly);
+
+  // Writing on the walls, in the same hand as everything else Mark wrote.
+  const wallInkMat = new THREE.MeshBasicMaterial({
+    map: createHiddenWritingTexture(["DON'T LET IT OUT"]),
+    transparent: true,
+    depthWrite: false
+  });
+  const wallInk = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.55), wallInkMat);
+  wallInk.position.set(-1.0, 1.85, -ROOM_D / 2 + 0.06);
+  visorOnly.add(wallInk);
+
+  const wallInk2 = new THREE.Mesh(
+    new THREE.PlaneGeometry(1.5, 0.42),
+    new THREE.MeshBasicMaterial({
+      map: createHiddenWritingTexture(['SHE STAYED']),
+      transparent: true,
+      depthWrite: false
+    })
+  );
+  wallInk2.position.set(ROOM_W / 2 - 0.06, 1.6, 0.4);
+  wallInk2.rotation.y = -Math.PI / 2;
+  visorOnly.add(wallInk2);
+
+  /**
+   * Footmarks. They run from the door to the corner and back, over and over --
+   * somebody has been pacing this room for a long time. They are hers, and on a
+   * second playthrough they are the clearest evidence in the game that she never
+   * left.
+   */
+  const footMat = new THREE.MeshBasicMaterial({
+    map: createFootmarkTexture(),
+    transparent: true,
+    depthWrite: false
+  });
+  for (let i = 0; i < 14; i++) {
+    const t = i / 13;
+    const mark = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.3), footMat);
+    mark.rotation.x = -Math.PI / 2;
+    // A wandering line from the front door across to the far corner.
+    mark.position.set(
+      2.2 - t * 4.6 + Math.sin(i * 1.7) * 0.12,
+      0.006,
+      2.7 - t * 5.0 + Math.cos(i * 2.1) * 0.1
+    );
+    mark.rotation.z = Math.atan2(-4.6, -5.0) + (i % 2 ? 0.18 : -0.18);
+    visorOnly.add(mark);
+  }
+
+  /**
+   * The letter, face up on the floor, and BLANK.
+   *
+   * The storyline is precise about this: "you see a piece of paper on the
+   * floor, once blank, but with the visor on, writing becomes visible." So the
+   * paper is always there and always pickupable -- the player can find it early,
+   * read nothing, and put it down again. That is much crueller than hiding it,
+   * because on a second playthrough they will remember doing exactly that.
+   */
+  const letterPaper = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.26, 0.34),
+    new THREE.MeshStandardMaterial({ color: 0xbdb49c, roughness: 1 })
+  );
+  letterPaper.rotation.x = -Math.PI / 2;
+  letterPaper.rotation.z = 0.24;
+  letterPaper.position.set(0.9, 0.007, -1.5);
+  group.add(letterPaper);
+
+  const letterHit = new THREE.Mesh(
+    new THREE.BoxGeometry(0.34, 0.12, 0.4),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  letterHit.position.set(0.9, 0.06, -1.5);
+  letterHit.userData.interact = {
+    label: 'A sheet of paper',
+    onInteract: () => onReadLetter()
+  };
+  interactables.push(letterHit);
+  group.add(letterHit);
+
+  // Ink for it, in the same hidden-writing treatment as the walls, so a player
+  // holding it with the visor on can see there IS writing before they read it.
+  const letterInk = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.24, 0.3),
+    new THREE.MeshBasicMaterial({
+      map: createHiddenWritingTexture(['To Annabelle']),
+      transparent: true,
+      depthWrite: false
+    })
+  );
+  letterInk.rotation.copy(letterPaper.rotation);
+  letterInk.position.set(0.9, 0.009, -1.5);
+  visorOnly.add(letterInk);
+
   // uncracked mirror (foreshadowing -- every other mirror in the house is broken)
   const mirrorFrame = new THREE.Mesh(
     new THREE.BoxGeometry(0.7, 1.1, 0.06),
@@ -347,10 +516,54 @@ export function createStudyLevel({
   mirrorGlass.position.set(0.5, 1.4, -ROOM_D / 2 + 0.09);
   mirrorGlass.userData.interact = {
     label: 'Look into the mirror',
-    onInteract: () => showCaption('The first mirror in the whole house that is not cracked.')
+    onInteract: () => onLookInMirror()
   };
   interactables.push(mirrorGlass);
   group.add(mirrorGlass);
+
+  /**
+   * The gate key, hanging on the side of the mirror frame.
+   *
+   * The storyline puts it here exactly: "you find the key hidden on the side of
+   * a mirror". It is in plain sight and has been the whole time -- the player
+   * simply could not see it, which is the same thing the room has been doing to
+   * them since they walked in. Visible only while the visor is on; taken, it
+   * stays taken.
+   */
+  const gateKeyMat = new THREE.MeshStandardMaterial({
+    color: 0xb9a55e, metalness: 0.85, roughness: 0.35,
+    emissive: 0x2a2410, emissiveIntensity: 0.4
+  });
+  const gateKey = new THREE.Group();
+  gateKey.position.set(0.5 + 0.37, 1.34, -ROOM_D / 2 + 0.07);
+  gateKey.visible = false;
+  group.add(gateKey);
+  const gkShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.09, 8), gateKeyMat);
+  gateKey.add(gkShaft);
+  const gkBow = new THREE.Mesh(new THREE.TorusGeometry(0.016, 0.004, 6, 12), gateKeyMat);
+  gkBow.position.y = 0.055;
+  gkBow.rotation.x = Math.PI / 2;
+  gateKey.add(gkBow);
+  const gkBit = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.005, 0.018), gateKeyMat);
+  gkBit.position.set(0.009, -0.038, 0);
+  gateKey.add(gkBit);
+
+  const gateKeyHit = new THREE.Mesh(
+    new THREE.SphereGeometry(0.1, 8, 8),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  gateKeyHit.position.copy(gateKey.position);
+  gateKeyHit.userData.interact = {
+    label: 'Take the key',
+    onInteract: () => {
+      puzzle.hasGateKey = true;
+      gateKey.visible = false;
+      const i = interactables.indexOf(gateKeyHit);
+      if (i >= 0) interactables.splice(i, 1);
+      onTakeGateKey();
+    }
+  };
+  group.add(gateKeyHit);
 
   // front door, three locks mounted to the slab (children of the door group)
   const frontDoor = new THREE.Group();
@@ -606,19 +819,34 @@ export function createStudyLevel({
   gateHit.position.set(0, 0.95, 0);
   gateHit.userData.interact = {
     label: 'The fence gate',
-    onInteract: () => showCaption(
-      gameState.visorWorn
-        ? 'Padlocked. The key is not on this side of it.'
-        : 'A padlocked gate across the porch. The key is not in it, and not on the ground.'
-    )
+    onInteract: () => {
+      if (puzzle.gateOpen) { onExit(); return; }
+      if (!puzzle.hasGateKey) {
+        showCaption(gameState.visorWorn
+          ? 'Padlocked. The key is not on this side of it.'
+          : 'A padlocked gate across the porch. The key is not in it, and not on the ground.');
+        return;
+      }
+      puzzle.gateOpen = true;
+      setGateSolid(false);
+      showCaption('The padlock opens. The gate swings out into the rain.');
+    }
   };
   interactables.push(gateHit);
   gate.add(gateHit);
 
-  colliders.push({
+  // Held so it can come out when the gate opens -- the same mistake the front
+  // door's collider made, which left an unwalkable slab in an open doorway.
+  const gateCollider = {
     minX: DOOR_X - 1.4, maxX: DOOR_X + 1.4,
     minZ: ROOM_D / 2 + PORCH_D - 0.12, maxZ: ROOM_D / 2 + PORCH_D + 0.05
-  });
+  };
+  colliders.push(gateCollider);
+  function setGateSolid(solid) {
+    const i = colliders.indexOf(gateCollider);
+    if (solid && i < 0) colliders.push(gateCollider);
+    if (!solid && i >= 0) colliders.splice(i, 1);
+  }
 
   /**
    * Porch lighting, and it has to be brighter than instinct says.
@@ -663,7 +891,19 @@ export function createStudyLevel({
       setCorrectedSight(on) {
         portraitMat.map = on ? portraitTexTrue : portraitTexPlain;
         portraitMat.needsUpdate = true;
+        // One group, one flag. Everything the broken eye cannot resolve is a
+        // child of it, so the room cannot correct halfway.
+        visorOnly.visible = on;
+        gateKey.visible = on && !puzzle.hasGateKey;
+        const ki = interactables.indexOf(gateKeyHit);
+        if (on && !puzzle.hasGateKey && ki < 0) interactables.push(gateKeyHit);
+        if (!on && ki >= 0) interactables.splice(ki, 1);
       },
+      visorGroup,
+      visorHitbox,
+      visorOnly,
+      gateKey,
+      letterHit,
       puzzle,
       lockMeshes,
       doorState,
@@ -703,6 +943,19 @@ export function createStudyLevel({
       setDoorSolid(true);
       portraitMat.map = portraitTexPlain;
       portraitMat.needsUpdate = true;
+
+      puzzle.hasGateKey = false;
+      puzzle.gateOpen = false;
+      setGateSolid(true);
+      gateKey.visible = false;
+      const gi = interactables.indexOf(gateKeyHit);
+      if (gi >= 0) interactables.splice(gi, 1);
+
+      visorOnly.visible = false;
+      visorGroup.visible = true;
+      visorHitbox.visible = true;
+      if (!interactables.includes(visorHitbox)) interactables.push(visorHitbox);
+      gate.rotation.y = 0;
     },
 
     update(dt) {
@@ -712,6 +965,8 @@ export function createStudyLevel({
       drawer.position.z += (drawerTargetZ - drawer.position.z) * Math.min(1, dt * 6);
       const doorTarget = doorState.open ? DOOR_OPEN_SWING : 0;
       doorHinge.rotation.y += (doorTarget - doorHinge.rotation.y) * Math.min(1, dt * 2.6);
+      const gateTarget = puzzle.gateOpen ? -1.05 : 0;
+      gate.rotation.y += (gateTarget - gate.rotation.y) * Math.min(1, dt * 2.2);
     }
   };
 }

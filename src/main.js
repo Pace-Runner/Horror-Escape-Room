@@ -21,6 +21,7 @@ import { createCutsceneRunner } from './core/Cutscene.js';
 import { createScriptRunner } from './core/Script.js';
 import { createCreature } from './systems/Creature.js';
 import { createCreatureAI } from './systems/CreatureAI.js';
+import { createVisor } from './core/Visor.js';
 import { BEATS, DOCUMENTS } from './story/lines.js';
 import { Hands } from './systems/hands/hands.js';
 import { HELD_MAGNIFICATION } from './systems/hands/sockets.js';
@@ -496,6 +497,16 @@ const creatureAI = createCreatureAI({
   onBreathing: (level) => audio.setBreathing(level)
 });
 
+/**
+ * The visor. One switch that has to move the render pass, the creature and the
+ * room together -- see core/Visor.js for why they are wired in one place.
+ */
+const visor = createVisor({
+  postFX,
+  creature,
+  getLevel: () => sceneManager.active
+});
+
 const bedroom = createBedroomLevel({
   showCaption,
   onFreed: () => {
@@ -713,6 +724,66 @@ const study = createStudyLevel({
     script.run(async (s) => {
       if (!await s.play(BEATS.shadowWrong)) return;
     });
+  },
+
+  onTakeVisor: () => {
+    visor.take();
+    objectiveEl.textContent = 'Put the visor on. [V]';
+    captions.play(BEATS.visorFound);
+  },
+
+  /**
+   * Mark's letter, which is where the game explains itself. It only says
+   * anything with the visor on -- the writing is not hidden from the room, it
+   * is hidden from the player, exactly like the fourth figure in the portrait.
+   */
+  onReadLetter: () => {
+    if (!gameState.visorWorn) {
+      showCaption('A sheet of paper, face up on the boards. Blank on both sides.');
+      return;
+    }
+    player.unlock();
+    documentUI.open({
+      title: DOCUMENTS.letter.title,
+      variant: DOCUMENTS.letter.variant,
+      body: DOCUMENTS.letter.body,
+      // Only once they have actually reached the end of it.
+      onRead: () => {
+        gameState.letterRead = true;
+        script.run(async (s) => {
+          if (!await s.wait(0.6)) return;
+          if (!await s.play(BEATS.realisation)) return;
+          s.do(() => { objectiveEl.textContent = 'The figure in the corner has stood up.'; });
+          await s.play(BEATS.annabelle);
+        });
+      }
+    });
+  },
+
+  onTakeGateKey: () => {
+    captions.play([
+      'A key, hanging on the side of the mirror frame.',
+      'It has been there the whole time. You simply could not see it.'
+    ]);
+  },
+
+  /**
+   * The mirror. The single most important interaction in the game, and it only
+   * does its job with the visor on -- which is the point: the player has to
+   * have chosen to look.
+   */
+  onLookInMirror: () => {
+    if (!gameState.visorWorn) {
+      showCaption('The first mirror in this house that is not cracked. Your reflection looks like you.');
+      return;
+    }
+    script.run(async (s) => {
+      if (!await s.play(BEATS.mirror)) return;
+      s.do(() => {
+        objectiveEl.textContent = 'Read the letter.';
+        audio.setBreathing(0.35);
+      });
+    });
   }
 });
 sceneManager.register('study', study);
@@ -841,6 +912,9 @@ function activateLevel(key, { lockMovement = false } = {}) {
   cctvSeen.clear();
   creatureStanding = false;
   creatureAI.reset();
+  // resetState() has already cleared the flags; this pushes that through to the
+  // pass, the creature and the room, none of which read GameState themselves.
+  visor.reset();
   // Same reason abortTransition() exists: a restart taken mid-shot must hand
   // the camera back, or the player restarts into a frozen third-person view.
   cutscene.cancel();
@@ -848,6 +922,10 @@ function activateLevel(key, { lockMovement = false } = {}) {
   // cancelled, so a restart mid-beat blew the new room's bulb seconds later.
   script.cancel();
   player.movementEnabled = !lockMovement;
+  // postFX.reset() above zeroes the visor dial, and the level just activated has
+  // never been told what the player can see. Without this, walking into a room
+  // wearing the visor takes it off in everything except the player's inventory.
+  visor.refresh();
   // AFTER script.cancel() above, or the beat this fires is cancelled by the
   // very activation that started it.
   ON_ENTER[key]?.();
@@ -1044,6 +1122,14 @@ window.addEventListener('keydown', (e) => {
     }
   }
   if (e.code === 'KeyF') setFlashlight(!flashlightOn);
+  if (e.code === 'KeyV') {
+    const result = visor.toggle();
+    if (result === 'none') {
+      showCaption('You are not carrying anything to see with.');
+    } else {
+      captions.play(result === 'on' ? BEATS.visorFirstWorn : BEATS.visorRemoved);
+    }
+  }
   if (e.code === 'KeyR') resetGame();
   if (e.code === 'KeyC' && !transitionInFlight) toggleCredits(true);
 });
@@ -1184,6 +1270,7 @@ if (import.meta.env.DEV) {
     script,
     creature,
     creatureAI,
+    visor,
     storm: bedroomStorm,
     captions,
     documentUI,

@@ -2019,3 +2019,120 @@ export function createCreatureSketchTexture() {
   tex.anisotropy = 4;
   return tex;
 }
+
+/**
+ * Writing that only the calibration lenses can resolve.
+ *
+ * Drawn as bright ink on transparent, so the mesh using it can sit flat against
+ * a wall and be switched on without a second material. Ragged, gone over twice,
+ * and slightly luminous at the edges -- not because the ink glows, but because
+ * the visor is CORRECTING contrast the naked eye is losing, and the cheapest
+ * honest way to say "you can suddenly see this" is to let it sit above the
+ * wall's own value range.
+ */
+export function createHiddenWritingTexture(lines = ["DON'T LET IT OUT"]) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const cx = canvas.width / 2;
+  const lineH = canvas.height / (lines.length + 0.6);
+  lines.forEach((text, i) => {
+    const baseY = lineH * (i + 0.9);
+    const size = Math.min(120, (canvas.width * 0.92) / Math.max(text.length, 1) * 1.55);
+    ctx.font = `${Math.round(size)}px Georgia, 'Times New Roman', serif`;
+    ctx.textAlign = 'center';
+
+    /**
+     * PER CHARACTER, not per line. Drawing the string in one call gave a
+     * perfectly level, perfectly kerned line that read as a user-interface
+     * caption stuck to the wall rather than as something a frightened person
+     * wrote on it. Each letter now sits at its own angle, its own baseline and
+     * its own weight -- which is the difference between text and handwriting.
+     */
+    const widths = [...text].map((ch) => ctx.measureText(ch).width);
+    const total = widths.reduce((a, b) => a + b, 0);
+    let x = cx - total / 2;
+    [...text].forEach((ch, k) => {
+      const w = widths[k];
+      // Deterministic wobble: same string always draws the same way, so the
+      // wall does not change between one look and the next.
+      const wobble = Math.sin(k * 2.399 + i * 5.1);
+      const wobble2 = Math.sin(k * 1.117 + i * 3.3);
+      for (let pass = 0; pass < 2; pass++) {
+        ctx.save();
+        ctx.translate(x + w / 2 + wobble2 * 3, baseY + wobble * (size * 0.045));
+        ctx.rotate(wobble * 0.055 + (pass ? 0.01 : -0.008));
+        // Pale, not saturated. A hot blue reads as a screen; this is chalk-pale
+        // and lets the visor's own tint do the colouring.
+        const a = (pass ? 0.30 : 0.62) * (0.72 + Math.abs(wobble2) * 0.28);
+        ctx.fillStyle = pass
+          ? `rgba(206, 224, 238, ${a})`
+          : `rgba(232, 243, 250, ${a})`;
+        ctx.fillText(ch, (pass ? 1.5 : 0), (pass ? 1 : 0));
+        ctx.restore();
+      }
+      x += w;
+    });
+  });
+
+  // Rough the edges so it reads as ink on plaster rather than as a caption.
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] === 0) continue;
+    const px = (i / 4) % canvas.width;
+    const py = Math.floor(i / 4 / canvas.width);
+    const n = Math.sin(px * 0.31 + py * 0.17) * 0.5 + 0.5;
+    d[i + 3] = Math.max(0, Math.min(255, d[i + 3] * (0.55 + n * 0.55)));
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+/**
+ * One footmark, for the trail across the study floor.
+ *
+ * A smear rather than a boot print: bare, dragged, and not quite the right
+ * shape. It is the same trail walked so many times that it has worn into the
+ * boards, which is the point -- somebody has been pacing this room for a very
+ * long time.
+ */
+export function createFootmarkTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const g = ctx.createRadialGradient(64, 150, 6, 64, 150, 74);
+  g.addColorStop(0, 'rgba(178, 208, 236, 0.62)');
+  g.addColorStop(0.55, 'rgba(140, 176, 210, 0.30)');
+  g.addColorStop(1, 'rgba(120, 156, 190, 0)');
+  ctx.fillStyle = g;
+
+  // Sole: a long oval, narrowed at the arch.
+  ctx.beginPath();
+  ctx.ellipse(64, 158, 34, 76, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Ball of the foot, pressed harder.
+  ctx.beginPath();
+  ctx.ellipse(64, 96, 36, 34, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // Toes -- five, and too long.
+  for (let i = 0; i < 5; i++) {
+    ctx.beginPath();
+    ctx.ellipse(30 + i * 17, 60 - Math.abs(i - 2) * 5, 7, 15, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
