@@ -80,15 +80,14 @@ const BREATH_LEVEL_RAMP = 1.1;
 // intensity dial mean something audible, without callers having to know
 // anything about the file's level. Re-measure it if the file is replaced.
 //
-// 7x (+16.9 dB): sized so the loudest story beat (0.95, see BEATS in
-// story/lines.js) lands the recording's own peak at roughly -6.8 dBFS --
-// clearly the most prominent thing in the mix without clipping. At the
-// level the game opens on (BREATH_BASE_LEVEL, 0.1) that puts the effective
-// peak around -33 dBFS: present as a background breath, not a wall of
-// noise. Left at 1 (i.e. no makeup at all) this dial never got loud enough
-// to be more than technically playing -- audible on nothing but studio
-// monitors at a dangerous volume.
-const BREATH_MAKEUP = 7;
+// 5x (+14 dB): sized so the loudest story beat (0.95, see BEATS in
+// story/lines.js) lands the recording's own peak at roughly -9.7 dBFS --
+// clearly present without dominating the mix. At the level the game opens
+// on (BREATH_BASE_LEVEL, 0.1) that puts the effective peak around -36 dBFS:
+// a background breath, not a wall of noise. Left at 1 (i.e. no makeup at
+// all) this dial never got loud enough to be more than technically playing
+// -- audible on nothing but studio monitors at a dangerous volume.
+const BREATH_MAKEUP = 5;
 
 // Exported because main.js's resetGame() has to put the intensity back to the
 // level the game opens on, and two copies of that number in two files would
