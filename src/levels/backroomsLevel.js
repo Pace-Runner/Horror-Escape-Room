@@ -18,7 +18,8 @@ import { loadModel, applyTextureByMaterialName } from '../world/modelLoader.js';
 import { MINIMAP_ONLY, MAIN_ONLY } from '../core/RenderLayers.js';
 import doorModelUrl from '../assets/models/door.glb?url';
 import {
-  CORRIDOR_W, T, CORRIDORS, ROUTE, BOX, buildWallRuns, runCollider, validateMaze
+  CORRIDOR_W, T, CORRIDORS, ROUTE, BOX, LEGS, buildWallRuns, runCollider, validateMaze,
+  junctions, deadEnd, sideWall, legMid, spawnPoint, exitPoint, nameNoise
 } from './backroomsMaze.js';
 
 /**
@@ -40,12 +41,20 @@ import {
  *     olive-brown. One material, two moods. This is why the ambient here is
  *     0.14 against the 0.37-0.43 every other level uses -- see the note on it.
  *
- *  2. IT IS A WARREN THAT STAYS SOLVABLE. The route turns SEVEN times and every
+ *  2. IT IS A WARREN THAT STAYS SOLVABLE. The route turns TEN times and every
  *     turn is a T where carrying straight on is the mistake, so there are real
- *     decisions to get wrong -- and some decoys fork, so a wrong turn can present
- *     a choice of its own. But the corridor graph is a TREE, which means every
- *     wrong turn is a guaranteed dead end rather than a shortcut. About 54m,
- *     ~27 seconds if you never take one.
+ *     decisions to get wrong -- and thirty-one wrong turns fork four deep, so a
+ *     mistake can present a choice of its own. But the corridor graph is a TREE,
+ *     which means every wrong turn is a guaranteed dead end rather than a
+ *     shortcut, and backroomsMaze.js's validator is what keeps it one. 72m,
+ *     ~36 seconds walking if you never take one, ~20 sprinting.
+ *
+ *     The maze grew threefold in FLOOR AREA and in corridors, and by eleven
+ *     seconds in route. That asymmetry is deliberate: this corridor is walked
+ *     twice per playthrough and is identical both times, so route length is a
+ *     toll every player pays twice while decoy volume is paid only by players
+ *     who choose to explore. Tripling the route would have been eighty seconds
+ *     of mandatory yellow corridor, twice, with the same turns both times.
  *
  *  3. NO ARROWS. The corridor used to mark its route with blood-drawn arrows at
  *     every turn; the maze is unguided now, so the player finds the way out (or
@@ -306,30 +315,58 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     });
   }
 
-  // A lit pool at roughly every OTHER junction, and darkness between.
+  // A fixture at every junction; a WORKING one at roughly every third.
   //
-  // Lighting all seven turns would flatten the maze into a lit path you simply
-  // follow; lighting none would make it a flashlight crawl. Alternating means
-  // about half the turns are found by torchlight with nothing else to go on,
-  // which is where the tension is. Decoys get no fixture at all -- that darkness
-  // is what makes a wrong turn read as wrong before you have walked it.
+  // This used to say that decoys get no fixture at all, so darkness was the
+  // wrong-turn tell. That policy is gone, and deliberately: with the blood
+  // arrows removed and the maze at forty-two corridors, a lit/unlit split would
+  // hand the solution to anyone who noticed it, and the failing lights below
+  // would break it anyway. The fog map is the guide now. The lights are weather.
   //
-  // `along` is the axis the housing runs across: an east-west corridor needs the
-  // tube turned 90 degrees or it lies ALONG the corridor instead of banding
-  // across it, and the band on the carpet is the whole backrooms look.
-  addFixture(0, 1.8, { along: 'x', mode: 'dying', colour: 0xffd07a, base: 1.5, dist: 8, decay: 1.7, emissive: 0xffdca0, emissiveIntensity: 1.9 });
-  addFixture(0, 4.8, { along: 'z', mode: 'steady', colour: 0xffd98a, base: 1.7, dist: 10, decay: 1.55, emissive: 0xffe9a0, emissiveIntensity: 1.7 });
-  addFixture(-10.4, 4.8, { along: 'x', mode: 'flicker', colour: 0xffd07a, base: 1.6, dist: 10, decay: 1.6, emissive: 0xffe9a0, emissiveIntensity: 1.7 });
-  addFixture(-10.4, 10.4, { along: 'z', mode: null, emissive: 0x24221c, emissiveIntensity: 0 });
-  addFixture(-7.0, 10.4, { along: 'z', mode: 'steady', colour: 0xffd98a, base: 1.6, dist: 9, decay: 1.6, emissive: 0xffe9a0, emissiveIntensity: 1.6 });
-  addFixture(-3.6, 13.2, { along: 'x', mode: null, emissive: 0x24221c, emissiveIntensity: 0 });
-  addFixture(-3.6, 16.0, { along: 'z', mode: 'flicker', colour: 0xffd07a, base: 1.6, dist: 10, decay: 1.6, emissive: 0xffe9a0, emissiveIntensity: 1.7 });
-  addFixture(-12.4, 16.0, { along: 'x', mode: null, emissive: 0x24221c, emissiveIntensity: 0 });
-  addFixture(-12.4, 21.4, { along: 'z', mode: 'steady', colour: 0xffe0a4, base: 1.7, dist: 10, decay: 1.55, emissive: 0xffe9a0, emissiveIntensity: 1.7 });
-  addFixture(-6.0, 21.4, { along: 'z', mode: null, emissive: 0x24221c, emissiveIntensity: 0 });
-  // The only bright steady light in the level sits over the exit. The
-  // destination is the one stable thing here -- the light does the signage.
-  addFixture(0.6, 21.4, { along: 'z', mode: 'steady', colour: 0xffe0a4, base: 1.95, dist: 12, decay: 1.5, emissive: 0xfff0c0, emissiveIntensity: 1.9 });
+  // `dist` is 6.5 rather than the old 8-12 because MIN_WALL is 1.6 m and these
+  // fluorescents cast no shadows: a 10 m pool reaches straight through a wall
+  // and lights the corridor on the other side, which at this corridor density
+  // would glow the whole maze into one continuous smear.
+  //
+  // `along` is the axis the housing runs across: a corridor running east-west
+  // needs its tube turned 90 degrees or it lies ALONG the corridor instead of
+  // banding across it, and the band on the carpet is the whole backrooms look.
+  const LAMP_MODES = ['steady', 'flicker', 'steady', 'dying'];
+  junctions().forEach((j, i) => {
+    const along = j.axis === 'z' ? 'x' : 'z';
+    // Every third junction is lit, offset so the route's own turns alternate
+    // rather than all landing on the same side of the pattern.
+    const lit = j.onRoute ? i % 2 === 0 : nameNoise(j.name) < 0.34;
+    if (!lit) {
+      addFixture(j.x, j.z, { along, mode: null, emissive: 0x24221c, emissiveIntensity: 0 });
+      return;
+    }
+    const mode = LAMP_MODES[Math.floor(nameNoise(j.name, 7) * LAMP_MODES.length)];
+    addFixture(j.x, j.z, {
+      along,
+      mode,
+      colour: mode === 'dying' ? 0xffd07a : 0xffd98a,
+      base: 1.55 + nameNoise(j.name, 3) * 0.2,
+      dist: 6.5,
+      decay: 1.6,
+      emissive: 0xffe9a0,
+      emissiveIntensity: 1.7
+    });
+  });
+
+  // One over the arrival, so the corridor is not pitch black the instant you
+  // step into it, and one over the exit.
+  const spawnAt = spawnPoint();
+  addFixture(spawnAt.x, spawnAt.z + 0.4, { along: 'x', mode: 'dying', colour: 0xffd07a, base: 1.5, dist: 6.5, decay: 1.7, emissive: 0xffdca0, emissiveIntensity: 1.9 });
+
+  // The only bright steady light in the level sits over the exit, and it is the
+  // one fixture exempt from the blackouts below. The destination is the one
+  // stable thing here -- the light does the signage, and during a blackout it
+  // becomes the only lit thing in the maze, which turns the blackout into a
+  // direction rather than only a punishment.
+  const exitAt = exitPoint();
+  addFixture(exitAt.x, exitAt.z + exitAt.nz * 1.2, { along: 'x', mode: 'steady', colour: 0xffe0a4, base: 1.95, dist: 9, decay: 1.5, emissive: 0xfff0c0, emissiveIntensity: 1.9 });
+  const exitLamp = lamps[lamps.length - 1];
 
   /**
    * Is there actually a wall behind a decal at (x, z) facing rotY?
@@ -376,13 +413,13 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
   const furnitureWoodNormal = createFurnitureWoodNormalTexture();
 
   const doorFrame = new THREE.Group();
-  doorFrame.position.set(1.94, 0, 21.4);
+  doorFrame.position.set(exitAt.x + exitAt.nx * 0.06, 0, exitAt.z + exitAt.nz * 0.06);
   // door.glb is authored facing +Z: blender/build_door.py puts the knob at
-  // Blender y = -0.035, and the glTF Y-up conversion lands that at +Z. The door
-  // now sits at the EAST end of EW2, so it turns -90 degrees for its knob face
-  // to look back west down the corridor at the approaching player, and its 0.06m
-  // frame depth runs into the end wall behind it.
-  doorFrame.rotation.y = -Math.PI / 2;
+  // Blender y = -0.035, and the glTF Y-up conversion lands that at +Z. DERIVED
+  // now from the exit leg's own dead end, so the door turns to face back down
+  // whichever corridor the route finishes in, and its 0.06m frame depth runs
+  // into the end wall behind it. atan2 of the inward normal is that angle.
+  doorFrame.rotation.y = Math.atan2(exitAt.nx, exitAt.nz);
   group.add(doorFrame);
 
   const doorHinge = new THREE.Object3D();
@@ -581,21 +618,29 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     flap.rotation.z = (Math.random() - 0.5) * 0.08;
     group.add(flap);
   }
-  // 19.3, not 8.6: opening B6's mouth (left wall now absent 8.40-10.60) left
-  // this one floating too. Moved rather than nudged, so it is not crowding
-  // the rest of the dressing on the short 7.40-8.40 stub.
-  // rotY points along the wall's OUTWARD normal, i.e. into the walkable side.
-  // Get the sign wrong and the flap is buried inside the wall, and because the
-  // wall material is DoubleSide there is no backwards-plane tell -- it simply
-  // vanishes. warnIfFloating catches the wrong WALL; only care catches the wrong
-  // FACE.
-  addPeeling(-1.6, 1.60, 2.4, Math.PI / 2, 0.80);
-  addPeeling(-6.0, 1.80, 6.4, Math.PI, 0.80);
-  addPeeling(-12.0, 1.55, 7.4, Math.PI / 2, 0.75);
-  addPeeling(-8.0, 1.45, 8.8, 0, 0.70);
-  addPeeling(-5.2, 1.65, 13.2, Math.PI / 2, 0.70);
-  addPeeling(-9.0, 1.50, 14.4, 0, 0.75);
-  addPeeling(-14.0, 1.70, 22.0, Math.PI / 2, 0.70);
+  // Placed against the DEAD END of a corridor rather than at an arbitrary z.
+  // Past the last junction a leg's side walls are unbroken by definition, which
+  // is what stops a flap landing in a branch mouth -- three shipped that way
+  // once and were found only by walking into them. rotY is the wall's inward
+  // normal; get the sign wrong and the flap is buried inside the wall, and
+  // because the wall material is DoubleSide there is no backwards-plane tell,
+  // it simply vanishes. warnIfFloating catches the wrong WALL; only sideWall()
+  // returning the normal with the point catches the wrong FACE.
+  Object.keys(LEGS).forEach((name) => {
+    const n = nameNoise(name, 11);
+    if (n > 0.42) return;
+    // ASK wallBehind rather than assuming. The first version placed the flap a
+    // fixed distance in from the dead end on the theory that nothing branches
+    // past the last junction -- but a child can hang at the very END of a leg
+    // (d3a does, off EW3), which puts a branch mouth exactly where the theory
+    // says the wall is. Four flaps floated, and only warnIfFloating found them.
+    for (let k = 0; k < 10; k++) {
+      const w = sideWall(name, { back: 0.9 + (k >> 1) * 1.4, side: k % 2 ? -1 : 1 });
+      if (!wallBehind(w.rotY, w.x, w.z)) continue;
+      addPeeling(w.x, 1.45 + n * 0.8, w.z, w.rotY, 0.70 + n * 0.5);
+      return;
+    }
+  });
 
   // Cobwebs ONLY in the dead-end branches. Webs mean undisturbed; their absence
   // in the main corridor means traffic. That is the trail's whole backstory,
@@ -619,19 +664,24 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     web.rotation.set(tiltX, rotY, tiltZ);
     group.add(web);
   }
-  addCobweb(6.85, HALL_H - 0.15, 6.25, -Math.PI / 4, -0.3, -0.3);   // EW1 east dead end
-  addCobweb(6.85, HALL_H - 0.15, 3.35, Math.PI / 4);                // EW1 east dead end
-  addCobweb(-14.85, HALL_H - 0.15, 11.85, Math.PI / 4);             // EW2 west dead end
-  addCobweb(0.85, HALL_H - 0.15, 11.85, -Math.PI / 4, -0.3, -0.3);  // EW2 east dead end
-  addCobweb(-11.85, HALL_H - 0.15, 13.45, Math.PI / 4);             // NS2 north dead end
-  addCobweb(-2.15, HALL_H - 0.15, 18.85, -Math.PI / 4, -0.3, -0.3); // NS3 north dead end
-  addCobweb(0.85, HALL_H - 0.15, 17.45, -Math.PI / 4, -0.3, -0.3);  // EW3 east dead end
-  addCobweb(-13.85, HALL_H - 0.15, 24.85, Math.PI / 4);             // NS4 north dead end
-  addCobweb(-16.85, HALL_H - 0.15, 25.85, Math.PI / 4);             // fC
-  addCobweb(8.85, HALL_H - 0.15, 9.85, -Math.PI / 4, -0.3, -0.3);   // fA2, two wrong turns deep
-  addCobweb(1.85, HALL_H - 0.15, 18.35, -Math.PI / 4, -0.3, -0.3);  // fB
-  addCobweb(4.25, HALL_H - 0.15, 2.45, Math.PI / 4);                // sA
-  addCobweb(-8.35, HALL_H - 0.15, 18.15, Math.PI / 4);              // sD
+  // In the dead ends of the WRONG turns only. Webs mean undisturbed; their
+  // absence on the route means traffic. That is the trail's whole backstory,
+  // told with a texture that already exists -- and it is the one wayfinding tell
+  // the level keeps, because unlike darkness it survives the lights failing.
+  Object.keys(LEGS).filter((n) => LEGS[n].kind === 'decoy').forEach((name) => {
+    const e = deadEnd(name);
+    const h = LEGS[name].w / 2 - 0.35;
+    const n = nameNoise(name, 23);
+    const side = n < 0.5 ? -1 : 1;
+    addCobweb(
+      e.x + e.nx * 0.45 + (e.axis === 'z' ? side * h : 0),
+      HALL_H - 0.15,
+      e.z + e.nz * 0.45 + (e.axis === 'x' ? side * h : 0),
+      side * Math.PI / 4,
+      -0.3,
+      side * 0.3
+    );
+  });
 
   // Dead flies under the living fixtures -- the single most fluorescent-lit
   // detail there is, and nothing else in this game has it.
@@ -640,7 +690,9 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
   // Under the LIVING fixtures only, and now taking an (x, z) pair -- the old
   // loop took a z list and hardcoded x = 0, which only worked while every
   // fixture sat on one straight centreline.
-  [[0, 1.8], [0, 4.8], [-10.4, 4.8], [-7.0, 10.4], [-3.6, 16.0], [-12.4, 21.4], [0.6, 21.4]].forEach(([fx, fz]) => {
+  lamps.forEach(({ light }) => {
+    const fx = light.position.x;
+    const fz = light.position.z;
     for (let i = 0; i < 6; i++) {
       const fly = new THREE.Mesh(flyGeo, flyMat);
       const a = Math.random() * Math.PI * 2;
@@ -659,7 +711,8 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
       map: tiled(ceilTex, 0.25, 0.25), roughness: 0.9
     })
   );
-  fallenTile.position.set(-10.75, 0.011, 10.0);
+  const tileAt = legMid(ROUTE[2]);
+  fallenTile.position.set(tileAt.x - 0.35, 0.011, tileAt.z);
   fallenTile.rotation.y = 0.6;
   fallenTile.rotation.z = 0.04;
   group.add(fallenTile);
@@ -669,7 +722,7 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     new THREE.MeshBasicMaterial({ color: 0x050403 })
   );
   tileHole.rotation.x = Math.PI / 2;
-  tileHole.position.set(-10.4, HALL_H - 0.01, 10.4);
+  tileHole.position.set(tileAt.x, HALL_H - 0.01, tileAt.z + 0.4);
   group.add(tileHole);
 
   // Water pooled on the carpet. Zero new textures -- under a moving flashlight
@@ -688,7 +741,19 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     opacity: 0.55,
     depthWrite: false
   });
-  [[0.2, 3.0, 1.0, 0.7], [-9.5, 7.0, 1.3, 0.8], [-3.6, 12.6, 0.9, 1.2], [-11.0, 18.0, 1.1, 0.8], [-4.5, 21.4, 1.2, 0.9]].forEach(([x, z, sx, sz]) => {
+  Object.keys(LEGS).filter((name) => nameNoise(name, 31) < 0.22).forEach((name) => {
+    const m = legMid(name);
+    const n = nameNoise(name, 37);
+    // Jitter scaled to the corridor, not a fixed 1.5 m: on a 2.4 m closet a
+    // fixed offset walked the pool straight through the end wall, and a puddle
+    // half inside a wall is invisible rather than obviously wrong.
+    const L = LEGS[name];
+    const jAlong = Math.max(0, (L.to - L.from) / 2 - 0.9) * (n - 0.5) * 2;
+    const jAcross = Math.max(0, L.w / 2 - 0.9) * (n - 0.5) * 2;
+    const x = m.x + (L.axis === 'z' ? jAcross : jAlong);
+    const z = m.z + (L.axis === 'z' ? jAlong : jAcross);
+    const sx = 0.9 + n * 0.5;
+    const sz = 0.7 + n * 0.6;
     const pool = new THREE.Mesh(new THREE.CircleGeometry(0.5, 20), puddleMat);
     pool.rotation.x = -Math.PI / 2;
     pool.position.set(x, 0.012, z);
@@ -700,7 +765,7 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     group,
     interactables,
     colliders,
-    spawn: [0, 1.4],
+    spawn: [spawnAt.x, spawnAt.z],
     // The camera's local forward is -Z by default and the corridor runs +Z, so
     // it has to be turned 180 degrees to face down it -- same reasoning as
     // hallwayBasementLevel. It also means the player spawns with their back to

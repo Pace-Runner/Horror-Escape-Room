@@ -22,7 +22,7 @@
  * WHY PARENT POINTERS. The old file kept 14 rectangles and an assertion that
  * counted junctions and checked `count === n - 1`. That cannot say WHICH pair is
  * at fault, and a disconnected component plus a loop cancel out and pass it. At
- * 40 corridors neither is acceptable. Declaring the parent makes the tree a
+ * 42 corridors neither is acceptable. Declaring the parent makes the tree a
  * property of the data, and the validator's job becomes checking that the
  * GEOMETRY agrees with the declared tree -- which it can report by name.
  *
@@ -64,31 +64,83 @@ export const BODY_R = 0.35;
 export const MIN_WALL = 1.6;
 
 export const LEGS = {
-  // ---- the route ---------------------------------------------------------
-  // Legs alternating axis, so every leg is a turn. Every turn is a T where
-  // carrying straight on is the mistake, and the part of each leg past its turn
-  // IS that mistake: the decoys are not separate geometry, they are the
-  // corridor you were already in, continuing without you.
-  NS1: { axis: 'z', at: 0, from: 0.0, to: 6.4, w: 3.2, parent: null, kind: 'route' },
-  EW1: { axis: 'x', at: 4.8, from: -12.0, to: 7.0, w: 3.2, parent: 'NS1', kind: 'route' },
-  NS2: { axis: 'z', at: -10.4, from: 3.2, to: 13.6, w: 3.2, parent: 'EW1', kind: 'route' },
-  EW2: { axis: 'x', at: 10.4, from: -15.0, to: 1.0, w: 3.2, parent: 'NS2', kind: 'route' },
-  NS3: { axis: 'z', at: -3.6, from: 8.8, to: 19.0, w: 3.2, parent: 'EW2', kind: 'route' },
-  EW3: { axis: 'x', at: 16.0, from: -14.0, to: 1.0, w: 3.2, parent: 'NS3', kind: 'route' },
-  NS4: { axis: 'z', at: -12.4, from: 14.4, to: 25.0, w: 3.2, parent: 'EW3', kind: 'route' },
-  EW4: { axis: 'x', at: 21.4, from: -14.0, to: 2.0, w: 3.2, parent: 'NS4', kind: 'route', exit: true },
+  // ---- THE ROUTE: eleven legs, alternating axis, so TEN turns ------------
+  // Every turn is a T where carrying straight on is the mistake, and the part
+  // of each leg past its turn IS that mistake -- most decoys are not separate
+  // geometry, they are the corridor you were already in, continuing without
+  // you. 72 m end to end: ~36 s walking, ~20 s sprinting.
+  //
+  // Route length is the floor EVERY player pays, twice per playthrough, and the
+  // corridor is identical both times. So the maze grew in AREA and in wrong
+  // turns, not in route: three times the floor space and three times the
+  // corridors, for eleven seconds more walking.
+  NS1: { axis: 'z', at:   0.0, from:   0.0, to:  11.2, w: 3.2, parent: null,  kind: 'route' },
+  EW1: { axis: 'x', at:   4.8, from: -14.4, to:  14.4, w: 3.2, parent: 'NS1', kind: 'route' },
+  NS2: { axis: 'z', at:  -9.6, from:   1.6, to:  16.8, w: 3.2, parent: 'EW1', kind: 'route' },
+  EW2: { axis: 'x', at:  14.4, from: -27.2, to:  -6.4, w: 3.2, parent: 'NS2', kind: 'route' },
+  NS3: { axis: 'z', at: -14.4, from:  11.2, to:  28.8, w: 3.2, parent: 'EW2', kind: 'route' },
+  EW3: { axis: 'x', at:  24.0, from: -22.4, to:  -3.2, w: 3.2, parent: 'NS3', kind: 'route' },
+  NS4: { axis: 'z', at:  -9.6, from:  20.8, to:  35.2, w: 3.2, parent: 'EW3', kind: 'route' },
+  EW4: { axis: 'x', at:  28.8, from: -11.2, to:   8.0, w: 3.2, parent: 'NS4', kind: 'route' },
+  NS5: { axis: 'z', at:   0.0, from:  25.6, to:  38.4, w: 3.2, parent: 'EW4', kind: 'route' },
+  EW5: { axis: 'x', at:  33.6, from:  -6.4, to:   1.6, w: 3.2, parent: 'NS5', kind: 'route' },
+  NS6: { axis: 'z', at:  -4.8, from:  32.0, to:  38.4, w: 3.2, parent: 'EW5', kind: 'route', exit: true },
 
-  // ---- forks, hanging off DECOYS rather than off the route ----------------
-  // so a wrong turn can present a choice of its own. fA2 is two wrong turns
-  // deep. These are what stop the maze reading as one spine with stubs on it.
-  fA: { axis: 'z', at: 4.6, from: 5.4, to: 10.5, w: 3.2, parent: 'EW1', kind: 'decoy' },
-  fA2: { axis: 'x', at: 8.8, from: 5.2, to: 9.0, w: 2.4, parent: 'fA', kind: 'decoy' },
-  fB: { axis: 'z', at: 0.5, from: 14.4, to: 18.5, w: 3.0, parent: 'EW3', kind: 'decoy' },
-  fC: { axis: 'x', at: 24.75, from: -17.0, to: -12.5, w: 2.5, parent: 'NS4', kind: 'decoy' },
+  // ---- D1, off EW1 heading east: three turns deep ------------------------
+  // The first branch you can reach, and the biggest. d1d is the mercy: a closet
+  // you can dismiss from its mouth, so the d1a fork is never two long unknowns.
+  d1a: { axis: 'z', at:  11.2, from:   4.8, to:  24.0, w: 3.2, parent: 'EW1', kind: 'decoy' },
+  d1b: { axis: 'x', at:  19.2, from:   4.8, to:  17.6, w: 3.2, parent: 'd1a', kind: 'decoy' },
+  d1c: { axis: 'z', at:   6.4, from:  19.2, to:  25.6, w: 3.2, parent: 'd1b', kind: 'decoy' },
+  d1d: { axis: 'x', at:  14.4, from:  11.2, to:  14.4, w: 2.4, parent: 'd1a', kind: 'decoy' },
+  d1e: { axis: 'z', at:  16.0, from:  19.2, to:  24.0, w: 2.4, parent: 'd1b', kind: 'decoy' },
+  d1f: { axis: 'x', at:   9.6, from:  11.2, to:  14.4, w: 2.4, parent: 'd1a', kind: 'decoy' },
 
-  // ---- plain stubs, visibly dead from the mouth ---------------------------
-  sA: { axis: 'x', at: 1.55, from: 0.6, to: 4.4, w: 2.1, parent: 'NS1', kind: 'decoy' },
-  sD: { axis: 'z', at: -7.05, from: 18.0, to: 21.0, w: 2.9, parent: 'EW4', kind: 'decoy' }
+  // ---- D2, off EW2 heading west: the deepest, and the longest walk back --
+  // Everything here is full width, deliberately: a narrow corridor reads as a
+  // dead end from its mouth, so a NARROW deep branch tells on itself and wastes
+  // the walk. Width is the tell, which is why only the closets are narrow.
+  d2a: { axis: 'z', at: -19.2, from:  14.4, to:  20.8, w: 3.2, parent: 'EW2', kind: 'decoy' },
+  d2b: { axis: 'x', at:  19.2, from: -30.4, to: -17.6, w: 3.2, parent: 'd2a', kind: 'decoy' },
+  d2c: { axis: 'z', at: -28.8, from:  19.2, to:  28.8, w: 3.2, parent: 'd2b', kind: 'decoy' },
+  d2d: { axis: 'x', at:  27.6, from: -28.8, to: -25.6, w: 2.4, parent: 'd2c', kind: 'decoy' },
+  d2e: { axis: 'x', at:  23.6, from: -32.0, to: -28.8, w: 2.4, parent: 'd2c', kind: 'decoy' },
+  d2f: { axis: 'z', at: -24.0, from:   8.0, to:  14.4, w: 3.2, parent: 'EW2', kind: 'decoy' },
+
+  // ---- D3, off EW3 heading back east: it aims at the route and misses ----
+  // d3c runs at x = 0, collinear with BOTH NS1 and NS5 and walled off from
+  // each, so the map you are drawing in your head insists it must join up.
+  d3a: { axis: 'z', at:  -4.8, from:  17.6, to:  24.0, w: 3.2, parent: 'EW3', kind: 'decoy' },
+  d3b: { axis: 'x', at:  19.2, from:  -6.4, to:   3.2, w: 3.2, parent: 'd3a', kind: 'decoy' },
+  d3c: { axis: 'z', at:   0.0, from:  19.2, to:  24.0, w: 3.2, parent: 'd3b', kind: 'decoy' },
+
+  // ---- D4, off NS4 carrying on north: the far corner ---------------------
+  // d4a sits at z = 33.6, exactly collinear with EW5 on the route and 1.6 m of
+  // solid wall away from it. The longest backtrack in the maze is from d4c,
+  // and it is 19.2 m -- under the 20 m ceiling the fairness rules set.
+  d4a: { axis: 'x', at:  33.6, from: -22.4, to:  -8.0, w: 3.2, parent: 'NS4', kind: 'decoy' },
+  d4b: { axis: 'z', at: -19.2, from:  33.6, to:  44.8, w: 3.2, parent: 'd4a', kind: 'decoy' },
+  d4c: { axis: 'x', at:  43.2, from: -19.2, to:  -8.0, w: 3.2, parent: 'd4b', kind: 'decoy' },
+  d4d: { axis: 'x', at:  38.4, from: -19.2, to: -14.4, w: 2.4, parent: 'd4b', kind: 'decoy' },
+  d4e: { axis: 'z', at:  -9.6, from:  38.4, to:  43.2, w: 3.2, parent: 'd4c', kind: 'decoy' },
+
+  // ---- D5, off EW4 heading east: the one that parallels the exit ---------
+  d5a: { axis: 'z', at:   4.8, from:  28.8, to:  41.6, w: 3.2, parent: 'EW4', kind: 'decoy' },
+  d5b: { axis: 'x', at:  38.4, from:   3.2, to:  12.8, w: 3.2, parent: 'd5a', kind: 'decoy' },
+  d5c: { axis: 'z', at:  11.2, from:  28.8, to:  38.4, w: 3.2, parent: 'd5b', kind: 'decoy' },
+  d5d: { axis: 'x', at:  33.6, from:   4.8, to:   8.0, w: 2.4, parent: 'd5a', kind: 'decoy' },
+  d5e: { axis: 'x', at:  31.2, from:  11.2, to:  15.2, w: 2.4, parent: 'd5c', kind: 'decoy' },
+
+  // ---- closets: 2.4 m wide, and dead from the mouth ----------------------
+  // These cost nothing to check and are the reason the deep branches are fair:
+  // a player who has learned that narrow means nothing spends their patience on
+  // the wide ones, which is where the maze actually is.
+  sA: { axis: 'x', at:   9.6, from:   0.0, to:   3.2, w: 2.4, parent: 'NS1', kind: 'decoy' },
+  sB: { axis: 'z', at:  -4.8, from:   4.8, to:   7.2, w: 2.4, parent: 'EW1', kind: 'decoy' },
+  sC: { axis: 'z', at:   4.8, from:   1.6, to:   4.8, w: 2.4, parent: 'EW1', kind: 'decoy' },
+  sD: { axis: 'x', at:  10.0, from:  -9.6, to:  -6.4, w: 2.4, parent: 'NS2', kind: 'decoy' },
+  sE: { axis: 'z', at: -19.2, from:  24.0, to:  30.4, w: 3.2, parent: 'EW3', kind: 'decoy' },
+  sF: { axis: 'z', at: -14.4, from:  43.2, to:  46.4, w: 2.4, parent: 'd4c', kind: 'decoy' }
 };
 
 /** [x0, x1, z0, z1] -- the walkable interior, derived from a leg. */
@@ -131,11 +183,13 @@ export const ROUTE = buildRoute();
  *
  * PAINTS each rect into the grid rather than testing every cell against every
  * rect. The old version was O(box area x rects): about 1.0M point-in-rect tests
- * at 14 corridors, run synchronously at module import, so tripling the maze
- * would have taken it past 10M on the boot critical path. Painting is O(total
- * corridor area) -- roughly 100k writes however many rects that area is divided
- * into -- and the boundary sweep after it was already O(cells) with no per-rect
- * factor, so nothing else needed touching.
+ * at 14 corridors, run synchronously at module import, and tripling the maze
+ * took it to 149 ms -- on the boot critical path, for a level that is built
+ * whether or not you can see it. Painting is O(total corridor area), so it costs
+ * the same however many rectangles that area is divided into: measured on the
+ * same data, 15.02 ms -> 0.95 ms at 14 rects and 149.00 ms -> 2.86 ms at 42.
+ * The boundary sweep after it was already O(cells) with no per-rect factor, so
+ * nothing else needed touching.
  *
  * The output is IDENTICAL, not merely similar, and that is provable rather than
  * hoped: cell centres land on odd multiples of G/2 = 0.05 while every rect edge
@@ -250,10 +304,113 @@ export function buildBox(corridors = CORRIDORS) {
 export const BOX = buildBox();
 
 // ---------------------------------------------------------------------------
+// Placement
+// ---------------------------------------------------------------------------
+//
+// Everything the level dresses -- fixtures, cobwebs, puddles, peeling flaps,
+// the door -- used to be hand-typed world coordinates. Forty-five of them, of
+// which thirty-eight failed SILENTLY when a rectangle moved: a decal inside a
+// wall simply is not drawn, and the wall material is DoubleSide so there is not
+// even a backwards-plane tell. Deriving them means moving a corridor moves its
+// dressing, and the maze can be edited without a scavenger hunt afterwards.
+
+/** Where a leg crosses its parent: the centre of the junction they make. */
+export function junctionPoint(name, legs = LEGS) {
+  const L = legs[name];
+  const P = legs[L.parent];
+  if (!P) return null;
+  return L.axis === 'z' ? { x: L.at, z: P.at } : { x: P.at, z: L.at };
+}
+
+/** Every junction in the maze, each tagged with whether it is on the route. */
+export function junctions(legs = LEGS) {
+  const onRoute = new Set(buildRoute(legs));
+  return Object.keys(legs)
+    .filter((n) => legs[n].parent)
+    .map((n) => ({
+      name: n,
+      parent: legs[n].parent,
+      axis: legs[n].axis,
+      onRoute: onRoute.has(n) && onRoute.has(legs[n].parent),
+      ...junctionPoint(n, legs)
+    }));
+}
+
+/**
+ * The end of a leg away from its parent -- where it stops.
+ *
+ * `nx`/`nz` point back down the corridor, so anything placed on that end wall
+ * faces whoever walked up to it. For the root this is its mouth, and for the
+ * exit leg it is where the door goes.
+ */
+export function deadEnd(name, legs = LEGS) {
+  const L = legs[name];
+  const P = legs[L.parent];
+  const origin = P ? P.at : L.from;
+  const atTo = Math.abs(L.to - origin) >= Math.abs(origin - L.from);
+  const far = atTo ? L.to : L.from;
+  const n = atTo ? -1 : 1;
+  return L.axis === 'z'
+    ? { x: L.at, z: far, nx: 0, nz: n, axis: 'z' }
+    : { x: far, z: L.at, nx: n, nz: 0, axis: 'x' };
+}
+
+/**
+ * A point on a leg's side wall, `back` metres in from its dead end.
+ *
+ * Dead ends are the one stretch of a corridor guaranteed to have unbroken side
+ * walls -- nothing branches off past the last junction, by definition -- so a
+ * decal placed here cannot land in a branch mouth. `rotY` is the wall's inward
+ * normal, which is the angle the level's decal helpers take.
+ */
+export function sideWall(name, { back = 1.2, side = 1, legs = LEGS } = {}) {
+  const L = legs[name];
+  const e = deadEnd(name, legs);
+  const h = L.w / 2;
+  return L.axis === 'z'
+    ? { x: L.at + side * h, z: e.z + e.nz * back, rotY: side > 0 ? -Math.PI / 2 : Math.PI / 2 }
+    : { x: e.x + e.nx * back, z: L.at + side * h, rotY: side > 0 ? Math.PI : 0 };
+}
+
+/** Centre of a leg's rectangle. */
+export function legMid(name, legs = LEGS) {
+  const L = legs[name];
+  const m = (L.from + L.to) / 2;
+  return L.axis === 'z' ? { x: L.at, z: m } : { x: m, z: L.at };
+}
+
+/** Where the player arrives, and which way they face. */
+export function spawnPoint(legs = LEGS) {
+  const root = Object.keys(legs).find((n) => legs[n].parent === null);
+  const L = legs[root];
+  return { x: L.at, z: L.from + 1.4 };
+}
+
+/** Where the exit door stands, in the end wall of the leg marked `exit`. */
+export function exitPoint(legs = LEGS) {
+  return deadEnd(Object.keys(legs).find((n) => legs[n].exit), legs);
+}
+
+/**
+ * A stable 0..1 from a corridor's name.
+ *
+ * The level needs to vary its lamps and dressing without looking authored, but
+ * Math.random() at build time would deal a different maze every boot and make
+ * "the fixture by the third turn is dead" untestable. Same name, same number,
+ * forever.
+ */
+export function nameNoise(name, salt = 0) {
+  let h = 2166136261 ^ salt;
+  for (let i = 0; i < name.length; i++) { h ^= name.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return ((h >>> 0) % 10000) / 10000;
+}
+
+// ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
 
-const isTenth = (v) => Math.abs(Math.round(v * 10) - v * 10) < 1e-9;
+const EPS = 1e-9;   // walls land ON the 1.6m minimum by design; exactly is not under
+const isTenth = (v) => Math.abs(Math.round(v * 10) - v * 10) < EPS;
 
 /** Overlap of two rects on each axis. A negative value is a gap of that size. */
 function overlap(a, b) {
@@ -266,7 +423,7 @@ function overlap(a, b) {
 /**
  * Every problem with the maze, collected rather than thrown one at a time.
  *
- * At forty corridors you want the whole list in one pass. The thing this
+ * At forty-two corridors you want the whole list in one pass. The thing this
  * replaces counted junctions and checked `count === n - 1`: it could tell you
  * the total was wrong but never which pair was at fault, and a detached
  * corridor plus an accidental loop cancelled out and passed it in silence.
@@ -334,13 +491,13 @@ export function validateMaze(legs = LEGS) {
       errors.push(`${n} and its parent ${L.parent} both run along ${L.axis} -- a junction needs perpendicular legs`);
       continue;
     }
-    if (P.at < L.from || P.at > L.to) {
+    if (P.at < L.from - EPS || P.at > L.to + EPS) {
       const miss = P.at < L.from ? L.from - P.at : P.at - L.to;
       errors.push(`R1: ${n} never reaches ${L.parent}'s centre-line -- ${L.parent} is at ${P.at}, ${n} spans ${L.from}..${L.to}, short by ${miss.toFixed(2)} m`);
     }
     const lo = P.from + L.w / 2;
     const hi = P.to - L.w / 2;
-    if (L.at < lo || L.at > hi) {
+    if (L.at < lo - EPS || L.at > hi + EPS) {
       const miss = L.at < lo ? lo - L.at : L.at - hi;
       errors.push(`R2: ${n} hangs ${miss.toFixed(2)} m off the end of ${L.parent} -- centre-line ${L.at} is outside ${lo.toFixed(2)}..${hi.toFixed(2)}`);
     }
@@ -363,7 +520,7 @@ export function validateMaze(legs = LEGS) {
         errors.push(`${a} and ${b} overlap (${o.x.toFixed(2)} x ${o.z.toFixed(2)}) without being joined -- that is a loop, so a wrong turn becomes a shortcut`);
       } else {
         const gap = Math.max(-o.x, -o.z);
-        if (gap < MIN_WALL) {
+        if (gap < MIN_WALL - EPS) {
           errors.push(`${a} and ${b} are ${gap.toFixed(2)} m apart, under MIN_WALL ${MIN_WALL} -- lamp light will bleed through the wall between them`);
         }
       }
