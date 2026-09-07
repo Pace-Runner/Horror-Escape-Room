@@ -51,6 +51,8 @@ const minimapCanvas = document.getElementById('minimap');
 const minimapArrowEl = document.getElementById('minimap-arrow');
 const creditsScreen = document.getElementById('credits-screen');
 const creditsList = document.getElementById('credits-list');
+const staminaEl = document.getElementById('stamina');
+const staminaFillEl = document.getElementById('stamina-fill');
 const creditsCloseBtn = document.getElementById('credits-close');
 const fadeOverlay = document.getElementById('fade-overlay');
 
@@ -151,7 +153,20 @@ scene.environmentIntensity = 0.5;
 const worldRoot = new THREE.Group();
 scene.add(worldRoot);
 
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 100);
+/**
+ * The camera's resting field of view, and how far sprinting widens it.
+ *
+ * +8 degrees, and no more, because THE HANDS AND THE TORCH ARE CHILDREN OF THIS
+ * CAMERA -- a wider FOV shrinks them. tan(35)/tan(39) = 0.86, so the torch
+ * reads about 14% smaller at full sprint, which passes as the arm dropping. At
+ * +15 it would be 24% smaller, which reads as the torch physically shrinking,
+ * and the proper fix for that is a separate fixed-FOV view-model pass this game
+ * does not need.
+ */
+const BASE_FOV = 70;
+const SPRINT_FOV_KICK = 8;
+
+const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.05, 100);
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -1558,6 +1573,10 @@ if (import.meta.env.DEV) {
     // by for most of the game.
     setFlashlight,
     equipTorch,
+    // Sprint is on a held key the harness cannot press meaningfully, and the
+    // FOV/stamina are the observable results, so tests reach them here.
+    get fov() { return camera.fov; },
+    BASE_FOV,
     // Flips the same flag the bedroom's flashlight pickup does, so a headless
     // test can put the torch view-model in hand without faking pointer lock
     // and the real pickup interaction.
@@ -1621,7 +1640,57 @@ function tick() {
   handMotion.bobPhase = player.bobPhase;
   handMotion.speed = player.moving;
   handMotion.crouching = player.crouch > 0.5;
-  hands.setLayerWeight('walkbob', player.moving);
+
+  /**
+   * THE SPRINT FOV KICK -- the project's first FOV animation, and the reason
+   * sprinting reads as fast rather than just as a bigger number. Peripheral
+   * geometry pulls into frame and the corridor walls appear to rush past, which
+   * is the strongest "I am moving" cue available in first person.
+   *
+   * It costs one line because postFX's RenderPass holds this camera by
+   * reference and reads it live, so the change flows through the composer with
+   * nothing to notify.
+   *
+   * Driven straight off player.sprint, which is already exponentially smoothed
+   * over SPRINT_BLEND -- easing it a second time here would only add latency.
+   *
+   * Zeroed while `cinematic`, because player.update() returns before touching
+   * sprint during a scripted shot, so the FOV would otherwise sit frozen
+   * wherever the shot started. If a cutscene ever wants to animate FOV itself,
+   * THIS is the line it has to take ownership of.
+   */
+  const wantFov = BASE_FOV + SPRINT_FOV_KICK * (player.cinematic ? 0 : player.sprint);
+  if (Math.abs(wantFov - camera.fov) > 0.02) {
+    camera.fov = wantFov;
+    camera.updateProjectionMatrix();
+  } else if (camera.fov !== wantFov) {
+    // Snap the tail. Without this the projection matrix is left rebuilt at
+    // 70.019 forever and a test can never assert exactly BASE_FOV.
+    camera.fov = wantFov;
+    camera.updateProjectionMatrix();
+  }
+
+  /**
+   * A CROSSFADE, not two layers stacked. The animator SUMS layers, so leaving
+   * walkbob at full weight while runbob comes up would double the bob at full
+   * sprint. `moving` gates both on actually walking; `sprint` splits the gate
+   * between them.
+   */
+  hands.setLayerWeight('walkbob', player.moving * (1 - player.sprint));
+  hands.setLayerWeight('runbob', player.moving * player.sprint);
+
+  /**
+   * The stamina bar, shown only while it matters.
+   *
+   * A permanently-full bar is a permanent reminder of a resource the player is
+   * not spending, so it fades in once it drops and fades out again once it is
+   * back. scaleX rather than width, because this runs every frame and a
+   * transform does not trigger layout.
+   */
+  const stam = player.staminaFraction;
+  staminaFillEl.style.transform = `scaleX(${stam})`;
+  staminaEl.classList.toggle('visible', stam < 0.995);
+  staminaEl.classList.toggle('spent', player.winded);
   // The player's smoothed crouch IS the layer weight, so the hands ease in and
   // out of the tucked pose with the camera's drop rather than snapping.
   hands.setLayerWeight('crouch-shift', player.crouch);

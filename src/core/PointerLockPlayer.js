@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 import { resolveCircle } from './collision.js';
+import { WALK_SPEED, SPRINT_SCALE } from './MoveSpeeds.js';
 
 const FORWARD = new THREE.Vector3();
 const RIGHT = new THREE.Vector3();
@@ -71,6 +72,63 @@ const CROUCH_DROP = 0.55;
 const CROUCH_SPEED_SCALE = 0.45;
 const CROUCH_BLEND = 0.12;
 
+/**
+ * SPRINTING, on Shift, and it is deliberately built as crouch's mirror image:
+ * held rather than toggled, smoothed into a 0..1 rather than read as a boolean,
+ * composed into the same single speed expression, and FROZEN rather than decayed
+ * while movement is disabled. Every one of those is a decision crouch already
+ * made and recorded a reason for; making sprint behave differently would mean
+ * two adjacent movement modifiers with two different sets of rules.
+ *
+ * WHY STAMINA. 3.53 m/s outruns the creature outright -- systems/CreatureAI.js
+ * flees at 2.35 and moves to block a door at 1.95, and its comments reason
+ * explicitly against the walk speed of 2.015. Unlimited sprint would not make
+ * the creature harder to escape, it would make it irrelevant. A burst that runs
+ * out keeps it dangerous while still letting the player cross ground.
+ *
+ * The numbers are tuned so a full bar covers ONE corridor leg of the backrooms
+ * maze (~23 m) and then makes you walk while it comes back. There is no creature
+ * in the maze, so there stamina is purely pacing -- it stops a tripled maze from
+ * being tedious to re-cross without ever threatening anyone. In Levels 2 and 3,
+ * where the creature actually is, the same numbers are a real limit.
+ */
+// Shared with systems/CreatureAI.js, whose speeds are defined by their
+// relation to these. See core/MoveSpeeds.js.
+const SPRINT_SPEED_SCALE = SPRINT_SCALE;
+const SPRINT_BLEND = 0.18;         // slightly slower than crouch: mass, not a switch
+/** Head bob gets taller as well as faster. See #applyEyeHeight. */
+const SPRINT_BOB_SCALE = 1.9;
+/**
+ * THE STRIDE LENGTHENS, and getting this wrong is the difference between
+ * running and scurrying.
+ *
+ * bobPhase advances with DISTANCE walked, not time, so sprinting already raises
+ * the step rate for free -- but by the FULL speed ratio, which is wrong. A
+ * runner does not take walking-length steps faster; they take longer ones.
+ *
+ *   walk, stride 1.55:            2 * 2.015 / 1.55  = 2.60 steps/s  (156/min)
+ *   sprint, stride unchanged:     2 * 3.53  / 1.55  = 4.55 steps/s  (273/min)
+ *   sprint, stride x1.4:          2 * 3.53  / 2.17  = 3.25 steps/s  (195/min)
+ *
+ * 273 steps a minute is a comedy scurry. Real runners sit near 180. Because
+ * bobPhase is the single clock shared by the camera bob AND the hands' walkbob
+ * and runbob layers, fixing it here fixes all three at once -- and the file's
+ * whole reason for driving phase from distance rather than time still holds.
+ */
+const SPRINT_STRIDE_SCALE = 1.4;
+
+const STAMINA_MAX = 6.5;           // seconds of sprint from full
+const STAMINA_DRAIN = 1.0;         // per second while actually sprinting
+const STAMINA_REGEN = 0.55;        // per second once recovery starts
+const STAMINA_REGEN_DELAY = 0.9;   // seconds after sprinting before it recovers
+/**
+ * Once the bar empties you must get this far back before Shift does anything
+ * again. Without it, sprint re-engages on the first regenerated frame and the
+ * player gets a stuttering half-second of speed over and over, which reads as
+ * a bug rather than as exhaustion.
+ */
+const STAMINA_RECOVER = 1.2;
+
 // A thin wrapper around PointerLockControls that adds WASD movement with
 // simple axis-aligned box collision, so the player can walk through each
 // room without clipping through the walls and furniture that define it.
@@ -85,10 +143,9 @@ export class PointerLockPlayer {
     // leaving it connected is what keeps its lock/unlock events working.
     this.controls.pointerSpeed = 0;
     this.eyeHeight = eyeHeight;
-    // 3.1 originally. 0.65 of that: the rooms are small and the original pace
-    // crossed them fast enough to undercut the tension.
-    this.speed = 2.015;
-    this.keys = { forward: false, back: false, left: false, right: false, crouch: false };
+    // See core/MoveSpeeds.js for why this lives there and what depends on it.
+    this.speed = WALK_SPEED;
+    this.keys = { forward: false, back: false, left: false, right: false, crouch: false, sprint: false };
     this.colliders = [];
     this.bodyRadius = 0.35;
     // Gate for scripted beats (e.g. still chained to the bed at the start
@@ -108,6 +165,17 @@ export class PointerLockPlayer {
     this.moving = 0;
     /** Smoothed 0..1 crouch, so the drop eases rather than snapping. */
     this.crouch = 0;
+    /**
+     * Smoothed 0..1 sprint. Read by main.js for the FOV kick and the hands'
+     * runbob layer, so it has to be a continuous blend and not the raw key --
+     * `moving` next to it saturates at 1 and cannot tell a walk from a run.
+     */
+    this.sprint = 0;
+    /** Seconds of sprint left. */
+    this.stamina = STAMINA_MAX;
+    /** True once the bar has emptied, until STAMINA_RECOVER is back. */
+    this.winded = false;
+    this._staminaIdle = 0;
     this.lookDeltaX = 0;
     this.lookDeltaY = 0;
     this._t = 0;
@@ -138,6 +206,18 @@ export class PointerLockPlayer {
 
     window.addEventListener('keydown', (e) => this.#onKey(e, true));
     window.addEventListener('keyup', (e) => this.#onKey(e, false));
+    /**
+     * A keyup that never arrives leaves the key held forever.
+     *
+     * Alt-Tab, a lost focus, or the OS swallowing a modifier all end the press
+     * without telling the page, and the project had no handler for any of it --
+     * so the player came back to a game that was still walking. Sprint made it
+     * worse, because Shift is the key window managers are most likely to eat.
+     */
+    window.addEventListener('blur', () => this.clearKeys());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.clearKeys();
+    });
     // Accumulate only; the camera is written once a frame in update().
     domElement.ownerDocument.addEventListener('pointermove', (e) => {
       if (!this.isLocked || !this.lookEnabled) return;
@@ -155,6 +235,7 @@ export class PointerLockPlayer {
       // Ctrl rather than the more usual C, which this game already spends on
       // the credits screen (see index.html).
       case 'ControlLeft': case 'ControlRight': this.keys.crouch = isDown; break;
+      case 'ShiftLeft': case 'ShiftRight': this.keys.sprint = isDown; break;
     }
   }
 
@@ -193,19 +274,40 @@ export class PointerLockPlayer {
    */
   lock() {
     const el = this.controls.domElement;
+    /**
+     * The fallback, and it has to be guarded too.
+     *
+     * Both fallback paths below used to call requestPointerLock() bare. When
+     * the browser refuses the lock by THROWING rather than by rejecting -- a
+     * headless context throws WrongDocumentError, and a detached or
+     * non-active document does the same -- the exception escaped as an
+     * uncaught error from the try/catch's own handler, or as an unhandled
+     * rejection from inside the .catch(). Failing to get the pointer is a
+     * situation this game already survives (the pause menu simply stays up);
+     * failing to get it LOUDLY is not an improvement on that.
+     */
+    const plainLock = () => {
+      try {
+        const r = el.requestPointerLock();
+        if (r && typeof r.catch === 'function') r.catch(() => {});
+      } catch {
+        // Nothing to do: there is no third way to ask.
+      }
+    };
+
     let req;
     try {
       req = el.requestPointerLock({ unadjustedMovement: true });
     } catch {
       // Older signature: throws rather than returning a rejected promise.
-      el.requestPointerLock();
+      plainLock();
       return;
     }
     // Chromium returns a promise and rejects with NotSupportedError where raw
     // input is unavailable (some Linux/X11 setups); Firefox/Safari return
     // undefined and ignore the option. Fall back to a plain lock either way.
     if (req && typeof req.catch === 'function') {
-      req.catch(() => el.requestPointerLock());
+      req.catch(plainLock);
     }
   }
 
@@ -234,12 +336,56 @@ export class PointerLockPlayer {
     this._pendingPitch = 0;
     this.lookDeltaX = 0;
     this.lookDeltaY = 0;
+    // No half-applied sprint survives a jump. This method already exists to
+    // guarantee exactly that for the look state; a level change or a cutscene
+    // hand-back that left the FOV kicked wide would be the same class of bug.
+    this.sprint = 0;
+    this.keys.sprint = false;
     this.#applyLook();
   }
 
   /** Kept for callers that only want to move without re-aiming. */
   teleport(x, z) {
     this.object.position.set(x, this.eyeHeight, z);
+  }
+
+  /**
+   * Stamina, in seconds of remaining sprint.
+   *
+   * Kept in one place and called from BOTH branches of update() so it cannot
+   * drift: the movement-disabled branch rests, the normal branch spends or
+   * rests depending on whether the player is actually sprinting this frame.
+   *
+   * The delay before recovery starts is what stops a player from tapping Shift
+   * to stay at full speed on a nearly-permanent bar.
+   */
+  #updateStamina(dt, sprinting) {
+    if (sprinting) {
+      this._staminaIdle = 0;
+      this.stamina = Math.max(0, this.stamina - STAMINA_DRAIN * dt);
+      if (this.stamina === 0) this.winded = true;
+      return;
+    }
+    this._staminaIdle += dt;
+    if (this._staminaIdle < STAMINA_REGEN_DELAY) return;
+    this.stamina = Math.min(STAMINA_MAX, this.stamina + STAMINA_REGEN * dt);
+    if (this.winded && this.stamina >= STAMINA_RECOVER) this.winded = false;
+  }
+
+  /** 0..1, for the HUD bar. */
+  get staminaFraction() {
+    return this.stamina / STAMINA_MAX;
+  }
+
+  /**
+   * Every held key released at once.
+   *
+   * Alt-Tabbing away never delivers the keyup, so without this the player
+   * returns to a game that is still walking or still sprinting. Shift is the
+   * worst offender because the OS and the browser both like to eat it.
+   */
+  clearKeys() {
+    for (const k of Object.keys(this.keys)) this.keys[k] = false;
   }
 
   #applyLook() {
@@ -318,11 +464,46 @@ export class PointerLockPlayer {
       // Two 55cm camera moves per doorway. The scripted beat that clears
       // movementEnabled (chained to the bed) starts standing anyway, so there is
       // nothing here to get stuck in.
+      //
+      /**
+       * SPRINT DECAYS HERE, unlike the crouch above, and the difference is
+       * principled rather than arbitrary: a POSTURE freezes, MOTION decays.
+       *
+       * Crouch is frozen because easing it back moves the camera 0.55 m in
+       * plain sight during a transition's 700 ms pre-fade. Sprint's visible
+       * output is the FOV kick, an order of magnitude less obtrusive -- and
+       * freezing it would be actively worse: the FOV would sit kicked wide
+       * through 1.7 s of black and then narrow back DURING PLAY on the far
+       * side, from a key pressed in the previous level. `moving` on the line
+       * above decays for exactly the same reason. Both are "how fast am I
+       * going"; crouch is "what shape am I in".
+       */
+      this.sprint += (0 - this.sprint) * Math.min(1, dt / SPRINT_BLEND);
+      // Stamina DOES recover here: standing frozen through a transition or a
+      // scripted beat is rest, and coming out of one already winded would
+      // punish the player for a cutscene they did not ask for.
+      this.#updateStamina(dt, false);
       this.#applyEyeHeight();
       return;
     }
 
     this.crouch += ((this.keys.crouch ? 1 : 0) - this.crouch) * Math.min(1, dt / CROUCH_BLEND);
+
+    /**
+     * CROUCH BEATS SPRINT. Not an arbitrary tie-break: crouch's entire
+     * justification is that it is slow and that being slow is its cost. A
+     * player who could hold both and keep most of the speed would have no
+     * reason ever to stand up, which is the exact failure the crouch comment
+     * above warns about.
+     *
+     * Gated on `wantsToMove` as well, so simply holding Shift while standing
+     * still does not drain the bar -- you cannot sprint on the spot.
+     */
+    const wantsToMove = this.keys.forward || this.keys.back || this.keys.left || this.keys.right;
+    const canSprint = this.keys.sprint && wantsToMove && !this.winded
+      && this.stamina > 0 && this.crouch < 0.5;
+    this.sprint += ((canSprint ? 1 : 0) - this.sprint) * Math.min(1, dt / SPRINT_BLEND);
+    this.#updateStamina(dt, canSprint);
 
     this.camera.getWorldDirection(FORWARD);
     FORWARD.y = 0;
@@ -339,7 +520,12 @@ export class PointerLockPlayer {
     if (MOVE.lengthSq() > 0) {
       // Interpolated on the smoothed crouch, so speed eases with the drop
       // instead of stepping the instant the key goes down.
-      const speed = this.speed * (1 - this.crouch * (1 - CROUCH_SPEED_SCALE));
+      // Both modifiers compose into the ONE speed expression this class has
+      // always had, on the smoothed values rather than the keys, so speed eases
+      // with the animation instead of stepping the instant a key goes down.
+      const speed = this.speed
+        * (1 - this.crouch * (1 - CROUCH_SPEED_SCALE))
+        * (1 + this.sprint * (SPRINT_SPEED_SCALE - 1));
       MOVE.normalize().multiplyScalar(speed * dt);
       const next = this.object.position.clone().add(MOVE);
       this.#resolveCollision(next);
@@ -350,7 +536,10 @@ export class PointerLockPlayer {
       this.object.position.z = next.z;
     }
 
-    this.bobPhase = (this.bobPhase + (walked / STRIDE) * Math.PI * 2) % (Math.PI * 2);
+    // Stride grows with the sprint blend, so the step RATE rises by less than
+    // the speed does. See SPRINT_STRIDE_SCALE.
+    const stride = STRIDE * (1 + this.sprint * (SPRINT_STRIDE_SCALE - 1));
+    this.bobPhase = (this.bobPhase + (walked / stride) * Math.PI * 2) % (Math.PI * 2);
     const want = walked > 1e-6 ? 1 : 0;
     this.moving += (want - this.moving) * Math.min(1, dt / BOB_BLEND);
 
@@ -369,7 +558,12 @@ export class PointerLockPlayer {
    * view staying level while what you are holding swings is what sells weight.
    */
   #applyEyeHeight() {
-    const bob = this.moving * BOB_AMPLITUDE * Math.sin(this.bobPhase * 2);
+    // Sprint raises the bob's HEIGHT here; its RATE comes for free, because
+    // bobPhase advances with distance walked rather than with time, so covering
+    // more ground per second already steps more often per second. Amplitude is
+    // the half a running gait has that walking does not.
+    const amp = BOB_AMPLITUDE * (1 + this.sprint * (SPRINT_BOB_SCALE - 1));
+    const bob = this.moving * amp * Math.sin(this.bobPhase * 2);
     const idle = IDLE_AMPLITUDE * Math.sin(this._t * IDLE_RATE);
     this.object.position.y = this.eyeHeight - this.crouch * CROUCH_DROP + bob + idle;
   }

@@ -33,6 +33,12 @@
          rather than by building/tearing down markup. No image assets (see
          the credits screen's own claim to that): every icon below is a
          hand-authored inline SVG. -->
+    <!-- Sprint stamina. Sits just above the hotbar and shares its centring, so
+         the two read as one block rather than two unrelated overlays. Hidden by
+         a class rather than removed, so there is no layout shift when it
+         appears -- same approach as the hotbar's own .filled slots. -->
+    <div id="stamina"><div id="stamina-fill"></div></div>
+
     <div id="hotbar">
       <div class="hotbar-slot" data-item="flashlight" title="Flashlight">
         <svg class="hotbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -85,7 +91,7 @@
     <button id="start-button">Click to begin</button>
     <button id="restart-button" class="hidden">Restart</button>
     <div id="start-controls">
-      WASD move &middot; CTRL crouch &middot; mouse look &middot; E interact &middot; F flashlight &middot; V visor &middot; 1/2/3/4 preview rooms &middot; G skip to exit &middot; R restart &middot; C credits
+      WASD move &middot; SHIFT sprint &middot; CTRL crouch &middot; mouse look &middot; E interact &middot; F flashlight &middot; V visor &middot; 1/2/3/4 preview rooms &middot; G skip to exit &middot; R restart &middot; C credits
     </div>
   </div>
 

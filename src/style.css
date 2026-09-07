@@ -266,6 +266,44 @@ html, body {
 }
 
 /* ---------- hotbar ---------- */
+/* ---------- sprint stamina ---------- */
+/* Only visible while it matters. A permanently-full bar is a permanent reminder
+   of a resource the player is not spending, which is noise -- so it fades in
+   when it drops and fades out again once it is back. */
+#stamina {
+  position: absolute;
+  bottom: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 140px;
+  height: 4px;
+  background: rgba(10, 9, 8, 0.72);
+  border: 1px solid #3a332b;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  pointer-events: none;
+}
+
+#stamina.visible {
+  opacity: 1;
+}
+
+#stamina-fill {
+  height: 100%;
+  width: 100%;
+  background: #c9c2b4;
+  transform-origin: left center;
+  /* Scaled rather than width-animated: a transform does not trigger layout,
+     and this updates every frame. */
+  transform: scaleX(1);
+}
+
+/* Empty, and locked out until it recovers. Reads as "you cannot use this yet"
+   rather than just "this is low". */
+#stamina.spent #stamina-fill {
+  background: #8c4a3a;
+}
+
 #hotbar {
   position: absolute;
   bottom: 24px;

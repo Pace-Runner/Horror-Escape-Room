@@ -60,6 +60,7 @@ import * as THREE from "three";
 import { breathe } from "./layers/breathe.js";
 import { sway } from "./layers/sway.js";
 import { walkbob } from "./layers/walkbob.js";
+import { runbob } from "./layers/runbob.js";
 import { tremor } from "./layers/tremor.js";
 import { crouchShift } from "./layers/crouch-shift.js";
 
@@ -127,6 +128,7 @@ const LAYER_IMPLS = {
   [LAYERS.BREATHE]: breathe,
   [LAYERS.SWAY]: sway,
   [LAYERS.WALKBOB]: walkbob,
+  [LAYERS.RUNBOB]: runbob,
   [LAYERS.TREMOR]: tremor,
   [LAYERS.CROUCH_SHIFT]: crouchShift,
 };

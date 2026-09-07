@@ -1,4 +1,5 @@
 import { resolveCircle, segmentBlocked } from '../core/collision.js';
+import { WALK_SPEED, SPRINT_SPEED } from '../core/MoveSpeeds.js';
 
 /**
  * What the thing in the house is actually doing.
@@ -42,13 +43,44 @@ const CONTACT_RANGE = 0.85;
 const PLAYER_FOV = 0.62;
 
 const SPEED = {
-  /** Slower than the player's 2.015: it should never simply outrun you. */
+  /**
+   * Slower than the player's walk, let alone the sprint: it can never simply
+   * outrun you, and you can always break contact.
+   */
   patrol: 0.85,
-  /** Faster, briefly. Fleeing is the only time it moves quickly. */
-  flee: 2.35,
-  /** Moving to block a door. Urgent but not a charge. */
-  block: 1.95
+  /**
+   * Faster than the player's SPRINT, briefly. Fleeing is the only time it moves
+   * quickly, and it has to be genuinely quicker than the fastest the player can
+   * go -- not merely quicker than a walk, which is all 2.35 was.
+   *
+   * THIS IS ALSO AN EXPLOIT FIX. The catch below fires on DISTANCE regardless
+   * of who closed it, so if a sprinting player could run down a fleeing
+   * creature they could trigger their own capture on demand by body-checking
+   * her. Keeping flee above sprint speed removes that with no change to the
+   * catch logic.
+   */
+  flee: 4.0,
+  /**
+   * Moving to block a door. Urgent but not a charge -- this is the value flee
+   * used to hold, so it is a speed already judged right for this creature.
+   *
+   * Raised from 1.95 because the player can now cover the approach at 3.53. The
+   * other half of that fix is GUARD_COMMIT_RANGE below: giving her more WARNING
+   * is better than giving her more speed, because speed is what would turn her
+   * into a charge.
+   */
+  block: 2.35
 };
+
+/**
+ * How close the player must be to a way out before she commits to blocking it.
+ *
+ * Raised from a hardcoded 8 m. At block speed she covers `block * t` while a
+ * sprinting player covers `SPRINT_SPEED * t`, so she only wins the race if she
+ * starts within `D * block / SPRINT_SPEED` of the door. At D=8 and block=2.35
+ * that was 5.3 m; at D=12 it is 8.0 m.
+ */
+const GUARD_COMMIT_RANGE = 12;
 
 /** Seconds it holds still and watches before moving on. */
 const WATCH_TIME = 2.6;
@@ -82,6 +114,26 @@ const BREATH_NEAR = 3.0;
 const BREATH_FAR = 12.0;
 const BREATH_MIN = 0.10;
 const BREATH_MAX = 0.85;
+
+/**
+ * Fails loudly if the speed relation this whole file rests on has been broken.
+ *
+ * Every one of these was a comment until sprint landed, and a comment cannot
+ * fail. Cheap, runs once at import, and it is the ONLY thing that will tell you
+ * the relation is wrong -- `start()` is not yet called from anywhere in the
+ * game, so none of this is observable by playing it. Same idiom as
+ * assertCorridorTree() in backroomsLevel.js: warn at boot, do not throw, so a
+ * bad number costs a console line rather than the whole app.
+ */
+if (SPEED.patrol >= WALK_SPEED) {
+  console.error(`[creature] patrol ${SPEED.patrol} >= walk ${WALK_SPEED}: it can outrun a walking player.`);
+}
+if (SPEED.flee <= SPRINT_SPEED) {
+  console.error(`[creature] flee ${SPEED.flee} <= sprint ${SPRINT_SPEED.toFixed(3)}: a sprinting player can run her down, and closing the distance yourself fires onCaught().`);
+}
+if (SPEED.block >= SPEED.flee) {
+  console.error(`[creature] block ${SPEED.block} >= flee ${SPEED.flee}: blocking would read as a charge.`);
+}
 
 function dist2(ax, az, bx, bz) {
   const dx = ax - bx;
@@ -148,9 +200,9 @@ export function createCreatureAI({
       const d = dist2(player.x, player.z, gx, gz);
       if (d < bestD) { bestD = d; best = [gx, gz]; }
     }
-    // Only worth blocking if the player is actually closing on it. 8 m is far
-    // enough to get there first at block speed without teleporting.
-    return bestD < 8 * 8 ? best : null;
+    // Only worth blocking if the player is actually closing on it. See
+    // GUARD_COMMIT_RANGE for why the radius is what it is.
+    return bestD < GUARD_COMMIT_RANGE * GUARD_COMMIT_RANGE ? best : null;
   }
 
   /**
