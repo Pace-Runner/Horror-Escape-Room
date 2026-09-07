@@ -17,6 +17,9 @@ import {
 import { loadModel, applyTextureByMaterialName } from '../world/modelLoader.js';
 import { MINIMAP_ONLY, MAIN_ONLY } from '../core/RenderLayers.js';
 import doorModelUrl from '../assets/models/door.glb?url';
+import {
+  CORRIDOR_W, T, CORRIDORS, ROUTE, BOX, buildWallRuns, runCollider, validateMaze
+} from './backroomsMaze.js';
 
 /**
  * The interstitial -- the corridor between levels.
@@ -58,171 +61,48 @@ import doorModelUrl from '../assets/models/door.glb?url';
  * every collider; that is not a mistake worth repeating.
  */
 
-const CORRIDOR_W = 3.2;  // 2.2m of walkable width after the player's 0.35 body radius
 const HALL_H = 2.35;     // 3.2:2.35 is WIDER than tall. The bedroom is 2.29:1 and the
                          // Level 2 hallway is 0.89:1 (taller than wide, the house-corridor
                          // proportion). Squat is the strongest proportional tell of a
                          // commercial drop-ceiling corridor.
 
-const T = 0.30;          // collider slab thickness, straddling the wall plane
 
 /**
- * THE MAZE, as corridor rectangles. `[x0, x1, z0, z1]` is the walkable interior.
+ * THE MAZE lives in backroomsMaze.js, which imports nothing from three.
  *
- * This is the only thing that describes the layout: the walls, their colliders
- * and the tide-line are all DERIVED from it by buildWallRuns() below. The level
- * used to hand-author 52 wall runs and cut each branch mouth as a manually
- * computed gap in one of them, which is what produced three decals floating in
- * mid-air last pass and two more the moment the walls moved. With a real maze --
- * openings on both sides of the route -- that does not scale.
+ * It is data plus pure functions -- corridors, the route, the wall runs and the
+ * room box -- so `npm run check:maze` can validate the layout in plain node
+ * without a browser. That split is what makes a hand-authored maze this size
+ * safe to edit: a wrong rectangle fails a command instead of a playthrough.
  *
- * TWO RULES:
- *
- *  1. Corridors must genuinely OVERLAP at a junction, by more than the player's
- *     diameter on both axes. Merely touching is a zero-width seam the player
- *     cannot walk through.
- *
- *  2. The corridor graph must be a TREE -- exactly one junction fewer than there
- *     are corridors. That is what makes every wrong turn a guaranteed dead end
- *     rather than a shortcut, and assertCorridorTree() below checks it at boot.
- *     "No loops" stops being something to remember and becomes something the
- *     data cannot express.
- *
- * The route runs NS1 -> EW1 -> NS2 -> EW2 -> NS3 -> EW3 -> NS4 -> EW4, and its
- * legs alternate axis, so it turns SEVEN times. Measured at 53.5m, about 27
- * seconds if you walk it without taking a wrong turn.
+ * Everything below is about how the corridors LOOK. Where they ARE is over
+ * there.
  */
-const CORRIDORS = {
-  // The route: eight legs, alternating north / east / west, so SEVEN turns.
-  // Every turn is a T where carrying straight on is the mistake, and the part of
-  // each leg past its turn IS that mistake -- the decoys are not separate
-  // geometry, they are the corridor you were already in, continuing without you.
-  NS1: [-1.6, 1.6, 0.0, 6.4],       // leg 1  north, from the sealed entry
-  EW1: [-12.0, 7.0, 3.2, 6.4],      // leg 2  WEST      turn 1  (east is the long decoy)
-  NS2: [-12.0, -8.8, 3.2, 13.6],    // leg 3  NORTH     turn 2
-  EW2: [-15.0, 1.0, 8.8, 12.0],     // leg 4  EAST      turn 3  (decoys BOTH ways)
-  NS3: [-5.2, -2.0, 8.8, 19.0],     // leg 5  NORTH     turn 4
-  EW3: [-14.0, 1.0, 14.4, 17.6],    // leg 6  WEST      turn 5  (east is a decoy)
-  NS4: [-14.0, -10.8, 14.4, 25.0],  // leg 7  NORTH     turn 6
-  EW4: [-14.0, 2.0, 19.8, 23.0],    // leg 8  EAST      turn 7 -> the door
-
-  // Forks. These hang off DECOYS rather than off the route, so a wrong turn can
-  // present a choice of its own; fA2 is two wrong turns deep. They are what
-  // stops the maze reading as one spine with stubs bolted to it.
-  fA: [3.0, 6.2, 5.4, 10.5],        // off the east decoy of EW1
-  fA2: [5.2, 9.0, 7.6, 10.0],       // off fA
-  fB: [-1.0, 2.0, 14.4, 18.5],      // off the east decoy of EW3
-  fC: [-17.0, -12.5, 23.5, 26.0],   // off the north decoy of NS4
-
-  sA: [0.6, 4.4, 0.5, 2.6],         // plain stubs, visibly dead from the mouth
-  sD: [-8.5, -5.6, 18.0, 21.0]
-};
-
-
-/** The corridors the correct route passes through, in order. */
-const ROUTE = ['NS1', 'EW1', 'NS2', 'EW2', 'NS3', 'EW3', 'NS4', 'EW4'];
 
 // Bounding box for the floor and ceiling quads. Beyond them there is no floor at
 // all, and since nothing sets scene.background FogExp2 does not fog the void --
 // an overrun reads as a hard-edged black pit rather than a fade.
 //
-// BOTH MINIMUMS move in whole multiples of 0.6m, and that is not optional: the
-// ceiling texture is a 4x4 grid of 0.6m tiles whose UV origin is anchored at
-// (BOX_MIN_X, BOX_MIN_Z), so any other shift slides the entire T-bar grid.
-// (The old comment claimed only BOX_MIN_X carried this constraint. It does not.)
-// The maximums only change the repeat count and both textures wrap, so growing
-// north or east is free.
-const BOX_MIN_X = -18.7;   // moved in 0.6 steps: -11.5 -> -15.1 -> -18.7
-const BOX_MAX_X = 10.5;
-const BOX_MIN_Z = -1.4;    // was -0.2, moved by 1.2 = 2 x 0.6
-const BOX_MAX_Z = 27.5;
+// DERIVED now, from the corridors themselves. It used to be four hand-maintained
+// numbers that nothing cross-checked, which is only survivable while the maze is
+// small enough to eyeball. buildBox() steps both minimums down from an anchor in
+// whole 0.6m multiples, because the ceiling texture is a 4x4 grid of 0.6m tiles
+// with its UV origin at (BOX_MIN_X, BOX_MIN_Z) -- so the constraint is CONGRUENCE
+// to the anchor, not divisibility by 0.6. (-18.7 is not a multiple of 0.6.)
+// Rounding to a multiple would slide the entire T-bar grid by up to half a tile
+// and look like nothing at all in a diff. validateMaze() asserts both.
+const { minX: BOX_MIN_X, maxX: BOX_MAX_X, minZ: BOX_MIN_Z, maxZ: BOX_MAX_Z } = BOX;
 
-/**
- * Every wall in the level, derived as the boundary of the corridor union.
- *
- * Sweeps a 10cm grid, marks a wall wherever an inside cell meets an outside one,
- * merges collinear cells into runs, then pads each run by T/2 at both ends so
- * corners always overlap. That padding is load-bearing: the collision resolver
- * tests each AABB independently, so overlap costs nothing and a 1cm seam is a
- * hole -- and a hole here does not show black void, it shows the lit carpeted
- * room next door, which the player can walk into and then straight off the edge
- * of the world.
- */
-function buildWallRuns() {
-  const G = 0.10;
-  const rects = Object.values(CORRIDORS);
-  const minX = Math.min(...rects.map((r) => r[0])) - 1;
-  const maxX = Math.max(...rects.map((r) => r[1])) + 1;
-  const minZ = Math.min(...rects.map((r) => r[2])) - 1;
-  const maxZ = Math.max(...rects.map((r) => r[3])) + 1;
-  const nx = Math.round((maxX - minX) / G);
-  const nz = Math.round((maxZ - minZ) / G);
-
-  const inside = new Uint8Array(nx * nz);
-  for (let i = 0; i < nx; i++) {
-    for (let j = 0; j < nz; j++) {
-      const x = minX + (i + 0.5) * G;
-      const z = minZ + (j + 0.5) * G;
-      if (rects.some(([a, b, c, d]) => x > a && x < b && z > c && z < d)) inside[j * nx + i] = 1;
-    }
-  }
-
-  const snap = (v) => Math.round(v * 100) / 100;
-  const runs = [];
-  // walls standing at constant x, on the boundary between columns i-1 and i
-  for (let i = 1; i < nx; i++) {
-    let start = null;
-    for (let j = 0; j <= nz; j++) {
-      const edge = j < nz && (inside[j * nx + i - 1] ^ inside[j * nx + i]);
-      if (edge && start === null) start = j;
-      else if (!edge && start !== null) {
-        runs.push({ axis: 'x', at: snap(minX + i * G), from: snap(minZ + start * G - T / 2), to: snap(minZ + j * G + T / 2) });
-        start = null;
-      }
-    }
-  }
-  // walls standing at constant z, on the boundary between rows j-1 and j
-  for (let j = 1; j < nz; j++) {
-    let start = null;
-    for (let i = 0; i <= nx; i++) {
-      const edge = i < nx && (inside[(j - 1) * nx + i] ^ inside[j * nx + i]);
-      if (edge && start === null) start = i;
-      else if (!edge && start !== null) {
-        runs.push({ axis: 'z', at: snap(minZ + j * G), from: snap(minX + start * G - T / 2), to: snap(minX + i * G + T / 2) });
-        start = null;
-      }
-    }
-  }
-  return runs;
+// The layout check runs at boot in dev as a backstop, but the real gate is
+// `npm run check:maze`, which reports every fault at once and by name. What it
+// replaced counted junctions and checked `count === n - 1`: that cannot say
+// WHICH pair is at fault, and a detached corridor plus an accidental loop cancel
+// out and pass it in silence.
+if (import.meta.env.DEV) {
+  const { errors, warnings } = validateMaze();
+  for (const w of warnings) console.warn('backrooms maze: ' + w);
+  for (const e of errors) console.error('backrooms maze: ' + e);
 }
-
-/**
- * Fails loudly if the corridors form anything but a tree.
- *
- * A tree has exactly one junction fewer than it has corridors. One extra
- * junction means two corridors meet in a second place, i.e. some "dead end"
- * quietly loops back to the route and the maze has a shortcut. Cheap to check,
- * and impossible to spot by eye once there are more than a handful of rectangles.
- */
-function assertCorridorTree() {
-  const names = Object.keys(CORRIDORS);
-  const R = 0.35;
-  let junctions = 0;
-  for (let i = 0; i < names.length; i++) {
-    for (let j = i + 1; j < names.length; j++) {
-      const a = CORRIDORS[names[i]];
-      const b = CORRIDORS[names[j]];
-      const w = Math.min(a[1], b[1]) - Math.max(a[0], b[0]);
-      const h = Math.min(a[3], b[3]) - Math.max(a[2], b[2]);
-      if (w > 2 * R && h > 2 * R) junctions++;
-    }
-  }
-  if (junctions !== names.length - 1) {
-    console.error('backrooms: ' + names.length + ' corridors but ' + junctions + ' junctions -- '
-      + 'the layout is not a tree, so at least one wrong turn loops back to the route.');
-  }
-}
-assertCorridorTree();
 
 const WALL_RUNS = buildWallRuns();
 
@@ -348,11 +228,11 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
       wall.rotation.y = Math.PI / 2;
       tide.position.set(at, 0.05, mid);
       tide.rotation.y = Math.PI / 2;
-      colliders.push({ minX: at - T / 2, maxX: at + T / 2, minZ: from, maxZ: to });
+      colliders.push(runCollider({ axis, at, from, to }));
     } else {
       wall.position.set(mid, HALL_H / 2, at);
       tide.position.set(mid, 0.05, at);
-      colliders.push({ minX: from, maxX: to, minZ: at - T / 2, maxZ: at + T / 2 });
+      colliders.push(runCollider({ axis, at, from, to }));
     }
     wall.receiveShadow = true;
     group.add(wall);
