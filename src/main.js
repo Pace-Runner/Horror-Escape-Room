@@ -538,6 +538,13 @@ function dropItem(id) {
 }
 function refreshInventoryUI() {
   inventoryListEl.innerHTML = '';
+  if (gameState.inventory.size === 0) {
+    const li = document.createElement('li');
+    li.className = 'inventory-empty';
+    li.textContent = 'Nothing yet';
+    inventoryListEl.appendChild(li);
+    return;
+  }
   for (const id of gameState.inventory) {
     const info = ITEMS[id];
     if (!info) continue;
@@ -545,7 +552,6 @@ function refreshInventoryUI() {
     li.textContent = info.hint ? `${info.label} (${info.hint})` : info.label;
     inventoryListEl.appendChild(li);
   }
-  inventoryListEl.parentElement.classList.toggle('empty', gameState.inventory.size === 0);
 }
 
 // ---------- audio ----------
