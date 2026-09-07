@@ -265,41 +265,54 @@ html, body {
   pointer-events: none;
 }
 
-/* ---------- inventory ---------- */
-#inventory-panel {
+/* ---------- hotbar ---------- */
+#hotbar {
   position: absolute;
   bottom: 24px;
-  left: 24px;
-  min-width: 140px;
-  padding: 10px 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+}
+
+.hotbar-slot {
+  width: 52px;
+  height: 52px;
   /* Solid enough to hold its own against a pitch-black room -- the game runs
-     at 3.5-10% average brightness (see main.js's renderer note), and the
-     0.35 this started at all but disappeared against that. */
+     at 3.5-10% average brightness (see main.js's renderer note). */
   background: rgba(4, 3, 2, 0.82);
   border: 1px solid #3a332b;
-  border-left: 2px solid #7a1f16;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
-#inventory-title {
-  font-size: 0.65rem;
-  letter-spacing: 0.14rem;
-  text-transform: uppercase;
-  color: #9a9184;
-  margin-bottom: 4px;
-}
-
-#inventory-list {
-  list-style: none;
-  font-size: 0.78rem;
-  letter-spacing: 0.02rem;
+.hotbar-icon {
+  width: 28px;
+  height: 28px;
   color: #efe9db;
-  line-height: 1.5;
+  /* Invisible, not dimmed: an outline of an item the player has not found
+     yet is a spoiler. The slot itself staying put is the only promise --
+     what's IN it is earned. */
+  opacity: 0;
+  transition: opacity 0.2s ease;
 }
 
-#inventory-list .inventory-empty {
-  color: #6b6459;
-  font-style: italic;
+.hotbar-slot.filled {
+  border-color: #a8863a;
+  box-shadow: 0 0 8px rgba(168, 134, 58, 0.25);
 }
+
+.hotbar-slot.filled .hotbar-icon {
+  opacity: 1;
+}
+
+/* The two keys share one icon shape; colour is what tells them apart, same
+   as the brass/steel tint their actual 3D models use in studyLevel.js. */
+.hotbar-slot.key-brass.filled .hotbar-icon { color: #d8b34a; }
+.hotbar-slot.key-steel.filled .hotbar-icon { color: #b9c2cc; }
 
 /* ---------- captions (examine text) ---------- */
 #caption-box {

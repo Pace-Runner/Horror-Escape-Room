@@ -13,7 +13,7 @@ import { createHallwayBasementLevel } from './levels/hallwayBasementLevel.js';
 import { createStudyLevel } from './levels/studyLevel.js';
 import { createBackroomsLevel } from './levels/backroomsLevel.js';
 import { createScreenFade, wait } from './core/ScreenFade.js';
-import { gameState, resetState, addItem, removeItem, ITEMS } from './core/GameState.js';
+import { gameState, resetState, addItem, removeItem } from './core/GameState.js';
 import { MINIMAP_ONLY, MAIN_ONLY } from './core/RenderLayers.js';
 import { CaptionSequencer } from './core/CaptionSequencer.js';
 import { createDocumentUI } from './core/DocumentUI.js';
@@ -46,7 +46,7 @@ const objectiveEl = document.getElementById('objective');
 const promptEl = document.getElementById('interact-prompt');
 const captionEl = document.getElementById('caption-box');
 const flashlightStateEl = document.getElementById('flashlight-state');
-const inventoryListEl = document.getElementById('inventory-list');
+const hotbarSlots = document.querySelectorAll('#hotbar .hotbar-slot');
 const minimapCanvas = document.getElementById('minimap');
 const minimapArrowEl = document.getElementById('minimap-arrow');
 const creditsScreen = document.getElementById('credits-screen');
@@ -537,21 +537,9 @@ function dropItem(id) {
   refreshInventoryUI();
 }
 function refreshInventoryUI() {
-  inventoryListEl.innerHTML = '';
-  if (gameState.inventory.size === 0) {
-    const li = document.createElement('li');
-    li.className = 'inventory-empty';
-    li.textContent = 'Nothing yet';
-    inventoryListEl.appendChild(li);
-    return;
-  }
-  for (const id of gameState.inventory) {
-    const info = ITEMS[id];
-    if (!info) continue;
-    const li = document.createElement('li');
-    li.textContent = info.hint ? `${info.label} (${info.hint})` : info.label;
-    inventoryListEl.appendChild(li);
-  }
+  hotbarSlots.forEach((slot) => {
+    slot.classList.toggle('filled', gameState.inventory.has(slot.dataset.item));
+  });
 }
 
 // ---------- audio ----------
