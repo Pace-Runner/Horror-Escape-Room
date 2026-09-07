@@ -39,18 +39,25 @@ reasoning behind the scenegraph hierarchy.
 - **The backrooms corridor -- the space between levels**: leaving a
   level no longer cuts straight to the next one. The screen fades to
   black and you come up in a short, wrong-feeling yellow corridor --
-  damp wallpaper, a drop ceiling, mostly-dead fluorescents -- with
-  blood-stained arrows pointing you to a door at the far end. Four
-  it is a warren. The route turns seven times, and each turn is a
+  damp wallpaper, a drop ceiling, mostly-dead fluorescents -- and it
+  is a warren, unguided. The route turns seven times, and each turn is a
   T-junction where carrying straight on is the mistake; several decoys
   fork, so a wrong turn can offer a choice of its own and one dead end
   sits two wrong turns deep. But the corridor graph is a tree, so every
   wrong turn is a guaranteed dead end rather than a shortcut. About
-  54 m, roughly 27 seconds if you never take one. Nine blood arrows mark
-  the route -- one at each turn, one to start you off, one at the door,
-  and nothing anywhere else -- so the only places you can go wrong are
-  the places that are marked. The way you came in has wallpaper running
-  straight across it.
+  54 m, roughly 27 seconds if you never take one. Nothing marks the
+  route -- no arrows, no signage -- so it is found (or lost) on sight
+  alone. The way you came in has wallpaper running straight across it.
+- **A radar-style mini-map**, top-right of the HUD: a live top-down view
+  centred on the player, showing nearby geometry and a facing arrow. It
+  is lit by its own private light rather than the room's actual (and
+  often near-black) lighting, so it stays readable everywhere without
+  touching a single level's tuned brightness -- see the `MINIMAP_LAYER`
+  note in `src/main.js`.
+- **An inventory HUD**, bottom-left: lists whatever story items are
+  currently carried (flashlight, crowbar, visor, keys), added and
+  removed at the same points the story already picks them up or spends
+  them. See `ITEMS` in `src/core/GameState.js`.
 - First-person WASD + mouse look, pointer-locked, with simple
   wall/furniture collision. The look asks for **raw** mouse input
   (`unadjustedMovement`) so the OS pointer-acceleration curve is not

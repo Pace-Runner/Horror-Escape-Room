@@ -79,6 +79,8 @@ export function createBedroomLevel({
   showCaption = () => {},
   onFreed = () => {},
   onFlashlightPicked = () => {},
+  onCrowbarFound = () => {},
+  onCrowbarUsed = () => {},
   onDoorOpened = () => {},
   onExaminePhotos = () => {},
   onExaminePinpad = () => {},
@@ -1681,6 +1683,7 @@ export function createBedroomLevel({
         if (puzzleState.hasCrowbar) {
           puzzleState.planksRemoved = true;
           puzzleState.hasCrowbar = false;
+          onCrowbarUsed();
           boardedPlankParts.forEach((part) => { part.visible = false; });
           showCaption('You wedge the crowbar behind the planks and pry them off the door.');
         } else {
@@ -1982,6 +1985,7 @@ export function createBedroomLevel({
         lockPlate.visible = false;
         puzzleState.hasKey = false;
         puzzleState.hasCrowbar = true;
+        onCrowbarFound();
       } else if (puzzleState.photosArranged) {
         showCaption('The box is locked. You need to find a key first.');
       } else {

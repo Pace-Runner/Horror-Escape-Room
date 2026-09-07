@@ -13,7 +13,8 @@ import { createHallwayBasementLevel } from './levels/hallwayBasementLevel.js';
 import { createStudyLevel } from './levels/studyLevel.js';
 import { createBackroomsLevel } from './levels/backroomsLevel.js';
 import { createScreenFade, wait } from './core/ScreenFade.js';
-import { gameState, resetState } from './core/GameState.js';
+import { gameState, resetState, addItem, removeItem, ITEMS } from './core/GameState.js';
+import { MINIMAP_ONLY, MAIN_ONLY } from './core/RenderLayers.js';
 import { CaptionSequencer } from './core/CaptionSequencer.js';
 import { createDocumentUI } from './core/DocumentUI.js';
 import { createPostFX } from './world/Postprocessing.js';
@@ -45,6 +46,9 @@ const objectiveEl = document.getElementById('objective');
 const promptEl = document.getElementById('interact-prompt');
 const captionEl = document.getElementById('caption-box');
 const flashlightStateEl = document.getElementById('flashlight-state');
+const inventoryListEl = document.getElementById('inventory-list');
+const minimapCanvas = document.getElementById('minimap');
+const minimapArrowEl = document.getElementById('minimap-arrow');
 const creditsScreen = document.getElementById('credits-screen');
 const creditsList = document.getElementById('credits-list');
 const creditsCloseBtn = document.getElementById('credits-close');
@@ -163,6 +167,80 @@ window.addEventListener('resize', () => {
 // world/Postprocessing.js -- in particular why OutputPass and MSAA samples are
 // both load-bearing rather than nice to have.
 const postFX = createPostFX(renderer, scene, camera);
+
+// ---------- minimap ----------
+// A second, small WebGLRenderer sharing this scene, rather than a
+// scissor/viewport split on the main one: postFX owns that renderer's whole
+// surface via its composer, and carving a corner out of a composer target is
+// far more invasive than just handing the map its own tiny canvas.
+const MINIMAP_VIEW_SIZE = 14;   // metres of world shown across the map
+const MINIMAP_PX = 180;         // matches #minimap's CSS size in style.css
+
+const minimapRenderer = new THREE.WebGLRenderer({ canvas: minimapCanvas, antialias: true, alpha: true });
+minimapRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+minimapRenderer.setSize(MINIMAP_PX, MINIMAP_PX);
+minimapRenderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const minimapCamera = new THREE.OrthographicCamera(
+  -MINIMAP_VIEW_SIZE / 2, MINIMAP_VIEW_SIZE / 2,
+  MINIMAP_VIEW_SIZE / 2, -MINIMAP_VIEW_SIZE / 2,
+  0.1, 40
+);
+// Sees the ordinary layer-0 world plus its own private light below -- never
+// the other way round, since the main camera never enables MINIMAP_ONLY.
+minimapCamera.layers.enable(MINIMAP_ONLY);
+// The main camera's own reserved channel: real geometry a level wants shown
+// at eye level but hidden from the map (see RenderLayers.js) -- currently the
+// backrooms' floor and its light-fixture housings, which read wrong from
+// directly above. Layer 0 (everything else) stays shared by both cameras.
+camera.layers.enable(MAIN_ONLY);
+
+/**
+ * The map's only light source, and the reason it stays legible in rooms the
+ * story keeps deliberately dark for the main view.
+ *
+ * Scoped to MINIMAP_ONLY so it is invisible to every other camera in the
+ * game -- three.js only feeds a light into a render pass when
+ * `light.layers.test(camera.layers)` is true, which is a per-camera check
+ * done once per render, not a per-object one. Nothing about the main view's
+ * carefully measured brightness changes.
+ */
+const minimapLight = new THREE.AmbientLight(0xffffff, 2.6);
+minimapLight.layers.set(MINIMAP_ONLY);
+scene.add(minimapLight);
+
+const _minimapForward = new THREE.Vector3();
+function updateMinimap() {
+  minimapCamera.position.set(camera.position.x, camera.position.y + 16, camera.position.z);
+  minimapCamera.up.set(0, 0, -1);
+  minimapCamera.lookAt(camera.position);
+
+  camera.getWorldDirection(_minimapForward);
+  // Under the up vector above, world +X lands on screen-right and world -Z on
+  // screen-up, so atan2(x, -z) is the facing angle measured from "up" -- and
+  // it grows in the same clockwise sense CSS rotate() does, so no sign flip.
+  const heading = Math.atan2(_minimapForward.x, -_minimapForward.z);
+  minimapArrowEl.style.transform = `translate(-50%, -50%) rotate(${heading}rad)`;
+
+  // Fog is tuned for a horizontal sightline; 16m of pure altitude would blow
+  // through most levels' fog budget before the frustum even starts and wash
+  // the whole map to a flat haze. Off for this one render, restored before
+  // the main pass reads it.
+  const savedFog = scene.fog;
+  scene.fog = null;
+  // The hands, the held torch, its two spotlights and the dust motes are all
+  // parented to `camera` (see the "first-person hands" section below), so a
+  // second camera rendering the same scene sees them too -- from directly
+  // above, the torch model reads as a stray line poking out of the player
+  // marker. `visible = false` on a parent stops WebGLRenderer's traversal from
+  // ever reaching its children (see projectObject in three's source), so this
+  // hides the whole view-model rig for one render and costs nothing else --
+  // the camera itself was never drawn to begin with.
+  camera.visible = false;
+  minimapRenderer.render(scene, minimapCamera);
+  camera.visible = true;
+  scene.fog = savedFog;
+}
 
 // ---------- player ----------
 const player = new PointerLockPlayer(camera, renderer.domElement);
@@ -448,6 +526,28 @@ function setFlashlight(on) {
   flashlightStateEl.classList.toggle('on', flashlightOn);
 }
 
+// ---------- inventory ----------
+/** Adds an item and redraws the HUD list -- the only two things a pickup ever does. */
+function pickUpItem(id) {
+  addItem(id);
+  refreshInventoryUI();
+}
+function dropItem(id) {
+  removeItem(id);
+  refreshInventoryUI();
+}
+function refreshInventoryUI() {
+  inventoryListEl.innerHTML = '';
+  for (const id of gameState.inventory) {
+    const info = ITEMS[id];
+    if (!info) continue;
+    const li = document.createElement('li');
+    li.textContent = info.hint ? `${info.label} (${info.hint})` : info.label;
+    inventoryListEl.appendChild(li);
+  }
+  inventoryListEl.parentElement.classList.toggle('empty', gameState.inventory.size === 0);
+}
+
 // ---------- audio ----------
 const audio = new AudioEngine();
 
@@ -569,11 +669,14 @@ const bedroom = createBedroomLevel({
     flashlightFound = true;
     setFlashlight(true);
     equipTorch();
+    pickUpItem('flashlight');
     // The storm goes back to a normal rhythm: the player can see for themselves
     // now, so the lightning stops being the only way to navigate.
     bedroomStorm.calm();
     captions.play(BEATS.flashlightOn);
   },
+  onCrowbarFound: () => pickUpItem('crowbar'),
+  onCrowbarUsed: () => dropItem('crowbar'),
   onDoorOpened: () => exitLevel('bedroom'),
 
   /**
@@ -754,9 +857,11 @@ const study = createStudyLevel({
 
   onTakeVisor: () => {
     visor.take();
+    pickUpItem('visor');
     objectiveEl.textContent = 'Put the visor on. [V]';
     captions.play(BEATS.visorFound);
   },
+  onTakeDoorKey: () => pickUpItem('doorKey'),
 
   /**
    * Mark's letter, which is where the game explains itself. It only says
@@ -810,6 +915,7 @@ const study = createStudyLevel({
   onChooseEnding: (which) => { playEnding(which); },
 
   onTakeGateKey: () => {
+    pickUpItem('gateKey');
     captions.play([
       'A key, hanging on the side of the mirror frame.',
       'It has been there the whole time. You simply could not see it.'
@@ -892,7 +998,7 @@ const LEVEL_OBJECTIVES = {
   bedroom: 'You wake up chained to the bed frame. Find a way free.',
   hallwayBasement: 'Restore power in the basement, then get through the locked door.',
   study: 'Preview: the study and front door (Level 3 blockout).',
-  backrooms: 'Follow the arrows.'
+  backrooms: 'Find the way through.'
 };
 
 const LEVEL_FOG = {
@@ -1116,6 +1222,7 @@ function resetGame() {
   flashlightFound = false;
   setFlashlight(false);
   unequipTorch();
+  refreshInventoryUI();
   // The breathing is deliberately NOT stopped and restarted here: it is meant
   // to run unbroken for the whole session, and cycling it would put a hole in
   // the one sound that is supposed to never leave. Only the intensity goes
@@ -1333,6 +1440,7 @@ function beginGame() {
   // this the only thing that ever cleared endingChosen was resetGame(), and a
   // first play that somehow followed an ending would carry it in.
   resetState();
+  refreshInventoryUI();
   buildCredits();
   startTitle.textContent = "DON'T LET IT OUT";
   startSub.textContent = 'Project HOLLOW -- June 1987';
@@ -1456,6 +1564,13 @@ if (import.meta.env.DEV) {
     // by for most of the game.
     setFlashlight,
     equipTorch,
+    // Flips the same flag the bedroom's flashlight pickup does, so a headless
+    // test can put the torch view-model in hand without faking pointer lock
+    // and the real pickup interaction.
+    forceFlashlightFound: () => { flashlightFound = true; setFlashlight(true); equipTorch(); },
+    pickUpItem,
+    refreshInventoryUI,
+    updateMinimap,
     storm: bedroomStorm,
     captions,
     documentUI,
@@ -1521,6 +1636,7 @@ function tick() {
 
   if (player.isLocked) {
     interaction.update();
+    updateMinimap();
   }
 
   postFX.update(dt);

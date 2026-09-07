@@ -54,6 +54,7 @@ export function createStudyLevel({
   onExaminePinpad = () => {},
   onTakeVisor = () => {},
   onTakeGateKey = () => {},
+  onTakeDoorKey = () => {},
   onLookInMirror = () => {},
   onReadLetter = () => {},
   /** 'released' | 'contained'. The last decision in the game. */
@@ -240,6 +241,7 @@ export function createStudyLevel({
       drawerHitbox.userData.interact.label = 'Search the drawer';
       interactables.push(drawerNoteHitbox);
       showCaption('The drawer sticks, then gives. A door key, and a note folded in half.');
+      onTakeDoorKey();
     }
   };
   interactables.push(drawerHitbox);

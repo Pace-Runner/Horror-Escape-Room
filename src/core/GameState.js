@@ -52,8 +52,35 @@ function initialState() {
 
     // --- outcome ---------------------------------------------------------
     /** null until the player commits: 'released' | 'contained'. */
-    endingChosen: null
+    endingChosen: null,
+
+    // --- inventory ---------------------------------------------------------
+    /** Ids of carried items, in pickup order. See ITEMS below for display info. */
+    inventory: new Set()
   };
+}
+
+/**
+ * Display info for every item the inventory HUD can show. Keyed by the same
+ * id addItem()/removeItem() take, so a level only ever has to know a short
+ * string, never a label or a hint.
+ */
+export const ITEMS = {
+  flashlight: { label: 'Flashlight', hint: 'F to toggle' },
+  crowbar: { label: 'Crowbar' },
+  visor: { label: "Annabelle's visor", hint: 'V to toggle' },
+  doorKey: { label: 'Desk drawer key' },
+  gateKey: { label: 'Gate key' }
+};
+
+/** Adds an item to the carried set. A no-op if it is already there. */
+export function addItem(id) {
+  gameState.inventory.add(id);
+}
+
+/** Removes an item once it is spent (e.g. the crowbar, after the planks). */
+export function removeItem(id) {
+  gameState.inventory.delete(id);
 }
 
 /**

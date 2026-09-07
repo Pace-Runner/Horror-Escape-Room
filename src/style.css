@@ -218,6 +218,89 @@ html, body {
   color: #d8b34a;
 }
 
+/* ---------- minimap ---------- */
+#minimap-wrap {
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  overflow: hidden;
+  border: 2px solid #4a443c;
+  background: #000;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.6);
+}
+
+/* A soft dark vignette over the render, so the map fades into its own frame
+   rather than ending in a hard-edged circle of geometry. */
+#minimap-wrap::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  box-shadow: inset 0 0 26px 10px rgba(0, 0, 0, 0.75);
+  pointer-events: none;
+}
+
+#minimap {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* The player marker: fixed at the map's centre, since the camera that draws
+   the map is always centred on the player -- only its rotation moves, to
+   show which way the player is facing. */
+#minimap-arrow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 12px solid #e0483a;
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.8));
+  pointer-events: none;
+}
+
+/* ---------- inventory ---------- */
+#inventory-panel {
+  position: absolute;
+  bottom: 24px;
+  left: 24px;
+  min-width: 140px;
+  padding: 10px 14px;
+  /* Solid enough to hold its own against a pitch-black room -- the game runs
+     at 3.5-10% average brightness (see main.js's renderer note), and the
+     0.35 this started at all but disappeared against that. */
+  background: rgba(4, 3, 2, 0.82);
+  border: 1px solid #3a332b;
+  border-left: 2px solid #7a1f16;
+  transition: opacity 0.3s ease;
+}
+
+#inventory-panel.empty {
+  opacity: 0;
+}
+
+#inventory-title {
+  font-size: 0.65rem;
+  letter-spacing: 0.14rem;
+  text-transform: uppercase;
+  color: #9a9184;
+  margin-bottom: 4px;
+}
+
+#inventory-list {
+  list-style: none;
+  font-size: 0.78rem;
+  letter-spacing: 0.02rem;
+  color: #efe9db;
+  line-height: 1.5;
+}
+
 /* ---------- captions (examine text) ---------- */
 #caption-box {
   position: fixed;

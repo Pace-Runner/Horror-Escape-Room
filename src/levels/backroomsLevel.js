@@ -6,7 +6,6 @@ import {
   createDampCarpetNormalTexture,
   createCeilingTileTexture,
   createCeilingTileNormalTexture,
-  createBloodArrowMaps,
   createPeelingWallpaperTexture,
   createCobwebTexture,
   createClawMarksTexture,
@@ -16,6 +15,7 @@ import {
   tiled
 } from '../world/textures.js';
 import { loadModel, applyTextureByMaterialName } from '../world/modelLoader.js';
+import { MINIMAP_ONLY, MAIN_ONLY } from '../core/RenderLayers.js';
 import doorModelUrl from '../assets/models/door.glb?url';
 
 /**
@@ -44,12 +44,11 @@ import doorModelUrl from '../assets/models/door.glb?url';
  *     wrong turn is a guaranteed dead end rather than a shortcut. About 54m,
  *     ~27 seconds if you never take one.
  *
- *  3. THE ARROWS ARE THE SIGNAL, NOT THE DECORATION. There are nine, one at
- *     each turn plus one to start you off and one at the door. The level used to
- *     carry twenty-seven along a straight corridor with no decisions in it,
- *     where they could only ever be scenery. Now the only places you can go
- *     wrong are the places that are marked -- which is what lets the maze be
- *     this complicated without being unfair.
+ *  3. NO ARROWS. The corridor used to mark its route with blood-drawn arrows at
+ *     every turn; the maze is unguided now, so the player finds the way out (or
+ *     doesn't, and backtracks) on sight alone. The tree property from point 2 is
+ *     what keeps that fair rather than punishing -- a wrong turn always dead-ends
+ *     rather than losing the player somewhere they cannot recover from.
  *
  * Hierarchy note: everything is a direct child of `group`, with no intermediate
  * offset groups. worldRoot sits at the origin and levels never set
@@ -288,7 +287,31 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(boxCX, 0, boxCZ);
   floor.receiveShadow = true;
+  // Hidden from the minimap camera (see MAIN_ONLY in RenderLayers.js): this
+  // one plane spans the whole bounding box, which is correct at eye level --
+  // nothing outside a corridor is ever reachable -- but from straight above it
+  // reads as walkable floor well past the actual walls. minimapFloor below is
+  // its replacement for that camera only.
+  floor.layers.set(MAIN_ONLY);
   group.add(floor);
+
+  // The map's own floor: one flat quad per CORRIDORS rectangle rather than the
+  // single oversized plane above, so the minimap's floor colour stops at the
+  // real walls instead of filling the whole bounding box. Shown to the
+  // minimap camera only (see MINIMAP_ONLY) -- the two floors never share a
+  // camera, so they never compete for the same pixel.
+  const minimapFloorMat = new THREE.MeshBasicMaterial({ color: 0x8a7a52 });
+  Object.values(CORRIDORS).forEach(([x0, x1, z0, z1], i) => {
+    const q = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, z1 - z0), minimapFloorMat);
+    q.rotation.x = -Math.PI / 2;
+    // A tiny per-quad rise, not a shared height: junctions genuinely overlap
+    // two corridor rectangles by design (see the file header's rule 1), and
+    // two perfectly coplanar quads z-fight under a camera that moves every
+    // frame. Nothing here is visible at this scale; it only fixes draw order.
+    q.position.set((x0 + x1) / 2, 0.005 + i * 0.0002, (z0 + z1) / 2);
+    q.layers.set(MINIMAP_ONLY);
+    group.add(q);
+  });
 
   const ceilTex = createCeilingTileTexture();
   const ceilNormal = createCeilingTileNormalTexture();
@@ -360,6 +383,10 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
       new THREE.MeshStandardMaterial({ color: 0xd8d2c0, roughness: 0.55 })
     );
     housing.position.set(x, HALL_H - 0.025, z);
+    // Hidden from the minimap camera: an emissive tube glowing under the map's
+    // own bright ambient light reads as a stray bright blob on the floorplan,
+    // not a light fixture -- see MAIN_ONLY in RenderLayers.js.
+    housing.layers.set(MAIN_ONLY);
     group.add(housing);
 
     // Each fixture gets its OWN material instance. hallwayBasementLevel shares
@@ -377,6 +404,7 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
         tubeMat
       );
       tube.position.set(acrossX ? x : x + d, HALL_H - 0.06, acrossX ? z + d : z);
+      tube.layers.set(MAIN_ONLY);
       group.add(tube);
     });
 
@@ -402,7 +430,7 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
   //
   // Lighting all seven turns would flatten the maze into a lit path you simply
   // follow; lighting none would make it a flashlight crawl. Alternating means
-  // about half the turns are found by torchlight with only the arrow to go on,
+  // about half the turns are found by torchlight with nothing else to go on,
   // which is where the tension is. Decoys get no fixture at all -- that darkness
   // is what makes a wrong turn read as wrong before you have walked it.
   //
@@ -423,10 +451,6 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
   // destination is the one stable thing here -- the light does the signage.
   addFixture(0.6, 21.4, { along: 'z', mode: 'steady', colour: 0xffe0a4, base: 1.95, dist: 12, decay: 1.5, emissive: 0xfff0c0, emissiveIntensity: 1.9 });
 
-  // ---------- blood arrows ----------
-  // Three dry + three wet variants per direction, built once and cycled.
-  // 17 arrows x a 256^2 normal-map pixel loop would be ~60ms of boot and 17 GPU
-  // uploads for no visual gain -- and identical arrows would be wrong anyway.
   /**
    * Is there actually a wall behind a decal at (x, z) facing rotY?
    *
@@ -454,136 +478,6 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     console.warn('backrooms: ' + kind + ' at (' + x + ', ' + y + ', ' + z +
       ') has no wall behind it -- it is floating in a branch mouth.');
   }
-
-  const ARROW_VARIANTS = { dry: { 1: [], '-1': [] }, wet: { 1: [], '-1': [] } };
-  [1, -1].forEach((dir) => {
-    for (let i = 0; i < 3; i++) {
-      ARROW_VARIANTS.dry[String(dir)].push(createBloodArrowMaps({ dir, wet: false }));
-      ARROW_VARIANTS.wet[String(dir)].push(createBloodArrowMaps({ dir, wet: true }));
-    }
-  });
-  let arrowPick = 0;
-  function pickVariant(dir, wet) {
-    const pool = ARROW_VARIANTS[wet ? 'wet' : 'dry'][String(dir)];
-    return pool[arrowPick++ % pool.length];
-  }
-
-  const arrows = [];
-
-  /**
-   * A blood arrow on a wall. Mirrors addClawMarks (bedroomLevel.js:1222).
-   *
-   * `pointZ` is the WORLD direction it should indicate: +1 toward the exit, -1
-   * back toward the sealed entry. It cannot be a scale.x = -1 flip -- a wall
-   * plane's own local +X lands on world -Z at rotY = +PI/2 (the left wall) and
-   * on world +Z at rotY = -PI/2 (the right wall), so one side needs the TEXTURE
-   * mirrored, and a negative scale would invert the plane's normal and black
-   * out its lighting.
-   */
-  function addBloodArrow(x, y, z, rotY, scale = 1, { point = [0, 1], wet = false, roll = 0 } = {}) {
-    // The plane's local +X lands on world (cos rotY, 0, -sin rotY). Mirror the
-    // TEXTURE when that is the wrong way round, rather than flipping the mesh:
-    // a negative scale would invert the plane's normal and black out its
-    // lighting.
-    //
-    // Expressed as a full (x, z) intent rather than a z-only one, because a
-    // wall at rotY = 0 faces +Z and its local +X is world +X -- it can only
-    // ever point along X, and a z-only intent degenerates to zero there.
-    warnIfFloating('blood arrow', x, y, z, rotY);
-    const localX = [Math.cos(rotY), -Math.sin(rotY)];
-    const dot = point[0] * localX[0] + point[1] * localX[1];
-    // A wall arrow can ONLY point along the wall, because the art runs along the
-    // plane's local +X and the plane is flat against the wall. So a wall at
-    // rotY 0 or PI (facing +/-Z) can express east and west and nothing else, and
-    // a wall at +/-PI/2 can express north and south and nothing else. Asking for
-    // a perpendicular direction does not fail -- `dir` just rounds to +/-1 and
-    // you silently get an arrow pointing 90 degrees away from where you meant.
-    // Use a floor arrow there instead; it has no such constraint.
-    if (Math.abs(dot) < 0.7) {
-      console.warn('backrooms: blood arrow at (' + x + ', ' + y + ', ' + z + ') asks to point ['
-        + point + '] but the wall it is on can only point along [' + localX.map((v) => v.toFixed(0))
-        + ']. It will point the wrong way -- use addFloorArrow for this direction.');
-    }
-    const dir = dot >= 0 ? 1 : -1;
-    const maps = pickVariant(dir, wet);
-    const a = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.62 * scale, 0.62 * scale),
-      new THREE.MeshStandardMaterial({
-        map: maps.map,
-        normalMap: maps.normalMap,
-        normalScale: new THREE.Vector2(1.3, 1.3),
-        transparent: true,
-        // The last arrows before the door are still WET: 0.34 catches a
-        // specular sheen off the flashlight where 0.92 stays matte. Twenty
-        // metres of dry brown and then suddenly glistening is the level's best
-        // single beat, and it costs one property.
-        roughness: wet ? 0.34 : 0.92
-      })
-    );
-    // 2.5cm proud along the wall's own normal -- addPeelingWallpaper's idiom
-    // (bedroomLevel.js:1273). No polygonOffset or renderOrder anywhere in this
-    // project; decal separation is purely positional.
-    a.position.set(x + Math.sin(rotY) * 0.025, y, z + Math.cos(rotY) * 0.025);
-    a.rotation.set(0, rotY, roll);
-    // Intent, kept for debugging: the rendered direction is the plane's local
-    // +X times `dir` (dir === -1 means the texture itself is mirrored), and it
-    // should always come out agreeing in sign with pointZ.
-    a.userData.arrow = { point, dir, kind: 'wall' };
-    group.add(a);
-    arrows.push(a);
-  }
-
-  /**
-   * A blood arrow on the carpet. `heading` follows the same convention as rotY
-   * (0 = +Z, PI/2 = +X).
-   *
-   * With rotation.x = -PI/2 and Three's default XYZ Euler order, the plane's
-   * local +X ends up at world (cos rz, 0, -sin rz), so rz = heading - PI/2.
-   */
-  function addFloorArrow(x, z, heading, scale = 1, { wet = false } = {}) {
-    const maps = pickVariant(1, wet);
-    const a = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.62 * scale, 0.62 * scale),
-      new THREE.MeshStandardMaterial({
-        map: maps.map,
-        normalMap: maps.normalMap,
-        normalScale: new THREE.Vector2(1.1, 1.1),
-        transparent: true,
-        roughness: wet ? 0.30 : 0.95
-      })
-    );
-    a.position.set(x, 0.018, z);
-    a.rotation.set(-Math.PI / 2, 0, heading - Math.PI / 2);
-    a.userData.arrow = { heading, dir: 1, kind: 'floor' };
-    group.add(a);
-    arrows.push(a);
-  }
-
-  // NINE arrows: one at each of the seven turns, plus one to start you off and
-  // one at the door. Nothing anywhere else -- none in dead ends, none along
-  // straight runs. That rule IS the difficulty dial: the only places you can
-  // make a mistake are the places that are marked, which is what keeps a
-  // seven-turn warren solvable while still being a warren.
-  //
-  // `point` is passed explicitly on every one. Its default is [0, 1], documented
-  // as "toward the exit", which was true while the exit was always +Z; on a maze
-  // that runs in four directions that default is silently WRONG rather than
-  // merely absent.
-  //
-  // Turns 4 and 5 are FLOOR arrows. A wall arrow can only point ALONG its own
-  // wall, because the art runs down the plane's local +X -- and at those two
-  // junctions no available wall can express the direction the route takes.
-  // addBloodArrow warns when asked for something it cannot draw; the floor has
-  // no such constraint.
-  addBloodArrow(-1.6, 1.45, 1.8, Math.PI / 2, 0.5, { point: [0, 1], roll: 0.03 });
-  addBloodArrow(0, 1.42, 6.4, Math.PI, 0.55, { point: [-1, 0], roll: -0.05 });
-  addBloodArrow(-12.0, 1.40, 5.0, Math.PI / 2, 0.58, { point: [0, 1], roll: 0.07 });
-  addBloodArrow(-7.0, 1.36, 12.0, Math.PI, 0.6, { point: [1, 0], roll: -0.08 });
-  addFloorArrow(-3.6, 10.6, 0, 0.8);
-  addFloorArrow(-3.6, 16.2, -Math.PI / 2, 0.85);
-  addBloodArrow(-14.0, 1.28, 16.0, Math.PI / 2, 0.68, { point: [0, 1], roll: 0.11 });
-  addBloodArrow(-9.0, 1.22, 23.0, Math.PI, 0.72, { point: [1, 0], roll: -0.14, wet: true });
-  addFloorArrow(0.8, 21.4, Math.PI / 2, 1.0, { wet: true });
 
   // ---------- the exit door ----------
   let opened = false;
@@ -780,7 +674,7 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
   // and a fresh GPU upload per flap. The maze roughly doubled the number of
   // dressed dead ends, and createPeelingWallpaperTexture is randomised per call,
   // so a pool keeps the variety while capping the boot cost -- the same trick
-  // ARROW_VARIANTS already uses.
+  // WEB_VARIANTS below uses for the cobwebs.
   //
   // Notably darker than the wallpaper's own base (198,178,96): the wall surface
   // is shaded down substantially by its height map, so a flap painted the raw
@@ -809,7 +703,7 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
   }
   // 19.3, not 8.6: opening B6's mouth (left wall now absent 8.40-10.60) left
   // this one floating too. Moved rather than nudged, so it is not crowding
-  // the blood arrow that already sits on the short 7.40-8.40 stub.
+  // the rest of the dressing on the short 7.40-8.40 stub.
   // rotY points along the wall's OUTWARD normal, i.e. into the walkable side.
   // Get the sign wrong and the flap is buried inside the wall, and because the
   // wall material is DoubleSide there is no backwards-plane tell -- it simply
@@ -935,7 +829,6 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     refs: {
       doorHinge,
       lamps,
-      arrows,
       sealed,
       /**
        * The corridor rectangles this maze is generated from. Exposed because
