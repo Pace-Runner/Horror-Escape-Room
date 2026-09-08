@@ -163,7 +163,7 @@ sceneManager.register('bedroom', bedroom);
 // is what actually takes the player's sight away -- bright lights on their
 // own still leave the room legible. The overlay is taken out of the layout
 // entirely at 0 so its backdrop filter costs nothing the rest of the time.
-const GLARE_MAX_BLUR_IN_PIXELS = 4;
+const GLARE_MAX_BLUR_IN_PIXELS = 2;
 let currentGlareAmount = 0;
 
 /**
