@@ -239,6 +239,20 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
   );
   fuseBox.position.set(-LAB_W / 2 + 0.12, 1.4, 0);
 
+  // Wrong fuses pulled back out of the box land in the next free slot of a
+  // short row on the floor beside it, so earlier rejects stay visible
+  // instead of every drop stacking on one shared coordinate. Only the three
+  // wrong fuses (15A / 20A / 45A) can ever be dropped -- the correct 30A one
+  // stays seated -- so three slots is exactly enough for a single run.
+  const DROPPED_FUSE_Y = 0.05;
+  const DROPPED_FUSE_SPACING_IN_METRES = 0.2;
+  const droppedFuseSlots = [-1, 0, 1].map((step) => [
+    fuseBox.position.x + 0.1,
+    DROPPED_FUSE_Y,
+    fuseBox.position.z + step * DROPPED_FUSE_SPACING_IN_METRES
+  ]);
+  let droppedFuseCount = 0;
+
   const sparkLight = new THREE.PointLight(0xfff2b0, 0, 1.0, 2);
   sparkLight.position.copy(fuseBox.position);
   lab.add(sparkLight);
@@ -262,7 +276,9 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
         showCaption(`You pull the ${removed} fuse back out. The lab settles back to normal.`);
 
         const dropped = fuseMeshes[removed];
-        dropped.position.set(fuseBox.position.x + 0.1, 0.05, fuseBox.position.z);
+        const slot = droppedFuseSlots[Math.min(droppedFuseCount, droppedFuseSlots.length - 1)];
+        droppedFuseCount += 1;
+        dropped.position.set(...slot);
         dropped.rotation.set(0, 0, 0);
         dropped.visible = true;
 
@@ -566,8 +582,10 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
 
     // Puts every piece of run-specific state this level owns back to its
     // starting point -- clears the fuse puzzle (held/seated fuse, overload
-    // glare, spark flash), all four fuse meshes back at their original
-    // spots with fresh pickup handlers, and the fuse box / door labels.
+    // glare, spark flash), empties the dropped-fuse row so a replay starts
+    // filling it from the first slot again, puts all four fuse meshes back
+    // at their original spots with fresh pickup handlers, and restores the
+    // fuse box / door labels.
     reset() {
       powerRestored = false;
       puzzleState.heldFuse = null;
@@ -575,6 +593,7 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
       puzzleState.overloaded = false;
       sparkTimer = 0;
       sparkLight.intensity = 0;
+      droppedFuseCount = 0;
 
       fuseBox.userData.interact.label = 'Empty fuse slot';
       metalDoor.userData.interact.label = 'Locked. Restore power first.';
