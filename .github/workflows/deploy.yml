@@ -24,6 +24,12 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      # Before the build, because a maze fault is a broken level and the build
+      # cannot see it: the layout is 42 hand-authored corridors and this exits
+      # non-zero on an unreachable corridor, an accidental loop, a junction too
+      # narrow to walk through or a wall too thin to stop lamp light. Runs in
+      # plain node -- backroomsMaze.js imports nothing from three.
+      - run: npm run check:maze
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

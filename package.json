@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "check:maze": "node scripts/check-maze.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
