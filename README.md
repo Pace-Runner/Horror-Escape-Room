@@ -15,10 +15,11 @@ Open the local URL Vite prints (usually http://localhost:5173/).
 
 ## What's here right now
 
-This is the **world foundation** -- the house exists and is navigable
-in first person, but the puzzle logic and creature AI are not built
-yet. See `docs/WORLD_DESIGN.md` for the full breakdown and the
-reasoning behind the scenegraph hierarchy.
+The house exists and is navigable in first person. Levels 1 and 2 are
+playable end to end; Level 3's lock sequence, the visor mechanic, the
+creature AI and the branching ending are still to come. See
+`docs/WORLD_DESIGN.md` for the full breakdown and the reasoning behind
+the scenegraph hierarchy.
 
 - **Level 1 -- the bedroom**: fully modelled and atmospheric. Storm
   lighting (flickering bulb + lightning through the window), rain,
@@ -27,11 +28,18 @@ reasoning behind the scenegraph hierarchy.
   photos, the "Don't let it out" message scratched into the floor, and
   a pickable flashlight. The opening beat (chained → free the cuff
   with the paperclip → stand → bulb blows) is scripted.
-- **Level 2 -- hallway + basement lab (blockout)**: navigable and
-  dressed (pipes, generators, fuse box, shelves, flickering
-  fluorescents, a retro CCTV monitor running a custom static shader),
-  but the power-restore puzzle and camera-feed minigame aren't wired
-  up yet.
+- **Level 2 -- hallway + basement lab**: navigable and dressed (pipes,
+  generator, fuse box, breaker panel, shelves, flickering fluorescents,
+  a retro CCTV monitor running a custom static shader), and the
+  **power chain is fully playable**: find the 30A fuse among four to
+  light the lab and wake the cameras, go for the metal door and have
+  someone throw the main on you, restart the generator in the right
+  order, then route the breaker panel's 60A across the circuits that
+  actually matter. Lights, CCTV and the door bolts all come back
+  together. The cameras are then load-bearing rather than a cutscene:
+  the metal door holds behind a security code hidden in the panelling of
+  the study's front door, countable only through camera four. See
+  `docs/LEVEL2_POWER_CHAIN.md` for the full breakdown.
 - **Level 3 -- study (blockout)**: navigable and dressed (desk,
   bookshelves, the family portrait, the one uncracked mirror, the
   three-lock front door), but the lock sequence, visor mechanic and
