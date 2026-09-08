@@ -165,6 +165,12 @@ export function createHallwayBasementLevel({
   // it back out.
   const TUBE_EMISSIVE_INTENSITY = 1.6;
   const OVERLOAD_TUBE_EMISSIVE_INTENSITY = 9;
+  // Dead-circuit values. The lab starts with no power at all, so the tubes
+  // give off nothing and the glass only catches what little light reaches
+  // it -- a faint emissive keeps the fixtures readable as objects overhead
+  // instead of vanishing into the ceiling.
+  const UNPOWERED_TUBE_LIGHT_INTENSITY = 0;
+  const UNPOWERED_TUBE_EMISSIVE_INTENSITY = 0.04;
   const OVERLOAD_TUBE_LIGHT_INTENSITY = 26;
   const OVERLOAD_TUBE_LIGHT_JITTER = 8;
 
@@ -184,12 +190,18 @@ export function createHallwayBasementLevel({
   // The ambient term is what actually blinds the player during an overload:
   // point lights alone still leave shadowed corners readable, whereas a
   // strong white ambient blows out every surface in the room at once.
+  //
+  // Note the unpowered level is a floor, not a blackout: an AmbientLight is
+  // global to the scene no matter which group it is added to, so the
+  // hallway's own ambient reaches the lab as well and the room can never go
+  // fully dark while the two share a level.
   const LAB_AMBIENT_COLOR = new THREE.Color(0x3d4658);
   const OVERLOAD_AMBIENT_COLOR = new THREE.Color(0xe4f0ff); // cool white, matching the fluorescent tubes
-  const LAB_AMBIENT_INTENSITY = 1.0;
+  const UNPOWERED_LAB_AMBIENT_INTENSITY = 0.10;
+  const LAB_AMBIENT_INTENSITY = 0.40;
   const OVERLOAD_AMBIENT_INTENSITY = 3.4;
 
-  const labAmbient = new THREE.AmbientLight(LAB_AMBIENT_COLOR.getHex(), LAB_AMBIENT_INTENSITY);
+  const labAmbient = new THREE.AmbientLight(LAB_AMBIENT_COLOR.getHex(), UNPOWERED_LAB_AMBIENT_INTENSITY);
   lab.add(labAmbient);
 
   // exposed pipes along the back wall
@@ -220,6 +232,12 @@ export function createHallwayBasementLevel({
   // blinding state (and fade back out of it) over a fraction of a second.
   let overloadGlare = 0;
   const OVERLOAD_GLARE_RAMP_IN_SECONDS = 0.35;
+
+  // 0 while the lab is running on a dead circuit, 1 once the 30A fuse has
+  // restored power. Eased like the glare so the strip lights swell up when
+  // the fuse clicks in rather than popping to full brightness in one frame.
+  let powerLevel = 0;
+  const POWER_RAMP_IN_SECONDS = 0.6;
 
   const puzzleState = {
     heldFuse: null,   // amps string currently in the player's hand, or null
@@ -599,40 +617,75 @@ export function createHallwayBasementLevel({
   workbench.add(tornNotes);
 
   /**
-   * Drives the lab lighting between its normal flickering state and the
-   * blown-out overload state, easing `overloadGlare` toward whichever one
-   * the circuit is currently in.
+   * Eases a ramp value toward a target at a fixed rate.
    *
-   * @param {number} deltaTimeInSeconds - frame time, used for the ramp rate.
-   *
-   * Normal: the tubes flicker gently around their rated output with the
-   * occasional dip. Overloaded: the tubes run ~20x their rated output and
-   * the ambient term is swapped to a strong warm white, which washes every
-   * surface in the room out far enough that the player can barely make the
-   * lab out until they pull the overrated fuse back out.
+   * @param {number} current - the ramp's value this frame.
+   * @param {number} target - 0 or 1, whichever state the circuit is in.
+   * @param {number} step - how far the ramp may travel this frame.
+   * @returns {number} the eased value, never overshooting the target.
    */
-  function updateOverloadGlare(deltaTimeInSeconds) {
-    const target = puzzleState.overloaded ? 1 : 0;
-    const step = deltaTimeInSeconds / OVERLOAD_GLARE_RAMP_IN_SECONDS;
-    overloadGlare = target > overloadGlare
-      ? Math.min(target, overloadGlare + step)
-      : Math.max(target, overloadGlare - step);
+  function easeToward(current, target, step) {
+    return target > current
+      ? Math.min(target, current + step)
+      : Math.max(target, current - step);
+  }
+
+  /**
+   * Drives the lab lighting through the three states the fuse box can put
+   * the circuit in, easing between them rather than snapping.
+   *
+   * @param {number} deltaTimeInSeconds - frame time, used for the ramp rates.
+   *
+   * Dead circuit (no fuse, or an under-rated one): the strip lights are off
+   * and the room sits at its unpowered floor, so the player has to search
+   * the lab by flashlight. Powered (30A seated): the tubes flicker gently
+   * around their rated output with the occasional dip. Overloaded (45A
+   * seated): the tubes run ~20x their rated output and the ambient term is
+   * swapped to a strong cool white, washing every surface out far enough
+   * that the player can barely make the lab out until they pull the fuse.
+   *
+   * The two ramps compose in that order -- power first, then glare on top --
+   * because an overload happens on a circuit that was never restored, so the
+   * glare has to be able to override the dead-circuit darkness.
+   */
+  function updateLabLighting(deltaTimeInSeconds) {
+    overloadGlare = easeToward(
+      overloadGlare,
+      puzzleState.overloaded ? 1 : 0,
+      deltaTimeInSeconds / OVERLOAD_GLARE_RAMP_IN_SECONDS
+    );
+    powerLevel = easeToward(
+      powerLevel,
+      powerRestored ? 1 : 0,
+      deltaTimeInSeconds / POWER_RAMP_IN_SECONDS
+    );
 
     fluorescents.forEach((tubeLight) => {
       const dip = Math.random() < 0.05 ? 0.3 : 1;
-      const normalIntensity = (1.17 + Math.random() * 0.31) * dip;
+      const ratedIntensity = (1.17 + Math.random() * 0.31) * dip;
       const overloadIntensity = OVERLOAD_TUBE_LIGHT_INTENSITY + Math.random() * OVERLOAD_TUBE_LIGHT_JITTER;
-      tubeLight.intensity = THREE.MathUtils.lerp(normalIntensity, overloadIntensity, overloadGlare);
+      const poweredIntensity = THREE.MathUtils.lerp(UNPOWERED_TUBE_LIGHT_INTENSITY, ratedIntensity, powerLevel);
+      tubeLight.intensity = THREE.MathUtils.lerp(poweredIntensity, overloadIntensity, overloadGlare);
     });
 
-    tubeMat.emissiveIntensity = THREE.MathUtils.lerp(
+    const poweredEmissive = THREE.MathUtils.lerp(
+      UNPOWERED_TUBE_EMISSIVE_INTENSITY,
       TUBE_EMISSIVE_INTENSITY,
+      powerLevel
+    );
+    tubeMat.emissiveIntensity = THREE.MathUtils.lerp(
+      poweredEmissive,
       OVERLOAD_TUBE_EMISSIVE_INTENSITY,
       overloadGlare
     );
 
-    labAmbient.intensity = THREE.MathUtils.lerp(
+    const poweredAmbient = THREE.MathUtils.lerp(
+      UNPOWERED_LAB_AMBIENT_INTENSITY,
       LAB_AMBIENT_INTENSITY,
+      powerLevel
+    );
+    labAmbient.intensity = THREE.MathUtils.lerp(
+      poweredAmbient,
       OVERLOAD_AMBIENT_INTENSITY,
       overloadGlare
     );
@@ -669,10 +722,12 @@ export function createHallwayBasementLevel({
       sparkLight.intensity = 0;
       droppedFuseCount = 0;
       overloadGlare = 0;
+      powerLevel = 0;
       onGlare(0);
-      tubeMat.emissiveIntensity = TUBE_EMISSIVE_INTENSITY;
-      labAmbient.intensity = LAB_AMBIENT_INTENSITY;
+      tubeMat.emissiveIntensity = UNPOWERED_TUBE_EMISSIVE_INTENSITY;
+      labAmbient.intensity = UNPOWERED_LAB_AMBIENT_INTENSITY;
       labAmbient.color.copy(LAB_AMBIENT_COLOR);
+      fluorescents.forEach((tubeLight) => { tubeLight.intensity = UNPOWERED_TUBE_LIGHT_INTENSITY; });
 
       fuseBox.userData.interact.label = 'Empty fuse slot';
       metalDoor.userData.interact.label = 'Locked. Restore power first.';
@@ -705,7 +760,7 @@ export function createHallwayBasementLevel({
       const elapsed = (this._t = (this._t ?? 0) + dt);
       dynamics.forEach((d) => d.update(dt, elapsed));
 
-      updateOverloadGlare(dt);
+      updateLabLighting(dt);
 
       if (sparkTimer > 0) {
         sparkTimer -= dt;
