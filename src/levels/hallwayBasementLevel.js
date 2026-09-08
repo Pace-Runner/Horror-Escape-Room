@@ -208,12 +208,30 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
     { id: 'fuse45', amps: '45A', radius: 0.045, color: 0xd8d8d8 }
   ];
 
-  const fusePositions = [
-    [0.9, 1.05, -2.0],
-    [1.3, 0.05, -0.4],
-    [-1.6, 0.05, 1.9],
-    [1.9, 0.85, 0.6]
+  // Heights of the surfaces the fuses rest on, taken from the geometry
+  // built further down this file rather than eyeballed -- the fuses used
+  // to sit at hand-picked Y values that matched no real surface, so they
+  // hung in mid-air beside the props they were supposed to be lying on.
+  const WORKBENCH_TOP_Y = 0.845;   // workbench y=0 + benchTop y=0.82 + half of its 0.05 thickness
+  const DESK_TOP_Y = 0.78;         // desk y=0 + deskTop y=0.75 + half of its 0.06 thickness
+  const LAB_FLOOR_Y = 0;
+  const FLOOR_CRATE_TOP_Y = 0.5;   // the un-stacked crate at (1.5, 1.5) is a 0.5m cube on the floor
+
+  // Where each fuse lies, index-matched to `fuseData`. Coordinates are
+  // local to the `lab` group, which is what the fuse meshes are added to.
+  const fuseRestingSpots = [
+    { x: 0.9, z: -0.55, surfaceY: WORKBENCH_TOP_Y },   // workbench top, clear of the four tool props
+    { x: 1.3, z: -0.3, surfaceY: LAB_FLOOR_Y },        // floor, just outside the workbench's collider
+    { x: 2.0, z: 2.0, surfaceY: DESK_TOP_Y },          // desk top, clear of the monitor and sticky note
+    { x: 1.38, z: 1.38, surfaceY: FLOOR_CRATE_TOP_Y }  // flat top face of the floor-level crate
   ];
+
+  // A fuse cylinder is centred on its own origin, so resting it exactly at
+  // the surface height would sink half of it into that surface -- its own
+  // radius is added on top so it sits on the surface instead of in it.
+  const fusePositions = fuseRestingSpots.map(
+    (spot, i) => [spot.x, spot.surfaceY + fuseData[i].radius, spot.z]
+  );
 
   const fuseBox = new THREE.Mesh(
     new THREE.BoxGeometry(0.5, 0.7, 0.15),
