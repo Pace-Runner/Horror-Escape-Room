@@ -9,6 +9,8 @@ import {
   createPaperNoteTexture
 } from '../world/textures.js';
 import { createStaticScreenMaterial } from '../world/StaticScreenMaterial.js';
+import { createCctvFeeds, FEED_IDS, FEED_LABELS } from '../world/CctvFeeds.js';
+import { createCreatureSketchTexture } from '../world/textures.js';
 import { addBaseboard } from '../world/trim.js';
 
 const HALL_W = 2.4;
@@ -38,7 +40,14 @@ export function createHallwayBasementLevel({
   showCaption = () => {},
   onExit = () => {},
   onSpark = () => {},
-  onGlare = () => {}   // called with 0..1 each frame so the host can drive a screen-space wash
+  onGlare = () => {},  // called with 0..1 each frame so the host can drive a screen-space wash
+  // Fired when the breaker goes in. The level changes its own lights and its
+  // own screen; this is for everything OUTSIDE the level that the beat drives
+  // -- the story captions, the CCTV sighting, the creature.
+  onPowerRestored = () => {},
+  /** Fired with a camera id each time a feed is selected. Drives the sightings. */
+  onViewFeed = () => {},
+  onExamineSketch = () => {}
 } = {}) {
   const group = new THREE.Group();
   group.name = 'Level2_HallwayBasement';
@@ -99,7 +108,39 @@ export function createHallwayBasementLevel({
 
   const hallLight2 = new THREE.PointLight(0x9aa4c2, 0.86, 6, 1.6);
   hallLight2.position.set(0, HALL_H - 0.4, 1.4);
+
+  /**
+   * One flash, on demand. NOT a Storm.
+   *
+   * The storyline's beat is "the creature standing at the end of the hallway,
+   * only visible for a second when the thunder crashes". A running storm would
+   * make that a coin toss -- the flash has to land while the player is looking
+   * down the corridor, and a random one will usually not. Firing a single flash
+   * from the script that also places the creature guarantees the player is
+   * shown the thing the whole level is about.
+   *
+   * It is also cheaper and simpler than a second Storm instance, which would
+   * need a window to justify it, in a hallway that has none.
+   */
+  const hallLightning = new THREE.PointLight(0xbcd0ff, 0, 14, 1.4);
+  hallLightning.position.set(0, HALL_H - 0.2, HALL_LEN * 0.75);
+  hallway.add(hallLightning);
+  const flash = { t: 0, duration: 0 };
   hallway.add(hallLight2);
+
+  /**
+   * The end cap. The hallway had walls down both sides and nothing at all
+   * behind the spawn point, so walking backwards took the player straight out
+   * of the level and into the void -- there was no collider and nothing drawn.
+   * This is the door they came in through, so it should be shut behind them.
+   */
+  const hallEndWall = new THREE.Mesh(
+    new THREE.PlaneGeometry(HALL_W, HALL_H),
+    hallWallMat
+  );
+  hallEndWall.position.set(0, HALL_H / 2, -HALL_LEN / 2);
+  hallway.add(hallEndWall);
+  colliders.push({ minX: -HALL_W / 2, maxX: HALL_W / 2, minZ: -0.2, maxZ: 0 });
 
   addBaseboard(hallway, { width: HALL_W, depth: HALL_LEN, color: 0x141210 });
 
@@ -144,7 +185,41 @@ export function createHallwayBasementLevel({
     lab.add(wall);
     return wall;
   }
-  labWall(LAB_W, 0, -LAB_D / 2, 0);
+  /**
+   * THE ENTRANCE WALL, which used to be one solid opaque plane spanning all 8 m
+   * with no doorway cut in it and no collider behind it. The player walked
+   * straight THROUGH the wall out of the hallway, and once inside could not see
+   * the hallway they had come from at all -- a PlaneGeometry is single-sided,
+   * so from the lab side the hallway's own walls are back-faces and simply are
+   * not drawn. The room the storyline describes you walking into was a room you
+   * arrived in by clipping through a wall.
+   *
+   * Now: two segments with a doorway between them the width of the hallway, a
+   * lintel over it, and colliders on both segments so the wall is real.
+   */
+  const DOORWAY_W = HALL_W;
+  const DOORWAY_H = 2.15;
+  const jambW = (LAB_W - DOORWAY_W) / 2;
+  for (const side of [-1, 1]) {
+    const x = side * (DOORWAY_W / 2 + jambW / 2);
+    const jamb = new THREE.Mesh(new THREE.PlaneGeometry(jambW, LAB_H), labWallMat);
+    jamb.position.set(x, LAB_H / 2, -LAB_D / 2);
+    // DoubleSide, unlike every other wall here: this is the one the player
+    // stands in the doorway of and looks at from both directions.
+    jamb.material = labWallMat;
+    lab.add(jamb);
+    colliders.push({
+      minX: x - jambW / 2, maxX: x + jambW / 2,
+      minZ: LAB_Z - LAB_D / 2 - 0.1, maxZ: LAB_Z - LAB_D / 2 + 0.15
+    });
+  }
+  const lintel = new THREE.Mesh(
+    new THREE.PlaneGeometry(DOORWAY_W, LAB_H - DOORWAY_H),
+    labWallMat
+  );
+  lintel.position.set(0, DOORWAY_H + (LAB_H - DOORWAY_H) / 2, -LAB_D / 2);
+  lab.add(lintel);
+
   labWall(LAB_D, -LAB_W / 2, 0, Math.PI / 2);
   labWall(LAB_D, LAB_W / 2, 0, -Math.PI / 2);
   const backWall = labWall(LAB_W, 0, LAB_D / 2, Math.PI);
@@ -154,6 +229,25 @@ export function createHallwayBasementLevel({
     { minX: LAB_W / 2 - 0.15, maxX: LAB_W / 2 + 0.1, minZ: LAB_Z - LAB_D / 2, maxZ: LAB_Z + LAB_D / 2 },
     { minX: -LAB_W / 2, maxX: LAB_W / 2, minZ: LAB_Z + LAB_D / 2 - 0.15, maxZ: LAB_Z + LAB_D / 2 + 0.1 }
   );
+
+  /**
+   * The threshold. The hallway floor ends at z = HALL_LEN and the lab floor
+   * starts at z = LAB_Z - LAB_D/2, which is 0.2 m further on -- so there was a
+   * strip of nothing between the two rooms that the player walked across,
+   * looking down into the void under the level.
+   *
+   * Patched with a strip rather than by moving LAB_Z, because LAB_Z is the
+   * origin every collider in this file is written against and shifting it would
+   * silently move all of them.
+   */
+  const threshold = new THREE.Mesh(
+    new THREE.PlaneGeometry(DOORWAY_W + 0.4, (LAB_Z - LAB_D / 2) - HALL_LEN + 0.1),
+    new THREE.MeshStandardMaterial({ map: concreteTex, bumpMap: concreteBump, bumpScale: 0.3, roughness: 1 })
+  );
+  threshold.rotation.x = -Math.PI / 2;
+  threshold.position.set(0, 0.001, (HALL_LEN + (LAB_Z - LAB_D / 2)) / 2 - 0.025);
+  threshold.receiveShadow = true;
+  group.add(threshold);
 
   // flickering fluorescent strip lights
   const fixturesGroup = new THREE.Group();
@@ -170,21 +264,30 @@ export function createHallwayBasementLevel({
   // it -- a faint emissive keeps the fixtures readable as objects overhead
   // instead of vanishing into the ceiling.
   const UNPOWERED_TUBE_LIGHT_INTENSITY = 0;
-  const UNPOWERED_TUBE_EMISSIVE_INTENSITY = 0.04;
+  const UNPOWERED_TUBE_EMISSIVE_INTENSITY = 0.06;
   const OVERLOAD_TUBE_LIGHT_INTENSITY = 26;
   const OVERLOAD_TUBE_LIGHT_JITTER = 8;
 
-  const tubeMat = new THREE.MeshStandardMaterial({ color: 0xdfe8ff, emissive: 0x9fc0ff, emissiveIntensity: TUBE_EMISSIVE_INTENSITY });
+  /**
+   * Each tube gets its OWN material clone: one shared material cannot show two
+   * tubes at different brightnesses, so the emissive would have stayed a single
+   * global value while the lights underneath it diverged. That matters for the
+   * dying tube, which stutters alone while the other two stay dark.
+   */
   const fluorescents = [];
   for (let i = -1; i <= 1; i++) {
+    const tubeMat = new THREE.MeshStandardMaterial({
+      color: 0xdfe8ff, emissive: 0x9fc0ff, emissiveIntensity: 0.06
+    });
     const tube = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.06, 0.1), tubeMat);
     tube.position.set(i * 2.4, LAB_H - 0.05, -1);
     fixturesGroup.add(tube);
-    const tubeLight = new THREE.PointLight(0xaec4ff, 1.35, 9, 1.5);
+    const tubeLight = new THREE.PointLight(0xaec4ff, 0, 9, 1.5);
     tubeLight.position.copy(tube.position);
     tubeLight.position.y -= 0.3;
     fixturesGroup.add(tubeLight);
-    fluorescents.push(tubeLight);
+    // The middle tube is the one that stutters before the power is on.
+    fluorescents.push({ light: tubeLight, mat: tubeMat, isDying: i === 0 });
   }
 
   // The ambient term is what actually blinds the player during an overload:
@@ -194,14 +297,16 @@ export function createHallwayBasementLevel({
   // Note the unpowered level is a floor, not a blackout: an AmbientLight is
   // global to the scene no matter which group it is added to, so the
   // hallway's own ambient reaches the lab as well and the room can never go
-  // fully dark while the two share a level.
+  // fully dark while the two share a level. At a quarter of the lit value it
+  // is enough to move by with a torch, not enough to read the room -- so
+  // restoring the power visibly changes something.
   const LAB_AMBIENT_COLOR = new THREE.Color(0x3d4658);
   const OVERLOAD_AMBIENT_COLOR = new THREE.Color(0xe4f0ff); // cool white, matching the fluorescent tubes
-  const UNPOWERED_LAB_AMBIENT_INTENSITY = 0.10;
-  const LAB_AMBIENT_INTENSITY = 0.40;
+  const LAB_AMBIENT_ON = 0.40;
+  const LAB_AMBIENT_OFF = 0.10;
   const OVERLOAD_AMBIENT_INTENSITY = 3.4;
 
-  const labAmbient = new THREE.AmbientLight(LAB_AMBIENT_COLOR.getHex(), UNPOWERED_LAB_AMBIENT_INTENSITY);
+  const labAmbient = new THREE.AmbientLight(LAB_AMBIENT_COLOR.getHex(), LAB_AMBIENT_OFF);
   lab.add(labAmbient);
 
   // exposed pipes along the back wall
@@ -357,9 +462,19 @@ export function createHallwayBasementLevel({
       if (installed === '30A') {
         powerRestored = true;
         puzzleState.slotFuse = '30A';
-        showCaption('The fuse clicks in. Power surges through the lab.');
+        showCaption('The fuse clicks in. Power surges through the lab -- something unlocks at the far end.');
         fuseBox.userData.interact.label = 'Power restored';
         metalDoor.userData.interact.label = 'Open the door';
+        // The screen stops being pure static. The picture fights its way
+        // through the interference rather than appearing; uStaticMix is what
+        // the shader crossfades on. The lab's own lights are NOT set here --
+        // updateLabLighting ramps them off powerRestored, so they come up over
+        // POWER_RAMP_IN_SECONDS instead of snapping on.
+        screenMaterial.uniforms.uNoiseStrength.value = 0.35;
+        screenMaterial.uniforms.uStaticMix.value = 0.18;
+        monitorBody.userData.interact.label = 'View camera feeds';
+        feedButtons[0].mesh.material.emissive.setHex(0x2e6b3a);
+        onPowerRestored();
       } else if (amps < 30) {
         puzzleState.slotFuse = installed;
         fuseFailReason[installed] = 'blown';
@@ -460,8 +575,20 @@ export function createHallwayBasementLevel({
   }
 
   // retro computer desk with the CCTV monitor (custom shader material)
+  /**
+   * The desk USED TO FACE THE BACK WALL. The monitor and its screen sat on the
+   * +Z side of the desk group, and the desk stood 1.4 m off the back wall, so
+   * the only place to read the screen from was a 0.90 m slot between the desk's
+   * collider and the wall's -- 0.20 m of actual standing room once the player's
+   * 0.35 m radius is taken off both sides. Reaching the one interactable the
+   * whole level is built around meant squeezing behind the furniture.
+   *
+   * Turned round to face into the room and pushed back against the wall, so it
+   * is approached from the open floor like every other prop in the game.
+   */
   const desk = new THREE.Group();
-  desk.position.set(1.6, 0, LAB_D / 2 - 1.4);
+  desk.position.set(1.6, 0, LAB_D / 2 - 0.55);
+  desk.rotation.y = Math.PI;
   lab.add(desk);
 
   const deskTop = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.06, 0.6), frameWoodMat());
@@ -482,21 +609,92 @@ export function createHallwayBasementLevel({
   monitorBody.position.set(0, 1.0, -0.05);
   desk.add(monitorBody);
 
-  const screenMaterial = createStaticScreenMaterial({ noiseStrength: 1.0 });
+  /**
+   * The five feeds. Drawn onto canvases rather than rendered, because three of
+   * the five cameras the storyline names look at rooms this game does not have
+   * -- see world/CctvFeeds.js for the full argument.
+   */
+  const feeds = createCctvFeeds();
+  const screenMaterial = createStaticScreenMaterial({
+    noiseStrength: 1.0,
+    feed: feeds.textures.kitchen
+  });
   const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.28), screenMaterial);
   screen.position.set(0, 1.0, 0.17);
   desk.add(screen);
-  dynamics.push({ update: (dt, elapsed) => { screenMaterial.uniforms.uTime.value = elapsed; } });
+  dynamics.push({
+    update: (dt, elapsed) => {
+      screenMaterial.uniforms.uTime.value = elapsed;
+      // Only redraw a feed once there is power. Before that the screen is pure
+      // static and the canvases would be painting for nobody.
+      if (powerRestored) feeds.update(dt);
+    }
+  });
 
   const screenGlow = new THREE.PointLight(0x8fd0ff, 0.5, 1.5, 2);
   screenGlow.position.set(0, 1.0, 0.3);
   desk.add(screenGlow);
 
   monitorBody.userData.interact = {
-    label: 'View camera feeds',
-    onInteract: () => showCaption('Five cameras. All static. No power.')
+    // Reads "no power" until there is power, rather than inviting the player to
+    // view feeds that cannot exist yet.
+    label: 'Examine the monitor',
+    onInteract: () => {
+      if (!powerRestored) {
+        showCaption('Five camera feeds, and every one of them is static. No power.');
+        return;
+      }
+      // Said "No power" even after the breaker was flipped, which told the
+      // player their one objective had not worked.
+      showCaption('Five feeds, live now. The kitchen. A hallway. The porch. A study. And this room.');
+    }
   };
   interactables.push(monitorBody);
+
+  /**
+   * The remote. Five buttons on the front edge of the desk.
+   *
+   * Each button is pushed into `interactables` SEPARATELY and none of them is a
+   * child of a shared hitbox, because Interaction raycasts NON-recursively --
+   * `intersectObjects(this.targets, false)`. A parent group with five children
+   * would never register a hit at all.
+   */
+  const remoteBase = new THREE.Mesh(
+    new THREE.BoxGeometry(0.30, 0.025, 0.10),
+    new THREE.MeshStandardMaterial({ color: 0x1e1f1c, roughness: 0.7 })
+  );
+  remoteBase.position.set(0, 0.79, 0.22);
+  desk.add(remoteBase);
+
+  const feedButtons = [];
+  FEED_IDS.forEach((id, i) => {
+    const lit = new THREE.MeshStandardMaterial({
+      color: 0x2a2c26,
+      emissive: 0x000000,
+      roughness: 0.5
+    });
+    const btn = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.016, 0.05), lit);
+    btn.position.set(-0.11 + i * 0.055, 0.806, 0.22);
+    btn.userData.interact = {
+      label: FEED_LABELS[id],
+      onInteract: () => {
+        if (!powerRestored) {
+          showCaption('The remote is dead. Nothing on this desk has power.');
+          return;
+        }
+        feeds.setActive(id);
+        screenMaterial.uniforms.uFeed.value = feeds.textures[id];
+        feedButtons.forEach(({ mesh, feedId }) => {
+          mesh.material.emissive.setHex(feedId === id ? 0x2e6b3a : 0x000000);
+        });
+        onViewFeed(id);
+      }
+    };
+    desk.add(btn);
+    // Individually, not as a group. See the note above.
+    interactables.push(btn);
+    feedButtons.push({ mesh: btn, feedId: id, material: lit });
+  });
 
   const noteTex = createStickyNoteTexture("Restore power and pray it doesn't hear you.");
   const sticky = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.16), new THREE.MeshStandardMaterial({ map: noteTex }));
@@ -513,6 +711,16 @@ export function createHallwayBasementLevel({
     minX: desk.position.x - 0.65, maxX: desk.position.x + 0.65,
     minZ: LAB_Z + desk.position.z - 0.35, maxZ: LAB_Z + desk.position.z + 0.35
   });
+  // Sanity, checked at build time rather than discovered by walking into it:
+  // the desk must not leave a gap against the back wall that is too narrow to
+  // stand in but wide enough to look like a route. Either flush, or wide enough.
+  {
+    const gap = (LAB_D / 2 - 0.15) - (desk.position.z + 0.35);
+    const standing = gap - 0.7;   // the player is 0.35 in radius
+    if (standing > 0 && standing < 0.6) {
+      console.warn(`[lab] ${standing.toFixed(2)}m of standing room behind the desk -- too narrow to use, wide enough to look like a way through`);
+    }
+  }
 
   // Locked metal door at the far end of the lab -- opposite the entrance
   // from the hallway, per the storyline ("at the opposite end of the
@@ -537,6 +745,35 @@ export function createHallwayBasementLevel({
   };
   interactables.push(metalDoor);
   lab.add(metalDoor);
+
+  /**
+   * The pool it leaves behind. Same recipe as the corridor's puddles: no new
+   * texture, semi-transparent with just enough gloss that a moving torch beam
+   * finds a highlight in it. Darker and less transparent than water, because
+   * this is not water.
+   *
+   * Hidden until the creature has stood there and gone. It is the evidence --
+   * "It must be injured" -- and on a second playthrough it is the moment the
+   * player realises they were the one who hurt her.
+   */
+  const poolMat = new THREE.MeshStandardMaterial({
+    color: 0x0d0b0c,
+    roughness: 0.22,
+    metalness: 0,
+    transparent: true,
+    opacity: 0.82,
+    depthWrite: false
+  });
+  const blackPool = new THREE.Mesh(new THREE.CircleGeometry(0.5, 24), poolMat);
+  blackPool.rotation.x = -Math.PI / 2;
+  blackPool.position.set(-LAB_W / 2 + 1.5, 0.014, -LAB_D / 2 + 1.2);
+  blackPool.scale.set(0.85, 1.15, 1);
+  blackPool.visible = false;
+  blackPool.userData.interact = {
+    label: 'Examine the pool',
+    onInteract: () => showCaption('Whatever it is, it is not water, and it is still wet.')
+  };
+  lab.add(blackPool);
 
   // broken restraints / chair dressing near the middle of the lab
   const restraint = new THREE.Mesh(
@@ -582,7 +819,17 @@ export function createHallwayBasementLevel({
   });
 
   const crateMat = new THREE.MeshStandardMaterial({ color: 0x2e2418, roughness: 0.9 });
-  [[1.5, 1.5, 0], [1.75, 1.7, 0.4], [-1.6, 2.2, 0]].forEach(([x, z, stackY], i) => {
+  /**
+   * The stacked crates used to stand at x=1.5, which left a 0.50 m gap between
+   * their collider and the shelving at x=2.3. The player is 0.70 m across, so
+   * that gap was impassable -- and it was the ONLY way into the back-right
+   * quarter of the lab. 4.7 square metres of room, including the floor in front
+   * of the CCTV desk, could never be reached at all. Found by flood-filling the
+   * level's real colliders rather than by looking at it.
+   *
+   * Moved west to x=0.9, which opens the gap to 1.10 m.
+   */
+  [[0.9, 1.5, 0], [1.15, 1.7, 0.4], [-1.6, 2.2, 0]].forEach(([x, z, stackY], i) => {
     const crate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), crateMat);
     crate.position.set(x, 0.25 + stackY, z);
     crate.rotation.y = i * 0.6;
@@ -591,6 +838,30 @@ export function createHallwayBasementLevel({
       colliders.push({ minX: x - 0.3, maxX: x + 0.3, minZ: LAB_Z + z - 0.3, maxZ: LAB_Z + z + 0.3 });
     }
   });
+
+  /**
+   * The sketch. The storyline is specific: "on the floor is what seems to be a
+   * sketch of the creature. It looks human, yet monstrous. Long arms, thin body,
+   * hunched back, long fingers, crooked head."
+   *
+   * This is the single most important prop in the basement, because it is the
+   * player's first good look at the shape -- and on a second playthrough it is
+   * a drawing of the player, made by someone trying to describe what they were
+   * living with.
+   */
+  const sketch = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.34, 0.44),
+    new THREE.MeshStandardMaterial({ map: createCreatureSketchTexture(), roughness: 1 })
+  );
+  sketch.rotation.x = -Math.PI / 2;
+  sketch.rotation.z = -0.32;
+  sketch.position.set(-1.35, 0.013, 0.85);
+  sketch.userData.interact = {
+    label: 'Pick up the sketch',
+    onInteract: () => onExamineSketch()
+  };
+  interactables.push(sketch);
+  lab.add(sketch);
 
   // torn pages of notes on the workbench -- the creature's own case file,
   // called out in the storyline but previously missing from the world
@@ -660,28 +931,35 @@ export function createHallwayBasementLevel({
       deltaTimeInSeconds / POWER_RAMP_IN_SECONDS
     );
 
-    fluorescents.forEach((tubeLight) => {
+    fluorescents.forEach(({ light, mat, isDying }) => {
       const dip = Math.random() < 0.05 ? 0.3 : 1;
       const ratedIntensity = (1.17 + Math.random() * 0.31) * dip;
+      // One tube keeps trying on a dead circuit, which is what a failing
+      // fluorescent actually does. Rare and brief -- a 3% chance per frame is
+      // roughly twice a second, reading as a struggle rather than a strobe --
+      // and the power ramp fades it out as the real lights come up.
+      const stuttering = isDying && Math.random() < 0.03;
+      const deadIntensity = stuttering ? 0.5 + Math.random() * 0.35 : UNPOWERED_TUBE_LIGHT_INTENSITY;
+      const deadEmissive = stuttering ? 0.9 : UNPOWERED_TUBE_EMISSIVE_INTENSITY;
+
       const overloadIntensity = OVERLOAD_TUBE_LIGHT_INTENSITY + Math.random() * OVERLOAD_TUBE_LIGHT_JITTER;
-      const poweredIntensity = THREE.MathUtils.lerp(UNPOWERED_TUBE_LIGHT_INTENSITY, ratedIntensity, powerLevel);
-      tubeLight.intensity = THREE.MathUtils.lerp(poweredIntensity, overloadIntensity, overloadGlare);
+      light.intensity = THREE.MathUtils.lerp(
+        THREE.MathUtils.lerp(deadIntensity, ratedIntensity, powerLevel),
+        overloadIntensity,
+        overloadGlare
+      );
+      // Per-tube, not one shared material: the dying tube has to be able to
+      // glow while the other two stay dark.
+      mat.emissiveIntensity = THREE.MathUtils.lerp(
+        THREE.MathUtils.lerp(deadEmissive, TUBE_EMISSIVE_INTENSITY, powerLevel),
+        OVERLOAD_TUBE_EMISSIVE_INTENSITY,
+        overloadGlare
+      );
     });
 
-    const poweredEmissive = THREE.MathUtils.lerp(
-      UNPOWERED_TUBE_EMISSIVE_INTENSITY,
-      TUBE_EMISSIVE_INTENSITY,
-      powerLevel
-    );
-    tubeMat.emissiveIntensity = THREE.MathUtils.lerp(
-      poweredEmissive,
-      OVERLOAD_TUBE_EMISSIVE_INTENSITY,
-      overloadGlare
-    );
-
     const poweredAmbient = THREE.MathUtils.lerp(
-      UNPOWERED_LAB_AMBIENT_INTENSITY,
-      LAB_AMBIENT_INTENSITY,
+      LAB_AMBIENT_OFF,
+      LAB_AMBIENT_ON,
       powerLevel
     );
     labAmbient.intensity = THREE.MathUtils.lerp(
@@ -705,14 +983,44 @@ export function createHallwayBasementLevel({
     // +Z from the spawn point, so it has to be turned 180 degrees to
     // actually face into the level rather than out through the void.
     spawnYaw: Math.PI,
-    refs: { fluorescents, hallLight, screenMaterial },
+    refs: {
+      fluorescents,
+      hallLight,
+      screenMaterial,
+      labAmbient,
+      monitorBody,
+      metalDoor,
+      feeds,
+      feedButtons,
+      hallLightning,
+      blackPool,
+      /** One lightning strike down the hallway. Returns how long it lasts. */
+      strike: (duration = 0.55) => {
+        flash.duration = duration;
+        flash.t = duration;
+        return duration;
+      },
+      /** Reveals the pool and makes it examinable. Once the creature has gone. */
+      revealPool: () => {
+        if (blackPool.visible) return;
+        blackPool.visible = true;
+        interactables.push(blackPool);
+      },
+      /** Read by tests and by main.js; the level owns the flag itself. */
+      get powerRestored() { return powerRestored; }
+    },
 
-    // Puts every piece of run-specific state this level owns back to its
-    // starting point -- clears the fuse puzzle (held/seated fuse, overload
-    // glare, spark flash), empties the dropped-fuse row so a replay starts
-    // filling it from the first slot again, puts all four fuse meshes back
-    // at their original spots with fresh pickup handlers, and restores the
-    // fuse box / door labels.
+    /**
+     * Puts every piece of run-specific state this level owns back to its
+     * starting point. SceneManager.resetAll() calls this, without which a
+     * restart left the breaker flipped and the exit door still reading "Open
+     * the door".
+     *
+     * Two halves: the fuse puzzle (held/seated fuse, overload glare, spark
+     * flash, the dropped-fuse row, and the four fuse meshes with fresh pickup
+     * handlers), and everything restoring the power changed (lights, screen,
+     * feeds, the creature's pool).
+     */
     reset() {
       powerRestored = false;
       puzzleState.heldFuse = null;
@@ -724,10 +1032,27 @@ export function createHallwayBasementLevel({
       overloadGlare = 0;
       powerLevel = 0;
       onGlare(0);
-      tubeMat.emissiveIntensity = UNPOWERED_TUBE_EMISSIVE_INTENSITY;
-      labAmbient.intensity = UNPOWERED_LAB_AMBIENT_INTENSITY;
+
+      labAmbient.intensity = LAB_AMBIENT_OFF;
       labAmbient.color.copy(LAB_AMBIENT_COLOR);
-      fluorescents.forEach((tubeLight) => { tubeLight.intensity = UNPOWERED_TUBE_LIGHT_INTENSITY; });
+      fluorescents.forEach(({ light, mat }) => {
+        light.intensity = UNPOWERED_TUBE_LIGHT_INTENSITY;
+        mat.emissiveIntensity = UNPOWERED_TUBE_EMISSIVE_INTENSITY;
+      });
+
+      screenMaterial.uniforms.uNoiseStrength.value = 1.0;
+      screenMaterial.uniforms.uStaticMix.value = 1;
+      screenMaterial.uniforms.uFeed.value = feeds.textures.kitchen;
+      feeds.reset();
+      flash.t = 0;
+      hallLightning.intensity = 0;
+      if (blackPool.visible) {
+        blackPool.visible = false;
+        const i = interactables.indexOf(blackPool);
+        if (i >= 0) interactables.splice(i, 1);
+      }
+      feedButtons.forEach(({ mesh }) => mesh.material.emissive.setHex(0x000000));
+      monitorBody.userData.interact.label = 'Examine the monitor';
 
       fuseBox.userData.interact.label = 'Empty fuse slot';
       metalDoor.userData.interact.label = 'Locked. Restore power first.';
@@ -755,11 +1080,23 @@ export function createHallwayBasementLevel({
         if (!interactables.includes(fuse)) interactables.push(fuse);
       });
     },
-
     update(dt) {
       const elapsed = (this._t = (this._t ?? 0) + dt);
       dynamics.forEach((d) => d.update(dt, elapsed));
 
+      // The scripted lightning. Fast up, slower down, with the intensity
+      // jittered so it reads as a strike rather than a lamp being switched.
+      if (flash.t > 0) {
+        flash.t = Math.max(0, flash.t - dt);
+        const k = flash.t / flash.duration;
+        hallLightning.intensity = k * k * 5.2 * (0.55 + Math.random() * 0.45);
+      } else if (hallLightning.intensity !== 0) {
+        hallLightning.intensity = 0;
+      }
+
+      // Sole owner of the fluorescents and the lab ambient -- it folds the
+      // dying-tube stutter, the powered flicker and the overload glare into a
+      // single pass, so nothing else in here may drive those lights.
       updateLabLighting(dt);
 
       if (sparkTimer > 0) {

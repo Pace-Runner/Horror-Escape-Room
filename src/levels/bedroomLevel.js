@@ -5,6 +5,8 @@ import {
   createWoodFloorNormalTexture,
   createDamaskWallpaperTexture,
   createWallpaperNormalTexture,
+  createWoodFloorRoughnessTexture,
+  createPlasterRoughnessTexture,
   createScratchedMessageTexture,
   createScratchedMessageNormalTexture,
   createPolaroidTexture,
@@ -26,6 +28,30 @@ import { loadModel, applyTextureByMaterialName } from '../world/modelLoader.js';
 import bedModelUrl from '../assets/models/bed.glb?url';
 import dresserModelUrl from '../assets/models/dresser.glb?url';
 import doorModelUrl from '../assets/models/door.glb?url';
+import flashlightModelUrl from '../assets/models/flashlight.glb?url';
+
+/**
+ * How much larger than life the paperclip is drawn.
+ *
+ * A real Gem clip is about 33 x 8 mm, which from the ~1.3m the chained player
+ * views it at is a couple of dozen pixels of 1.6mm wire -- findable only if you
+ * already know it is there. Scaling the whole group keeps the proportions and
+ * takes the hitbox with it.
+ *
+ * THIS IS THE NUMBER TO TURN UP if it is still hard to spot. 1.0 is true to
+ * life; 4.0 is comically large but unmissable.
+ */
+const PAPERCLIP_SCALE = 3.0;
+
+/**
+ * Wire gauge, in metres, before PAPERCLIP_SCALE multiplies it.
+ *
+ * Real paperclip wire is about 0.8mm. Kept a little over that because at this
+ * viewing distance a true-gauge wire is sub-pixel in places and breaks up into
+ * dashes. Lower it for a finer, more delicate clip; raise it if it starts
+ * disappearing against the blanket.
+ */
+const PAPERCLIP_WIRE_RADIUS = 0.0011;
 
 const ROOM_W = 6.4;
 const ROOM_D = 5.2;
@@ -49,7 +75,21 @@ const ROOM_H = 2.8;
  *    space, so the "left half-open" pose is defined once, relative to
  *    the dresser, rather than as loose world-space furniture.
  */
-export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {}, onFlashlightPicked = () => {}, onDoorOpened = () => {}, onExaminePhotos = () => {}, onExaminePinpad = () => {} } = {}) {
+export function createBedroomLevel({
+  showCaption = () => {},
+  onFreed = () => {},
+  onFlashlightPicked = () => {},
+  onCrowbarFound = () => {},
+  onCrowbarUsed = () => {},
+  onDoorOpened = () => {},
+  onExaminePhotos = () => {},
+  onExaminePinpad = () => {},
+  // The scratched floor message is a STORY beat, not just a caption: reading it
+  // is what brings the thing past the door. The level reports the read and
+  // main.js decides what happens, the same split every other callback here uses.
+  onReadMessage = () => {},
+  onExaminePolaroid = () => {}
+} = {}) {
   const group = new THREE.Group();
   group.name = 'Level1_Bedroom';
   const interactables = [];
@@ -64,7 +104,11 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     hasKey: false,
     hasCrowbar: false,
     planksRemoved: false,
-    doorUnlocked: false // true once the door has actually been swung open
+    doorUnlocked: false, // true once the door has actually been swung open
+    // Story beats, tracked so each fires once. Examining a prop a second time
+    // should give you the description again, not replay the scene.
+    messageRead: false,
+    polaroidRead: false
   };
 
   // Darker stained wood + ornate damask wallpaper (both normal-mapped, not
@@ -96,20 +140,85 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   floor.receiveShadow = true;
   structure.add(floor);
 
+  /**
+   * The ceiling was 33 square metres of one flat colour -- and it is the single
+   * biggest surface the bulb lights directly, so it was also the biggest
+   * uninterrupted nothing in the room. It carries the plaster relief the walls
+   * use, tinted right down, so the swinging bulb and a lightning flash both
+   * find something up there to rake across instead of a dead grey field.
+   */
   const ceiling = new THREE.Mesh(
     new THREE.PlaneGeometry(ROOM_W, ROOM_D),
-    new THREE.MeshStandardMaterial({ color: 0x1c1a17, roughness: 1 })
+    new THREE.MeshStandardMaterial({
+      // RELIEF WITHOUT ALBEDO. The first attempt gave it the plaster colour map
+      // as well, and a lightning flash turned the ceiling into a bright
+      // speckled field -- louder than the flat grey it replaced, and it pulled
+      // the eye straight up to the least interesting surface in the room.
+      // Keeping the normal and roughness maps and dropping the colour map gives
+      // it something for raking light to find while it stays as dark as it was.
+      // ROUGHNESS ONLY, no normal map. The plaster height field is per-pixel
+      // random noise, which is fine on a wall two metres away and reads as
+      // salt-and-pepper GRAIN across 33 square metres of ceiling half a metre
+      // from a bare bulb. Roughness varies the sheen without pushing the
+      // surface normal around, so the ceiling gains material without gaining
+      // static.
+      color: 0x1c1a17,
+      roughnessMap: createPlasterRoughnessTexture(),
+      roughness: 1
+    })
   );
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.y = ROOM_H;
+  ceiling.receiveShadow = true;
   structure.add(ceiling);
 
   const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, normalMap: wallNormal, normalScale: new THREE.Vector2(0.55, 0.55), roughness: 0.88 });
 
+  /**
+   * WALLS CAST AND RECEIVE NOW, and they did neither.
+   *
+   * `grep receiveShadow` over this file used to find the floor and a handful of
+   * props -- no wall, ever. In three.js a surface absent from that list is not
+   * lit by any shadow calculation at all, so every shadow in this room fell on
+   * the floorboards and stopped. The torch could not throw the bed up the wall;
+   * the bulb could not put the door frame across the plaster; and the lightning
+   * (below) could not have cast the window even if it had been asked to,
+   * because there was nothing to catch it and nothing to block it.
+   *
+   * castShadow matters just as much: a mesh missing from the shadow map does
+   * not OCCLUDE, so light passed straight through these walls as though they
+   * were glass.
+   */
+  /**
+   * WORLD-SPACE TEXTURE DENSITY.
+   *
+   * Every wall shares one material and one texture at UV 0..1, and the walls
+   * are different sizes -- 6.4 m across the back, 5.2 m down the sides, and
+   * four slabs around the window between 0.6 m and 2.5 m. The same damask
+   * therefore stretched to fit each one, so the motif was a different size on
+   * every surface and wildly different on the pieces framing the window, which
+   * meet each other at visible seams.
+   *
+   * Scaling the UVs by the mesh's real size fixes it without a second material
+   * or a second texture: one repeat of the pattern is now TILE metres
+   * everywhere, whatever it is drawn on.
+   */
+  const WALL_TILE = 1.7;
+  function tileUVs(geometry, w, h, tile = WALL_TILE) {
+    const uv = geometry.attributes.uv;
+    for (let i = 0; i < uv.count; i++) {
+      uv.setXY(i, uv.getX(i) * (w / tile), uv.getY(i) * (h / tile));
+    }
+    uv.needsUpdate = true;
+    return geometry;
+  }
+
   function addWall(w, h, x, y, z, ry) {
-    const wall = new THREE.Mesh(new THREE.PlaneGeometry(w, h), wallMat);
+    const wall = new THREE.Mesh(tileUVs(new THREE.PlaneGeometry(w, h), w, h), wallMat);
     wall.position.set(x, y, z);
     wall.rotation.y = ry;
+    wall.castShadow = true;
+    wall.receiveShadow = true;
     structure.add(wall);
     return wall;
   }
@@ -128,8 +237,17 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     const wallZ = z + depth / 2;
 
     const slab = (sw, sh, sx, sy) => {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(sw, sh, depth), wallMat);
+      // Same treatment for the four slabs framing the window. Their front faces
+      // are the ones that meet the plain walls, and they were the worst
+      // offenders -- the strip above the window is 1.3 m wide by 0.75 m tall and
+      // was showing a whole damask repeat squeezed into it.
+      const mesh = new THREE.Mesh(tileUVs(new THREE.BoxGeometry(sw, sh, depth), sw, sh), wallMat);
       mesh.position.set(sx, sy, wallZ);
+      // The four slabs around the window are what actually CUT the window
+      // shape out of the lightning. Without castShadow the flash pours through
+      // the wall as if it were not there, and the aperture means nothing.
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
       structure.add(mesh);
     };
 
@@ -232,10 +350,13 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   bulbBase.position.y = -0.505;
   ceilingAnchor.add(bulbBase);
 
-  const bulbMesh = new THREE.Mesh(
-    new THREE.SphereGeometry(0.055, 12, 12),
-    new THREE.MeshStandardMaterial({ color: 0xffdca0, emissive: 0xffb347, emissiveIntensity: 1.4 })
-  );
+  // Held in its own const so Storm can put it out. Without this the light goes
+  // to zero and the glass keeps glowing at emissive 1.4 -- the brightest object
+  // in a room the player has just been told is dark.
+  const bulbMaterial = new THREE.MeshStandardMaterial({
+    color: 0xffdca0, emissive: 0xffb347, emissiveIntensity: 1.4
+  });
+  const bulbMesh = new THREE.Mesh(new THREE.SphereGeometry(0.055, 12, 12), bulbMaterial);
   bulbMesh.position.y = -0.565;
   ceilingAnchor.add(bulbMesh);
 
@@ -262,15 +383,55 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   bulbLight.position.y = -0.565;
   bulbLight.castShadow = true;
   bulbLight.shadow.mapSize.set(512, 512);
+  /**
+   * A PointLight's shadow camera defaults to far = 500. In a room 6.4 m across
+   * that spreads the depth buffer's precision over eighty times the distance it
+   * needs, which is where shadow acne and peter-panning come from -- and it is
+   * six cube faces being rendered at that range every frame. Sized to the room.
+   */
+  bulbLight.shadow.camera.near = 0.08;
+  bulbLight.shadow.camera.far = 9;
+  bulbLight.shadow.bias = -0.0015;
   ceilingAnchor.add(bulbLight);
 
   // ---------- ambient / storm baseline ----------
   const ambient = new THREE.AmbientLight(0x2e3342, 0.31);
   group.add(ambient);
 
+  /**
+   * LIGHTNING THAT ACTUALLY COMES THROUGH THE WINDOW.
+   *
+   * It stayed a DirectionalLight -- its flat parallel fill is what reads as sky
+   * rather than as a searchlight -- but it now casts, and it is aimed along a
+   * line that puts the window's shadow somewhere worth looking.
+   *
+   * The old aim was (-3, 2.4, -3.5) toward (-3, 0, -2.6): 21 degrees off
+   * VERTICAL, so even with shadows on, the window's patch would have landed
+   * about half a metre from the wall base, behind the radiator. It now comes in
+   * at roughly 25 degrees above horizontal, which throws the mullion cross
+   * several metres across the floorboards and up the far wall.
+   *
+   * autoUpdate = false is what makes it affordable. three.js re-renders a
+   * casting light's shadow map EVERY FRAME regardless of its intensity being
+   * zero, and this light is dark for 5 to 14 seconds at a time. main.js sets
+   * needsUpdate on the frame a flash begins (see the onFlash callback); the
+   * room is static for the flash's whole 0.12-0.3 s, so one 1024-square render
+   * per strike is the entire cost.
+   */
   const lightning = new THREE.DirectionalLight(0xbcd4ff, 0);
-  lightning.position.set(-3, 2.4, -3.5);
-  lightning.target.position.set(-3, 0, -ROOM_D / 2);
+  lightning.position.set(-4.2, 3.4, -7.5);
+  lightning.target.position.set(-0.6, 0, -0.4);
+  lightning.castShadow = true;
+  lightning.shadow.mapSize.set(1024, 1024);
+  lightning.shadow.camera.left = -3.4;
+  lightning.shadow.camera.right = 3.4;
+  lightning.shadow.camera.top = 3.0;
+  lightning.shadow.camera.bottom = -3.0;
+  lightning.shadow.camera.near = 0.5;
+  lightning.shadow.camera.far = 16;
+  // Negative bias, or the floorboards acne under PCFSoftShadowMap.
+  lightning.shadow.bias = -0.0006;
+  lightning.shadow.autoUpdate = false;
   group.add(lightning);
   group.add(lightning.target);
 
@@ -279,9 +440,42 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   windowGroup.position.set(-2.1, 1.5, -ROOM_D / 2 + 0.02);
   group.add(windowGroup);
 
+  /**
+   * THE FRAME IS A FRAME. It used to be one solid BoxGeometry(1.3, 1.5, 0.08)
+   * -- an opaque slab exactly filling the aperture that addWallWithGap had gone
+   * to the trouble of cutting.
+   *
+   * The consequences were the whole reason this room has a storm at all. Behind
+   * that slab sat 400 rain particles, a rain-streaked glass shader and a
+   * lightning light, none of which the player could see: the window showed a
+   * pane of glass with a brown board behind it. Every atmosphere system in
+   * Level 1 was aimed through a hole that had been filled in.
+   *
+   * Four bars now, leaving the aperture genuinely open. The board was probably
+   * meant as the outside seen through the glass -- but the outside is the storm,
+   * and the storm was already built.
+   */
   const frameMat = new THREE.MeshStandardMaterial({ color: 0x2c2620, roughness: 0.8 });
-  const frameOuter = new THREE.Mesh(new THREE.BoxGeometry(1.3, 1.5, 0.08), frameMat);
-  windowGroup.add(frameOuter);
+  const FRAME_W = 1.3;
+  const FRAME_H = 1.5;
+  const APERTURE_W = 1.1;
+  const APERTURE_H = 1.3;
+  const FRAME_D = 0.08;
+  const barX = (FRAME_W - APERTURE_W) / 2;
+  const barY = (FRAME_H - APERTURE_H) / 2;
+  const frameParts = [
+    [FRAME_W, barY, 0, (APERTURE_H + barY) / 2],       // head
+    [FRAME_W, barY, 0, -(APERTURE_H + barY) / 2],      // sill
+    [barX, APERTURE_H, -(APERTURE_W + barX) / 2, 0],   // left jamb
+    [barX, APERTURE_H, (APERTURE_W + barX) / 2, 0]     // right jamb
+  ];
+  for (const [w, h, x, y] of frameParts) {
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(w, h, FRAME_D), frameMat);
+    bar.position.set(x, y, 0);
+    bar.castShadow = true;
+    bar.receiveShadow = true;
+    windowGroup.add(bar);
+  }
   // Custom shader material (see world/RainGlassMaterial.js): streaks rain
   // down the pane and flashes with the storm's lightning, instead of a
   // static tinted-transparent built-in material.
@@ -291,11 +485,15 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   windowGroup.add(glass);
   // mullion cross
   const mullionMat = new THREE.MeshStandardMaterial({ color: 0x1c1712 });
+  // The cross has to CAST, or a flash throws a plain bright rectangle on the
+  // floor instead of a window. This pair of boxes is the whole image.
   const mV = new THREE.Mesh(new THREE.BoxGeometry(0.04, 1.3, 0.06), mullionMat);
   mV.position.z = 0.06;
+  mV.castShadow = true;
   windowGroup.add(mV);
   const mH = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.04, 0.06), mullionMat);
   mH.position.z = 0.06;
+  mH.castShadow = true;
   windowGroup.add(mH);
 
   // ---------- old cast-iron radiator beneath the window ----------
@@ -617,6 +815,66 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   doorFrame.add(doorHinge);
   const doorOpenSwing = Math.PI / 2;
 
+  /**
+   * "Something moves past the door."
+   *
+   * The storyline's beat, and it did not exist in any form. The door is shut
+   * and boarded, so there is nothing to SEE past it -- which is the whole
+   * problem and also the answer: what you see is the strip of light under the
+   * door, and what happens is that something breaks it.
+   *
+   * Two meshes. A thin emissive strip along the threshold, off until the beat
+   * runs, and a black quad that slides across it. No lights and no shadow
+   * casting: a real light in the hallway would have to be occluded by real
+   * geometry that does not exist out there, and at this scale the strip reads
+   * better anyway because the eye is drawn to the one bright thing in a room
+   * that is otherwise at 6/255.
+   *
+   * Deliberately understated. The strip is dim, the pass is slow, and it
+   * happens once. A player who is looking at the door sees it clearly; a player
+   * who is not hears the footsteps and turns around too late, which is the
+   * better version of the beat.
+   */
+  const DOOR_LEAF_W = 1.0;
+  const gapGroup = new THREE.Group();
+  // Just inside the room from the door plane, a centimetre off the floor.
+  gapGroup.position.set(0, 0.012, -0.06);
+  doorFrame.add(gapGroup);
+
+  const doorGapMat = new THREE.MeshBasicMaterial({
+    color: 0xb08a3c,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false
+  });
+  const doorGap = new THREE.Mesh(new THREE.PlaneGeometry(DOOR_LEAF_W, 0.055), doorGapMat);
+  doorGap.rotation.x = -Math.PI / 2;
+  gapGroup.add(doorGap);
+
+  // The blocker. Wider than a leg on purpose: it is a body's worth of shadow
+  // seen edge-on through a 5 cm gap, not a silhouette.
+  const doorGapBlockMat = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false
+  });
+  const doorGapBlock = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.075), doorGapBlockMat);
+  doorGapBlock.rotation.x = -Math.PI / 2;
+  doorGapBlock.position.y = 0.002;
+  // Explicit, because the two planes are 2 mm apart with depthWrite off, and
+  // three sorts transparent objects by camera distance -- at that separation
+  // the order is a coin toss, and losing it draws the shadow UNDER the light.
+  doorGap.renderOrder = 1;
+  doorGapBlock.renderOrder = 2;
+  gapGroup.add(doorGapBlock);
+
+  /**
+   * Beat state. `phase` runs 0..1 across the whole pass; the light comes up,
+   * the shadow crosses, the light goes out again.
+   */
+  const doorPass = { active: false, phase: 0, duration: 5.4 };
+
   // Blender-authored, see blender/build_door.py: a beveled frame around a
   // two-panel raised door (real stile-and-rail relief with a mid-rail gap,
   // not a flat slab) plus a turned knob. doorSlab stays a plain invisible
@@ -730,7 +988,14 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   doorFrame.add(polaroid);
   polaroid.userData.interact = {
     label: 'Examine polaroid',
-    onInteract: () => showCaption('A polaroid of a shadowy figure, stuck to the door frame. Written on it: "PROJECT HOLLOW", June 1987.')
+    onInteract: () => {
+      if (puzzleState.polaroidRead) {
+        showCaption('A polaroid of a shadowy figure, stuck to the door frame. Written on it: "PROJECT HOLLOW", June 1987.');
+        return;
+      }
+      puzzleState.polaroidRead = true;
+      onExaminePolaroid();
+    }
   };
   interactables.push(polaroid);
 
@@ -798,7 +1063,7 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   }
 
   // ---------- scattered photographs + scratched floor message ----------
-  const photoTex = createFamilyPhotoTexture({ scratchedFourth: true });
+  const photoTex = createFamilyPhotoTexture();
   for (let i = 0; i < 4; i++) {
     const photo = new THREE.Mesh(
       new THREE.PlaneGeometry(0.22, 0.17),
@@ -811,7 +1076,7 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
       label: i === 0 ? 'Examine family photograph' : 'Examine photograph',
       onInteract: () => showCaption(
         i === 0
-          ? 'A family photo. Four people. The fourth has been scratched out with marker.'
+          ? 'A family photo. Three people, and a gap on the end where a fourth would stand.'
           : 'An old photograph, face down among the mess.'
       )
     };
@@ -863,7 +1128,16 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   message.position.set(1.35, 0.011, -1.0);
   message.userData.interact = {
     label: 'Read the floor',
-    onInteract: () => showCaption('Scratched into the floorboards, in shaking letters: "Don\'t let it out."')
+    onInteract: () => {
+      // First read is the story beat; afterwards it is just a thing on the
+      // floor, so re-examining does not replay the whole sequence.
+      if (puzzleState.messageRead) {
+        showCaption('Scratched into the floorboards, in shaking letters: "Don\'t let it out."');
+        return;
+      }
+      puzzleState.messageRead = true;
+      onReadMessage();
+    }
   };
   interactables.push(message);
   group.add(message);
@@ -871,22 +1145,49 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   // ---------- flashlight prop (pickup handled by main.js via callback hook) ----------
   // Height matches the nightstand top below (0.72, close to the mattress's
   // own 0.74) -- was previously pinned to a knee-high 0.42 m table.
+  // The prop is blender/build_flashlight.py -> flashlight.glb, replacing the
+  // two primitive cylinders that used to stand in for it. Still a Group with
+  // the same name and the same role, so the hitbox below, the refs block and
+  // reset() are all untouched by the swap -- only what is inside the group
+  // changed.
+  //
+  // Resting height, not the old 0.78: the nightstand's top slab is centred at
+  // 0.78 and 0.04 thick, so its surface is at 0.80, and the placeholder was
+  // sitting half sunk into it. 0.025 is the bezel radius, which is the widest
+  // point and therefore what a torch lying on a table actually rests on, so
+  // 0.825 puts it exactly flush.
+  //
+  // It also can no longer sit dead centre. The old placeholder was a 0.22 m
+  // cylinder at the middle of the top, which was already clipping the lamp;
+  // the real model has to thread between the lamp (back left), the alarm
+  // clock (back right) and the book (front right). This spot is the one with
+  // the largest clearance from all three -- 36 mm to the nearest, 40 mm
+  // inside the table edge -- so the torch reads as set down in the free
+  // corner rather than floating through the dressing.
   const flashlight = new THREE.Group();
-  flashlight.position.set(-2.5, 0.78, 1.7);
-  const flashBody = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.03, 0.035, 0.22, 10),
-    new THREE.MeshStandardMaterial({ color: 0x2a2a2a, metalness: 0.6, roughness: 0.4 })
-  );
-  flashBody.rotation.z = Math.PI / 2;
-  flashlight.add(flashBody);
-  const flashLens = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.032, 0.032, 0.02, 10),
-    new THREE.MeshStandardMaterial({ color: 0xfff2c0, emissive: 0xfff2c0, emissiveIntensity: 0.4 })
-  );
-  flashLens.rotation.z = Math.PI / 2;
-  flashLens.position.x = 0.12;
-  flashlight.add(flashLens);
+  flashlight.position.set(-2.552, 0.825, 1.776);
+  // The model is authored beam-down-+Y per the socket convention in
+  // systems/hands/sockets.js, i.e. standing on its tail. Rolling -90 degrees
+  // about Z lays that axis into the horizontal plane, and the Y term then
+  // aims it across the nightstand. Euler order is three's default XYZ, so Z
+  // is applied first and Y swings the already-horizontal torch.
+  flashlight.rotation.set(0, 0.873, -Math.PI / 2);
   group.add(flashlight);
+
+  loadModel(flashlightModelUrl).then((flashlightModel) => {
+    flashlightModel.traverse((child) => {
+      if (!child.isMesh) return;
+      child.receiveShadow = true;
+      // Everything casts except the glass: TorchLens exports as alphaMode
+      // BLEND, and a transparent caster is resolved against the shadow map as
+      // if it were solid, which would stamp an opaque black disc across the
+      // reflector it is supposed to be showing through.
+      child.castShadow = child.material.name !== 'TorchLens';
+    });
+    flashlight.add(flashlightModel);
+  }).catch((err) => {
+    console.error('Failed to load flashlight.glb, the flashlight prop will be missing:', err);
+  });
 
   // The flashlight's visual meshes are a THREE.Group, which has no
   // raycast of its own (Object3D.raycast is a no-op; only Mesh/Line/
@@ -1090,56 +1391,103 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     minZ: sideTable.position.z - 0.21, maxZ: sideTable.position.z + 0.21
   });
 
-  // ---------- paperclip near the bed frame ----------
-  // A single partial torus (the old geometry) is rotationally symmetric
-  // and reads as a plain bent hook, not a paperclip -- a real one is a
-  // doubled loop, one fold nested just inside the other. Approximated
-  // here with two elongated (non-uniformly scaled, so oval rather than
-  // circular) open torus arcs nested together, which at a glance reads
-  // as the genuine doubled-wire shape instead of a single ring fragment.
+  // ---------- paperclip, on the blanket within reach of the cuffed hand ----------
+  //
+  // WHY IT USED TO BE INVISIBLE, since the previous two attempts both got this
+  // wrong: it was never a material or a lighting problem. The spawn point
+  // (1.9, -1.0) is INSIDE the bed's own footprint (x 1.15..2.65, z -2.5..-0.5)
+  // -- there is no bed collider, so the player wakes up standing in it -- and
+  // from that eye position the sightline to the old floor spot passed straight
+  // through the blanket, then the mattress, then the bed base. Interaction
+  // raycasts only the interactables list (Interaction.js), so nothing occludes
+  // the hitbox and E kept working while the player was looking at red blanket.
+  // That mismatch is the whole "interactable but invisible" signature.
+  //
+  // This spot was chosen by ray-marching the sightline from the spawn eye
+  // against every solid on the bed (blanket slab, the three ridge bumps, the
+  // mattress, the base, the left rail, the headboard and both pillow
+  // ellipsoids). At y 0.80 / z -1.95 the clear band runs the full 140cm width
+  // of the bed; the bare mattress at the head end, which is where this
+  // obviously wants to go, has only an 8-13cm slot beside the near pillow and
+  // would break the moment anyone nudged the pillow.
+  //
+  // 1.29m from the eye, 38 degrees below the horizon -- which is past the 35
+  // degree half-FOV, so the bedroom also sets a spawnPitch (see the returned
+  // contract) to wake the player looking slightly down. That is the right beat
+  // anyway: you come to cuffed to a bed, so you look at your own hand.
+  //
+  // 0.56m from the cuff at (1.90, 0.98, -2.35), i.e. inside the reach of the
+  // hand that is actually chained -- the old floor position was 1.23m away and
+  // under the bed frame, which no cuffed person could have got to.
   const paperclip = new THREE.Group();
-  // On the floor beside the headboard, still roughly along the spawn's
-  // facing direction so it's findable with a natural downward glance
-  // rather than requiring the player to turn around. The old Y (0.69,
-  // picked for a "35 degrees below eye line" angle from spawn) actually
-  // sat *inside* the mattress's own bounding box (RoundedBoxGeometry
-  // centred at y=0.63, +-0.11) -- geometrically embedded and invisible
-  // regardless of material or lighting, which is the real reason it was
-  // never visible. Floor level, just outside the mattress/frame footprint
-  // in X, is the only place at this X/Z it can actually be seen.
-  paperclip.position.set(1.13, 0.024, -2.4);
-  paperclip.rotation.x = Math.PI / 2;
+  paperclip.position.set(1.55, 0.80, -1.95);
+  paperclip.rotation.y = 0.7;
+  paperclip.scale.setScalar(PAPERCLIP_SCALE);
   group.add(paperclip);
 
-  // Slightly less metallic/glossy than a true polished wire -- at this
-  // scene's very low ambient light, a near-mirror material (the old
-  // metalness 0.9 / roughness 0.3) only ever catches a razor-thin
-  // specular glint and otherwise reads as black; a bit more roughness
-  // picks up general room light instead of relying on a direct highlight.
-  // Sized up from a real ~3cm paperclip too -- true-to-life scale was
-  // still a barely-there fleck on the floor even once it was no longer
-  // hidden inside the mattress.
-  const paperclipMat = new THREE.MeshStandardMaterial({ color: 0xc2c2be, metalness: 0.7, roughness: 0.45 });
-  const paperclipOuter = new THREE.Mesh(new THREE.TorusGeometry(0.019, 0.0035, 8, 20, Math.PI * 1.7), paperclipMat);
-  paperclipOuter.scale.set(1, 1.9, 1);
-  paperclipOuter.rotation.z = Math.PI * 0.15;
-  paperclipOuter.castShadow = true;
-  paperclip.add(paperclipOuter);
+  // One continuous folded wire, swept along the real Gem-clip path, rather than
+  // two nested torus arcs. The old approximation's own comment admitted it read
+  // as "a plain bent hook"; a paperclip is a single length of wire doubled back
+  // on itself twice, and the returns are what make the silhouette legible.
+  //
+  // Authored at true scale (a real clip is ~33 x 8mm) and then multiplied by
+  // PAPERCLIP_SCALE on the group above, so the wire gauge, the loop spacing and
+  // the hitbox all grow together and it stays a paperclip instead of turning
+  // into a bent girder.
+  const CLIP_W = 0.008;   // half-width of the wire path
+  const CLIP_L = 0.033;   // full length
+  const clipPath = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-CLIP_W * 0.55, 0, CLIP_L * 0.28),
+    new THREE.Vector3(-CLIP_W, 0, -CLIP_L * 0.30),
+    new THREE.Vector3(-CLIP_W * 0.72, 0, -CLIP_L * 0.46),
+    new THREE.Vector3(0, 0, -CLIP_L * 0.50),
+    new THREE.Vector3(CLIP_W * 0.72, 0, -CLIP_L * 0.46),
+    new THREE.Vector3(CLIP_W, 0, -CLIP_L * 0.30),
+    new THREE.Vector3(CLIP_W, 0, CLIP_L * 0.36),
+    new THREE.Vector3(CLIP_W * 0.62, 0, CLIP_L * 0.48),
+    new THREE.Vector3(0, 0, CLIP_L * 0.50),
+    new THREE.Vector3(-CLIP_W * 0.40, 0, CLIP_L * 0.44),
+    new THREE.Vector3(-CLIP_W * 0.42, 0, CLIP_L * 0.10),
+    new THREE.Vector3(-CLIP_W * 0.30, 0, -CLIP_L * 0.34)
+  ], false, 'catmullrom', 0.4);
 
-  const paperclipInner = new THREE.Mesh(new THREE.TorusGeometry(0.0125, 0.0035, 8, 20, Math.PI * 1.7), paperclipMat);
-  paperclipInner.scale.set(1, 1.9, 1);
-  paperclipInner.rotation.z = Math.PI * 0.15;
-  paperclipInner.position.set(0.0037, -0.0058, 0);
-  paperclipInner.castShadow = true;
-  paperclip.add(paperclipInner);
+  // Nickel-plated steel wire. A high metalness is only correct here because
+  // main.js now installs an environment for metal to reflect -- this same
+  // material at 0.7 metalness was rendering near-black back when the scene had
+  // no environment at all, since a MeshStandardMaterial sends roughly
+  // `metalness` of its response to a reflection and there was nothing there.
+  //
+  // The colour on a metal is the SPECULAR tint, not a diffuse albedo: a slightly
+  // cool near-white is what reads as plated steel rather than as gold or copper.
+  //
+  // A trace of emissive, and no more. It is the only non-light-source emissive
+  // in the project and it exists purely so a thin wire keeps an edge alive when
+  // the bulb is behind it -- push it any higher and the surface goes flat and
+  // stops looking like metal at all, because emission is view-independent and
+  // metal is nothing but view-dependent reflection.
+  const paperclipMat = new THREE.MeshStandardMaterial({
+    color: 0xe2e7ec,
+    metalness: 0.95,
+    roughness: 0.2,
+    emissive: 0x2a2d31,
+    emissiveIntensity: 0.25
+  });
+  const paperclipWire = new THREE.Mesh(
+    // 10 radial segments, not 6: at this gauge a hexagonal tube shows its facets
+    // as a visible flat-shaded stripe down the wire.
+    new THREE.TubeGeometry(clipPath, 128, PAPERCLIP_WIRE_RADIUS, 10, true),
+    paperclipMat
+  );
+  paperclipWire.castShadow = true;
+  paperclip.add(paperclipWire);
 
-  // The paperclip's real geometry is two thin wire loops -- correct for
-  // how a paperclip should look, but the ray has to pass almost exactly
-  // through one of those slender tubes to register a hit, which makes it
-  // effectively unclickable. A padded invisible sphere is the actual
-  // interactable, same approach as the flashlight.
+  // The wire is 1.6mm thick, so the ray would have to thread the tube itself to
+  // register -- effectively unclickable. A padded invisible sphere is the real
+  // interactable, same approach as the flashlight. Derived from the same
+  // constant as the model so the two can never drift apart: turning
+  // PAPERCLIP_SCALE up must grow what you aim at, not just what you see.
   const paperclipHitbox = new THREE.Mesh(
-    new THREE.SphereGeometry(0.13, 8, 8),
+    new THREE.SphereGeometry(0.055 + 0.03 * PAPERCLIP_SCALE, 8, 8),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
   paperclipHitbox.position.copy(paperclip.position);
@@ -1152,23 +1500,64 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
       const idx = interactables.indexOf(paperclipHitbox);
       if (idx >= 0) interactables.splice(idx, 1);
       chain.visible = false;
-      setTimeout(onFreed, 900);
+      // TRACKED, like the door's exit timer below. A bare setTimeout here
+      // meant pressing R inside the 900 ms window fired onFreed against the
+      // freshly restarted room -- unchaining a player who is supposed to be
+      // chained and starting the bulb beat on a game that had just reset.
+      freeTimer = setTimeout(() => { freeTimer = null; onFreed(); }, 900);
     }
   };
   interactables.push(paperclipHitbox);
   group.add(paperclipHitbox);
 
-  // fallen chair for the "abandoned in a hurry" dressing
+  /**
+   * The fallen chair -- which had no legs.
+   *
+   * A seat slab and a back slab, tipped on their side. Lying down, that is two
+   * planks on the floor, and the one piece of dressing whose whole job is to say
+   * "somebody left in a hurry" read as debris. It also sat low enough that the
+   * seat's corner passed through the floorboards.
+   *
+   * Four turned legs and a pair of stretchers now, and the group is lifted so
+   * the lowest point of the rotated frame rests ON the boards rather than in
+   * them. Lying on its side is exactly the pose that shows a chair's legs off,
+   * which is why it was the worst place in the room to leave them out.
+   */
   const chairGroup = new THREE.Group();
-  chairGroup.position.set(-1.6, 0, 0.4);
   chairGroup.rotation.set(0, 0.6, Math.PI / 2.2);
   const chairSeat = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.05, 0.45), frameMatWood);
   chairSeat.position.y = 0.42;
+  chairSeat.castShadow = true;
   chairGroup.add(chairSeat);
   const chairBack = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.5, 0.05), frameMatWood);
   chairBack.position.set(0, 0.65, -0.2);
+  chairBack.castShadow = true;
   chairGroup.add(chairBack);
+  for (const lx of [-0.19, 0.19]) {
+    for (const lz of [-0.19, 0.19]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.018, 0.42, 7), frameMatWood);
+      leg.position.set(lx, 0.21, lz);
+      leg.castShadow = true;
+      chairGroup.add(leg);
+    }
+  }
+  // Stretchers between the legs, which is what stops a lying chair reading as
+  // four loose dowels beside a plank.
+  for (const sz of [-0.19, 0.19]) {
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.022, 0.022), frameMatWood);
+    rail.position.set(0, 0.13, sz);
+    rail.castShadow = true;
+    chairGroup.add(rail);
+  }
   group.add(chairGroup);
+  // Sit it ON the boards. Measured from the assembled group rather than guessed,
+  // so adding another part later cannot quietly sink it again.
+  chairGroup.position.set(-1.6, 0, 0.4);
+  chairGroup.updateMatrixWorld(true);
+  {
+    const box = new THREE.Box3().setFromObject(chairGroup);
+    chairGroup.position.y += Math.max(0, -box.min.y) + 0.004;
+  }
 
   // ---------- knocked-over waste bin (abandoned-in-a-hurry dressing) ----------
   const binMat = new THREE.MeshStandardMaterial({ color: 0x34342f, metalness: 0.5, roughness: 0.6 });
@@ -1294,17 +1683,27 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
         if (puzzleState.hasCrowbar) {
           puzzleState.planksRemoved = true;
           puzzleState.hasCrowbar = false;
+          onCrowbarUsed();
           boardedPlankParts.forEach((part) => { part.visible = false; });
           showCaption('You wedge the crowbar behind the planks and pry them off the door.');
         } else {
           showCaption('Two wooden planks, boarded diagonally. Whatever is in this house trapped you inside.');
         }
       } else if (!puzzleState.doorUnlocked) {
+        // Set synchronously, which is what makes spamming E safe: the third
+        // branch below catches every press after the first.
         puzzleState.doorUnlocked = true;
         showCaption('The door creaks open on its hinges. You slip out into the dark hallway...');
-        // Give the hinge swing a beat to actually play out before cutting
-        // to Level 2, rather than transitioning the instant it's unlocked.
-        setTimeout(onDoorOpened, 1400);
+        // Enough of the hinge swing to read as a door opening, and no more.
+        // This used to be 1400ms and cut straight to Level 2; now a 700ms fade
+        // follows it, so at 1400 the pair was over two seconds of dead air.
+        // At 600 the fade runs over the TAIL of the swing and the player
+        // watches the door open into the dark, which is the beat worth having.
+        //
+        // Not hoisted into the transition system: this delay is specific to
+        // this door's hinge, and another level's exit may want none at all.
+        // Making transitionTo aware of it would make it content-aware.
+        exitTimer = setTimeout(() => { exitTimer = null; onDoorOpened(); }, 600);
       } else {
         showCaption('The door hangs open ahead of you.');
       }
@@ -1312,6 +1711,11 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   };
 
   // ---------- interactive drawer system ----------
+  // Handle on the pending exit, so reset() can cancel it -- see reset() below.
+  let exitTimer = null;
+  /** The paperclip's delay before the player is actually freed. */
+  let freeTimer = null;
+
   const drawerStates = {
     nightstandLeft: { isOpen: false, contents: ['old photograph', 'battery'] },
     dresserTop: { isOpen: false, contents: ['family photo (scratched)'] },
@@ -1373,7 +1777,7 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   // between the window and the bed, with clearance to walk up to it.
   const nightstandLeft = addNightstand(-0.3, -1.95);
   nightstandLeft.userData.interact = {
-    label: '[E] Search drawer',
+    label: 'Search drawer',
     onInteract: () => {
       if (!drawerStates.nightstandLeft.isOpen) {
         drawerStates.nightstandLeft.isOpen = true;
@@ -1398,7 +1802,7 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   binHitbox.position.y += 0.05;
   group.add(binHitbox);
   binHitbox.userData.interact = {
-    label: '[E] Search bin',
+    label: 'Search bin',
     onInteract: () => {
       if (!drawerStates.bin.isOpen) {
         drawerStates.bin.isOpen = true;
@@ -1418,11 +1822,11 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   dresserTop.position.set(2.7, 1.1, 1.6);
   group.add(dresserTop);
   dresserTop.userData.interact = {
-    label: '[E] Search dresser',
+    label: 'Search dresser',
     onInteract: () => {
       if (!drawerStates.dresserTop.isOpen) {
         drawerStates.dresserTop.isOpen = true;
-        showCaption('Under some old trinkets you find another photograph, dated 1987. The fourth person has been scratched out completely.');
+        showCaption('Under some old trinkets, another photograph, dated 1987. The same three faces. The same empty space beside them.');
         puzzleState.foundPhotos.add('dresserTop');
         photoThumbMeshes.dresserTop.visible = true;
       } else {
@@ -1481,7 +1885,7 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
   const photoSlots = {
     nightstandLeft: { pin: [-0.2, 0.28], pinColor: 0xa02020, photo: [-0.2, 0.16, -0.06], tex: stampPhotoDate(createFamilyPhotoTexture(), '1985'), date: 1985, w: 0.22, h: 0.17 },
     floorPhoto: { pin: [0.16, 0.31], pinColor: 0x1f4f8f, photo: [0.16, 0.19, 0.05], tex: tornPhotoTex, date: 1986, w: 0.22, h: 0.17 },
-    dresserTop: { pin: [-0.02, -0.08], pinColor: 0xc9a227, photo: [-0.02, -0.2, 0.03], tex: stampPhotoDate(createFamilyPhotoTexture({ scratchedFourth: true }), '1987'), date: 1987, w: 0.22, h: 0.17 }
+    dresserTop: { pin: [-0.02, -0.08], pinColor: 0xc9a227, photo: [-0.02, -0.2, 0.03], tex: stampPhotoDate(createFamilyPhotoTexture(), '1987'), date: 1987, w: 0.22, h: 0.17 }
   };
   const photoThumbMeshes = {};
   Object.entries(photoSlots).forEach(([key, slot]) => {
@@ -1571,7 +1975,7 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
   boxHitbox.userData.interact = {
-    label: '[E] Open box',
+    label: 'Open box',
     onInteract: () => {
       if (puzzleState.photosArranged && puzzleState.hasKey) {
         showCaption('The key fits! Inside the box you find a crowbar. This should remove those wooden planks...');
@@ -1581,6 +1985,7 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
         lockPlate.visible = false;
         puzzleState.hasKey = false;
         puzzleState.hasCrowbar = true;
+        onCrowbarFound();
       } else if (puzzleState.photosArranged) {
         showCaption('The box is locked. You need to find a key first.');
       } else {
@@ -1602,8 +2007,18 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     // not toward the door behind the player, which left the one prop
     // they must interact with while still chained out of view entirely.
     spawnYaw: 0.5,
+    // Wake up looking slightly DOWN. The paperclip sits 38 degrees below the
+    // horizon and the camera's half-FOV is 35, so at a level pitch it would be
+    // just off the bottom edge of the screen -- the geometry is genuinely tight
+    // here, with the eye only 0.85m above the bed and the bed 1.3m away.
+    //
+    // It is also simply the right beat: you come round cuffed to a bed frame,
+    // and the first thing anyone would do is look at their own hand. Every other
+    // level omits spawnPitch and is unaffected.
+    spawnPitch: -0.30,
     refs: {
       bulbLight,
+      bulbMaterial,
       lightning,
       windowGroup,
       flashlight,
@@ -1612,6 +2027,16 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
       paperclipHitbox,
       chain,
       doorSlab,
+      /**
+       * Runs the "something moves past the door" beat once. Returns how long it
+       * takes, so a script can wait exactly that long instead of guessing.
+       */
+      playDoorPass: () => {
+        doorPass.active = true;
+        doorPass.phase = 0;
+        return doorPass.duration;
+      },
+      doorPass,
       messagePlane: message,
       ambient,
       glassMaterial,
@@ -1625,6 +2050,14 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
     // main.js since most of this state (drawerStates, the hinges, the
     // photo thumbnails) isn't exposed via refs at all.
     reset() {
+      // Cancel a pending exit. Pressing E on the door and then R inside the
+      // delay above used to let the timeout fire and yank the player straight
+      // back out of the bedroom it had just reset.
+      clearTimeout(exitTimer);
+      exitTimer = null;
+      clearTimeout(freeTimer);
+      freeTimer = null;
+
       paperclip.visible = true;
       paperclipHitbox.visible = true;
       if (!interactables.includes(paperclipHitbox)) interactables.push(paperclipHitbox);
@@ -1652,6 +2085,11 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
       boardedPlankParts.forEach((part) => { part.visible = true; });
       doorHinge.rotation.y = 0;
 
+      doorPass.active = false;
+      doorPass.phase = 0;
+      doorGapMat.opacity = 0;
+      doorGapBlockMat.opacity = 0;
+
       puzzleState.chainsEscaped = false;
       puzzleState.hasFlashlight = false;
       puzzleState.foundPhotos.clear();
@@ -1660,6 +2098,8 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
       puzzleState.hasCrowbar = false;
       puzzleState.planksRemoved = false;
       puzzleState.doorUnlocked = false;
+      puzzleState.messageRead = false;
+      puzzleState.polaroidRead = false;
     },
     update(dt) {
       this._t = (this._t ?? 0) + dt;
@@ -1689,6 +2129,39 @@ export function createBedroomLevel({ showCaption = () => {}, onFreed = () => {},
       // pried off and it's actually been opened.
       const targetDoorRotY = puzzleState.doorUnlocked ? doorOpenSwing : 0;
       doorHinge.rotation.y += (targetDoorRotY - doorHinge.rotation.y) * Math.min(1, dt * 3);
+
+      // "Something moves past the door." See the note where these were built.
+      if (doorPass.active) {
+        doorPass.phase += dt / doorPass.duration;
+        if (doorPass.phase >= 1) {
+          doorPass.active = false;
+          doorPass.phase = 0;
+          doorGapMat.opacity = 0;
+          doorGapBlockMat.opacity = 0;
+        } else {
+          const p = doorPass.phase;
+          // Light in over the first fifth, out over the last fifth, so it does
+          // not switch on and off -- the hall light was always on, the player
+          // simply had no reason to look at the floor until now.
+          const up = Math.min(1, p / 0.2);
+          const down = Math.min(1, (1 - p) / 0.2);
+          doorGapMat.opacity = 0.5 * Math.min(up, down);
+          // The crossing occupies the middle 45% of the beat, so there is a
+          // beat of steady light before and after. The pause is what makes the
+          // interruption read as something rather than as a flicker.
+          const cross = (p - 0.32) / 0.45;
+          if (cross >= 0 && cross <= 1) {
+            // Fully opaque at the strip's full brightness, not merely as
+            // opaque as the strip -- black at 0.5 over light at 0.5 only
+            // HALVES it, which on screen is a dip rather than a shadow. It
+            // still fades with the strip so the beat can end cleanly.
+            doorGapBlockMat.opacity = Math.min(1, doorGapMat.opacity / 0.5);
+            doorGapBlock.position.x = -DOOR_LEAF_W * 0.75 + cross * DOOR_LEAF_W * 1.5;
+          } else {
+            doorGapBlockMat.opacity = 0;
+          }
+        }
+      }
     }
   };
 }

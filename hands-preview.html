@@ -1,0 +1,200 @@
+<!doctype html>
+<!--
+  TEMPORARY preview harness for the hand material. Not part of the game.
+
+    top-left     player view, grime 0
+    top-right    player view, grime 1
+    bottom-left  close-up, back of the hand, real material
+    bottom-right close-up, fields debug: R=creases G=dirt B=tendons
+
+  CLIPPING PLANES ARE ESSENTIAL HERE. The donor rig's broken arm bones fling
+  several hundred vertices tens of metres away, and the triangles joining them
+  to the hand stretch across the whole viewport. Worse, they are useless to look
+  at: perspective-correct interpolation squeezes nearly all of that screen area
+  into a sliver of the triangle's parameter space, so any varying sampled there
+  reads as a flat colour - which is exactly what made the first few diagnostic
+  passes look like dead noise. A box of six planes around the hand removes them.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>hands preview</title>
+  <style>
+    html, body { margin: 0; background: #000; }
+    canvas { display: block; }
+    #report { position: fixed; left: 4px; top: 2px; color: #0f0; font: 11px monospace; white-space: pre; }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="report"></div>
+  <script type="module">
+    const problems = [];
+    console.error = (...a) => { problems.push('ERR ' + a.join(' ')); };
+    console.warn = (...a) => { problems.push('WARN ' + a.join(' ')); };
+
+    const W = 1200, H = 900;
+    const report = document.getElementById('report');
+    const NL = String.fromCharCode(10);
+
+    try {
+      const THREE = await import('three');
+      const { Hands } = await import('/src/systems/hands/hands.js');
+      const { setHandAssetUrl } = await import('/src/systems/hands/hand-mesh.js');
+      const { HAND_ROOT_POSITION, HAND_ROOT_ROTATION } = await import('/src/systems/hands/rig.js');
+      const GLSL = await import('/src/systems/hands/shaders/glove.glsl.js');
+      setHandAssetUrl((await import('/src/assets/models/hands.glb?url')).default);
+
+      const canvas = document.getElementById('c');
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+      renderer.setSize(W, H, false);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.setScissorTest(true);
+
+      const scene = new THREE.Scene();
+      const holder = new THREE.PerspectiveCamera(70, 1, 0.01, 0.6);
+      scene.add(holder);
+
+      const hands = new Hands({ camera: holder, renderer });
+      await hands.init();
+
+      scene.add(hands.root);
+      hands.root.position.set(0, 0, 0);
+      hands.root.rotation.set(0, 0, 0);
+
+      // DROP THE FLUNG TRIANGLES OUTRIGHT, rather than trying to clip them.
+      // The donor rig's broken arm bones throw several hundred vertices tens of
+      // metres away; the triangles joining them to the hand then stretch across
+      // the viewport, hide the hand, and are useless to sample (perspective
+      // interpolation squeezes the whole screen into a sliver of their parameter
+      // space, so any varying reads as flat colour there).
+      //
+      // Classify by skinned position at the bind pose and rebuild the index with
+      // only the triangles whose three corners all sit near the wrist. This is
+      // deterministic, unlike guessing clipping-plane sign conventions.
+      let kept = 0, dropped = 0;
+      for (const seg of hands._active[0].mesh.segments) {
+        if (!seg.isSkinnedMesh) continue;
+        seg.skeleton.update();
+        const pos = seg.geometry.attributes.position;
+        const near = new Uint8Array(pos.count);
+        const v = new THREE.Vector3();
+        for (let i = 0; i < pos.count; i++) {
+          v.fromBufferAttribute(pos, i);
+          seg.applyBoneTransform(i, v);
+          v.applyMatrix4(seg.matrixWorld);
+          near[i] = v.length() < 0.35 ? 1 : 0;
+        }
+        const idx = seg.geometry.getIndex();
+        const src = idx ? idx.array : null;
+        const count = src ? src.length : pos.count;
+        const out = [];
+        for (let t = 0; t < count; t += 3) {
+          const a = src ? src[t] : t, b = src ? src[t + 1] : t + 1, c = src ? src[t + 2] : t + 2;
+          if (near[a] && near[b] && near[c]) { out.push(a, b, c); kept++; } else { dropped++; }
+        }
+        seg.geometry.setIndex(out);
+      }
+
+      const half = { w: W / 2, h: H / 2 };
+      const aspect = half.w / half.h;
+      const makeCam = (fov) => new THREE.PerspectiveCamera(fov, aspect, 0.005, 0.6);
+
+      const R = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+        HAND_ROOT_ROTATION[0], HAND_ROOT_ROTATION[1], HAND_ROOT_ROTATION[2], 'XYZ'));
+      const Rinv = R.clone().invert();
+      const playerCam = makeCam(70);
+      playerCam.position.copy(new THREE.Vector3().fromArray(HAND_ROOT_POSITION.right)
+        .applyQuaternion(Rinv).negate());
+      playerCam.quaternion.copy(Rinv);
+
+      // A magnified PLAYER view: same eye point and orientation, narrower fov.
+      // Robust by construction - it cannot miss the hand or hit the lookAt()
+      // degeneracy that made the earlier top-down camera render nothing.
+      // Close-up: placed by construction on the eye->hand line, 0.13 m out, so
+      // it cannot miss. (Narrowing the player fov from the eye point did miss -
+      // the hand sits well off that view axis, 0.41 m away.)
+      const HAND_CENTRE = new THREE.Vector3(-0.01, -0.01, -0.12);
+      const zoomCam = makeCam(45);
+      zoomCam.position.copy(HAND_CENTRE).add(
+        playerCam.position.clone().sub(HAND_CENTRE).normalize().multiplyScalar(0.13));
+      zoomCam.lookAt(HAND_CENTRE);
+
+      const key = new THREE.PointLight(0xfff2c0, 1.1, 2.0, 1.5);
+      key.position.set(0.12, 0.22, 0.06);
+      scene.add(key);
+      scene.add(new THREE.AmbientLight(0x2a3448, 0.5));
+
+      const realMat = hands.materialSet.material;
+      const nailMat = hands.materialSet.nailMaterial;
+
+      /** Same injection as the real material, plus an unlit dump of any expression. */
+      const makeDebug = (expr) => {
+        const dm = new THREE.MeshStandardMaterial({ color: 0x000000, roughness: 1 });
+        // Three keys the program cache on onBeforeCompile.toString(), which is
+        // identical for every closure built here, so each debug material needs
+        // its own key or it silently reuses the first one's program.
+        dm.customProgramCacheKey = () => 'dbg:' + expr;
+        const uniforms = realMat.userData.uniforms;
+        dm.onBeforeCompile = (sh) => {
+          sh.uniforms.uGrime = uniforms.uGrime;
+          sh.uniforms.uWetness = uniforms.uWetness;
+          sh.vertexShader = sh.vertexShader
+            .replace('#include <common>', '#include <common>' + NL + GLSL.GLOVE_VERTEX_HEAD)
+            .replace('#include <begin_vertex>', '#include <begin_vertex>' + NL + GLSL.GLOVE_VERTEX_BODY);
+          sh.fragmentShader = sh.fragmentShader
+            .replace('#include <common>', '#include <common>' + NL + GLSL.GLOVE_FRAGMENT_UNIFORMS)
+            .replace('#include <map_fragment>',
+              '#include <map_fragment>' + NL + GLSL.GLOVE_DIFFUSE_BODY + NL +
+              'totalEmissiveRadiance = ' + expr + ';' + NL + 'diffuseColor.rgb = vec3(0.0);');
+        };
+        return dm;
+      };
+
+      const fieldsDebug = makeDebug('vec3(skinCrease, skinDirt, skinMottle)');
+      const segments = hands._active[0].mesh.segments;
+      // Paint the nail mesh bright red so a misplaced nail cannot hide.
+      const nailFlag = new THREE.MeshBasicMaterial({ color: 0xff0033 });
+      const nailSeg = segments.find((s) => s.material.name === 'nail');
+
+      const panels = [
+        { cam: playerCam, x: 0, y: half.h, grime: 0.0 },
+        { cam: playerCam, x: half.w, y: half.h, grime: 1.0 },
+        { cam: zoomCam, x: 0, y: 0, grime: 0.35 },
+        { cam: zoomCam, x: half.w, y: 0, grime: 0.35, flagNails: true },
+      ];
+
+      renderer.setClearColor(0x0a0a0c, 1);
+      renderer.clear();
+      const draw = () => {
+        for (const p of panels) {
+          hands.setGrime(p.grime);
+          // Put the key light AT the camera for every panel. The game's
+          // flashlight is a child of the camera, so a glossy surface facing the
+          // player is lit almost head-on - a side light badly under-represents
+          // how much the nails' specular actually reads in play.
+          key.position.copy(p.cam.position);
+          for (const s of segments) s.material = p.mat ?? (s === nailSeg ? nailMat : realMat);
+          if (p.flagNails && nailSeg) nailSeg.material = nailFlag;
+          renderer.setViewport(p.x, p.y, half.w, half.h);
+          renderer.setScissor(p.x, p.y, half.w, half.h);
+          renderer.render(scene, p.cam);
+        }
+      };
+      draw();
+      draw();
+      for (const s of segments) s.material = (s === nailSeg ? nailMat : realMat);
+
+      report.textContent =
+        'programs=' + renderer.info.programs.length +
+        ' tris kept=' + kept + ' dropped=' + dropped + ' color=#' + realMat.color.getHexString() + ' rough=' + realMat.roughness + NL +
+        'TL player grime0 | TR player grime1 | BL zoom REAL (nails glossy+pale) | BR same view, nails flagged RED R=crease G=dirt B=tendon' + NL +
+        (problems.length ? problems.join(NL).slice(0, 1000) : 'no shader errors');
+      document.title = 'DONE';
+    } catch (err) {
+      report.textContent = 'THREW ' + (err && err.stack ? err.stack : err);
+      document.title = 'DONE';
+    }
+  </script>
+</body>
+</html>

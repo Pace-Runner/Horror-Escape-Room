@@ -29,7 +29,17 @@ const vertexShader = /* glsl */ `
     vFade = smoothstep(0.0, 0.6, depth) * (1.0 - smoothstep(6.5, 9.0, depth));
 
     gl_Position = projectionMatrix * mvPosition;
-    gl_PointSize = aSize * (6.0 / max(-mvPosition.z, 1.0));
+    /**
+     * MUCH smaller than it was. At aSize 1.4-3.8 against a factor of 6.0, a
+     * mote a metre from the camera drew 8 to 23 pixels across -- and with the
+     * alpha below reaching nearly 1.0 they came out as opaque white discs
+     * scattered over the whole frame. It read as snow falling indoors, and it
+     * was the loudest thing in every screenshot of this level.
+     *
+     * The near clamp is 0.55 rather than 1.0 as well, so a mote drifting right
+     * past the lens keeps growing instead of freezing at full size a metre out.
+     */
+    gl_PointSize = aSize * (3.2 / max(-mvPosition.z, 0.55));
   }
 `;
 
@@ -49,7 +59,15 @@ const fragmentShader = /* glsl */ `
 
     float ambient = 0.05;
     float beamGlow = mix(ambient, 1.0, vBeam * uBeamOn);
-    float alpha = soft * vFade * beamGlow * (0.4 + twinkle * 0.6);
+    /**
+     * Peak alpha down to about 0.42. These were reaching nearly opaque, which
+     * is not what suspended dust does -- it scatters a little of the beam and
+     * most of it is barely there. The twinkle range is widened at the same
+     * time (0.22 to 1.0 rather than 0.4 to 1.0) so the few that do catch the
+     * light stand out MORE against the ones that do not, which is the effect
+     * uniform bright discs were destroying.
+     */
+    float alpha = soft * vFade * beamGlow * (0.22 + twinkle * 0.78) * 0.42;
     gl_FragColor = vec4(uColor, alpha);
   }
 `;
@@ -80,7 +98,9 @@ export function createDustMotes({
 
   for (let i = 0; i < count; i++) {
     reset(i);
-    sizes[i] = 1.4 + Math.random() * 2.4;
+    // 0.55-1.75 rather than 1.4-3.8. Dust is small; what makes it readable is
+    // that it CATCHES the light, not that it is big.
+    sizes[i] = 0.55 + Math.random() * 1.2;
     phases[i] = Math.random();
     drift[i * 3 + 0] = (Math.random() - 0.5) * 0.05;
     drift[i * 3 + 1] = (Math.random() - 0.5) * 0.04 + 0.015;
