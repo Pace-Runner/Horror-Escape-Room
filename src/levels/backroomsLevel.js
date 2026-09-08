@@ -312,11 +312,22 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
   // fluorescents that no colour texture can fake.
   const tideMat = new THREE.MeshStandardMaterial({ color: 0x453a24, roughness: 0.5 });
 
+  // ONE geometry each, scaled per run, rather than a fresh one per wall. The
+  // materials were already pooled by length (see wallMatFor) but the geometry
+  // was not, so 178 runs meant 356 buffer allocations and 356 GPU uploads at
+  // boot for two distinct shapes. Scaling is safe here for a specific reason:
+  // UVs are untouched by a mesh scale, and the wallpaper's repeat is baked into
+  // the per-length material, so the seams still land where wallMatFor put them.
+  const wallGeo = new THREE.PlaneGeometry(1, 1);
+  const tideGeo = new THREE.BoxGeometry(1, 1, 1);
+
   WALL_RUNS.forEach(({ axis, at, from, to }) => {
     const len = to - from;
     const mid = (from + to) / 2;
-    const wall = new THREE.Mesh(new THREE.PlaneGeometry(len, HALL_H), wallMatFor(len));
-    const tide = new THREE.Mesh(new THREE.BoxGeometry(len, 0.10, 0.02), tideMat);
+    const wall = new THREE.Mesh(wallGeo, wallMatFor(len));
+    wall.scale.set(len, HALL_H, 1);
+    const tide = new THREE.Mesh(tideGeo, tideMat);
+    tide.scale.set(len, 0.10, 0.02);
 
     if (axis === 'x') {
       wall.position.set(at, HALL_H / 2, mid);
