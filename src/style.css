@@ -151,6 +151,23 @@ html, body {
 }
 
 /* ---------- crosshair ---------- */
+/* ---------- overload glare (45A fuse in the basement fuse box) ---------- */
+/* Opacity and blur radius are both driven per frame from the level's glare
+   amount, so the wash builds up and fades out with the lights rather than
+   snapping on. Kept below the HUD's z-index so the interact prompt stays
+   legible while the player gropes back to the fuse box. */
+#glare-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  display: none;
+  opacity: 0;
+  background: rgba(228, 240, 255, 0.8);
+  backdrop-filter: blur(var(--glare-blur, 0px)) brightness(1.3) saturate(0.6);
+  -webkit-backdrop-filter: blur(var(--glare-blur, 0px)) brightness(1.3) saturate(0.6);
+}
+
 #crosshair {
   position: fixed;
   top: 50%;

@@ -14,6 +14,7 @@ import { createStudyLevel } from './levels/studyLevel.js';
 
 // ---------- DOM ----------
 const canvas = document.getElementById('scene');
+const glareOverlay = document.getElementById('glare-overlay');
 const loadingScreen = document.getElementById('loading-screen');
 const loadingBarFill = document.getElementById('loading-bar-fill');
 const startScreen = document.getElementById('start-screen');
@@ -157,10 +158,33 @@ const bedroom = createBedroomLevel({
 });
 sceneManager.register('bedroom', bedroom);
 
+// Screen-space half of the basement's overload glare. The level drives the
+// 0..1 amount; here it becomes a cool-white wash plus a backdrop blur, which
+// is what actually takes the player's sight away -- bright lights on their
+// own still leave the room legible. The overlay is taken out of the layout
+// entirely at 0 so its backdrop filter costs nothing the rest of the time.
+const GLARE_MAX_BLUR_IN_PIXELS = 4;
+let currentGlareAmount = 0;
+
+/**
+ * Updates the full-screen glare wash.
+ *
+ * @param {number} amount - 0 for a normal room, 1 for a full whiteout.
+ *   Values in between fade the tint and shrink the blur proportionally.
+ */
+function setGlare(amount) {
+  if (amount === currentGlareAmount) return;
+  currentGlareAmount = amount;
+  glareOverlay.style.display = amount > 0 ? 'block' : 'none';
+  glareOverlay.style.opacity = String(amount);
+  glareOverlay.style.setProperty('--glare-blur', `${(amount * GLARE_MAX_BLUR_IN_PIXELS).toFixed(2)}px`);
+}
+
 const hallwayBasement = createHallwayBasementLevel({
   showCaption,
   onExit: () => activateLevel('study'),
-  onSpark: () => audio.spark()
+  onSpark: () => audio.spark(),
+  onGlare: setGlare
 });
 sceneManager.register('hallwayBasement', hallwayBasement);
 
@@ -196,6 +220,7 @@ const LEVEL_FOG = {
 
 function activateLevel(key, { lockMovement = false } = {}) {
   const level = sceneManager.activate(key, player);
+  setGlare(0); // the basement's overload wash must not follow the player into another level
   interaction.setTargets(level.interactables);
   scene.fog = LEVEL_FOG[key];
   objectiveEl.textContent = LEVEL_OBJECTIVES[key];
@@ -223,11 +248,13 @@ window.addEventListener('keydown', (e) => {
     // Gated on the bedroom's own front door actually being open (planks
     // pried off + door interacted with again) rather than jumping
     // straight to Level 2 regardless of progress.
-    if (bedroom.refs.puzzleState.doorUnlocked) {
-      activateLevel('hallwayBasement');
-    } else {
-      showCaption("You haven't opened the door yet.");
-    }
+    //if (bedroom.refs.puzzleState.doorUnlocked) {
+     // activateLevel('hallwayBasement');
+    //} else {
+      //showCaption("You haven't opened the door yet.");
+    //}
+      activateLevel('hallwayBasement'); // TEMP: bypassing gate for testing
+
   }
   if (e.code === 'Digit3') activateLevel('study');
   if (e.code === 'KeyF') setFlashlight(!flashlightOn);

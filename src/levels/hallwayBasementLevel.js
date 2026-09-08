@@ -34,7 +34,12 @@ const LAB_Z = HALL_LEN + LAB_D / 2 + 0.2;
  *  - the fluorescent tube meshes are children of a `fixturesGroup` so the
  *    whole strip can be repositioned or its material swapped in one place.
  */
-export function createHallwayBasementLevel({ showCaption = () => {}, onExit = () => {}, onSpark = () => {} } = {}) {
+export function createHallwayBasementLevel({
+  showCaption = () => {},
+  onExit = () => {},
+  onSpark = () => {},
+  onGlare = () => {}   // called with 0..1 each frame so the host can drive a screen-space wash
+} = {}) {
   const group = new THREE.Group();
   group.name = 'Level2_HallwayBasement';
   const interactables = [];
@@ -153,7 +158,17 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
   // flickering fluorescent strip lights
   const fixturesGroup = new THREE.Group();
   lab.add(fixturesGroup);
-  const tubeMat = new THREE.MeshStandardMaterial({ color: 0xdfe8ff, emissive: 0x9fc0ff, emissiveIntensity: 1.6 });
+  // Normal-running values for the strip lights, and the far harsher values
+  // they are driven to while an overrated fuse is seated -- seating the 45A
+  // fuse pushes the circuit way past its rating, so the lab is supposed to
+  // wash out into a glare the player can barely see through until they pull
+  // it back out.
+  const TUBE_EMISSIVE_INTENSITY = 1.6;
+  const OVERLOAD_TUBE_EMISSIVE_INTENSITY = 9;
+  const OVERLOAD_TUBE_LIGHT_INTENSITY = 26;
+  const OVERLOAD_TUBE_LIGHT_JITTER = 8;
+
+  const tubeMat = new THREE.MeshStandardMaterial({ color: 0xdfe8ff, emissive: 0x9fc0ff, emissiveIntensity: TUBE_EMISSIVE_INTENSITY });
   const fluorescents = [];
   for (let i = -1; i <= 1; i++) {
     const tube = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.06, 0.1), tubeMat);
@@ -166,7 +181,15 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
     fluorescents.push(tubeLight);
   }
 
-  const labAmbient = new THREE.AmbientLight(0x3d4658, 0.40);
+  // The ambient term is what actually blinds the player during an overload:
+  // point lights alone still leave shadowed corners readable, whereas a
+  // strong white ambient blows out every surface in the room at once.
+  const LAB_AMBIENT_COLOR = new THREE.Color(0x3d4658);
+  const OVERLOAD_AMBIENT_COLOR = new THREE.Color(0xe4f0ff); // cool white, matching the fluorescent tubes
+  const LAB_AMBIENT_INTENSITY = 1.0;
+  const OVERLOAD_AMBIENT_INTENSITY = 3.4;
+
+  const labAmbient = new THREE.AmbientLight(LAB_AMBIENT_COLOR.getHex(), LAB_AMBIENT_INTENSITY);
   lab.add(labAmbient);
 
   // exposed pipes along the back wall
@@ -191,6 +214,12 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
   // ---------- power / fuse puzzle / locked-door objective ----------
   let powerRestored = false;
   let sparkTimer = 0;
+
+  // 0 while the circuit is behaving, 1 at full whiteout. The overload glare
+  // eases between the two instead of snapping, so the lights swell into the
+  // blinding state (and fade back out of it) over a fraction of a second.
+  let overloadGlare = 0;
+  const OVERLOAD_GLARE_RAMP_IN_SECONDS = 0.35;
 
   const puzzleState = {
     heldFuse: null,   // amps string currently in the player's hand, or null
@@ -324,7 +353,7 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
       } else {
         puzzleState.slotFuse = installed;
         fuseFailReason[installed] = 'overrated';
-        showCaption(`The ${installed} fuse's rating is too high for this circuit.`);
+        showCaption(`The ${installed} fuse's rating is too high -- every light in the lab surges into a blinding white glare.`);
         puzzleState.overloaded = true;
         fuseBox.userData.interact.label = 'Remove fuse';
       }
@@ -569,6 +598,51 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
   interactables.push(tornNotes);
   workbench.add(tornNotes);
 
+  /**
+   * Drives the lab lighting between its normal flickering state and the
+   * blown-out overload state, easing `overloadGlare` toward whichever one
+   * the circuit is currently in.
+   *
+   * @param {number} deltaTimeInSeconds - frame time, used for the ramp rate.
+   *
+   * Normal: the tubes flicker gently around their rated output with the
+   * occasional dip. Overloaded: the tubes run ~20x their rated output and
+   * the ambient term is swapped to a strong warm white, which washes every
+   * surface in the room out far enough that the player can barely make the
+   * lab out until they pull the overrated fuse back out.
+   */
+  function updateOverloadGlare(deltaTimeInSeconds) {
+    const target = puzzleState.overloaded ? 1 : 0;
+    const step = deltaTimeInSeconds / OVERLOAD_GLARE_RAMP_IN_SECONDS;
+    overloadGlare = target > overloadGlare
+      ? Math.min(target, overloadGlare + step)
+      : Math.max(target, overloadGlare - step);
+
+    fluorescents.forEach((tubeLight) => {
+      const dip = Math.random() < 0.05 ? 0.3 : 1;
+      const normalIntensity = (1.17 + Math.random() * 0.31) * dip;
+      const overloadIntensity = OVERLOAD_TUBE_LIGHT_INTENSITY + Math.random() * OVERLOAD_TUBE_LIGHT_JITTER;
+      tubeLight.intensity = THREE.MathUtils.lerp(normalIntensity, overloadIntensity, overloadGlare);
+    });
+
+    tubeMat.emissiveIntensity = THREE.MathUtils.lerp(
+      TUBE_EMISSIVE_INTENSITY,
+      OVERLOAD_TUBE_EMISSIVE_INTENSITY,
+      overloadGlare
+    );
+
+    labAmbient.intensity = THREE.MathUtils.lerp(
+      LAB_AMBIENT_INTENSITY,
+      OVERLOAD_AMBIENT_INTENSITY,
+      overloadGlare
+    );
+    labAmbient.color.copy(LAB_AMBIENT_COLOR).lerp(OVERLOAD_AMBIENT_COLOR, overloadGlare);
+
+    // The in-scene lights alone still resolve into a readable room; the
+    // screen-space wash is what actually costs the player their sight.
+    onGlare(overloadGlare);
+  }
+
   return {
     group,
     interactables,
@@ -594,6 +668,11 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
       sparkTimer = 0;
       sparkLight.intensity = 0;
       droppedFuseCount = 0;
+      overloadGlare = 0;
+      onGlare(0);
+      tubeMat.emissiveIntensity = TUBE_EMISSIVE_INTENSITY;
+      labAmbient.intensity = LAB_AMBIENT_INTENSITY;
+      labAmbient.color.copy(LAB_AMBIENT_COLOR);
 
       fuseBox.userData.interact.label = 'Empty fuse slot';
       metalDoor.userData.interact.label = 'Locked. Restore power first.';
@@ -626,14 +705,7 @@ export function createHallwayBasementLevel({ showCaption = () => {}, onExit = ()
       const elapsed = (this._t = (this._t ?? 0) + dt);
       dynamics.forEach((d) => d.update(dt, elapsed));
 
-      fluorescents.forEach((l) => {
-        if (puzzleState.overloaded) {
-          l.intensity = 6 + Math.random() * 2;
-        } else {
-          const dip = Math.random() < 0.05 ? 0.3 : 1;
-          l.intensity = (1.17 + Math.random() * 0.31) * dip;
-        }
-      });
+      updateOverloadGlare(dt);
 
       if (sparkTimer > 0) {
         sparkTimer -= dt;
