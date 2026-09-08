@@ -249,9 +249,27 @@ html, body {
   height: 100%;
 }
 
-/* The player marker: fixed at the map's centre, since the camera that draws
-   the map is always centred on the player -- only its rotation moves, to
-   show which way the player is facing. */
+/* Overview mode -- the backrooms, where the whole floor plan is framed at once
+   instead of 14m around the player.
+
+   Square, not round: a circular crop would cut the corners off a square floor
+   plan, and in a maze the corners are exactly where the dead ends are. The
+   change of shape also tells the player, without a word, that this map is a
+   different kind of thing from the house's little compass. */
+#minimap-wrap.overview {
+  border-radius: 10px;
+}
+
+#minimap-wrap.overview::after {
+  border-radius: 10px;
+  box-shadow: inset 0 0 18px 4px rgba(0, 0, 0, 0.55);
+}
+
+/* The player marker. In follow mode the map camera is always centred on the
+   player, so the marker is pinned at 50%/50% and only its rotation moves. In
+   overview mode the camera is pinned to the LEVEL instead, so Minimap.js
+   overwrites left/top each frame with the player's projected position -- the
+   translate(-50%,-50%) below keeps it centred on whatever those resolve to. */
 #minimap-arrow {
   position: absolute;
   top: 50%;

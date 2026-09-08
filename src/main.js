@@ -14,7 +14,8 @@ import { createStudyLevel } from './levels/studyLevel.js';
 import { createBackroomsLevel } from './levels/backroomsLevel.js';
 import { createScreenFade, wait } from './core/ScreenFade.js';
 import { gameState, resetState, addItem, removeItem } from './core/GameState.js';
-import { MINIMAP_ONLY, MAIN_ONLY } from './core/RenderLayers.js';
+import { MAIN_ONLY } from './core/RenderLayers.js';
+import { createMinimap } from './core/Minimap.js';
 import { CaptionSequencer } from './core/CaptionSequencer.js';
 import { createDocumentUI } from './core/DocumentUI.js';
 import { createPostFX } from './world/Postprocessing.js';
@@ -49,6 +50,7 @@ const flashlightStateEl = document.getElementById('flashlight-state');
 const hotbarSlots = document.querySelectorAll('#hotbar .hotbar-slot');
 const minimapCanvas = document.getElementById('minimap');
 const minimapArrowEl = document.getElementById('minimap-arrow');
+const minimapWrapEl = document.getElementById('minimap-wrap');
 const creditsScreen = document.getElementById('credits-screen');
 const creditsList = document.getElementById('credits-list');
 const staminaEl = document.getElementById('stamina');
@@ -184,78 +186,22 @@ window.addEventListener('resize', () => {
 const postFX = createPostFX(renderer, scene, camera);
 
 // ---------- minimap ----------
-// A second, small WebGLRenderer sharing this scene, rather than a
-// scissor/viewport split on the main one: postFX owns that renderer's whole
-// surface via its composer, and carving a corner out of a composer target is
-// far more invasive than just handing the map its own tiny canvas.
-const MINIMAP_VIEW_SIZE = 14;   // metres of world shown across the map
-const MINIMAP_PX = 180;         // matches #minimap's CSS size in style.css
+// Lives in core/Minimap.js now: it grew a second mode and a fog-of-war, and it
+// was already the longest thing in this file that had nothing to do with the
+// frame loop. See that file for why the backrooms needs a different scale.
+const minimap = createMinimap({
+  canvas: minimapCanvas,
+  arrowEl: minimapArrowEl,
+  wrapEl: minimapWrapEl,
+  scene,
+  camera
+});
 
-const minimapRenderer = new THREE.WebGLRenderer({ canvas: minimapCanvas, antialias: true, alpha: true });
-minimapRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-minimapRenderer.setSize(MINIMAP_PX, MINIMAP_PX);
-minimapRenderer.outputColorSpace = THREE.SRGBColorSpace;
-
-const minimapCamera = new THREE.OrthographicCamera(
-  -MINIMAP_VIEW_SIZE / 2, MINIMAP_VIEW_SIZE / 2,
-  MINIMAP_VIEW_SIZE / 2, -MINIMAP_VIEW_SIZE / 2,
-  0.1, 40
-);
-// Sees the ordinary layer-0 world plus its own private light below -- never
-// the other way round, since the main camera never enables MINIMAP_ONLY.
-minimapCamera.layers.enable(MINIMAP_ONLY);
-// The main camera's own reserved channel: real geometry a level wants shown
-// at eye level but hidden from the map (see RenderLayers.js) -- currently the
-// backrooms' floor and its light-fixture housings, which read wrong from
+// The main camera's own reserved channel: real geometry a level wants shown at
+// eye level but hidden from the map (see RenderLayers.js) -- the backrooms'
+// oversized floor slab and its light-fixture housings, which read wrong from
 // directly above. Layer 0 (everything else) stays shared by both cameras.
 camera.layers.enable(MAIN_ONLY);
-
-/**
- * The map's only light source, and the reason it stays legible in rooms the
- * story keeps deliberately dark for the main view.
- *
- * Scoped to MINIMAP_ONLY so it is invisible to every other camera in the
- * game -- three.js only feeds a light into a render pass when
- * `light.layers.test(camera.layers)` is true, which is a per-camera check
- * done once per render, not a per-object one. Nothing about the main view's
- * carefully measured brightness changes.
- */
-const minimapLight = new THREE.AmbientLight(0xffffff, 2.6);
-minimapLight.layers.set(MINIMAP_ONLY);
-scene.add(minimapLight);
-
-const _minimapForward = new THREE.Vector3();
-function updateMinimap() {
-  minimapCamera.position.set(camera.position.x, camera.position.y + 16, camera.position.z);
-  minimapCamera.up.set(0, 0, -1);
-  minimapCamera.lookAt(camera.position);
-
-  camera.getWorldDirection(_minimapForward);
-  // Under the up vector above, world +X lands on screen-right and world -Z on
-  // screen-up, so atan2(x, -z) is the facing angle measured from "up" -- and
-  // it grows in the same clockwise sense CSS rotate() does, so no sign flip.
-  const heading = Math.atan2(_minimapForward.x, -_minimapForward.z);
-  minimapArrowEl.style.transform = `translate(-50%, -50%) rotate(${heading}rad)`;
-
-  // Fog is tuned for a horizontal sightline; 16m of pure altitude would blow
-  // through most levels' fog budget before the frustum even starts and wash
-  // the whole map to a flat haze. Off for this one render, restored before
-  // the main pass reads it.
-  const savedFog = scene.fog;
-  scene.fog = null;
-  // The hands, the held torch, its two spotlights and the dust motes are all
-  // parented to `camera` (see the "first-person hands" section below), so a
-  // second camera rendering the same scene sees them too -- from directly
-  // above, the torch model reads as a stray line poking out of the player
-  // marker. `visible = false` on a parent stops WebGLRenderer's traversal from
-  // ever reaching its children (see projectObject in three's source), so this
-  // hides the whole view-model rig for one render and costs nothing else --
-  // the camera itself was never drawn to begin with.
-  camera.visible = false;
-  minimapRenderer.render(scene, minimapCamera);
-  camera.visible = true;
-  scene.fog = savedFog;
-}
 
 // ---------- player ----------
 const player = new PointerLockPlayer(camera, renderer.domElement);
@@ -1583,7 +1529,9 @@ if (import.meta.env.DEV) {
     forceFlashlightFound: () => { flashlightFound = true; setFlashlight(true); equipTorch(); },
     pickUpItem,
     refreshInventoryUI,
-    updateMinimap,
+    // The map: headless has no Pointer Lock, so the frame loop's own call to
+    // setMode/revealAt/update never runs and a test drives it from here.
+    minimap,
     storm: bedroomStorm,
     captions,
     documentUI,
@@ -1699,7 +1647,15 @@ function tick() {
 
   if (player.isLocked) {
     interaction.update();
-    updateMinimap();
+    // Mode comes from the level, read every frame rather than hooked into each
+    // of activate()'s call sites; setMode() guards on identity so this is a
+    // pointer compare on the frames it does not change.
+    const lvl = sceneManager.active;
+    minimap.setMode(lvl?.minimap);
+    // Fog of war. The level owns its own rectangles, so it decides what the
+    // player has now seen -- this only tells it where they are.
+    lvl?.revealAt?.(camera.position.x, camera.position.z);
+    minimap.update();
   }
 
   postFX.update(dt);

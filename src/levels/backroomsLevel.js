@@ -16,6 +16,7 @@ import {
 } from '../world/textures.js';
 import { loadModel, applyTextureByMaterialName } from '../world/modelLoader.js';
 import { MINIMAP_ONLY, MAIN_ONLY } from '../core/RenderLayers.js';
+import { gameState } from '../core/GameState.js';
 import doorModelUrl from '../assets/models/door.glb?url';
 import {
   CORRIDOR_W, T, CORRIDORS, ROUTE, BOX, LEGS, buildWallRuns, runCollider, validateMaze,
@@ -190,8 +191,23 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
   // minimap camera only (see MINIMAP_ONLY) -- the two floors never share a
   // camera, so they never compete for the same pixel.
   const minimapFloorMat = new THREE.MeshBasicMaterial({ color: 0x8a7a52 });
-  Object.values(CORRIDORS).forEach(([x0, x1, z0, z1], i) => {
+  // The corridor you are standing in, so a 42-rectangle floor plan still tells
+  // you which of its rooms is you.
+  const minimapHereMat = new THREE.MeshBasicMaterial({ color: 0xc4ad72 });
+  const mapQuads = {};
+  Object.entries(CORRIDORS).forEach(([name, [x0, x1, z0, z1]], i) => {
     const q = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, z1 - z0), minimapFloorMat);
+    mapQuads[name] = q;
+    // FOG OF WAR, and it is exactly this cheap: the level already drew one flat
+    // quad per corridor for the map, which is precisely the granularity the fog
+    // wants, so hiding a corridor is `visible = false`. No mask canvas, no
+    // render target, no per-pixel anything.
+    //
+    // Unexplored draws NOTHING -- the wrap's own black shows through the
+    // alpha canvas. Deliberately not a dim silhouette: with a tree of 42
+    // corridors an outline hands the player the shape of the solution, and the
+    // level is over.
+    q.visible = false;
     q.rotation.x = -Math.PI / 2;
     // A tiny per-quad rise, not a shared height: junctions genuinely overlap
     // two corridor rectangles by design (see the file header's rule 1), and
@@ -201,6 +217,76 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     q.layers.set(MINIMAP_ONLY);
     group.add(q);
   });
+
+  // Two landmarks, each revealed with the corridor it stands in rather than
+  // drawn from the start: the exit marker is then a REWARD for having found the
+  // corridor, not a spoiler pointing at it from the first step. The map is
+  // schematic (see `exclusive` in Minimap.js), so the door model itself never
+  // appears on it and something has to say which end is which.
+  function addLandmark(at, colour, size) {
+    const m = new THREE.Mesh(
+      new THREE.PlaneGeometry(size, size),
+      new THREE.MeshBasicMaterial({ color: colour })
+    );
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(at.x, 0.02, at.z);
+    m.layers.set(MINIMAP_ONLY);
+    m.visible = false;
+    group.add(m);
+    return m;
+  }
+  const exitLeg = Object.keys(LEGS).find((n) => LEGS[n].exit);
+  const rootLeg = Object.keys(LEGS).find((n) => LEGS[n].parent === null);
+  const exitMark = addLandmark(exitPoint(), 0xffd257, 2.2);
+  const entryMark = addLandmark(spawnPoint(), 0x6b6355, 1.8);
+
+  const CORRIDOR_LIST = Object.entries(CORRIDORS);
+  let hereQuad = null;
+
+  /**
+   * The player is at (x, z) -- reveal whatever corridor that is, forever.
+   *
+   * Called from main.js's frame loop. A point-in-rect scan over 42 rectangles
+   * per frame is nothing, and doing it here rather than in the map keeps the
+   * rectangles owned by the level that generated them.
+   */
+  function revealAt(x, z) {
+    let here = null;
+    for (const [name, r] of CORRIDOR_LIST) {
+      if (x < r[0] || x > r[1] || z < r[2] || z > r[3]) continue;
+      here = here ?? mapQuads[name];
+      if (gameState.corridorsSeen.has(name)) continue;
+      gameState.corridorsSeen.add(name);
+      mapQuads[name].visible = true;
+      if (name === exitLeg) exitMark.visible = true;
+      if (name === rootLeg) entryMark.visible = true;
+    }
+    if (here === hereQuad) return;
+    if (hereQuad) hereQuad.material = minimapFloorMat;
+    hereQuad = here;
+    if (hereQuad) hereQuad.material = minimapHereMat;
+  }
+
+  /**
+   * Push gameState's set back onto the meshes.
+   *
+   * Called from setRoute(), which main.js calls immediately before this level
+   * is made visible -- and that ordering is what makes a restart re-fog the map
+   * correctly. resetGame() runs sceneManager.resetAll() BEFORE resetState(), so
+   * syncing from reset() alone would read the old set and leave the map
+   * revealed; by the next setRoute() the set has been cleared and this is right
+   * again. It is also the cheapest place to be correct after any other path
+   * that touches the set.
+   */
+  function syncFog() {
+    for (const [name, q] of Object.entries(mapQuads)) {
+      q.visible = gameState.corridorsSeen.has(name);
+      q.material = minimapFloorMat;
+    }
+    hereQuad = null;
+    exitMark.visible = gameState.corridorsSeen.has(exitLeg);
+    entryMark.visible = gameState.corridorsSeen.has(rootLeg);
+  }
 
   const ceilTex = createCeilingTileTexture();
   const ceilNormal = createCeilingTileNormalTexture();
@@ -260,6 +346,37 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
 
   const lamps = [];
 
+  // ---------- the lights fail, on purpose ----------
+  //
+  // Three independent failures, layered as multipliers over whatever the lamp's
+  // own mode is doing (see update()):
+  //
+  //   mode    the tube's own character -- always moving, never dead-still
+  //   outage  this ONE fixture gone, for seconds at a time
+  //   blackout  the whole floor gone at once
+  //
+  // Why: the corridor is 42 corridors deep now and the torch is the only thing
+  // the player carries into it. A maze that is reliably lit is a maze you read
+  // off the ceiling; one where any given corridor might be dark when you reach
+  // it is a maze you have to light yourself. It also means the level plays
+  // differently on the second crossing without being a different level.
+  //
+  // The EXIT LAMP IS EXEMPT from both outage and blackout. It is deliberate
+  // signage -- "the light does the signage" -- so during a blackout it becomes
+  // the only lit thing on the floor, which turns a blackout into a direction
+  // rather than only a punishment. Being the one thing that never fails is also
+  // how the player learns to trust it.
+  const OUTAGE_OUT = [2.0, 6.0];    // seconds this fixture stays gone
+  const OUTAGE_LIT = [8.0, 20.0];   // seconds before it goes again
+  const BLACKOUT_GAP = [45.0, 90.0];
+  const BLACKOUT_LEN = [4.0, 7.0];
+  const OUT_EASE = 7.0;             // 1/s -- roughly a 0.15s ramp either way
+  const rand = ([lo, hi]) => lo + Math.random() * (hi - lo);
+
+  let blackout = 1;                 // level-wide multiplier, eased
+  let blackoutOn = false;
+  let blackoutTimer = rand(BLACKOUT_GAP);
+
   /**
    * One ceiling troffer. Mounted with its long axis ACROSS the corridor, which
    * is how real fixtures hang and which turns each pool into a bright BAND on
@@ -311,7 +428,15 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
       mode,
       seed: lamps.length * 2.3,
       lit: false,
-      timer: 0
+      timer: 0,
+      // Its own independent failure clock -- see OUTAGE below. Staggered by
+      // index so they do not all first drop out on the same second of the
+      // first crossing, which is what a shared start time looks like.
+      out: false,
+      outTimer: OUTAGE_LIT[0] + (lamps.length * 3.1) % (OUTAGE_LIT[1] - OUTAGE_LIT[0]),
+      // Eased rather than switched: a fluorescent does not go from full to
+      // nothing in one frame, and a hard cut on a point light reads as a bug.
+      outLevel: 1
     });
   }
 
@@ -766,6 +891,16 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     interactables,
     colliders,
     spawn: [spawnAt.x, spawnAt.z],
+    /**
+     * The map frames this whole level instead of 14m around the player.
+     *
+     * At 52 x 49m the follow view is a keyhole, and a keyhole with fog over it
+     * is not navigation. `exclusive` draws the map from MINIMAP_ONLY geometry
+     * ONLY -- see Minimap.js for why that is a correctness fix and not a
+     * micro-optimisation.
+     */
+    minimap: { mode: 'overview', bounds: BOX, exclusive: true },
+    revealAt,
     // The camera's local forward is -Z by default and the corridor runs +Z, so
     // it has to be turned 180 degrees to face down it -- same reasoning as
     // hallwayBasementLevel. It also means the player spawns with their back to
@@ -806,12 +941,27 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
       opened = false;
       outFade = 1;
       doorHinge.rotation.y = 0;
-      lamps.forEach((l) => {
+      lamps.forEach((l, i) => {
         l.light.intensity = l.base;
         l.mat.emissiveIntensity = l.emissiveBase;
         l.lit = false;
         l.timer = 0;
+        // Every crossing starts lit. Walking INTO a blackout you did not see
+        // begin is disorienting in the wrong way -- it reads as the game
+        // breaking rather than as the building failing.
+        l.out = false;
+        l.outLevel = 1;
+        l.outTimer = OUTAGE_LIT[0] + (i * 3.1) % (OUTAGE_LIT[1] - OUTAGE_LIT[0]);
       });
+      blackout = 1;
+      blackoutOn = false;
+      blackoutTimer = rand(BLACKOUT_GAP);
+      // Re-read the explored set. This is the moment that matters: main.js
+      // calls setRoute immediately before making the level visible, so the map
+      // is always correct at the instant the player can see it -- including
+      // after a restart, which clears the set only AFTER every level's reset()
+      // has already run.
+      syncFog();
     },
     get route() { return route; },
 
@@ -825,11 +975,41 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
       // is literally true on screen during the beat before the level switches.
       if (opened) outFade = Math.max(0, outFade - dt * 1.1);
 
+      // Level-wide blackout. Not driven off this._t, because that clock is
+      // reset per crossing and the player would learn the schedule.
+      if (!opened) {
+        blackoutTimer -= dt;
+        if (blackoutTimer <= 0) {
+          blackoutOn = !blackoutOn;
+          blackoutTimer = rand(blackoutOn ? BLACKOUT_LEN : BLACKOUT_GAP);
+        }
+      }
+      blackout += ((blackoutOn ? 0 : 1) - blackout) * Math.min(1, dt * OUT_EASE);
+
       lamps.forEach((l) => {
+        // Per-fixture dropout, independent of every other fixture, so no
+        // corridor is reliably lit and the darkness never arrives in a pattern.
+        if (l !== exitLamp && !opened) {
+          l.outTimer -= dt;
+          if (l.outTimer <= 0) {
+            l.out = !l.out;
+            l.outTimer = rand(l.out ? OUTAGE_OUT : OUTAGE_LIT);
+          }
+        }
+        l.outLevel += ((l.out ? 0 : 1) - l.outLevel) * Math.min(1, dt * OUT_EASE);
+
         let v;
         if (l.mode === 'steady') {
-          // A barely-there mains ripple: never dark, but never dead-still.
-          v = 0.94 + Math.sin(this._t * 11.3 + l.seed) * 0.03 + Math.random() * 0.03;
+          // A visible mains ripple. Was 0.94 +-0.03 -- so shallow that "steady"
+          // meant "static", and a static fluorescent in a level built on
+          // unreliable light was the one thing on the ceiling holding still.
+          v = 0.86 + Math.sin(this._t * 11.3 + l.seed) * 0.07
+                   + Math.sin(this._t * 2.7 + l.seed * 1.7) * 0.04
+                   + Math.random() * 0.05;
+          // An occasional single-frame stumble, rare enough to be startling
+          // rather than strobing -- but NOT on the exit lamp. That fixture is
+          // signage, and signage that twitches is signage you stop trusting.
+          if (l !== exitLamp && Math.random() < 0.004) v *= 0.35;
         } else if (l.mode === 'flicker') {
           // The lab's idiom, with deeper dips.
           v = (0.86 + Math.random() * 0.24) * (Math.random() < 0.06 ? 0.25 : 1);
@@ -843,7 +1023,10 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
           }
           v = l.lit ? 0.55 + Math.random() * 0.60 : 0.015;
         }
-        v *= outFade;
+        // The exit lamp keeps its own steady character through everything: it
+        // is exempt from `blackout` and `outLevel`, and only the door's own
+        // fade-out can take it down.
+        v *= outFade * (l === exitLamp ? 1 : l.outLevel * blackout);
         l.light.intensity = l.base * v;
         // Driving emissiveIntensity alongside the light is what the lab's
         // flicker misses -- there the tube mesh glows steadily while the room

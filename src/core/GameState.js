@@ -54,6 +54,19 @@ function initialState() {
     /** null until the player commits: 'released' | 'contained'. */
     endingChosen: null,
 
+    // --- the map ---------------------------------------------------------
+    /**
+     * Names of the backrooms corridors the player has actually stood in.
+     *
+     * Here rather than in the level's closure for a specific reason: the
+     * corridor's reset() is literally setRoute(null) and it fires on EVERY
+     * level crossing, because the corridor is the interstitial between all of
+     * them. Level-local memory would be wiped every time the player walked
+     * through, so the map would re-fog itself on the trip it is meant to help
+     * with. resetState() clears it, which is the one place a new run should.
+     */
+    corridorsSeen: new Set(),
+
     // --- inventory ---------------------------------------------------------
     /** Ids of carried items, in pickup order. See ITEMS below for display info. */
     inventory: new Set()
