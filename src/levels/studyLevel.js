@@ -666,9 +666,28 @@ export function createStudyLevel({
     }
   ];
 
+  /**
+   * The three locks, on the STUDY side of the door.
+   *
+   * They used to sit at z = +0.05, which is the porch side, and that broke
+   * them twice over for a player standing in the room:
+   *
+   *  - INVISIBLE. The slab spans z -0.035..+0.035, so a lock at 0.025..0.075
+   *    was entirely behind the slab's room-facing face. The three locks the
+   *    whole level is built around could only be seen from outside the house.
+   *  - UNCLICKABLE. `frontDoorSlabHit` is an invisible 0.2 m deep box reaching
+   *    forward to z = -0.05, and `Interaction` takes `hits[0]` -- the nearest.
+   *    So aiming at a lock always hit the door instead, and the prompt read
+   *    "The front door" everywhere on the slab.
+   *
+   * At z = -0.05 the body spans -0.075..-0.025: it stands 0.04 m proud of the
+   * slab so it reads as hardware bolted across the door, and its front face is
+   * 0.025 m nearer than the slab hitbox's, so the raycast resolves to the lock
+   * whenever the crosshair is actually on one.
+   */
   LOCKS.forEach(({ id, y, label, try: attempt }) => {
     const lock = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.16, 0.05), lockMat);
-    lock.position.set(0.35, y, 0.05);
+    lock.position.set(0.35, y, -0.05);
     lock.userData.interact = {
       get label() {
         return gameState.locksOpen.has(id) ? `${label} (open)` : label;
