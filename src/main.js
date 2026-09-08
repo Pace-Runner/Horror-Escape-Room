@@ -769,6 +769,52 @@ const hallwayBasement = createHallwayBasementLevel({
   },
 
   /**
+   * The main goes as the player reaches the metal door.
+   *
+   * The creature is NOT shown here, and that is the point of the beat: the
+   * player only hears the lever and the room dying, and has to sit with the
+   * fact that somebody was standing at that panel. On a second playthrough it
+   * reads the other way round -- this is Annabelle cutting the power to keep
+   * her brother away from the front door.
+   */
+  onBlackout: () => {
+    script.run(async (s) => {
+      s.do(() => {
+        audio.creak();
+        audio.spark();
+        // It is close. The breathing says so without showing anything.
+        audio.setBreathing(0.9);
+      });
+      if (!await s.play(BEATS.blackout)) return;
+      s.do(() => audio.setBreathing(0.7));
+    });
+  },
+
+  onGeneratorRunning: () => {
+    script.run(async (s) => {
+      if (!await s.play(BEATS.generatorRunning)) return;
+    });
+  },
+
+  onOverload: () => captions.play(BEATS.breakerOverload),
+
+  onPowerRouted: () => {
+    script.run(async (s) => {
+      if (!await s.play(BEATS.powerRouted)) return;
+    });
+  },
+
+  /**
+   * The metal door's security lockout. Same contract as the study's
+   * combination lock: unlock the player, hand the shared keypad the code the
+   * level owns, and let PinPadUI's own onClose re-lock on the way out.
+   */
+  onEnterSecurityCode: ({ code, onSolved }) => {
+    player.unlock();
+    pinPadUI.open({ length: code.length, code, onSolved });
+  },
+
+  /**
    * The two sightings, both of which happen ON THE SCREEN rather than in the
    * world. That is the point: the player is looking at a monitor, so the game
    * can put the creature exactly where it wants, for exactly as long as it
@@ -1652,7 +1698,9 @@ function tick() {
   // out of the tucked pose with the camera's drop rather than snapping.
   hands.setLayerWeight('crouch-shift', player.crouch);
   hands.update(dt, elapsed, handMotion);
-  sceneManager.update(dt);
+  // The camera IS the player's position; the basement reads it to know when
+  // they have walked up to the metal door.
+  sceneManager.update(dt, camera.position);
 
   if (player.isLocked) {
     interaction.update();

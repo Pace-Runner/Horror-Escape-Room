@@ -8,6 +8,7 @@ import {
   createRugTexture
 } from '../world/textures.js';
 import { addBaseboard, makeHandle } from '../world/trim.js';
+import { DOOR_PANEL_ROWS, getPanelSpans } from '../world/doorPanels.js';
 import { gameState } from '../core/GameState.js';
 import { createHiddenWritingTexture, createFootmarkTexture } from '../world/textures.js';
 
@@ -746,6 +747,59 @@ export function createStudyLevel({
   frontDoor.add(doorHinge);
   doorHinge.add(doorSlab);
   doorSlab.position.set(0.525, 1.05, 0);
+
+  /**
+   * The door's panelling -- three rows of raised panels, and the security
+   * code for Level 2's metal door.
+   *
+   * The player counted these rows off camera four before they ever got here.
+   * This and the CCTV painter both read `DOOR_PANEL_ROWS` and both lay their
+   * panels out with `getPanelSpans()`, so the door they were shown and the
+   * door they finally stand in front of cannot disagree -- not in count and
+   * not in rhythm.
+   *
+   * CHILDREN OF THE SLAB, not of `frontDoor`. The panels are the door; they
+   * swing with it. The locks are children of `frontDoor` instead, because
+   * those are bolts seated in the frame and stay where they are.
+   *
+   * Layout: the slab is 1.05 x 2.1 centred on its own origin. The panel field
+   * takes the left 62% and the lock stile the right, which is how real
+   * joinery does it -- a lock goes through the stile, never through a panel --
+   * and which also keeps the lock bodies at x = +0.35 clear of every panel a
+   * player has to count.
+   */
+  const PANEL_FIELD_WIDTH_FRACTION = 0.62;
+  const SLAB_W = 1.05;
+  const SLAB_H = 2.1;
+  const panelMat = new THREE.MeshStandardMaterial({ color: 0x33261a, roughness: 0.8 });
+
+  {
+    const fieldW = SLAB_W * PANEL_FIELD_WIDTH_FRACTION;
+    const fieldX = -SLAB_W / 2 + SLAB_W * 0.06;   // left margin, in slab space
+    const rowPitch = (SLAB_H * 0.9) / DOOR_PANEL_ROWS.length;
+    const rowH = rowPitch * 0.68;
+    const fieldTop = (SLAB_H * 0.9) / 2;
+
+    DOOR_PANEL_ROWS.forEach((count, row) => {
+      const rowCentreY = fieldTop - rowPitch * (row + 0.5);
+      for (const span of getPanelSpans(count)) {
+        // Proud of the slab rather than recessed into it: a raised panel
+        // catches the study's lamp along its top edge, which is what makes it
+        // legible as a separate rectangle from across the room. A recess
+        // would read as shadow and merge with its neighbours.
+        const panel = new THREE.Mesh(
+          new THREE.BoxGeometry(span.width * fieldW, rowH, 0.014),
+          panelMat
+        );
+        panel.position.set(
+          fieldX + (span.x + span.width / 2) * fieldW,
+          rowCentreY,
+          -0.042
+        );
+        doorSlab.add(panel);
+      }
+    });
+  }
 
   /**
    * The shut door's collider, held so it can be TAKEN AWAY again.
