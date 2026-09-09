@@ -833,10 +833,33 @@ export function createHallwayBasementLevel({
    * the set resets, because a half-primed engine does not stay half-primed.
    */
   const GENERATOR_RESTART_SEQUENCE = ['valve', 'primer', 'starter'];
-  const GENERATOR_CONTROL_LABELS = {
-    valve: 'Fuel valve',
-    primer: 'Primer pump',
-    starter: 'Starter'
+  /**
+   * Each control's prompt, and what pressing it in the right order says.
+   *
+   * The caption is PER CONTROL rather than one template with the label
+   * substituted in. It used to read "<label>. It is waiting for the next one."
+   * for every step, which told the player only which button they had just
+   * pressed and then narrated the state machine at them. These say what the
+   * control physically did, so progress is legible without a status report --
+   * and they get louder as the sequence goes on, because that is the real cost
+   * of restarting a generator in a house you are trying not to be found in.
+   *
+   * The starter has no caption here: finishing the sequence is startGenerator's
+   * beat, not a step's.
+   */
+  const GENERATOR_CONTROLS = {
+    valve: {
+      label: 'Fuel valve',
+      caption: 'The valve turns without a sound. Is it the last quiet thing you do down here?'
+    },
+    primer: {
+      label: 'Primer pump',
+      caption: 'The stroke of the primer bangs through the pipes.'
+    },
+    starter: {
+      label: 'Starter',
+      caption: null
+    }
   };
   const GENERATOR_CONTROL_COLOR_DONE = 0x2e6b3a;
   const GENERATOR_CONTROL_COLOR_IDLE = 0x000000;
@@ -868,7 +891,7 @@ export function createHallwayBasementLevel({
   function startGenerator() {
     powerStage = POWER_STAGE.RUNNING;
     metalDoor.userData.interact.label = DOOR_LABELS[POWER_STAGE.RUNNING];
-    showCaption('Down the wall, the breaker panel starts humming. Nothing else does.');
+    showCaption('The engine catches and the noise of it fills everything. Then the breaker panel hums.');
     onGeneratorRunning();
   }
 
@@ -896,7 +919,7 @@ export function createHallwayBasementLevel({
       generatorStepsCompleted = 0;
       updateGeneratorControlLights();
       onSpark();
-      showCaption('It coughs, floods and dies. Whatever order that was, it was not the right one.');
+      showCaption('It coughs, floods and dies. Wrong order -- and the noise carried anyway.');
       return;
     }
 
@@ -904,7 +927,7 @@ export function createHallwayBasementLevel({
     updateGeneratorControlLights();
 
     if (generatorStepsCompleted < GENERATOR_RESTART_SEQUENCE.length) {
-      showCaption(`${GENERATOR_CONTROL_LABELS[controlId]}. It is waiting for the next one.`);
+      showCaption(GENERATOR_CONTROLS[controlId].caption);
       return;
     }
     startGenerator();
@@ -930,7 +953,7 @@ export function createHallwayBasementLevel({
     );
     control.position.set(GENERATOR_FACE_X, 0.82, generator.position.z - 0.2 + i * 0.2);
     control.userData.interact = {
-      label: GENERATOR_CONTROL_LABELS[controlId],
+      label: GENERATOR_CONTROLS[controlId].label,
       onInteract: () => pressGeneratorControl(controlId)
     };
     interactables.push(control);
@@ -1588,11 +1611,12 @@ export function createHallwayBasementLevel({
     new THREE.MeshStandardMaterial({
       map: createPaperNoteTexture([
         'SECURITY LOCKOUT',
-        'The security code',
-        'is on the study',
-        'door design.',
-        '',
-        'TOP TO BOTTOM.'
+        'I WILL FORGET',
+        'THIS. THE STUDY',
+        'DOOR WILL NOT.',
+        'IN WHAT IT WEARS,',
+        'TOP ROW DOWN,',
+        'LIES YOUR WAY OUT.'
       ]),
       roughness: 1
     })
@@ -1608,6 +1632,25 @@ export function createHallwayBasementLevel({
    * it. Without it a player sees a perfectly ordinary panelled door and has no
    * reason to count anything, which is exactly the point of hiding the code in
    * something that needs no explanation for being there.
+   *
+   * PHRASED AS A RIDDLE, but only in one place. A security note that spelt out
+   * "count the panels" would be a note that defeats the lock it belongs to,
+   * which is reason enough in the fiction for it to be oblique -- so the WHAT
+   * is riddled ("in what it wears") and left for the player to see for
+   * themselves, since panels are obvious the moment anyone looks at that door.
+   *
+   * What is NOT riddled: "the study" and "top row down". Those are the two
+   * facts a player cannot recover by looking harder -- there are five cameras
+   * and two directions to read in, and being refused after counting correctly
+   * is the worst failure this puzzle can produce. Atmosphere is worth a
+   * player's second look; it is not worth their being stuck. The direction is
+   * set INSIDE the sentence rather than appended to it, so the one plain
+   * instruction still reads as part of the riddle.
+   *
+   * And it is in Mark's voice, which is the point of the first line. It gives
+   * the note a reason to exist -- a man who knows his memory is going, leaving
+   * himself a way back in -- and it lands twice: procedure on a first read,
+   * and on a second the player's own handwriting, from before they forgot.
    *
    * It does NOT name the camera. There are five and only one shows the study,
    * so saying "the study door" is already enough to find it -- and leaving the
@@ -1633,7 +1676,7 @@ export function createHallwayBasementLevel({
   doorNote.userData.interact = {
     label: 'Read the note on the door',
     onInteract: () => {
-      showCaption('"SECURITY LOCKOUT. The security code is on the study door design. Top to bottom."');
+      showCaption('"SECURITY LOCKOUT. I will forget this. The study door will not. In what it wears, top row down, lies your way out."');
       /**
        * Read once, then it stops being a target.
        *

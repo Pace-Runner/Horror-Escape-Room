@@ -448,8 +448,27 @@ ordinary panelled door and has no reason to count anything -- which is exactly
 the point of hiding the code in something that needs no explanation for being
 there.
 
-> *"SECURITY LOCKOUT. The security code is on the study door design. Top to
-> bottom."*
+> *"SECURITY LOCKOUT. I will forget this. The study door will not. In what it
+> wears, top row down, lies your way out."*
+
+Phrased as a riddle, but only in one place. A security note that spelt out
+"count the panels" would be a note that defeats the lock it belongs to, which
+is reason enough in the fiction for it to be oblique -- so the **what** is
+riddled and left for the player to see for themselves, since panels are
+obvious the moment anyone looks at that door.
+
+What is **not** riddled: *"the study"* and *"top row down"*. Those are the two
+facts a player cannot recover by looking harder -- there are five cameras and
+two directions to read in -- and being refused after counting correctly is the
+worst failure this puzzle can produce. Atmosphere is worth a player's second
+look; it is not worth their being stuck. The direction sits *inside* the
+sentence rather than appended to it, so the one plain instruction still reads
+as part of the riddle.
+
+It is also in Mark's voice, which is what the first line buys. It gives the
+note a reason to exist -- a man who knows his memory is going, leaving himself
+a way back in -- and it lands twice: procedure on a first read, and on a
+second the player's own handwriting, from before they forgot.
 
 It deliberately does **not** name the camera. There are five and only one shows
 the study, so "the study door" is already enough to find it; leaving the player
