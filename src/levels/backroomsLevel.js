@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import {
   createBackroomsWallpaperTexture,
   createBackroomsWallpaperNormalTexture,
@@ -12,6 +13,14 @@ import {
   createClawMarksNormalTexture,
   createFurnitureWoodTexture,
   createFurnitureWoodNormalTexture,
+  createFluorescentTubeTexture,
+  createTrofferLensTexture,
+  createTrofferLensNormalTexture,
+  createFixtureSteelTexture,
+  createFixtureSteelNormalTexture,
+  createLampGlareTexture,
+  createPuddleTextures,
+  PUDDLE_PATTERNS,
   tiled
 } from '../world/textures.js';
 import { loadModel, applyTextureByMaterialName } from '../world/modelLoader.js';
@@ -388,52 +397,259 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
   let blackoutOn = false;
   let blackoutTimer = rand(BLACKOUT_GAP);
 
+  // ---------- the fixture, built once ----------
+  //
+  // Every troffer in the corridor is the same object, so it is ONE set of
+  // geometry shared by all forty-three of them and turned a quarter turn for
+  // the corridors that run the other way. That matters more here than it looks:
+  // this level already shares its wall geometry for the same reason, and a
+  // fixture detailed enough to be worth looking at is a dozen boxes, which at
+  // forty-three copies would be five hundred buffers for one repeated prop.
+  //
+  // The pan hangs BELOW the grid rather than being recessed into it. It has to:
+  // the ceiling is a single unbroken plane with no holes cut in it, so anything
+  // modelled above y = HALL_H sits behind an opaque surface and is simply never
+  // seen. Surface-mounted is also what these buildings actually end up with
+  // once the original recessed cans have been replaced once or twice.
+  const FIX_L = 1.22;    // along the fixture
+  const FIX_W = 0.62;    // across it
+  const DROP = 0.115;    // how far the pan hangs under the grid
+  const LIP = 0.036;     // the flange around the opening
+  const HX0 = 0.50;      // half-extents at the ceiling...
+  const HZ0 = 0.16;
+  const HX1 = FIX_L / 2 - LIP;   // ...and at the opening, which is WIDER: the
+  const HZ1 = FIX_W / 2 - LIP;   // pan flares out, and that flare is why a
+                                 // troffer throws a soft pool and not a slot
+
+  /**
+   * Draw a box's top edge in along one axis, so its long faces become
+   * trapezoids.
+   *
+   * The pan is a frustum: its opening is wider than its back on BOTH axes, so
+   * a wall that is a plain rectangle is the right width at the opening and too
+   * wide at the ceiling. Left as boxes, each of the four walls stuck a bright
+   * lit triangle out past its neighbours at the top -- four wings around every
+   * fixture in the corridor, and the shape the eye landed on before it landed
+   * on the lamp.
+   */
+  function pinchTop(geo, axis, ratio) {
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      if (p.getY(i) <= 0) continue;
+      if (axis === 'x') p.setX(i, p.getX(i) * ratio);
+      else p.setZ(i, p.getZ(i) * ratio);
+    }
+    return geo;
+  }
+
+  /**
+   * One wall of the reflector pan, as a box tilted onto the slope between the
+   * ceiling rectangle and the wider opening below it.
+   *
+   * `axis` is the axis the wall SPANS. The tilt is derived rather than
+   * eyeballed so the wall's top edge lands exactly on the ceiling rectangle and
+   * its bottom edge exactly on the opening: a degree out and the pan shows a
+   * hairline gap at all four corners, from every angle at once.
+   */
+  function panWall(axis, sign) {
+    const run = axis === 'x' ? HZ1 - HZ0 : HX1 - HX0;
+    const h = Math.hypot(run, DROP);
+    const angle = -sign * Math.atan2(run, DROP);
+    return axis === 'x'
+      ? pinchTop(new THREE.BoxGeometry(HX1 * 2, h, 0.01), 'x', HX0 / HX1)
+        .rotateX(angle).translate(0, -DROP / 2, sign * (HZ0 + HZ1) / 2)
+      : pinchTop(new THREE.BoxGeometry(0.01, h, HZ1 * 2), 'z', HZ0 / HZ1)
+        .rotateZ(-angle).translate(sign * (HX0 + HX1) / 2, -DROP / 2, 0);
+  }
+
+  const trofferGeo = mergeGeometries([
+    // The reflector back, flush under the grid.
+    new THREE.BoxGeometry(HX0 * 2, 0.01, HZ0 * 2).translate(0, -0.005, 0),
+    panWall('x', 1), panWall('x', -1), panWall('z', 1), panWall('z', -1),
+    // The flange around the opening. The long pair runs the full length so it
+    // closes the corners; the short pair only fills in between them.
+    new THREE.BoxGeometry(FIX_L, 0.022, LIP).translate(0, -DROP + 0.011, HZ1 + LIP / 2),
+    new THREE.BoxGeometry(FIX_L, 0.022, LIP).translate(0, -DROP + 0.011, -(HZ1 + LIP / 2)),
+    new THREE.BoxGeometry(LIP, 0.022, HZ1 * 2).translate(HX1 + LIP / 2, -DROP + 0.011, 0),
+    new THREE.BoxGeometry(LIP, 0.022, HZ1 * 2).translate(-(HX1 + LIP / 2), -DROP + 0.011, 0),
+    // The ballast cover down the spine and the four lampholders. Interior
+    // detail, and only ever seen on the fixtures whose lens is gone -- which is
+    // exactly where the eye goes, because those are the ones with a hole in
+    // them.
+    new THREE.BoxGeometry(0.90, 0.032, 0.10).translate(0, -0.026, 0),
+    ...[-1, 1].flatMap((ex) => [-0.14, 0.14].map((tz) =>
+      new THREE.BoxGeometry(0.030, 0.058, 0.075).translate(ex * 0.548, -0.062, tz)
+    ))
+  ]);
+
+  const steelMat = new THREE.MeshStandardMaterial({
+    map: createFixtureSteelTexture(),
+    normalMap: createFixtureSteelNormalTexture(),
+    roughness: 0.6,
+    metalness: 0
+  });
+
+  // Tubes laid along X, so the whole fixture turns as one piece for the
+  // corridors running the other way. Rotating a geometry leaves its UVs alone,
+  // so v still runs along the tube and the blackened ends stay at the ends.
+  const tubeBar = () => new THREE.CylinderGeometry(0.019, 0.019, 1.10, 14, 1, false)
+    .rotateZ(Math.PI / 2);
+  const tubePairGeo = mergeGeometries([
+    tubeBar().translate(0, -0.062, 0.14),
+    tubeBar().translate(0, -0.062, -0.14)
+  ]);
+  // Fixtures that have lost a lamp altogether. Only worth modelling because the
+  // empty holder beside the survivor is already there to be seen.
+  const tubeSoloGeo = tubeBar().translate(0, -0.062, -0.14);
+
+  const lensGeo = new THREE.PlaneGeometry(HX1 * 2, HZ1 * 2).rotateX(Math.PI / 2);
+  // Three lenses rather than one: a corridor of forty-three fixtures showing
+  // the identical arrangement of dead insects is worse than showing none.
+  const LENS_TEX = [
+    createTrofferLensTexture({ bugs: 32, grime: 0.55 }),
+    createTrofferLensTexture({ bugs: 17, grime: 0.3 }),
+    createTrofferLensTexture({ bugs: 46, grime: 0.85, cracked: true })
+  ];
+  const lensNormal = createTrofferLensNormalTexture();
+  const glareTex = createLampGlareTexture();
+
+  // How far the mercury has blackened each tube back from its electrodes: the
+  // fixture's own failure mode, written on the glass even while it is off.
+  const TUBE_AGE = { steady: 0.3, flicker: 0.62, dying: 0.86, dead: 1 };
+  const tubeTexCache = new Map();
+  const tubeTexture = (age) => {
+    if (!tubeTexCache.has(age)) tubeTexCache.set(age, createFluorescentTubeTexture({ age }));
+    return tubeTexCache.get(age);
+  };
+
   /**
    * One ceiling troffer. Mounted with its long axis ACROSS the corridor, which
    * is how real fixtures hang and which turns each pool into a bright BAND on
    * the carpet -- the classic backrooms floor pattern.
+   *
+   * `wear` is a 0..1 number taken from the junction's name, so which fixtures
+   * still have a lens, which are missing a lamp and which are hanging open is
+   * fixed for a given maze instead of reshuffling every crossing. The corridor
+   * is walked twice per playthrough and has to be the same corridor both times.
    */
-  function addFixture(x, z, { along = 'x', mode, colour, base, dist, decay, emissive, emissiveIntensity }) {
-    const acrossX = along === 'x';
-    const housing = new THREE.Mesh(
-      acrossX ? new THREE.BoxGeometry(1.22, 0.05, 0.62) : new THREE.BoxGeometry(0.62, 0.05, 1.22),
-      new THREE.MeshStandardMaterial({ color: 0xd8d2c0, roughness: 0.55 })
-    );
-    housing.position.set(x, HALL_H - 0.025, z);
+  function addFixture(x, z, {
+    along = 'x', mode, colour, base, dist, decay, emissive, emissiveIntensity,
+    wear = 0.5, glareSize = 1
+  }) {
+    const mount = new THREE.Group();
+    mount.position.set(x, HALL_H, z);
+    if (along !== 'x') mount.rotation.y = Math.PI / 2;
+    group.add(mount);
+
     // Hidden from the minimap camera: an emissive tube glowing under the map's
     // own bright ambient light reads as a stray bright blob on the floorplan,
     // not a light fixture -- see MAIN_ONLY in RenderLayers.js.
+    const housing = new THREE.Mesh(trofferGeo, steelMat);
     housing.layers.set(MAIN_ONLY);
-    group.add(housing);
+    mount.add(housing);
 
-    // Each fixture gets its OWN material instance. hallwayBasementLevel shares
-    // one tubeMat across all three of its tubes, which is fine there because
-    // they flicker identically -- here a shared material would make the dead
+    // Each fixture gets its OWN tube material. hallwayBasementLevel shares one
+    // tubeMat across all three of its tubes, which is fine there because they
+    // flicker identically -- here a shared material would make the dead
     // fixtures strobe in sync with the living ones.
+    const tubeTex = tubeTexture(TUBE_AGE[mode ?? 'dead']);
     const tubeMat = new THREE.MeshStandardMaterial({
-      color: 0xdfdac6,
+      map: tubeTex,
       emissive,
-      emissiveIntensity
+      // The map doubles as the emissive map, which is the entire point of
+      // painting the electrode ends dark: a worn tube glows as a bright bar
+      // with dead stubs, not as an evenly lit stick.
+      emissiveMap: tubeTex,
+      emissiveIntensity,
+      roughness: 0.35
     });
-    [-0.14, 0.14].forEach((d) => {
-      const tube = new THREE.Mesh(
-        acrossX ? new THREE.BoxGeometry(1.14, 0.035, 0.09) : new THREE.BoxGeometry(0.09, 0.035, 1.14),
-        tubeMat
-      );
-      tube.position.set(acrossX ? x : x + d, HALL_H - 0.06, acrossX ? z + d : z);
-      tube.layers.set(MAIN_ONLY);
-      group.add(tube);
-    });
+    // A missing lamp only ever on a dead fixture: half a lit fixture reads as a
+    // lighting bug, half a dark one reads as a building nobody maintains.
+    const tubes = new THREE.Mesh(!mode && wear > 0.78 ? tubeSoloGeo : tubePairGeo, tubeMat);
+    tubes.layers.set(MAIN_ONLY);
+    mount.add(tubes);
 
-    if (!mode) return; // a dead fixture: dark tube, no light at all
+    // Roughly three in five keep their lens. The rest are the interesting ones:
+    // a bare pan shows the tubes, the holders and the ballast cover, and the
+    // worst of them still have theirs hanging off one long edge.
+    let lensMat = null;
+    if (wear < 0.62) {
+      const lensTex = LENS_TEX[Math.min(2, Math.floor(wear / 0.62 * 3))];
+      lensMat = new THREE.MeshStandardMaterial({
+        map: lensTex,
+        emissive: 0xffe6a8,
+        emissiveMap: lensTex,
+        emissiveIntensity: (emissiveIntensity ?? 0) * 0.6,
+        normalMap: lensNormal,
+        normalScale: new THREE.Vector2(0.5, 0.5),
+        roughness: 0.42,
+        transparent: true,
+        opacity: 0.94,
+        depthWrite: false,
+        side: THREE.DoubleSide
+      });
+      const lens = new THREE.Mesh(lensGeo, lensMat);
+      lens.layers.set(MAIN_ONLY);
+      lens.position.y = -DROP + 0.014;
+      mount.add(lens);
+    } else if (!mode && wear > 0.9) {
+      // Hanging open on one long edge. Hinged rather than merely tilted, so the
+      // edge it swings from stays welded to the frame instead of floating a
+      // centimetre clear of it. 0.6 rad and no further: the far edge is then at
+      // 1.94 m, which is the last angle that still clears a walking player.
+      const hinge = new THREE.Object3D();
+      hinge.position.set(0, -DROP + 0.014, -HZ1);
+      hinge.rotation.x = 0.6;
+      mount.add(hinge);
+      // Dark, and deliberately not registered as a lamp lens below: there is
+      // nothing behind it to glow through any more.
+      const lens = new THREE.Mesh(lensGeo, new THREE.MeshStandardMaterial({
+        map: LENS_TEX[2],
+        normalMap: lensNormal,
+        normalScale: new THREE.Vector2(0.5, 0.5),
+        roughness: 0.42,
+        transparent: true,
+        opacity: 0.9,
+        depthWrite: false,
+        side: THREE.DoubleSide
+      }));
+      lens.layers.set(MAIN_ONLY);
+      lens.position.z = HZ1;
+      hinge.add(lens);
+    }
+
+    if (!mode) return; // a dead fixture: dark tubes, no light at all
 
     const light = new THREE.PointLight(colour, base, dist, decay);
     light.position.set(x, 2.10, z);
     group.add(light);
 
+    // The glare. See createLampGlareTexture(): there is no bloom in the render
+    // chain, so without this a lit fixture is exactly as bright as its own
+    // texture and reads as light painted onto a ceiling rather than as a lamp.
+    const glare = new THREE.Sprite(new THREE.SpriteMaterial({
+      map: glareTex,
+      color: colour,
+      blending: THREE.AdditiveBlending,
+      transparent: true,
+      depthWrite: false,
+      opacity: 0.5
+    }));
+    glare.scale.set(1.9 * glareSize, 1.0 * glareSize, 1);
+    glare.position.set(x, HALL_H - 0.21, z);
+    glare.layers.set(MAIN_ONLY);
+    group.add(glare);
+
     lamps.push({
       light,
       mat: tubeMat,
+      // Null on the fixtures whose lens is gone; the update loop drives it
+      // alongside the tube so the two never disagree about how lit the fixture
+      // is, which is the mistake the lab's flicker makes with its tube mesh.
+      lens: lensMat,
+      lensBase: lensMat ? lensMat.emissiveIntensity : 0,
+      glare,
+      glareBase: 0.5,
       base,
       emissiveBase: emissiveIntensity,
       mode,
@@ -474,7 +690,10 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     // rather than all landing on the same side of the pattern.
     const lit = j.onRoute ? i % 2 === 0 : nameNoise(j.name) < 0.34;
     if (!lit) {
-      addFixture(j.x, j.z, { along, mode: null, emissive: 0x24221c, emissiveIntensity: 0 });
+      addFixture(j.x, j.z, {
+        along, mode: null, emissive: 0x24221c, emissiveIntensity: 0,
+        wear: nameNoise(j.name, 11)
+      });
       return;
     }
     const mode = LAMP_MODES[Math.floor(nameNoise(j.name, 7) * LAMP_MODES.length)];
@@ -486,14 +705,18 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
       dist: 6.5,
       decay: 1.6,
       emissive: 0xffe9a0,
-      emissiveIntensity: 1.7
+      emissiveIntensity: 1.7,
+      wear: nameNoise(j.name, 11)
     });
   });
 
   // One over the arrival, so the corridor is not pitch black the instant you
   // step into it, and one over the exit.
   const spawnAt = spawnPoint();
-  addFixture(spawnAt.x, spawnAt.z + 0.4, { along: 'x', mode: 'dying', colour: 0xffd07a, base: 1.5, dist: 6.5, decay: 1.7, emissive: 0xffdca0, emissiveIntensity: 1.9 });
+  addFixture(spawnAt.x, spawnAt.z + 0.4, {
+    along: 'x', mode: 'dying', colour: 0xffd07a, base: 1.5, dist: 6.5, decay: 1.7,
+    emissive: 0xffdca0, emissiveIntensity: 1.9, wear: 0.71
+  });
 
   // The only bright steady light in the level sits over the exit, and it is the
   // one fixture exempt from the blackouts below. The destination is the one
@@ -501,7 +724,15 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
   // becomes the only lit thing in the maze, which turns the blackout into a
   // direction rather than only a punishment.
   const exitAt = exitPoint();
-  addFixture(exitAt.x, exitAt.z + exitAt.nz * 1.2, { along: 'x', mode: 'steady', colour: 0xffe0a4, base: 1.95, dist: 9, decay: 1.5, emissive: 0xfff0c0, emissiveIntensity: 1.9 });
+  addFixture(exitAt.x, exitAt.z + exitAt.nz * 1.2, {
+    along: 'x', mode: 'steady', colour: 0xffe0a4, base: 1.95, dist: 9, decay: 1.5,
+    emissive: 0xfff0c0, emissiveIntensity: 1.9,
+    // The one fixture in the level with an intact, barely-grimed lens, and a
+    // halo half again as wide. It is signage: it has to be the thing you pick
+    // out from the far end of a corridor, and during a blackout it is the only
+    // lit object on the floor.
+    wear: 0.32, glareSize: 1.45
+  });
   const exitLamp = lamps[lamps.length - 1];
 
   /**
@@ -861,23 +1092,63 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
   tileHole.position.set(tileAt.x, HALL_H - 0.01, tileAt.z + 0.4);
   group.add(tileHole);
 
-  // Water pooled on the carpet. Zero new textures -- under a moving flashlight
-  // the specular highlight does the work.
+  // Water pooled on the carpet.
   //
-  // Not the near-black, near-mirror material this obviously wants to be: with
-  // no environment map in the scene there is nothing for a smooth surface to
-  // reflect, so roughness 0.08 + a dark colour rendered as a flat black hole in
-  // the floor rather than as water. Semi-transparent over the carpet, with just
-  // enough gloss to catch a highlight, reads as wet instead.
-  const puddleMat = new THREE.MeshStandardMaterial({
-    color: 0x3a3020,
-    roughness: 0.34,
-    metalness: 0,
-    transparent: true,
-    opacity: 0.55,
-    depthWrite: false
-  });
-  Object.keys(LEGS).filter((name) => nameNoise(name, 31) < 0.22).forEach((name) => {
+  // Still NOT the near-black, near-mirror material this obviously wants to be:
+  // there is no environment map in this scene, so a smooth dark surface has
+  // nothing to reflect and renders as a flat black hole cut in the floor. What
+  // sells it instead is a ROUGHNESS MAP -- a glossy middle inside a matte damp
+  // fringe -- lit by a torch that moves. See createPuddleTextures().
+  //
+  // One material per pattern, shared by every puddle using it: eight materials
+  // for however many puddles the maze turns out to want, and the per-puddle
+  // variety comes from rotation and scale on top of the pattern.
+  const puddleGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+  const puddleMats = new Map();
+  function puddleMaterial(pattern) {
+    if (!puddleMats.has(pattern)) {
+      const t = createPuddleTextures(pattern);
+      puddleMats.set(pattern, new THREE.MeshStandardMaterial({
+        map: t.map,
+        alphaMap: t.alphaMap,
+        roughnessMap: t.roughnessMap,
+        normalMap: t.normalMap,
+        // Full strength. The map is already tuned (see createPuddleTextures):
+        // dialled down, the ripples stop catching the torch at all, which is
+        // the difference between water and a dark decal.
+        normalScale: new THREE.Vector2(1, 1),
+        // 1, so the roughness map is used as authored rather than scaled down.
+        roughness: 1,
+        metalness: 0,
+        transparent: true,
+        depthWrite: false
+      }));
+    }
+    return puddleMats.get(pattern);
+  }
+
+  /**
+   * Drop one puddle in a corridor.
+   *
+   * Sized to the corridor rather than to a fixed number, and kept square in
+   * plan: the plane is free to spin on Y for variety, and an oblong one turned
+   * 90 degrees in a 1.6 m corridor puts half the water inside a wall. The
+   * elongated patterns get their shape from the MASK instead, which is inside
+   * the square and rotates safely with it.
+   */
+  function addPuddle(pattern, x, z, span, spin) {
+    const pool = new THREE.Mesh(puddleGeo, puddleMaterial(pattern));
+    pool.position.set(x, 0.012, z);
+    pool.rotation.y = spin;
+    pool.scale.set(span, 1, span);
+    group.add(pool);
+    return pool;
+  }
+
+  // Up from 22% of corridors to 30%. The old threshold predates there being
+  // more than one thing to see: eight patterns spread over ten puddles meant
+  // most of them were never placed at all.
+  Object.keys(LEGS).filter((name) => nameNoise(name, 31) < 0.30).forEach((name) => {
     const m = legMid(name);
     const n = nameNoise(name, 37);
     // Jitter scaled to the corridor, not a fixed 1.5 m: on a 2.4 m closet a
@@ -888,14 +1159,37 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     const jAcross = Math.max(0, L.w / 2 - 0.9) * (n - 0.5) * 2;
     const x = m.x + (L.axis === 'z' ? jAcross : jAlong);
     const z = m.z + (L.axis === 'z' ? jAlong : jAcross);
-    const sx = 0.9 + n * 0.5;
-    const sz = 0.7 + n * 0.6;
-    const pool = new THREE.Mesh(new THREE.CircleGeometry(0.5, 20), puddleMat);
-    pool.rotation.x = -Math.PI / 2;
-    pool.position.set(x, 0.012, z);
-    pool.scale.set(sx, sz, 1);
-    group.add(pool);
+    // 'ripple' is left out of the draw: it is the one pattern that claims
+    // something is still dripping into it, and it is placed by hand under the
+    // hole in the ceiling grid rather than wherever the hash lands.
+    const pick = PUDDLE_PATTERNS.filter((p) => p !== 'ripple');
+    const pattern = pick[Math.min(pick.length - 1, Math.floor(nameNoise(name, 41) * pick.length))];
+    const room = Math.min(L.w, L.to - L.from) - 0.3;
+    addPuddle(pattern, x, z, Math.min(2.0, room) * (0.66 + n * 0.34),
+      nameNoise(name, 43) * Math.PI * 2);
   });
+
+  // The leak under the hole in the grid, and the drop still coming out of it.
+  //
+  // This is the one thing in the corridor that moves while the player is
+  // standing still, and it is worth the twenty lines for that alone: a maze
+  // this quiet needs something that is not either the player or the lights.
+  // It also answers the fallen tile above -- water came through here, which is
+  // why the tile is on the floor and not on the ceiling.
+  addPuddle('ripple', tileAt.x, tileAt.z + 0.4, 1.15, 0.4);
+  const drip = new THREE.Mesh(
+    new THREE.SphereGeometry(0.013, 8, 6),
+    // Rough 0.05 with nothing to reflect would be a black speck; what makes it
+    // visible is the torch's own highlight sliding over it as it falls.
+    new THREE.MeshStandardMaterial({
+      color: 0x2b2820, roughness: 0.06, metalness: 0, transparent: true, opacity: 0.9
+    })
+  );
+  drip.layers.set(MAIN_ONLY);
+  group.add(drip);
+  const DRIP_FALL = 0.62;    // seconds from the tile to the carpet
+  const DRIP_WAIT = 1.6;     // and how long before the next one gathers
+  let dripT = 0;
 
   return {
     group,
@@ -955,6 +1249,8 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
       lamps.forEach((l, i) => {
         l.light.intensity = l.base;
         l.mat.emissiveIntensity = l.emissiveBase;
+        if (l.lens) l.lens.emissiveIntensity = l.lensBase;
+        l.glare.material.opacity = l.glareBase;
         l.lit = false;
         l.timer = 0;
         // Every crossing starts lit. Walking INTO a blackout you did not see
@@ -1041,9 +1337,29 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
         l.light.intensity = l.base * v;
         // Driving emissiveIntensity alongside the light is what the lab's
         // flicker misses -- there the tube mesh glows steadily while the room
-        // strobes around it.
+        // strobes around it. The lens and the halo ride the same v for the same
+        // reason: three surfaces that disagree about how lit one fixture is
+        // read as three separate things stacked on the ceiling.
         l.mat.emissiveIntensity = l.emissiveBase * v;
+        if (l.lens) l.lens.emissiveIntensity = l.lensBase * v;
+        // Non-linear, and deliberately: glare is the eye's own response, and it
+        // falls away faster than the light does. A halo that dims in lockstep
+        // reads as a decal stuck to the fixture.
+        l.glare.material.opacity = l.glareBase * Math.max(0, v) * Math.max(0, v);
       });
+
+      // The leak. One drop at a time, falling from the hole in the grid into the
+      // puddle under it. Quadratic, not linear: a drop that falls at a constant
+      // speed reads as being lowered on a string, and the whole reason this is
+      // here is to be the one thing in the corridor moving under its own weight.
+      dripT += dt;
+      if (dripT > DRIP_FALL + DRIP_WAIT) dripT -= DRIP_FALL + DRIP_WAIT;
+      const fall = Math.min(1, dripT / DRIP_FALL);
+      drip.visible = dripT <= DRIP_FALL;
+      drip.position.set(tileAt.x, (HALL_H - 0.06) - fall * fall * (HALL_H - 0.09), tileAt.z + 0.4);
+      // Stretched by its own acceleration, which is what a falling drop does
+      // and what stops it reading as a bead sliding down glass.
+      drip.scale.set(1 - fall * 0.25, 1 + fall * 1.4, 1 - fall * 0.25);
 
       // Eased swing, same treatment and rate as the bedroom's front door.
       const target = opened ? doorOpenSwing : 0;

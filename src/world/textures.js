@@ -71,6 +71,127 @@ function heightToNormalMap(heightCanvas, strength = 1.5) {
   return out;
 }
 
+// ---------------------------------------------------------------------------
+// Generic canvas maths, shared by the procedural textures below
+// ---------------------------------------------------------------------------
+
+/** Hermite ramp: 0 at or below `a`, 1 at or above `b`, smooth in between. */
+function smoothstep(a, b, t) {
+  const x = Math.min(1, Math.max(0, (t - a) / (b - a)));
+  return x * x * (3 - 2 * x);
+}
+
+/**
+ * One axis of a box blur, with a running window sum so the cost is independent
+ * of the radius. Edges clamp rather than wrap: every mask that uses this is a
+ * decal with dead space around it, and wrapping would smear one side of a
+ * puddle onto the other.
+ */
+function boxBlurPass(src, dst, w, h, r, horizontal) {
+  const outer = horizontal ? h : w;
+  const inner = horizontal ? w : h;
+  const step = (horizontal ? 1 : w) * 4;
+  const lineStep = (horizontal ? w : 1) * 4;
+  const win = r * 2 + 1;
+  for (let o = 0; o < outer; o++) {
+    const base = o * lineStep;
+    for (let c = 0; c < 4; c++) {
+      let sum = 0;
+      for (let i = -r; i <= r; i++) {
+        sum += src[base + Math.min(inner - 1, Math.max(0, i)) * step + c];
+      }
+      for (let i = 0; i < inner; i++) {
+        dst[base + i * step + c] = sum / win;
+        sum += src[base + Math.min(inner - 1, i + r + 1) * step + c]
+             - src[base + Math.max(0, i - r) * step + c];
+      }
+    }
+  }
+}
+
+/**
+ * Blur a canvas in place, across all four channels.
+ *
+ * `ctx.filter = 'blur(Npx)'` would be one line, but it is the only 2D canvas
+ * feature this file would lean on that some shipping browsers still ignore --
+ * and an ignored filter does not throw, it just turns every soft edge below
+ * into a hard cut, which is exactly the failure that would ship unnoticed.
+ * Three box passes are visually indistinguishable from a Gaussian here.
+ */
+function blurCanvas(canvas, radius, passes = 3) {
+  const r = Math.round(radius);
+  if (r < 1) return canvas;
+  const { width: w, height: h } = canvas;
+  const ctx = canvas.getContext('2d');
+  const img = ctx.getImageData(0, 0, w, h);
+  const src = img.data;
+  const scratch = new Uint8ClampedArray(src.length);
+  for (let p = 0; p < passes; p++) {
+    boxBlurPass(src, scratch, w, h, r, true);
+    boxBlurPass(scratch, src, w, h, r, false);
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
+/**
+ * A closed, smoothly irregular blob -- the outline a spill actually makes.
+ *
+ * Samples `lobes` radii around an ellipse and joins them with quadratics
+ * through the MIDPOINTS of consecutive samples, so the curve has no corner at
+ * any sample. Joining the samples directly would give a polygon, and a polygon
+ * with visible corners is precisely what the old circle-geometry puddles read
+ * as under a moving torch.
+ *
+ * Returns the radii it used, so a second call can trace the same outline at a
+ * different size -- that is how the tide-mark variant gets a ring that follows
+ * its own shoreline instead of an unrelated second blob.
+ */
+function blobPath(ctx, cx, cy, rx, ry, { lobes = 9, wobble = 0.45, rot = 0, radii = null } = {}) {
+  const rs = radii ?? Array.from({ length: lobes }, () => 1 - wobble / 2 + Math.random() * wobble);
+  const n = rs.length;
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const a = rot + (i / n) * Math.PI * 2;
+    pts.push([cx + Math.cos(a) * rx * rs[i], cy + Math.sin(a) * ry * rs[i]]);
+  }
+  const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const start = mid(pts[n - 1], pts[0]);
+  ctx.beginPath();
+  ctx.moveTo(start[0], start[1]);
+  for (let i = 0; i < n; i++) {
+    const end = mid(pts[i], pts[(i + 1) % n]);
+    ctx.quadraticCurveTo(pts[i][0], pts[i][1], end[0], end[1]);
+  }
+  ctx.closePath();
+  return rs;
+}
+
+/**
+ * Smooth value noise, as a greyscale canvas.
+ *
+ * A tiny random grid blown up with the browser's own bilinear filter. Per-pixel
+ * Math.random() is white noise, and white noise pushed through
+ * heightToNormalMap() gives a normal map that sparkles like static; what a
+ * water surface needs is low-frequency undulation, which is what this is.
+ */
+function smoothNoiseCanvas(size, cells) {
+  const small = makeCanvas(cells, cells);
+  const sCtx = small.getContext('2d');
+  const img = sCtx.createImageData(cells, cells);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const n = Math.random() * 255;
+    img.data[i] = n; img.data[i + 1] = n; img.data[i + 2] = n; img.data[i + 3] = 255;
+  }
+  sCtx.putImageData(img, 0, 0);
+  const out = makeCanvas(size, size);
+  const oCtx = out.getContext('2d');
+  oCtx.imageSmoothingEnabled = true;
+  oCtx.imageSmoothingQuality = 'high';
+  oCtx.drawImage(small, 0, 0, size, size);
+  return out;
+}
+
 // Raw height canvas shared by createWoodFloorBumpTexture() and
 // createWoodFloorNormalTexture(), so the bump and normal variants always
 // agree on where the plank seams and grain actually are.
@@ -2055,4 +2176,789 @@ export function createFootmarkTexture() {
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
+}
+
+// ---------------------------------------------------------------------------
+// Backrooms ceiling fixtures
+//
+// A fluorescent troffer is three surfaces the player reads separately, so it
+// gets three maps rather than one: the painted steel pan, the tubes inside it,
+// and the prismatic lens across the front. Splitting them is what lets the
+// tubes glow while the pan stays dull and the lens shows what is trapped
+// behind it -- one shared material could not do any of that.
+// ---------------------------------------------------------------------------
+
+/**
+ * One fluorescent tube, wrapped around a cylinder.
+ *
+ * The canvas is TALL, not wide, because CylinderGeometry runs u around the
+ * circumference and v along the axis: anything that has to vary along the tube
+ * has to vary down the canvas.
+ *
+ * `age` from 0 (recently relamped) to 1 (should have been replaced a decade
+ * ago) drives the two things that actually date a fluorescent: how far the
+ * mercury has blackened the glass back from each electrode, and how far the
+ * phosphor has yellowed and gone blotchy. It doubles as the emissive map, so
+ * the blackened ends do not glow -- which is the whole reason to bother, and
+ * why an old tube reads as a bright bar with dark stubs rather than as an
+ * evenly lit stick.
+ */
+export function createFluorescentTubeTexture({ age = 0.5 } = {}) {
+  const canvas = makeCanvas(96, 512);
+  const ctx = canvas.getContext('2d');
+
+  // Halophosphate is a faintly green-grey when it is off, never white. Painting
+  // it white is what makes an unlit tube read as a plastic rod in torchlight.
+  ctx.fillStyle = '#e3e1d3';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Yellowing, then blotching, with age.
+  ctx.fillStyle = `rgba(158, 134, 76, ${0.06 + age * 0.20})`;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < 26; i++) {
+    const y = Math.random() * canvas.height;
+    const g = ctx.createLinearGradient(0, y - 26, 0, y + 26);
+    g.addColorStop(0, 'rgba(150, 130, 84, 0)');
+    g.addColorStop(0.5, `rgba(150, 130, 84, ${0.05 + age * 0.14})`);
+    g.addColorStop(1, 'rgba(150, 130, 84, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, y - 26, canvas.width, 52);
+  }
+
+  // Electrode blackening. Real tubes darken from the ends inward, and how far
+  // in it has crept is how you tell across a room which fixture is about to go.
+  const endLen = canvas.height * (0.04 + age * 0.10);
+  [0, 1].forEach((end) => {
+    const outer = end ? canvas.height : 0;
+    const inner = end ? canvas.height - endLen : endLen;
+    const g = ctx.createLinearGradient(0, outer, 0, inner);
+    g.addColorStop(0, `rgba(24, 19, 14, ${0.60 + age * 0.38})`);
+    g.addColorStop(0.35, `rgba(58, 42, 27, ${0.34 + age * 0.44})`);
+    g.addColorStop(1, 'rgba(96, 74, 46, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, end ? canvas.height - endLen : 0, canvas.width, endLen);
+  });
+
+  // The printed spec band. Illegible at this size and meant to be: it is there
+  // so the tube carries one hard machine-made edge among all the soft staining,
+  // which is what stops the whole thing reading as hand-painted.
+  ctx.fillStyle = 'rgba(88, 86, 78, 0.45)';
+  ctx.fillRect(0, canvas.height * 0.17, canvas.width, 5);
+  ctx.fillRect(0, canvas.height * 0.17 + 8, canvas.width, 2);
+
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 12;
+    img.data[i] += n; img.data[i + 1] += n; img.data[i + 2] += n;
+  }
+  ctx.putImageData(img, 0, 0);
+  return finish(canvas, 1, 1);
+}
+
+const DIFFUSER_CELL = 16;
+
+let _lensHeight = null;
+function lensHeight() {
+  return (_lensHeight ??= buildLensHeightCanvas());
+}
+
+function buildLensHeightCanvas() {
+  const canvas = makeCanvas(512, 256);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // The moulded prisms, as a height field. ONLY the prisms go in here: the
+  // insects sit behind the acrylic, so embossing them would be wrong -- which
+  // is also why one height canvas can serve every lens variant.
+  for (let x = 0; x < canvas.width; x += DIFFUSER_CELL) {
+    for (let y = 0; y < canvas.height; y += DIFFUSER_CELL) {
+      const g = ctx.createLinearGradient(x, y, x + DIFFUSER_CELL, y + DIFFUSER_CELL);
+      g.addColorStop(0, '#c8c8c8');
+      g.addColorStop(0.5, '#8a8a8a');
+      g.addColorStop(1, '#3c3c3c');
+      ctx.fillStyle = g;
+      ctx.fillRect(x, y, DIFFUSER_CELL, DIFFUSER_CELL);
+    }
+  }
+  ctx.strokeStyle = 'rgba(24, 24, 24, 0.55)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= canvas.width; x += DIFFUSER_CELL) {
+    ctx.beginPath(); ctx.moveTo(x + 0.5, 0); ctx.lineTo(x + 0.5, canvas.height); ctx.stroke();
+  }
+  for (let y = 0; y <= canvas.height; y += DIFFUSER_CELL) {
+    ctx.beginPath(); ctx.moveTo(0, y + 0.5); ctx.lineTo(canvas.width, y + 0.5); ctx.stroke();
+  }
+  return canvas;
+}
+
+/**
+ * The prismatic lens across the front of a troffer, seen from below.
+ *
+ * Three things are doing the work, and the third is the one that matters:
+ *
+ *  1. The moulded prisms, which give the acrylic its glitter instead of a flat
+ *     milky sheet, and which the torch catches when the fixture is dead.
+ *  2. The two soft bands where the tubes sit behind it -- a lensed fixture
+ *     shows you WHERE the light is without showing you the tube, and that is
+ *     the whole visual difference from a bare one.
+ *  3. THE DEAD INSECTS PILED IN THE PAN. Every fluorescent that has been up
+ *     for a decade has them, they are visible only as silhouettes and only
+ *     while the thing is lit, and nothing else in this game has them. They are
+ *     what make a ceiling light read as abandoned rather than merely old.
+ *
+ * Used as both `map` and `emissiveMap`, so the silhouettes stay dark against
+ * the glow instead of washing out with it.
+ */
+export function createTrofferLensTexture({ bugs = 30, grime = 0.5, cracked = false } = {}) {
+  const canvas = makeCanvas(512, 256);
+  const ctx = canvas.getContext('2d');
+
+  // Aged acrylic: white when it went up, tea-coloured after twenty years of
+  // being cooked from the inside.
+  const r0 = Math.round(236 - grime * 30);
+  const g0 = Math.round(230 - grime * 46);
+  const b0 = Math.round(206 - grime * 76);
+  ctx.fillStyle = `rgb(${r0}, ${g0}, ${b0})`;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // The tubes behind the lens. 0.274 / 0.726 is where the two of them actually
+  // sit: 0.14 m either side of the centre of a 0.62 m fixture.
+  [0.274, 0.726].forEach((t) => {
+    const y = canvas.height * t;
+    const g = ctx.createLinearGradient(0, y - 52, 0, y + 52);
+    g.addColorStop(0, 'rgba(255, 251, 232, 0)');
+    g.addColorStop(0.5, 'rgba(255, 251, 232, 0.6)');
+    g.addColorStop(1, 'rgba(255, 251, 232, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, y - 52, canvas.width, 104);
+  });
+  // ...and the shadow the pan's end walls throw on it, so the lens does not
+  // glow right up to the frame.
+  [[0, 1], [canvas.width, -1]].forEach(([x, dir]) => {
+    const g = ctx.createLinearGradient(x, 0, x + dir * 54, 0);
+    g.addColorStop(0, 'rgba(40, 36, 26, 0.45)');
+    g.addColorStop(1, 'rgba(40, 36, 26, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(Math.min(x, x + dir * 54), 0, 54, canvas.height);
+  });
+
+  // The prisms.
+  for (let x = 0; x < canvas.width; x += DIFFUSER_CELL) {
+    for (let y = 0; y < canvas.height; y += DIFFUSER_CELL) {
+      const g = ctx.createLinearGradient(x, y, x + DIFFUSER_CELL, y + DIFFUSER_CELL);
+      g.addColorStop(0, 'rgba(255, 255, 255, 0.22)');
+      g.addColorStop(0.5, 'rgba(255, 255, 255, 0.02)');
+      g.addColorStop(1, 'rgba(28, 26, 18, 0.18)');
+      ctx.fillStyle = g;
+      ctx.fillRect(x, y, DIFFUSER_CELL, DIFFUSER_CELL);
+    }
+  }
+
+  // The insects. Denser toward the middle, because that is where the pan sags
+  // and they slide to; about half get wings, which is what separates a moth
+  // from a fly once you are down to a silhouette.
+  for (let i = 0; i < bugs; i++) {
+    const pull = Math.random();
+    const x = canvas.width * (0.5 + (Math.random() - 0.5) * (0.9 - pull * 0.35));
+    const y = canvas.height * (0.5 + (Math.random() - 0.5) * (0.82 - pull * 0.35));
+    const s = 3 + Math.random() * 6;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.random() * Math.PI);
+    ctx.fillStyle = `rgba(26, 22, 15, ${0.45 + Math.random() * 0.4})`;
+    if (Math.random() < 0.5) {
+      ctx.globalAlpha = 0.55;
+      ctx.beginPath(); ctx.ellipse(-s * 0.62, -s * 0.1, s * 0.52, s * 0.8, -0.55, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(s * 0.62, -s * 0.1, s * 0.52, s * 0.8, 0.55, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    ctx.beginPath(); ctx.ellipse(0, 0, s * 0.38, s, 0, 0, Math.PI * 2); ctx.fill();
+    // Legs on the bigger ones only -- under about six pixels they read as
+    // noise around the body rather than as legs.
+    if (s > 6) {
+      ctx.strokeStyle = 'rgba(26, 22, 15, 0.5)';
+      ctx.lineWidth = 0.8;
+      for (let l = 0; l < 3; l++) {
+        const ly = -s * 0.4 + l * s * 0.4;
+        ctx.beginPath(); ctx.moveTo(-s * 0.3, ly); ctx.lineTo(-s * 0.95, ly - 2); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(s * 0.3, ly); ctx.lineTo(s * 0.95, ly - 2); ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  // Dust and nicotine-coloured film, heaviest against the frame where nobody
+  // has ever wiped.
+  [0, 1].forEach((edge) => {
+    const y = edge ? canvas.height : 0;
+    const dir = edge ? -1 : 1;
+    const g = ctx.createLinearGradient(0, y, 0, y + dir * 34);
+    g.addColorStop(0, `rgba(74, 64, 42, ${0.20 + grime * 0.24})`);
+    g.addColorStop(1, 'rgba(74, 64, 42, 0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, Math.min(y, y + dir * 34), canvas.width, 34);
+  });
+  for (let i = 0; i < 5; i++) {
+    const x = Math.random() * canvas.width;
+    const y = Math.random() * canvas.height;
+    const r = 30 + Math.random() * 70;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(86, 74, 46, ${0.10 + grime * 0.16})`);
+    g.addColorStop(1, 'rgba(86, 74, 46, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+
+  if (cracked) {
+    // A crack in a backlit lens reads BRIGHT, not dark: the fracture face
+    // scatters the light behind it straight down at you.
+    const path = () => {
+      let x = canvas.width * (0.2 + Math.random() * 0.2);
+      let y = 0;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      while (y < canvas.height) {
+        x += (Math.random() - 0.45) * 46;
+        y += 18 + Math.random() * 26;
+        ctx.lineTo(x, y);
+      }
+    };
+    path();
+    ctx.strokeStyle = 'rgba(60, 54, 38, 0.45)';
+    ctx.lineWidth = 3.2;
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255, 255, 246, 0.85)';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+  }
+
+  return finish(canvas, 1, 1);
+}
+
+export function createTrofferLensNormalTexture() {
+  return finishBump(heightToNormalMap(lensHeight(), 1.0), 1, 1);
+}
+
+let _fixtureSteelHeight = null;
+function fixtureSteelHeight() {
+  return (_fixtureSteelHeight ??= buildFixtureSteelHeightCanvas());
+}
+
+function buildFixtureSteelHeightCanvas() {
+  const canvas = makeCanvas(256, 256);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#808080';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Orange peel -- the pebbled finish baked enamel gets on sheet steel, and the
+  // whole reason the pan reads as painted metal rather than as plastic.
+  ctx.globalAlpha = 0.5;
+  ctx.drawImage(smoothNoiseCanvas(canvas.width, 64), 0, 0);
+  ctx.globalAlpha = 1;
+
+  // Shallow dents, because these get knocked every time a lamp is changed.
+  for (let i = 0; i < 4; i++) {
+    const x = Math.random() * canvas.width;
+    const y = Math.random() * canvas.height;
+    const r = 12 + Math.random() * 26;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(70, 70, 70, 0.55)');
+    g.addColorStop(1, 'rgba(128, 128, 128, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // Scratches, down to bare metal.
+  ctx.strokeStyle = 'rgba(190, 190, 190, 0.35)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 40; i++) {
+    const x = Math.random() * canvas.width;
+    const y = Math.random() * canvas.height;
+    const a = Math.random() * Math.PI * 2;
+    const len = 6 + Math.random() * 40;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
+    ctx.stroke();
+  }
+
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 10;
+    img.data[i] += n; img.data[i + 1] += n; img.data[i + 2] += n;
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
+/**
+ * Baked white enamel on sheet steel, for the fixture pan and its frame.
+ *
+ * Tiles, because one map has to wrap the frame, the sloped reflector and the
+ * end plates and none of them share a UV scale. Kept BRIGHT on purpose: the
+ * pan is a reflector, and the reason a troffer throws a soft pool rather than
+ * two hard stripes is that this surface bounces.
+ */
+export function createFixtureSteelTexture({ rust = 0.5 } = {}) {
+  const height = fixtureSteelHeight();
+  const hData = height.getContext('2d').getImageData(0, 0, height.width, height.height).data;
+
+  const canvas = makeCanvas(height.width, height.height);
+  const ctx = canvas.getContext('2d');
+  const out = ctx.createImageData(canvas.width, canvas.height);
+  for (let i = 0; i < hData.length; i += 4) {
+    const shade = 0.80 + (hData[i] / 255) * 0.34;
+    out.data[i] = Math.min(255, 214 * shade);
+    out.data[i + 1] = Math.min(255, 208 * shade);
+    out.data[i + 2] = Math.min(255, 190 * shade);
+    out.data[i + 3] = 255;
+  }
+  ctx.putImageData(out, 0, 0);
+
+  // Water has been through this ceiling: rust blooms out of the seams and runs
+  // down. The same story the ceiling tiles already tell, retold on the one
+  // surface up there close enough to the player to show it in detail.
+  for (let i = 0; i < 7; i++) {
+    const x = Math.random() * canvas.width;
+    const y = Math.random() * canvas.height;
+    const r = 10 + Math.random() * 34;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(122, 74, 34, ${0.24 + rust * 0.4})`);
+    g.addColorStop(0.6, `rgba(104, 70, 40, ${0.10 + rust * 0.2})`);
+    g.addColorStop(1, 'rgba(104, 70, 40, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  for (let i = 0; i < 6; i++) {
+    const x = Math.random() * canvas.width;
+    const y = Math.random() * canvas.height;
+    const r = 30 + Math.random() * 60;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, 'rgba(58, 54, 40, 0.22)');
+    g.addColorStop(1, 'rgba(58, 54, 40, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  }
+
+  return finish(canvas, 1, 1);
+}
+
+export function createFixtureSteelNormalTexture() {
+  return finishBump(heightToNormalMap(fixtureSteelHeight(), 1.1), 1, 1);
+}
+
+/**
+ * The glare around a lit fixture -- a sprite, not geometry.
+ *
+ * There is no bloom in this game (world/Postprocessing.js is RenderPass, the
+ * visor and OutputPass, and nothing else), so an emissive tube clamps at white
+ * and stops. Every lit fixture in the corridor was therefore exactly as bright
+ * as its own texture and no brighter, which is what made them read as light
+ * painted onto a ceiling rather than as lamps.
+ *
+ * A billboarded additive sprite fakes the eye's own response for the cost of
+ * one quad, and being billboarded it survives being looked at from down the
+ * corridor -- a flat quad under the fixture would foreshorten to nothing at
+ * exactly the angle the player spends most of their time at.
+ */
+export function createLampGlareTexture() {
+  const canvas = makeCanvas(256, 256);
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const g = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+  g.addColorStop(0, 'rgba(255, 248, 222, 0.95)');
+  g.addColorStop(0.12, 'rgba(255, 240, 194, 0.52)');
+  g.addColorStop(0.32, 'rgba(255, 226, 152, 0.17)');
+  g.addColorStop(0.62, 'rgba(255, 214, 122, 0.05)');
+  g.addColorStop(1, 'rgba(255, 208, 110, 0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // A horizontal streak, so the halo keeps some memory of the shape of the
+  // thing making it instead of being a perfect circle over a long thin lamp.
+  const s = ctx.createLinearGradient(0, 0, canvas.width, 0);
+  s.addColorStop(0, 'rgba(255, 236, 186, 0)');
+  s.addColorStop(0.5, 'rgba(255, 236, 186, 0.30)');
+  s.addColorStop(1, 'rgba(255, 236, 186, 0)');
+  ctx.fillStyle = s;
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillRect(0, 116, canvas.width, 24);
+  ctx.globalCompositeOperation = 'source-over';
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// ---------------------------------------------------------------------------
+// Standing water
+//
+// A puddle is not a shape, it is a DEPTH FIELD, and everything the eye uses to
+// call something water falls out of that one field:
+//
+//   how much water   ->  opacity      a shallow fringe you can see carpet
+//                                     through, a deep middle you cannot
+//   how much water   ->  roughness    the single biggest cue there is. The
+//                                     deep middle takes a specular highlight
+//                                     off the torch; the damp fringe does not,
+//                                     because wet carpet is still carpet
+//   where it stops   ->  a tide line  silt concentrates at the shoreline as a
+//                                     puddle dries back, and a decal without
+//                                     one always reads as a sticker
+//   surface          ->  normals      low, broad undulation in the deep part.
+//                                     This is what shatters the highlight into
+//                                     something that moves like water instead
+//                                     of a single sliding blob
+//
+// So each variant builds ONE greyscale mask and derives four maps from it, and
+// the maps can never disagree about where the water is. What makes the
+// variants different from each other is only how the mask is drawn.
+//
+// The old puddles were a single CircleGeometry with one flat translucent
+// material -- same disc, same gloss edge to edge, twenty visible straight
+// segments around the rim, and no answer to "why is there water here".
+// ---------------------------------------------------------------------------
+
+/**
+ * The puddle patterns, in the order the level indexes them.
+ *
+ * Each is a different ANSWER to why there is water on this carpet, not just a
+ * different outline -- which is what stops eight variants from reading as one
+ * variant stretched eight ways:
+ *
+ *   pool    something dripped here for a long time and has not dried
+ *   spill   it arrived moving, and stopped
+ *   seep    it came up through the floor; almost all fringe, barely any pool
+ *   drips   a scatter of separate splashes under a leak that spatters
+ *   ring    it was much bigger once. Only the tide mark is still wet
+ *   streak  it ran down a wall and out across the floor
+ *   smear   something was dragged through it
+ *   ripple  a live drip is still landing in it -- the only one with rings
+ */
+export const PUDDLE_PATTERNS = ['pool', 'spill', 'seep', 'drips', 'ring', 'streak', 'smear', 'ripple'];
+
+const PUDDLE_SIZE = 256;
+
+/**
+ * The depth field for one pattern: white is deep, black is dry carpet.
+ *
+ * Every variant draws hard-edged shapes and then blurs, because the blur is
+ * what produces the damp fringe -- the shoreline of a real puddle is a
+ * gradient tens of millimetres wide where the pile has wicked, not an edge.
+ * The blur radius is therefore how far the water has soaked out, and is the
+ * one number that most changes a variant's character.
+ */
+function buildPuddleMask(variant) {
+  const S = PUDDLE_SIZE;
+  const C = S / 2;
+  const canvas = makeCanvas(S, S);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, S, S);
+  ctx.fillStyle = '#fff';
+
+  const blob = (cx, cy, rx, ry, opts) => {
+    const rs = blobPath(ctx, cx, cy, rx, ry, opts);
+    ctx.fill();
+    return rs;
+  };
+  const spun = (angle, draw) => {
+    ctx.save();
+    ctx.translate(C, C);
+    ctx.rotate(angle);
+    ctx.translate(-C, -C);
+    draw();
+    ctx.restore();
+  };
+
+  let blur = 9;
+
+  if (variant === 'spill') {
+    // A head that stopped, and the tail it came in on.
+    spun(Math.random() * Math.PI * 2, () => {
+      blob(C + 22, C, 62, 44, { lobes: 11, wobble: 0.45 });
+      for (let i = 0; i < 5; i++) {
+        const t = i / 4;
+        blob(C - 14 - t * 76, C + (Math.random() - 0.5) * 18, 30 - t * 20, 21 - t * 14,
+          { lobes: 8, wobble: 0.5 });
+      }
+    });
+    blur = 8;
+  } else if (variant === 'seep') {
+    // Groundwater, not a leak: a wide damp stain with barely any standing
+    // water in it. The mid-grey fill is what makes it mostly fringe.
+    ctx.fillStyle = '#6e6e6e';
+    blob(C, C, 100, 92, { lobes: 14, wobble: 0.38 });
+    ctx.fillStyle = '#fff';
+    blob(C - 10, C + 8, 32, 26, { lobes: 8, wobble: 0.6 });
+    blob(C + 26, C - 18, 19, 15, { lobes: 7, wobble: 0.6 });
+    blur = 17;
+  } else if (variant === 'drips') {
+    // A leak that spatters rather than runs, so it lands as separate splashes.
+    for (let i = 0; i < 9; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = Math.pow(Math.random(), 0.6) * 88;
+      const r = 8 + Math.random() * 21;
+      blob(C + Math.cos(a) * d, C + Math.sin(a) * d, r, r * (0.8 + Math.random() * 0.4),
+        { lobes: 8, wobble: 0.4 });
+    }
+    blur = 6;
+  } else if (variant === 'ring') {
+    // A tide mark. Dropping to mid-grey inside the ring is the whole trick:
+    // the middle has dried back to merely damp, and the shoreline the water
+    // retreated from is the only part still holding any.
+    const rot = Math.random() * Math.PI * 2;
+    ctx.fillStyle = '#565656';
+    const rs = blob(C, C, 94, 82, { lobes: 12, wobble: 0.35, rot });
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 17;
+    ctx.lineJoin = 'round';
+    // Same radii, traced smaller -- so the wet band follows this puddle's own
+    // shoreline instead of being an unrelated second blob inside it.
+    blobPath(ctx, C, C, 84, 73, { rot, radii: rs });
+    ctx.stroke();
+    blur = 11;
+  } else if (variant === 'streak') {
+    // Came down a wall and ran. Long, thin, and pooled at the far end.
+    spun(Math.random() * Math.PI * 2, () => {
+      blob(C, C, 106, 24, { lobes: 15, wobble: 0.5 });
+      blob(C + 66, C + 6, 34, 30, { lobes: 9, wobble: 0.5 });
+    });
+    blur = 7;
+  } else if (variant === 'smear') {
+    // Something went through this one. The pool is still there; the drag marks
+    // leaving it are thinner, which is why they get strokes rather than blobs.
+    spun(Math.random() * Math.PI * 2, () => {
+      blob(C - 34, C + 12, 44, 38, { lobes: 10, wobble: 0.5 });
+      ctx.strokeStyle = '#fff';
+      ctx.lineCap = 'round';
+      for (let i = 0; i < 5; i++) {
+        ctx.globalAlpha = 0.5 + Math.random() * 0.5;
+        ctx.lineWidth = 5 + Math.random() * 10;
+        ctx.beginPath();
+        ctx.moveTo(C - 34 + (Math.random() - 0.5) * 40, C + 12 + (Math.random() - 0.5) * 40);
+        ctx.quadraticCurveTo(C + 30, C - 12 + (Math.random() - 0.5) * 52,
+          C + 84 + (Math.random() - 0.5) * 22, C - 26 + (Math.random() - 0.5) * 60);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+      ctx.lineCap = 'butt';
+    });
+    blur = 6;
+  } else if (variant === 'ripple') {
+    // Live: still being dripped into. Rounder than the rest, because it is
+    // fed from one point and has never been walked through.
+    blob(C, C, 78, 74, { lobes: 12, wobble: 0.22 });
+    blur = 8;
+  } else {
+    // 'pool' -- the plain one, and still the most common.
+    blob(C, C, 84, 70, { lobes: 12, wobble: 0.5, rot: Math.random() * Math.PI * 2 });
+    for (let i = 0; i < 3; i++) {
+      const a = Math.random() * Math.PI * 2;
+      blob(C + Math.cos(a) * 82, C + Math.sin(a) * 70, 20 + Math.random() * 15,
+        18 + Math.random() * 13, { lobes: 7, wobble: 0.55 });
+    }
+    blur = 10;
+  }
+
+  // Rough the outline up BEFORE the blur. A blurred smooth curve is still a
+  // smooth curve; a real shoreline is ragged at the millimetre scale because
+  // carpet pile wicks unevenly, and this is the cheapest way to say so.
+  const pre = ctx.getImageData(0, 0, S, S);
+  for (let i = 0; i < pre.data.length; i += 4) {
+    const n = (Math.random() - 0.5) * 72;
+    pre.data[i] += n; pre.data[i + 1] += n; pre.data[i + 2] += n;
+  }
+  ctx.putImageData(pre, 0, 0);
+  blurCanvas(canvas, blur);
+  return canvas;
+}
+
+let _puddleNoise = null;
+
+/**
+ * The four noise fields every puddle surface is built from, built ONCE.
+ *
+ * Three octaves, and the FINE one does most of the work. heightToNormalMap
+ * reads a gradient across two texels, so how steep a normal it produces
+ * depends on the FREQUENCY of the height field and not on its amplitude: the
+ * first pass here used broad 25-texel swells and produced a normal map within
+ * a degree of dead flat, which is why the water had no glint at all. 60 cells
+ * over 256 texels is roughly a 30 mm ripple at the size these are placed,
+ * which is about the scale standing water disturbed by a draught actually has.
+ * Finer than that and the whole surface glitters wall to wall and reads as
+ * gravel rather than as water.
+ *
+ * Shared across every pattern rather than rebuilt per pattern -- eight sets of
+ * these was two thirds of the cost of building the puddles at boot, and since
+ * each pattern masks the noise to a different shape and every puddle in the
+ * level is turned to its own angle, no two of them show it the same way.
+ */
+function puddleNoise(S) {
+  if (_puddleNoise) return _puddleNoise;
+  const grab = (cells) => smoothNoiseCanvas(S, cells).getContext('2d').getImageData(0, 0, S, S).data;
+  _puddleNoise = {
+    ripple: grab(60),
+    swell: grab(10),
+    pile: grab(42),
+    // Floating scum: patches where dust has settled on the surface and killed
+    // the gloss. Without them the deep water is uniformly polished, which is
+    // the one thing standing water in a derelict building never is.
+    scum: grab(6)
+  };
+  return _puddleNoise;
+}
+
+/**
+ * Every map one puddle needs, derived from a single depth field.
+ *
+ * Returns { map, alphaMap, roughnessMap, normalMap } -- one material's worth,
+ * meant to be built once per pattern and shared by every puddle using it.
+ *
+ * On the colour: NOT the near-black, near-mirror this obviously wants to be.
+ * There is no environment map in this scene, so a smooth dark surface has
+ * nothing to reflect and renders as a flat black hole cut in the floor. What
+ * sells water here instead is the roughness map -- a glossy middle inside a
+ * matte fringe, lit by a torch that moves.
+ */
+export function createPuddleTextures(variant = 'pool') {
+  const S = PUDDLE_SIZE;
+  const mask = buildPuddleMask(variant);
+  const m = mask.getContext('2d').getImageData(0, 0, S, S).data;
+
+  const { ripple, swell, pile, scum } = puddleNoise(S);
+
+  const albedo = makeCanvas(S, S);
+  const alpha = makeCanvas(S, S);
+  const rough = makeCanvas(S, S);
+  const height = makeCanvas(S, S);
+  const aCtx = albedo.getContext('2d');
+  const tCtx = alpha.getContext('2d');
+  const rCtx = rough.getContext('2d');
+  const hCtx = height.getContext('2d');
+  const aImg = aCtx.createImageData(S, S);
+  const tImg = tCtx.createImageData(S, S);
+  const rImg = rCtx.createImageData(S, S);
+  const hImg = hCtx.createImageData(S, S);
+
+  const SOAK = [64, 55, 34];    // carpet with water in it: the same fibres, darker
+  const DEEP = [20, 18, 14];    // water over carpet, deep enough to hide it
+  const SILT = [108, 95, 62];   // what the water left at the shoreline
+
+  for (let i = 0; i < m.length; i += 4) {
+    const v = m[i] / 255;
+    const wet = smoothstep(0.05, 0.34, v);    // is there any water here
+    const deep = smoothstep(0.34, 0.80, v);   // is it standing rather than soaked in
+    // The tide line: a narrow band right where the water stops.
+    const tide = Math.max(0, 1 - Math.abs(v - 0.33) / 0.10) * (1 - deep);
+
+    let r = SOAK[0] + (DEEP[0] - SOAK[0]) * deep;
+    let g = SOAK[1] + (DEEP[1] - SOAK[1]) * deep;
+    let b = SOAK[2] + (DEEP[2] - SOAK[2]) * deep;
+    r += (SILT[0] - r) * tide * 0.55;
+    g += (SILT[1] - g) * tide * 0.55;
+    b += (SILT[2] - b) * tide * 0.55;
+    // Silt suspended in the deeper water, so the middle is not a flat wash.
+    const cloud = (swell[i] / 255 - 0.5) * 22 * deep;
+    aImg.data[i] = r + cloud;
+    aImg.data[i + 1] = g + cloud;
+    aImg.data[i + 2] = b + cloud;
+    aImg.data[i + 3] = 255;
+
+    // Opacity tops out well short of 1. Fully opaque water on a carpet loses
+    // the fibres showing through, and with them the only thing telling you
+    // what the water is sitting ON.
+    const a = wet * 0.52 + deep * 0.34;
+    tImg.data[i] = tImg.data[i + 1] = tImg.data[i + 2] = a * 255;
+    tImg.data[i + 3] = 255;
+
+    // Gloss only where there is standing water, dulled again under the scum --
+    // and PATCHY across the rest of it. A uniform gloss gives one specular blob
+    // sliding around the puddle like a spotlight on a floor; broken gloss gives
+    // a scatter of glints that appear and go out as the torch swings, which is
+    // what reads as a surface with something on it.
+    const film = Math.max(0, scum[i] / 255 - 0.5) * 1.7;
+    let ro = 0.96 - deep * 0.80 + film * 0.42 * deep;
+    ro += (ripple[i] / 255 - 0.5) * 0.06 * deep;
+    ro += (pile[i] / 255 - 0.5) * 0.06;
+    rImg.data[i] = rImg.data[i + 1] = rImg.data[i + 2] = Math.min(255, Math.max(0, ro * 255));
+    rImg.data[i + 3] = 255;
+
+    // Surface: a raised lip at the shoreline (water beads on carpet rather
+    // than feathering to nothing), broad swell over the deep part, and pile
+    // poking through the shallows.
+    const h = 128
+      + tide * 34
+      + (ripple[i] / 255 - 0.5) * 18 * deep
+      + (swell[i] / 255 - 0.5) * 34 * deep
+      + (pile[i] / 255 - 0.5) * 22 * wet * (1 - deep);
+    hImg.data[i] = hImg.data[i + 1] = hImg.data[i + 2] = h;
+    hImg.data[i + 3] = 255;
+  }
+
+  aCtx.putImageData(aImg, 0, 0);
+  tCtx.putImageData(tImg, 0, 0);
+  rCtx.putImageData(rImg, 0, 0);
+  hCtx.putImageData(hImg, 0, 0);
+
+  // Debris, on the colour map only -- grit and carpet fluff floating on the
+  // surface. Flat specks, so they are not embossed into the normal map: they
+  // are lying ON the water, not deforming it.
+  for (let i = 0; i < 70; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const d = Math.pow(Math.random(), 0.55) * S * 0.34;
+    const x = S / 2 + Math.cos(a) * d;
+    const y = S / 2 + Math.sin(a) * d;
+    if (m[((y | 0) * S + (x | 0)) * 4] < 90) continue;   // only where there is water
+    aCtx.strokeStyle = Math.random() < 0.55
+      ? 'rgba(16, 15, 11, 0.55)'
+      : 'rgba(126, 116, 88, 0.4)';
+    aCtx.lineWidth = 0.8 + Math.random();
+    aCtx.beginPath();
+    aCtx.moveTo(x, y);
+    const len = 1 + Math.random() * 6;
+    const ang = Math.random() * Math.PI * 2;
+    aCtx.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len);
+    aCtx.stroke();
+  }
+
+  if (variant === 'ripple') {
+    // The only variant with rings, and only because something is still landing
+    // in it. Concentric ridges in the height map turn one sliding specular
+    // blob into a set of arcs that break and re-form as the torch moves --
+    // which is the closest this renderer gets to water actually moving.
+    hCtx.lineWidth = 2;
+    for (let r = 8; r < S * 0.30; r += 7) {
+      const fade = 1 - r / (S * 0.30);
+      hCtx.strokeStyle = `rgba(255, 255, 255, ${0.85 * fade})`;
+      hCtx.beginPath();
+      hCtx.arc(S / 2, S / 2, r, 0, Math.PI * 2);
+      hCtx.stroke();
+      hCtx.strokeStyle = `rgba(0, 0, 0, ${0.85 * fade})`;
+      hCtx.beginPath();
+      hCtx.arc(S / 2, S / 2, r + 3.5, 0, Math.PI * 2);
+      hCtx.stroke();
+    }
+    blurCanvas(height, 1);
+  }
+
+  // Clamped, not tiled. These are decals on a single quad, and RepeatWrapping
+  // lets a bilinear tap at u = 0 reach across and pull in the far edge -- which
+  // on the normal map is a seam of wrong-facing water right at the shoreline.
+  const decal = (tex) => {
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    return tex;
+  };
+  return {
+    map: decal(finish(albedo, 1, 1)),
+    alphaMap: decal(finishBump(alpha, 1, 1)),
+    roughnessMap: decal(finishBump(rough, 1, 1)),
+    // 1.9, against the 1.1-1.5 the wall and floor maps use. Those height
+    // canvases are per-texel noise and are already about as steep as a normal
+    // map can get; this one is deliberately smooth, so it needs the extra gain
+    // to reach a slope that bounces the torch back at the player at all.
+    normalMap: decal(finishBump(heightToNormalMap(height, 1.9), 1, 1))
+  };
 }

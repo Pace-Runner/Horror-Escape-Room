@@ -127,6 +127,43 @@ table decides that this means "through the corridor, then to Level 2".
   which is exactly what happened to three of them, and to two more the
   moment the maze was expanded. It is a console warning now rather than
   something you find by walking into it.
+- **The ceiling fixtures are one shared troffer, not a box.** A
+  surface-mounted pan that flares out toward its opening, two
+  cylindrical tubes with the electrode ends blackened by however worn
+  that fixture is, four lampholders, a ballast cover, and -- on about
+  three in five -- a prismatic lens with dead insects piled behind it.
+  The insects are the point: they are only visible as silhouettes while
+  the fixture is lit, and they are what make a ceiling light read as
+  abandoned rather than merely old. All forty-three share one merged
+  geometry and turn a quarter turn for the corridors running the other
+  way, so a dozen boxes per fixture still costs one buffer. The pan
+  hangs *below* the grid because the ceiling is one unbroken plane:
+  anything modelled above it is behind an opaque surface and is never
+  seen.
+- **The lit fixtures carry an additive glare sprite.** There is no
+  bloom in the post chain, so an emissive tube clamps at white and
+  stops; without the sprite every lit fixture was exactly as bright as
+  its own texture and read as light painted onto a ceiling. It is
+  billboarded rather than a quad under the fixture, which would
+  foreshorten to nothing at exactly the angle the player spends most of
+  their time at. Tube, lens and halo are all driven off the same
+  flicker value, because three surfaces disagreeing about how lit one
+  fixture is read as three objects.
+- **Puddles are a depth field, not a shape.** One greyscale mask per
+  pattern produces the colour, alpha, roughness and normal maps
+  together, so they cannot disagree about where the water is. The
+  roughness map is what sells it -- a glossy middle inside a matte damp
+  fringe, lit by a torch that moves -- because with no environment map
+  in the scene, the near-black near-mirror this obviously wants to be
+  renders as a hole cut in the floor. Eight patterns, each a different
+  answer to *why there is water here* (pool, spill, seep, drips, tide
+  ring, wall streak, drag smear, and a live one still being dripped
+  into) rather than one outline stretched eight ways.
+- **The leak under the fallen tile is the one thing that moves on its
+  own.** A drop falls from the hole in the grid into the puddle below
+  it on a loop, on a quadratic so it accelerates. It also answers the
+  fallen ceiling tile: water came through here, which is why the tile
+  is on the floor.
 - **The exit reuses `door.glb`** -- a domestic wooden house door at the
   end of a mono-yellow corridor is wrong in the right way, and it
   visually rhymes with the bedroom door the player already came
