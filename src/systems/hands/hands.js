@@ -54,7 +54,6 @@ import {
   isSide,
   adoptRig,
   applyPose,
-  blendPose,
   HAND_ROOT_POSITION,
   HAND_ROOT_ROTATION,
 } from "./rig.js";
@@ -436,6 +435,15 @@ export class Hands {
 
   /**
    * Eases a hand into a named pose over `seconds`.
+   *
+   * Built on top of the animator's clip player rather than as a separate code
+   * path: a single-key, zero-duration clip finishes "playing" the instant it
+   * starts (there is nothing to advance through), but the animator's
+   * crossfade runs on its own independent clock, so handing it `fade:
+   * seconds` blends every joint from wherever the hand currently is toward
+   * this pose over exactly that long. See animator.js's Animator#play and
+   * #_advanceClip for why the two clocks are separate.
+   *
    * @param {'left'|'right'} side
    * @param {string} poseName
    * @param {number} [seconds]
@@ -450,12 +458,16 @@ export class Hands {
       return;
     }
 
-    // Unit 5 owns the timed blend; blendPose is the per-frame primitive it
-    // drives. Snapping is the honest Unit 0 behaviour - it is visibly wrong
-    // rather than silently doing nothing.
-    void seconds;
-    void blendPose;
-    applyPose(record.rig, pose);
+    record.animator.play(
+      Object.freeze({
+        name: `_pose:${poseName}`,
+        duration: 0,
+        loop: false,
+        keys: Object.freeze([Object.freeze({ t: 0, pose })]),
+        events: Object.freeze([]),
+      }),
+      { fade: seconds },
+    );
   }
 
   /* ---------------------------------------------------------------- clips */

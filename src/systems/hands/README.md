@@ -9,9 +9,18 @@ body during normal play, so every interaction — picking a lock, turning a valv
 lifting a photograph, putting on the visor, holding a torch in the dark — is
 communicated through them. They carry the game's tactility.
 
-**Current state: Unit 0 — API contract and scaffolding.** Every module below
-exists, the public API is complete and frozen, and every method is safe to call.
-Nothing is implemented yet: no geometry, no animation, no material.
+**Current state: integrated and playing.** The rig, mesh, material, sockets,
+poses (`relaxed`, `grip-cylinder`, `hold-torch`) and the additive procedural
+layers (breathe/sway/walkbob/runbob/crouch-shift) all run in the shipped game.
+Clip playback (`hands.play()`) is implemented in `animator.js`, with real
+authored content for `pickup`, `drop` and `lockpick`, each wired to a real
+interaction in `main.js`/`bedroomLevel.js`. Still open: `throw` has no
+gameplay call site to wire it to, and several poses (`open`, `fist`, `pinch`,
+`point`, `press`, `reach`, `brace`, `grip-flat`) are still the empty stubs left
+by this file's original "Unit 4 authors the values" plan below — the rest of
+this document describes that original unit-by-unit plan and a `dev/hands.html`
+harness that was never built in this repo; read it as historical design intent
+rather than as the current state of every file it names.
 
 ---
 

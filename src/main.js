@@ -644,9 +644,20 @@ const visor = createVisor({
 
 const bedroom = createBedroomLevel({
   showCaption,
+  // The paperclip's own 900ms delay before onFreed IS the time the player
+  // spends picking the lock, so the loop plays for exactly as long as the
+  // story already says it takes -- no separate duration to keep in sync.
+  onPaperclipUsed: () => hands.play('right', 'lockpick', { fade: 0.2 }),
   onFreed: () => {
     player.movementEnabled = true;
     objectiveEl.textContent = 'Escape the house without getting caught.';
+    // The lockpick loop has no natural end of its own (see clips/lockpick.js -
+    // it is a loop, so nothing ever fires hands:clip-end for it), so being
+    // freed is what stops it. stop() leaves the joints wherever the loop left
+    // them; blendToPose eases the rest of the way back to a normal hand
+    // rather than snapping.
+    hands.stop('right');
+    hands.blendToPose('right', 'relaxed', 0.3);
     // Was two bare setTimeouts at 4200 and 9000 ms that nothing cancelled, so
     // pressing R inside that window blew the bulb of the freshly restarted room
     // several seconds later with no way to work out why. Now a script: every
@@ -684,7 +695,10 @@ const bedroom = createBedroomLevel({
     bedroomStorm.calm();
     captions.play(BEATS.flashlightOn);
   },
-  onCrowbarFound: () => pickUpItem('crowbar'),
+  onCrowbarFound: () => {
+    hands.play('right', 'pickup', { fade: 0.15 });
+    pickUpItem('crowbar');
+  },
   onCrowbarUsed: () => dropItem('crowbar'),
   onDoorOpened: () => exitLevel('bedroom'),
 
@@ -873,12 +887,16 @@ const study = createStudyLevel({
   },
 
   onTakeVisor: () => {
+    hands.play('right', 'pickup', { fade: 0.15 });
     visor.take();
     pickUpItem('visor');
     objectiveEl.textContent = 'Put the visor on. [V]';
     captions.play(BEATS.visorFound);
   },
-  onTakeDoorKey: () => pickUpItem('doorKey'),
+  onTakeDoorKey: () => {
+    hands.play('right', 'pickup', { fade: 0.15 });
+    pickUpItem('doorKey');
+  },
 
   /**
    * Mark's letter, which is where the game explains itself. It only says
@@ -948,6 +966,7 @@ const study = createStudyLevel({
   onChooseEnding: (which) => { playEnding(which); },
 
   onTakeGateKey: () => {
+    hands.play('right', 'pickup', { fade: 0.15 });
     pickUpItem('gateKey');
     captions.play([
       'A key, hanging on the side of the mirror frame.',
@@ -1112,6 +1131,12 @@ function activateLevel(key, { lockMovement = false } = {}) {
   cctvSeen.clear();
   creatureStanding = false;
   creatureAI.reset();
+  // A leftover animator clip (the lockpick loop, if a debug level-jump key is
+  // pressed mid-lockpick) must not survive into whatever level just
+  // activated. Harmless when nothing was playing, and safe even with the
+  // torch equipped -- that pose is set directly via setPose(), which the
+  // animator's clip player never touches (see animator.js).
+  hands.stop('right');
   // resetState() has already cleared the flags; this pushes that through to the
   // pass, the creature and the room, none of which read GameState themselves.
   visor.reset();
@@ -1254,6 +1279,12 @@ function resetGame() {
   bedroom.refs.ambient.intensity = AMBIENT_LIT;
   flashlightFound = false;
   setFlashlight(false);
+  // A restart mid-clip (R pressed while, say, the lockpick loop is still
+  // going) must not carry an animator clip across into the freshly reset
+  // room -- unequipTorch() below only resets the hand when a torch was
+  // actually equipped, which the lockpick beat predates.
+  hands.stop('right');
+  hands.setPose('right', 'relaxed');
   unequipTorch();
   refreshInventoryUI();
   // The breathing is deliberately NOT stopped and restarted here: it is meant
@@ -1663,6 +1694,8 @@ if (import.meta.env.DEV) {
     activateLevel,
     exitLevel,
     resetGame,
+    hands,
+    THREE,
     sceneManager,
     player,
     postFX,

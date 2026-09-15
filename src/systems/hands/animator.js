@@ -24,10 +24,11 @@
  * or in the constructor, never per call. Garbage-collector sawtooth is penalised
  * under two separate rubric categories.
  *
- * Status: the LAYERS are implemented - breathe, sway, walkbob and crouch-shift
- * all run - and update() applies them. CLIP PLAYBACK is still a stub, so step 1
- * contributes nothing and update() deliberately leaves joint rotations alone;
- * see its own comment for why that matters.
+ * Status: both halves are implemented. LAYERS (step 2) - breathe, sway, walkbob
+ * and crouch-shift - run and offset the hand ROOT. CLIP PLAYBACK (step 1) drives
+ * individual JOINT rotations via rig.js's applyPose/blendPose, which is a
+ * different set of nodes to the root the layers move - the two compose without
+ * fighting each other. See update() for how they combine.
  */
 
 /* --------------------------------------------------------- clip format */
@@ -63,12 +64,36 @@ import { walkbob } from "./layers/walkbob.js";
 import { runbob } from "./layers/runbob.js";
 import { tremor } from "./layers/tremor.js";
 import { crouchShift } from "./layers/crouch-shift.js";
+import { JOINT_NAMES, applyPose, blendPose } from "./rig.js";
 
-/** Easing curve names a keyframe may use. Resolved by Unit 5. */
+/** Easing curve names a keyframe may use. */
 export const EASINGS = Object.freeze(["linear", "in", "out", "inout"]);
+
+/**
+ * @param {number} t 0..1
+ * @param {string} name one of EASINGS; anything else falls back to linear
+ */
+function ease(t, name) {
+  const x = t < 0 ? 0 : t > 1 ? 1 : t;
+  switch (name) {
+    case "in": return x * x;
+    case "out": return 1 - (1 - x) * (1 - x);
+    case "inout": return x < 0.5 ? 2 * x * x : 1 - ((-2 * x + 2) * (-2 * x + 2)) / 2;
+    default: return x;
+  }
+}
 
 /** Default crossfade, seconds. Short enough to feel responsive, long enough to hide the switch. */
 export const DEFAULT_CROSSFADE = 0.12;
+
+/**
+ * Fired automatically when a one-shot clip's playhead reaches its duration.
+ * A literal string rather than an import from hands.js, which imports THIS
+ * module - importing back would be circular. Must match
+ * HANDS_EVENTS.CLIP_END in hands.js; clip authors never write this one
+ * themselves; the animator is the only thing that fires it.
+ */
+const CLIP_END = "hands:clip-end";
 
 /* -------------------------------------------------------- layer names */
 
@@ -157,6 +182,13 @@ const _ctx = {
 const _euler = new THREE.Euler();
 const _offsetQuat = new THREE.Quaternion();
 const _baseQuat = new THREE.Quaternion();
+/**
+ * Crossfade scratch: holds one joint's blended-so-far quaternion while it is
+ * computed from a snapshot plus the incoming clip's target, without mutating
+ * either. Module scope, reused by every joint on every hand every frame - see
+ * Animator#_advanceClip.
+ */
+const _fadeBlend = new THREE.Quaternion();
 
 /* ------------------------------------------------------------ animator */
 
@@ -199,10 +231,29 @@ export class Animator {
     this.time = 0;
     this.playing = false;
 
-    /** Outgoing clip during a crossfade. */
-    this.fadeFrom = null;
+    /**
+     * Crossfade state. Rather than keeping the OUTGOING clip alive and
+     * re-evaluating its own timeline during the fade (which would need a
+     * second full clip-sampling pass every frame), play() snapshots what the
+     * rig actually showed the instant the new clip started - one quaternion
+     * per joint, in `_fadeQuats` - and update() slerps from that snapshot
+     * toward the incoming clip's live pose. That snapshot is exactly what the
+     * player was looking at, whether it came from another clip, a static
+     * setPose(), or bare rest, so it is strictly more general than tracking
+     * "the outgoing clip" would have been.
+     *
+     * Sized off JOINT_NAMES rather than allocated per rig, and built once here
+     * rather than in update() - allocating 15 Quaternions a frame would be
+     * exactly the GC sawtooth this module's zero-allocation rule exists to
+     * avoid.
+     */
+    this._fadeQuats = JOINT_NAMES.map(() => new THREE.Quaternion());
+    /** True from play() until update() has captured the snapshot above. */
+    this._fadeArmed = false;
     this.fadeTime = 0;
     this.fadeDuration = 0;
+    /** Bumped on every play(); lets a stale handle's `done` getter know it lost ownership. */
+    this._gen = 0;
 
     /**
      * Layer name -> 0..1 weight. A plain object rather than a Map because it is
@@ -219,19 +270,52 @@ export class Animator {
   /**
    * Starts a clip, crossfading from whatever is running.
    *
-   * UNIT 5 IMPLEMENTS THIS.
-   *
    * @param {object} clip
    * @param {object} [options]
    * @param {(name: string, payload: object) => void} [options.onEvent]
    * @param {number} [options.fade] crossfade seconds
-   * @returns {typeof INERT_CLIP_HANDLE}
+   * @returns {{ side: string|null, clip: object, done: boolean, time: number, stop: Function }}
    */
   play(clip, { onEvent = null, fade = DEFAULT_CROSSFADE } = {}) {
-    void clip;
-    void onEvent;
-    void fade;
-    return INERT_CLIP_HANDLE;
+    if (!clip) return INERT_CLIP_HANDLE;
+
+    // Replaying the SAME clip object while it is already running restarts it
+    // from the top rather than crossfading with itself - which would arm a
+    // snapshot-to-self blend that does nothing but costs a frame of work.
+    const sameClipAlreadyPlaying = this.playing && this.clip === clip;
+
+    this.clip = clip;
+    this.time = 0;
+    this.playing = true;
+    this._firedCount = 0;
+    this._onEvent = onEvent;
+    this._gen++;
+
+    if (fade > 0 && !sameClipAlreadyPlaying) {
+      this.fadeDuration = fade;
+      this.fadeTime = 0;
+      // Captured on the NEXT update(), not here: play() never receives the
+      // rig (only update() does), and snapshotting a frame late is
+      // imperceptible against a fade that is itself a fraction of a second.
+      this._fadeArmed = true;
+    } else {
+      this.fadeDuration = 0;
+      this.fadeTime = 0;
+      this._fadeArmed = false;
+    }
+
+    const animator = this;
+    const gen = this._gen;
+    return {
+      side: this.side,
+      clip,
+      // Lost ownership (a later play() bumped _gen) counts as done, exactly
+      // like the clip actually finishing - a caller holding a stale handle
+      // should see it as over either way.
+      get done() { return animator._gen !== gen || !animator.playing; },
+      get time() { return animator._gen === gen ? animator.time : clip.duration ?? 0; },
+      stop() { if (animator._gen === gen) animator.stop(); },
+    };
   }
 
   /** Stops the current clip. Does not fire hands:clip-end - a stop is not a finish. */
@@ -239,9 +323,13 @@ export class Animator {
     this.clip = null;
     this.playing = false;
     this.time = 0;
-    this.fadeFrom = null;
+    this.fadeDuration = 0;
+    this._fadeArmed = false;
     this._firedCount = 0;
     this._onEvent = null;
+    // Deliberately does NOT touch joint rotations: whatever update() last
+    // wrote stays exactly where it is, same as a one-shot finishing on its
+    // own - see the header note on what update() does and does not do.
   }
 
   /** True while a one-shot clip is still running. Looping clips are not "busy". */
@@ -256,33 +344,38 @@ export class Animator {
   /**
    * Moves the playhead without playing - the harness scrub control.
    *
-   * UNIT 5: scrubbing BACKWARDS must reset the fired-event bookkeeping, so that
-   * scrubbing back and forward across an event frame re-fires it. Otherwise the
-   * harness cannot be used to check event timing, which is most of what it is
-   * for.
+   * Fires nothing itself. update()'s event test compares the OLD playhead to
+   * the NEW one each frame and fires whatever it crossed, so scrubbing
+   * backwards and then forwards across an event re-fires it exactly as if it
+   * had been played there - no separate "fired" bookkeeping needed, and
+   * nothing to reset here.
    */
   seek(time) {
-    void time;
+    const duration = this.clip?.duration ?? 0;
+    this.time = duration > 0 ? Math.max(0, Math.min(duration, time)) : 0;
   }
 
   /**
-   * Evaluates the additive layers and writes the result to the rig.
+   * Evaluates clip playback and the additive layers, and writes the result to
+   * the rig.
    *
-   * WHAT THIS DOES AND DELIBERATELY DOES NOT DO. Only step 2 of the three in the
-   * header - the LAYERS - is implemented. Clip playback (step 1) is still a stub,
-   * so there is no base animation to compose against, and the layers are applied
-   * on their own.
+   * STEP 1 (BASE, clip playback) writes JOINT rotations - wrist, knuckles,
+   * fingertips - via rig.js's applyPose/blendPose, in `_advanceClip` below. A
+   * hand with no clip playing simply has this step do nothing, which leaves
+   * joints exactly where setPose() (or the previous clip) left them - the same
+   * "never touch what nothing is driving" behaviour this method always had for
+   * joints, just no longer permanent.
    *
-   * Consequently this NEVER TOUCHES JOINT ROTATIONS. The static pose put there by
-   * setPose() is the base, and overwriting it every frame with an empty clip
-   * result would wipe the grip. The layers move the hand ROOT instead, which is
-   * both cheaper and, for whole-hand motion like breathing and bob, exactly the
-   * right node - and it carries the sockets, so anything held moves with it.
-   * When clip playback lands, that is where joint composition belongs.
+   * STEPS 2-3 (LAYERS, WRITE) offset the hand ROOT - a different set of nodes
+   * to the joints - so clip playback and the procedural layers compose without
+   * either overwriting the other: a played clip can curl the fingers into a
+   * grip while breathe/sway/bob keep moving the whole hand that grip is
+   * attached to.
    *
    * ZERO ALLOCATION: the accumulator and the context are module-scope singletons
-   * reset in place, and the root's base transform is captured once on the first
-   * frame so offsets are applied to a fixed origin rather than accumulating.
+   * reset in place, the root's base transform is captured once on the first
+   * frame so offsets are applied to a fixed origin rather than accumulating, and
+   * the crossfade snapshot is allocated once in the constructor, not per frame.
    *
    * @param {number} dt seconds
    * @param {number} elapsed seconds since init, for the procedural layers
@@ -292,6 +385,12 @@ export class Animator {
   update(dt, elapsed, rig, motion) {
     const root = rig?.root;
     if (!root) return;
+
+    // Kept alive by a running crossfade even after the clip itself has
+    // finished (this.playing false): a zero-duration single-key clip played
+    // with a long `fade` - see hands.js's blendToPose() - has nothing left to
+    // advance but still has seconds of blending left to do.
+    if (this.clip && (this.playing || this.fadeDuration > 0)) this._advanceClip(dt, rig);
 
     // The base is whatever hands.js positioned this hand at during init. Captured
     // lazily because that happens after the animator is constructed.
@@ -335,6 +434,134 @@ export class Animator {
     // base * offset, so the offset acts about the hand's own axes rather than
     // the camera's - a bob that tilts with the wrist, not with the view.
     root.quaternion.copy(_baseQuat).multiply(_offsetQuat);
+  }
+
+  /**
+   * Advances the playhead, applies the clip's pose to the rig's joints, fires
+   * any events crossed this frame, and handles looping / finishing / the
+   * crossfade. Split out of update() because it is the whole of STEP 1 and
+   * update() already has plenty going on.
+   *
+   * @param {number} dt seconds
+   * @param {ReturnType<import('./rig.js').buildRig>} rig
+   */
+  _advanceClip(dt, rig) {
+    const order = rig.order;
+    if (!order || !order.length) return;
+
+    const clip = this.clip;
+
+    // Snapshot what the rig actually showed the instant THIS clip started -
+    // see the constructor's note on _fadeQuats for why this beats tracking
+    // the outgoing clip's own timeline.
+    if (this._fadeArmed) {
+      for (let i = 0; i < order.length && i < this._fadeQuats.length; i++) {
+        this._fadeQuats[i].copy(order[i].node.quaternion);
+      }
+      this._fadeArmed = false;
+    }
+
+    // Only while the clip itself is still going - once it has finished
+    // (this.playing false), the joints already hold its last pose and there
+    // is nothing left to advance, sample or fire. A still-running crossfade
+    // (below) is a separate concern from here on.
+    if (this.playing) {
+      const prevTime = this.time;
+      this.time += dt;
+
+      // A clip authored with no keys (an unauthored stub) has nothing to pose
+      // - leave the joints exactly where they already are rather than
+      // snapping every joint to rest, which would make an empty clip visibly
+      // WORSE than no clip at all.
+      if (clip.keys && clip.keys.length) this._applyClipPose(clip, this.time, rig);
+
+      this._fireEvents(clip, prevTime, this.time);
+
+      const duration = clip.duration ?? 0;
+      if (clip.loop) {
+        if (duration > 0 && this.time >= duration) this.time %= duration;
+      } else if (this.time >= duration) {
+        this.time = duration;
+        this.playing = false;
+        this.sink?.(CLIP_END, { clip, time: this.time });
+        this._onEvent?.(CLIP_END, { clip, time: this.time });
+      }
+    }
+
+    // Crossfade: blend the pre-clip snapshot toward whatever _applyClipPose
+    // last wrote, joint by joint. Applied AFTER the clip's own pose so it
+    // blends "what the hand showed a moment ago" into "what this clip says
+    // right now", not the other way round. Runs on its own clock
+    // (fadeTime/fadeDuration), so it keeps going for frames after the clip
+    // above has already finished - see update()'s comment on why that matters.
+    if (this.fadeDuration > 0) {
+      this.fadeTime += dt;
+      const alpha = Math.min(1, this.fadeTime / this.fadeDuration);
+      for (let i = 0; i < order.length && i < this._fadeQuats.length; i++) {
+        const node = order[i].node;
+        // Blend into scratch, not into the snapshot itself - the snapshot has
+        // to stay the ORIGINAL pre-clip pose for every frame of the fade, or
+        // slerping it in place would compound instead of interpolating fresh
+        // from the same start point each time.
+        _fadeBlend.copy(this._fadeQuats[i]).slerp(node.quaternion, alpha);
+        node.quaternion.copy(_fadeBlend);
+      }
+      if (alpha >= 1) this.fadeDuration = 0;
+    }
+  }
+
+  /**
+   * Samples `clip` at `time` and writes the result to the rig's joints.
+   *
+   * Clamps to the first/last key outside the authored range, and slerps
+   * between the bracketing pair (eased per the incoming key's `ease`) inside
+   * it. ALLOCATES NOTHING - applyPose/blendPose are the same zero-allocation
+   * primitives setPose()/blendToPose() already use.
+   */
+  _applyClipPose(clip, time, rig) {
+    const keys = clip.keys;
+    const n = keys.length;
+
+    if (n === 1 || time <= keys[0].t) {
+      applyPose(rig, keys[0].pose);
+      return;
+    }
+    if (time >= keys[n - 1].t) {
+      applyPose(rig, keys[n - 1].pose);
+      return;
+    }
+
+    // Linear scan for the bracketing pair. A clip is a handful of keys, so
+    // this costs nothing - see the module header on why `t` is authored in
+    // ascending seconds rather than normalised, which is what makes this scan
+    // (and not just a division) the correct way to find "where am I".
+    let i = 0;
+    while (i < n - 1 && keys[i + 1].t <= time) i++;
+    const a = keys[i];
+    const b = keys[i + 1];
+    const span = b.t - a.t;
+    const raw = span > 0 ? (time - a.t) / span : 1;
+    blendPose(rig, a.pose, b.pose, ease(raw, b.ease));
+  }
+
+  /**
+   * Fires every event this clip crossed between `prevTime` and `newTime`.
+   *
+   * Comparing the OLD and NEW playhead each frame, rather than walking an
+   * index of "already fired" events, is what makes seek() safe to scrub
+   * backwards and forwards across an event with no separate bookkeeping to
+   * reset - see seek()'s own comment.
+   */
+  _fireEvents(clip, prevTime, newTime) {
+    const events = clip.events;
+    if (!events || !events.length) return;
+    for (let i = 0; i < events.length; i++) {
+      const ev = events[i];
+      if (ev.t > prevTime && ev.t <= newTime) {
+        this.sink?.(ev.name, { clip, time: ev.t });
+        this._onEvent?.(ev.name, { clip, time: ev.t });
+      }
+    }
   }
 
   dispose() {

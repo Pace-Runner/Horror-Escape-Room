@@ -78,6 +78,11 @@ const ROOM_H = 2.8;
 export function createBedroomLevel({
   showCaption = () => {},
   onFreed = () => {},
+  // Fired the instant the paperclip goes into the lock, not when onFreed
+  // fires 900ms later -- main.js uses the gap between the two to time a hand
+  // animation against exactly how long the story already says picking the
+  // lock takes.
+  onPaperclipUsed = () => {},
   onFlashlightPicked = () => {},
   onCrowbarFound = () => {},
   onCrowbarUsed = () => {},
@@ -1494,6 +1499,7 @@ export function createBedroomLevel({
   paperclipHitbox.userData.interact = {
     label: 'Pick up paperclip',
     onInteract: () => {
+      onPaperclipUsed();
       showCaption("You work the paperclip into the cuff's lock... it clicks open.");
       paperclip.visible = false;
       paperclipHitbox.visible = false;
