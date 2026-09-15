@@ -8,29 +8,40 @@ child of another."*
 
 ## Scope of this pass
 
-This is the **world foundation**, not the finished game. It delivers:
+The full story is built, from the opening chained beat through both
+endings. It delivers:
 
 - A fully modelled, atmospheric **Level 1 bedroom**, matching the
   storyline beat for beat (chained wake-up, storm lighting, blown
   bulb, flashlight, scratched message, boarded door, polaroid).
-- Light **environment blockouts** for **Level 2** (hallway + basement
-  lab) and **Level 3** (study), so the whole house already exists and
-  is navigable, dressed, and lit in the right mood.
-- First-person movement and look (WASD + mouse, pointer-locked) with
-  simple collision against walls and furniture.
-- A raycast "examine" interaction system, already wired to every prop
-  called out in the storyline, so props can be looked at and read
-  before their puzzle logic exists.
+- A dressed, puzzle-complete **Level 2** (hallway + basement lab): the
+  power-restore puzzle (fuse box) and the CCTV camera-feed minigame,
+  both wired up and gating the locked basement door.
+- A dressed, puzzle-complete **Level 3** (study): the three-lock front
+  door sequence, the visor mechanic, and the branching ending
+  (release or contain).
+- An unguided **backrooms maze** between levels -- see its own section
+  below.
+- First-person movement and look (WASD + mouse, pointer-locked), with
+  sprint/stamina, crouch, and collision against walls and furniture.
+- A raycast "examine" interaction system wired to every prop called
+  out in the storyline.
+- A fog-of-war overview minimap for the backrooms, and a radar-style
+  follow minimap everywhere else.
 - One custom GLSL shader (the basement CCTV monitor's static).
 - Procedural textures and synthesised audio, so the only binary assets
   to path or credit are the Blender-authored `.glb` models and one
   breathing loop (`src/assets/audio/breathing.m4a`, which the game also
   runs without).
 
-What is **not** yet built: the power-restore puzzle, the camera-feed
-minigame, the three-lock sequence, the visor mechanic, the creature AI,
-and the branching ending. Each level's file has a short header comment
-flagging exactly what is still a blockout.
+Levels 1 and 2's creature appearances (CCTV sightings, the hallway flash, the
+corner reveal) stay scripted set-pieces on purpose -- the player is placed to
+be shown the thing, and a script guarantees they see it. `src/systems/CreatureAI.js`'s
+patrol/watch/flee/block state machine takes over once the letter is read in
+Level 3: she guards the front doorway while staying out of reach, and being
+caught fades to black and sends the player back to the study's own spawn
+point rather than ending the game -- see the `onCaught` handler in `main.js`
+and CreatureAI.js's own header for why a kill would break the story.
 
 ## Why each hierarchy decision was made
 

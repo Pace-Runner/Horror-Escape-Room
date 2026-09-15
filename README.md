@@ -15,9 +15,9 @@ Open the local URL Vite prints (usually http://localhost:5173/).
 
 ## What's here right now
 
-This is the **world foundation** -- the house exists and is navigable
-in first person, but the puzzle logic and creature AI are not built
-yet. See `docs/WORLD_DESIGN.md` for the full breakdown and the
+The house is fully navigable in first person and the story's puzzle
+logic is built end to end, from the opening chained beat through both
+endings. See `docs/WORLD_DESIGN.md` for the full breakdown and the
 reasoning behind the scenegraph hierarchy.
 
 - **Level 1 -- the bedroom**: fully modelled and atmospheric. Storm
@@ -27,15 +27,17 @@ reasoning behind the scenegraph hierarchy.
   photos, the "Don't let it out" message scratched into the floor, and
   a pickable flashlight. The opening beat (chained → free the cuff
   with the paperclip → stand → bulb blows) is scripted.
-- **Level 2 -- hallway + basement lab (blockout)**: navigable and
-  dressed (pipes, generators, fuse box, shelves, flickering
-  fluorescents, a retro CCTV monitor running a custom static shader),
-  but the power-restore puzzle and camera-feed minigame aren't wired
-  up yet.
-- **Level 3 -- study (blockout)**: navigable and dressed (desk,
-  bookshelves, the family portrait, the one uncracked mirror, the
-  three-lock front door), but the lock sequence, visor mechanic and
-  branching ending aren't implemented yet.
+- **Level 2 -- hallway + basement lab**: navigable and dressed (pipes,
+  generators, fuse box, shelves, flickering fluorescents, a retro CCTV
+  monitor running a custom static shader). The power-restore puzzle
+  (fuse box → lit/unlit lab states) and the CCTV camera feeds (five
+  cameras, with scripted creature sightings) are wired up and gate the
+  locked basement door.
+- **Level 3 -- study**: navigable and dressed (desk, bookshelves, the
+  family portrait, the one uncracked mirror, the three-lock front
+  door). The three-lock sequence (keyed deadbolt, combination pin-pad,
+  and a containment lock gated on the visor), the visor mechanic, and
+  the branching ending (release or contain) are all implemented.
 - **The backrooms corridor -- the space between levels**: leaving a
   level no longer cuts straight to the next one. The screen fades to
   black and you come up in a short, wrong-feeling yellow corridor --
