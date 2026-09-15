@@ -94,11 +94,20 @@ const BREATH_MAKEUP = 5;
 // drift the moment either is tuned.
 export const BREATH_BASE_LEVEL = 0.1;
 
+// Default master level, matched to what start() used to hardcode so a player
+// who never opens the settings menu hears exactly what they always heard.
+const DEFAULT_MASTER_VOLUME = 0.5;
+
 export class AudioEngine {
   constructor() {
     this.ctx = null;
     this.master = null;
     this.windSource = null;
+
+    // Settable before start(): the settings menu can call this from a value it
+    // restored out of localStorage before the player has even clicked through
+    // the start screen (i.e. before there is an AudioContext to hold it).
+    this.masterVolume = DEFAULT_MASTER_VOLUME;
 
     // Breathing state lives here rather than in start() because every public
     // breathing method is safe to call before start(), before the file has
@@ -127,7 +136,7 @@ export class AudioEngine {
     if (this.ctx) return;
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.master = this.ctx.createGain();
-    this.master.gain.value = 0.5;
+    this.master.gain.value = this.masterVolume;
     this.master.connect(this.ctx.destination);
     this.#startWindDrone();
 
@@ -158,6 +167,20 @@ export class AudioEngine {
 
   resume() {
     if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+  }
+
+  /**
+   * The settings-menu volume slider, 0..1. Stepped rather than ramped: this is
+   * a direct user drag, not a story beat, so it should track the slider with no
+   * lag -- the ramping in setBreathing() is for a level the game changes on its
+   * own timeline, which is a different thing.
+   *
+   * Safe before start(): the value is remembered and applied the moment the
+   * context (and its master gain node) actually exists.
+   */
+  setMasterVolume(level) {
+    this.masterVolume = Math.min(1, Math.max(0, level));
+    if (this.master) this.master.gain.value = this.masterVolume;
   }
 
   // ---------- breathing loop ----------

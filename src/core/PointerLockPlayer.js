@@ -52,6 +52,10 @@ const BOB_BLEND = 0.16;
  */
 const LOOK_SENSITIVITY = 0.0023;
 const LOOK_SMOOTH_TIME = 0.022;
+/** Settings-menu sensitivity slider range, as a multiplier on LOOK_SENSITIVITY. */
+export const SENSITIVITY_MIN = 0.25;
+export const SENSITIVITY_MAX = 2.5;
+export const SENSITIVITY_DEFAULT = 1.0;
 /** Just shy of straight up/down, so the view can never flip through the pole. */
 const PITCH_LIMIT = Math.PI / 2 - 0.001;
 
@@ -151,6 +155,9 @@ export class PointerLockPlayer {
     // Gate for scripted beats (e.g. still chained to the bed at the start
     // of Level 1) where looking around should work but walking shouldn't.
     this.movementEnabled = true;
+    // Settings-menu mouse sensitivity, as a multiplier on LOOK_SENSITIVITY --
+    // see setSensitivity().
+    this.sensitivity = SENSITIVITY_DEFAULT;
 
     /**
      * MOTION STATE, read once a frame by whatever wants to move with the player
@@ -315,6 +322,11 @@ export class PointerLockPlayer {
     this.controls.unlock();
   }
 
+  /** Settings-menu sensitivity slider. Clamped to SENSITIVITY_MIN/MAX. */
+  setSensitivity(multiplier) {
+    this.sensitivity = Math.min(SENSITIVITY_MAX, Math.max(SENSITIVITY_MIN, multiplier));
+  }
+
   get isLocked() {
     return this.controls.isLocked;
   }
@@ -445,8 +457,8 @@ export class PointerLockPlayer {
     this._pendingYaw -= dYaw;
     this._pendingPitch -= dPitch;
 
-    this.lookDeltaX = -dYaw * LOOK_SENSITIVITY;
-    this.lookDeltaY = -dPitch * LOOK_SENSITIVITY;
+    this.lookDeltaX = -dYaw * LOOK_SENSITIVITY * this.sensitivity;
+    this.lookDeltaY = -dPitch * LOOK_SENSITIVITY * this.sensitivity;
     if (dYaw !== 0 || dPitch !== 0) {
       this._yaw += this.lookDeltaX;
       this._pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this._pitch + this.lookDeltaY));

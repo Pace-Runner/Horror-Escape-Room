@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { PointerLockPlayer } from './core/PointerLockPlayer.js';
+import { PointerLockPlayer, SENSITIVITY_MIN, SENSITIVITY_MAX } from './core/PointerLockPlayer.js';
 import { SceneManager } from './core/SceneManager.js';
 import { Interaction } from './core/Interaction.js';
 import { createPhotoBoardUI } from './core/PhotoBoardUI.js';
@@ -57,6 +57,14 @@ const staminaEl = document.getElementById('stamina');
 const staminaFillEl = document.getElementById('stamina-fill');
 const creditsCloseBtn = document.getElementById('credits-close');
 const fadeOverlay = document.getElementById('fade-overlay');
+const settingsButton = document.getElementById('settings-button');
+const settingsScreen = document.getElementById('settings-screen');
+const settingsCloseBtn = document.getElementById('settings-close');
+const volumeInput = document.getElementById('settings-volume');
+const volumeValueEl = document.getElementById('settings-volume-value');
+const sensitivityInput = document.getElementById('settings-sensitivity');
+const sensitivityValueEl = document.getElementById('settings-sensitivity-value');
+const captionsCheckbox = document.getElementById('settings-captions');
 
 // The black between levels. Deliberately not a `.hidden` toggle like every
 // other overlay in this file -- see core/ScreenFade.js for why that would snap
@@ -1388,6 +1396,85 @@ function toggleCredits(show) {
   if (show && player.isLocked) player.unlock();
 }
 creditsCloseBtn.addEventListener('click', () => toggleCredits(false));
+
+// ---------- settings ----------
+// Volume, mouse sensitivity and captions, persisted in localStorage so they
+// survive a page reload -- the only thing in this project that does, since
+// there is otherwise no save system. Loaded and applied once at boot, well
+// before beginGame(): a player who opens Settings from the start screen
+// before ever clicking "begin" still hears/feels the right values from their
+// very first frame.
+const SETTINGS_STORAGE_KEY = 'dontLetItOut.settings';
+const DEFAULT_SETTINGS = { volume: 50, sensitivity: 100, captions: true };
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!raw) return { ...DEFAULT_SETTINGS };
+    const parsed = JSON.parse(raw);
+    return {
+      volume: Number.isFinite(parsed.volume) ? Math.min(100, Math.max(0, parsed.volume)) : DEFAULT_SETTINGS.volume,
+      sensitivity: Number.isFinite(parsed.sensitivity)
+        ? Math.min(SENSITIVITY_MAX * 100, Math.max(SENSITIVITY_MIN * 100, parsed.sensitivity))
+        : DEFAULT_SETTINGS.sensitivity,
+      captions: typeof parsed.captions === 'boolean' ? parsed.captions : DEFAULT_SETTINGS.captions
+    };
+  } catch {
+    // Private browsing (Safari) throws on localStorage access rather than
+    // just returning null, and a corrupt/hand-edited value can fail JSON.parse
+    // -- either way, falling back to defaults keeps the menu usable.
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+function saveSettings(settings) {
+  try {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    // Settings simply do not persist this session; nothing else depends on it.
+  }
+}
+
+function applySettings(settings) {
+  audio.setMasterVolume(settings.volume / 100);
+  player.setSensitivity(settings.sensitivity / 100);
+  captions.setEnabled(settings.captions);
+}
+
+const settings = loadSettings();
+volumeInput.value = String(settings.volume);
+volumeValueEl.textContent = `${settings.volume}%`;
+sensitivityInput.value = String(settings.sensitivity);
+sensitivityValueEl.textContent = `${settings.sensitivity}%`;
+captionsCheckbox.checked = settings.captions;
+applySettings(settings);
+
+volumeInput.addEventListener('input', () => {
+  settings.volume = Number(volumeInput.value);
+  volumeValueEl.textContent = `${settings.volume}%`;
+  audio.setMasterVolume(settings.volume / 100);
+  saveSettings(settings);
+});
+
+sensitivityInput.addEventListener('input', () => {
+  settings.sensitivity = Number(sensitivityInput.value);
+  sensitivityValueEl.textContent = `${settings.sensitivity}%`;
+  player.setSensitivity(settings.sensitivity / 100);
+  saveSettings(settings);
+});
+
+captionsCheckbox.addEventListener('change', () => {
+  settings.captions = captionsCheckbox.checked;
+  captions.setEnabled(settings.captions);
+  saveSettings(settings);
+});
+
+// Opened only from the start/pause/end screen, which has already unlocked the
+// pointer to show itself -- so, unlike toggleCredits(), this never has to call
+// player.unlock() itself or worry about re-triggering the 'unlock' listener's
+// pause-menu logic.
+settingsButton.addEventListener('click', () => settingsScreen.classList.remove('hidden'));
+settingsCloseBtn.addEventListener('click', () => settingsScreen.classList.add('hidden'));
 
 // ---------- pointer lock flow ----------
 function beginGame() {
