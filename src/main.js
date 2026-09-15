@@ -580,10 +580,56 @@ const creature = createCreature();
 creature.visible = false;
 worldRoot.add(creature.group);
 
+/**
+ * Being caught is being STOPPED, not killed -- see CreatureAI.js's header. The
+ * player comes to a little further back in the room, having lost the ground
+ * they just covered, rather than facing any kind of death or reload.
+ */
+let caughtInFlight = false;
 const creatureAI = createCreatureAI({
   creature,
   getPlayer: () => ({ x: camera.position.x, z: camera.position.z, yaw: player.yaw }),
-  onBreathing: (level) => audio.setBreathing(level)
+  onBreathing: (level) => audio.setBreathing(level),
+  onCaught: () => {
+    // Guards against the vanishingly small window where a level transition is
+    // already mid-flight (e.g. the player solved the last lock in the same
+    // frame) -- CreatureAI's own CATCH_COOLDOWN already stops this firing
+    // twice in a row on its own.
+    if (caughtInFlight || transitionInFlight) return;
+    caughtInFlight = true;
+    script.run(async (s) => {
+      try {
+        s.do(() => {
+          player.movementEnabled = false;
+          player.lookEnabled = false;
+          interaction.setEnabled(false);
+        });
+        if (!await s.play('Something closes around your arm and hauls you back.')) return;
+        // fade.fadeOut()/fadeIn() are not part of Script's cancellation system
+        // (they always resolve, unlike s.wait()/s.play()) -- checking s.alive()
+        // afterward is what stops a restart mid-fade from having this sequence
+        // teleport the player or re-enable input into a level that has since
+        // moved on. If a restart happened, resetGame()'s abortTransition()
+        // already cleared the fade overlay itself.
+        await fade.fadeOut(450);
+        if (!s.alive()) return;
+        s.do(() => {
+          const [sx, sz] = study.spawn;
+          player.spawn(sx, sz, study.spawnYaw ?? 0);
+        });
+        await fade.fadeIn(650);
+        if (!s.alive()) return;
+        s.do(() => {
+          player.lookEnabled = true;
+          player.movementEnabled = true;
+          interaction.setEnabled(true);
+        });
+        await s.play("You're back by the door. Whatever had you has let go.");
+      } finally {
+        caughtInFlight = false;
+      }
+    });
+  }
 });
 
 /**
@@ -789,6 +835,14 @@ const hallwayBasement = createHallwayBasementLevel({
 });
 sceneManager.register('hallwayBasement', hallwayBasement);
 
+/**
+ * Where the free-roam creature AI stands to block the one way out of the
+ * study once it takes over -- just inside the front doorway (DOOR_X=2.5,
+ * frontZ=3.25 in studyLevel.js), clear of the door's own collider (which
+ * spans z 3.1-3.35 while shut) so she is never spawned standing inside a wall.
+ */
+const STUDY_GUARD_POINT = [2.5, 2.9];
+
 const study = createStudyLevel({
   showCaption,
   // The study is the last room, so its exit is the ENDING rather than another
@@ -869,7 +923,23 @@ const study = createStudyLevel({
           });
           if (!await s.play(BEATS.annabelle)) return;
           s.do(() => { objectiveEl.textContent = 'Decide.'; });
-          await s.play(BEATS.theChoice);
+          if (!await s.play(BEATS.theChoice)) return;
+          s.do(() => {
+            /**
+             * Hand off from "stands still and breathes" to the free-roam AI.
+             * She now actively tries to keep the player from the front door
+             * while staying out of reach -- see CreatureAI.js. creatureAI
+             * owns creature.update() itself from here, which is why
+             * creatureStanding (main.js's own "just breathe in place" path)
+             * has to come off, or the two would fight over the same rig every
+             * frame.
+             */
+            creatureStanding = false;
+            creatureAI.setColliders(study.colliders);
+            creatureAI.setGuardPoints([STUDY_GUARD_POINT]);
+            const spot = study.refs.annabelleSpot;
+            creatureAI.start(spot[0], spot[1]);
+          });
         });
       }
     });

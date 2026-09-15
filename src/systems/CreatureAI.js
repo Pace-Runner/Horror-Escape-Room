@@ -119,11 +119,11 @@ const BREATH_MAX = 0.85;
  * Fails loudly if the speed relation this whole file rests on has been broken.
  *
  * Every one of these was a comment until sprint landed, and a comment cannot
- * fail. Cheap, runs once at import, and it is the ONLY thing that will tell you
- * the relation is wrong -- `start()` is not yet called from anywhere in the
- * game, so none of this is observable by playing it. Same idiom as
- * assertCorridorTree() in backroomsLevel.js: warn at boot, do not throw, so a
- * bad number costs a console line rather than the whole app.
+ * fail. Cheap, runs once at import, and it catches a bad relation before a
+ * single frame of Level 3 runs rather than leaving it to be noticed by feel
+ * during a chase. Same idiom as assertCorridorTree() in backroomsLevel.js:
+ * warn at boot, do not throw, so a bad number costs a console line rather
+ * than the whole app.
  */
 if (SPEED.patrol >= WALK_SPEED) {
   console.error(`[creature] patrol ${SPEED.patrol} >= walk ${WALK_SPEED}: it can outrun a walking player.`);

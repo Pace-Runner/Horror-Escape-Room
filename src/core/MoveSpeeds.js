@@ -8,10 +8,11 @@
  * player's. Patrol must be slower than a walk, flee must be faster than a
  * sprint, and blocking must be able to beat the player to a door.
  *
- * Until now that relation lived in a comment. A comment cannot fail a build;
- * the assertions at the bottom of CreatureAI.js can. That matters more than
- * usual here because `creatureAI.start()` is not yet called from anywhere in
- * the game, so a broken relation is invisible to playing it.
+ * Until this file existed the relation lived in a comment. A comment cannot
+ * fail a build; the assertions at the bottom of CreatureAI.js can -- and now
+ * that `creatureAI.start()` is actually called (Level 3, once the letter is
+ * read -- see main.js), a broken relation is something a playthrough would
+ * hit directly, not just something a mis-tuned constant could hide forever.
  *
  * Deliberately NOT exported from PointerLockPlayer: an AI module should not
  * have to import a class that drags in PointerLockControls to learn a number.
