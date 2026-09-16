@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PointerLockPlayer, SENSITIVITY_MIN, SENSITIVITY_MAX } from './core/PointerLockPlayer.js';
+import { WALK_SPEED } from './core/MoveSpeeds.js';
 import { SceneManager } from './core/SceneManager.js';
 import { Interaction } from './core/Interaction.js';
 import { createPhotoBoardUI } from './core/PhotoBoardUI.js';
@@ -1006,6 +1007,144 @@ const backrooms = createBackroomsLevel({
 sceneManager.register('backrooms', backrooms);
 
 /**
+ * Something trailing behind you in the corridor between levels.
+ *
+ * Not the CreatureAI chase -- that only starts in Level 3, after the reveal
+ * -- this is pure atmosphere, and it is built out of the same "keep away"
+ * idea CreatureAI.js's header describes even though it does not use that
+ * module: the same rough distance behind, always, and it recedes the moment
+ * the player turns around and closes the gap rather than ever being caught
+ * up to. It is never a threat here, only a glimpse.
+ *
+ * POSITIONED FROM THE PLAYER'S OWN WALKED PATH, not by steering toward a
+ * target. A history of the player's last several metres of travel is kept,
+ * and the figure sits at a fixed distance back along THAT recorded path --
+ * so it can never be inside a wall or cut a corner the player did not, with
+ * no collision code of its own needed. It simply retraces where the player
+ * has already proven the floor is.
+ *
+ * CORRECTION IS DELIBERATELY PARTWAY, not the clean Annabelle reading and
+ * not the full Hollow either -- see Creature.js's two proportion sets. A
+ * partial blend gives a shape that reads as human (upright, ordinary limb
+ * length) but subtly wrong up close, which is exactly "can only sort of make
+ * it out" at the distance and light level this is ever seen at.
+ */
+const BACKROOMS_SHADOW_LAG = 11;          // metres behind the player it trails at
+const BACKROOMS_SHADOW_MIN_PATH = 4;      // metres of recorded path before it may appear at all
+const BACKROOMS_SHADOW_HIDE_RANGE = 5;    // closer than this (player closing the gap) and it is gone
+const BACKROOMS_SHADOW_SAMPLE_DIST = 0.15; // metres between recorded path points
+const BACKROOMS_SHADOW_CORRECTION = 0.35;  // human-ish, not clean -- see the header above
+
+/** Recorded {x,z} player positions, oldest first, trimmed to stay bounded. */
+let backroomsPath = [];
+/** The figure's last computed position, so its speed can be read off its own movement. */
+let backroomsShadowPos = null;
+let backroomsShadowVisible = false;
+
+/** Sum of consecutive segment lengths -- how much corridor is actually recorded. */
+function pathLength(path) {
+  let sum = 0;
+  for (let i = 1; i < path.length; i++) {
+    sum += Math.hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
+  }
+  return sum;
+}
+
+/** Walks backward along `path` from (x,z) until `distance` metres have accumulated. */
+function pointBehindOnPath(path, x, z, distance) {
+  let remaining = distance;
+  let ax = x, az = z;
+  for (let i = path.length - 1; i >= 0; i--) {
+    const p = path[i];
+    const segLen = Math.hypot(ax - p.x, az - p.z);
+    if (segLen >= remaining) {
+      const t = segLen > 1e-6 ? remaining / segLen : 0;
+      return { x: ax + (p.x - ax) * t, z: az + (p.z - az) * t };
+    }
+    remaining -= segLen;
+    ax = p.x; az = p.z;
+  }
+  return null; // not enough recorded path yet
+}
+
+/** Called on every level activation -- see activateLevel(). Hides it and drops the trail. */
+function resetBackroomsShadow() {
+  backroomsPath = [];
+  backroomsShadowPos = null;
+  if (backroomsShadowVisible) {
+    creature.visible = false;
+    // Back to the default layer mask, or the AI chase / scripted placements
+    // elsewhere would inherit this system's minimap-hiding trick.
+    creature.group.layers.set(0);
+    // And back to a normally-lit figure, or the same leak happens with the
+    // silhouette colour multiplier instead.
+    creature.setSilhouette(false);
+    backroomsShadowVisible = false;
+  }
+}
+
+function updateBackroomsShadow(dt) {
+  const px = camera.position.x, pz = camera.position.z;
+
+  const last = backroomsPath[backroomsPath.length - 1];
+  if (!last || Math.hypot(px - last.x, pz - last.z) >= BACKROOMS_SHADOW_SAMPLE_DIST) {
+    backroomsPath.push({ x: px, z: pz });
+    // Bounded: once the recorded trail comfortably exceeds the lag distance,
+    // older points are dropped a few at a time rather than one by one, since
+    // pathLength() is O(n) and this runs every sampled step.
+    while (backroomsPath.length > 4 && pathLength(backroomsPath) > BACKROOMS_SHADOW_LAG + 4) {
+      backroomsPath.splice(0, 4);
+    }
+  }
+
+  const found = pointBehindOnPath(backroomsPath, px, pz, BACKROOMS_SHADOW_LAG);
+  const closeBy = found && Math.hypot(px - found.x, pz - found.z) < BACKROOMS_SHADOW_HIDE_RANGE;
+  const shouldShow = !!found && !closeBy && pathLength(backroomsPath) >= BACKROOMS_SHADOW_MIN_PATH;
+
+  if (found) {
+    if (backroomsShadowVisible && backroomsShadowPos) {
+      // Read off its own frame-to-frame movement rather than driving speed
+      // from anything the player is doing -- it walks at whatever pace
+      // keeps it at the recorded distance, capped at a normal walk so a
+      // sudden jump in the trail (e.g. just having appeared) never reads as
+      // a lunge.
+      const speed = Math.min(WALK_SPEED, Math.hypot(found.x - backroomsShadowPos.x, found.z - backroomsShadowPos.z) / dt);
+      creature.setSpeed(speed);
+    }
+    backroomsShadowPos = found;
+  }
+
+  if (!shouldShow) {
+    if (backroomsShadowVisible) {
+      creature.visible = false;
+      creature.group.layers.set(0);
+      backroomsShadowVisible = false;
+    }
+    return;
+  }
+
+  if (!backroomsShadowVisible) {
+    creature.reset();
+    creature.setCorrection(BACKROOMS_SHADOW_CORRECTION);
+    // A lit, textured rig at corridor range reads as exactly what it is --
+    // boxes and capsules. Silhouette mode multiplies the correction colour
+    // down near-black regardless of nearby fixture light, so what shows is a
+    // dark shape, not a small mannequin under a ceiling lamp.
+    creature.setSilhouette(true);
+    // MAIN_ONLY: visible to the player, never to the minimap's own camera --
+    // this is a glimpse, not something to confirm by checking the radar.
+    creature.group.layers.set(MAIN_ONLY);
+    backroomsShadowVisible = true;
+  }
+  creature.setPosition(found.x, found.z);
+  // Faces the player, the same convention every other placement in this file
+  // uses -- being looked back at is the entire point of it existing.
+  creature.setYaw(Math.atan2(-(px - found.x), -(pz - found.z)));
+  creature.visible = true;
+  creature.update(dt);
+}
+
+/**
  * The bedroom's ambient light floor, before and after the bulb.
  *
  * 0.31 is what the level builds with. Dropping to 0.13 is the only place this
@@ -1131,6 +1270,7 @@ function activateLevel(key, { lockMovement = false } = {}) {
   cctvSeen.clear();
   creatureStanding = false;
   creatureAI.reset();
+  resetBackroomsShadow();
   // A leftover animator clip (the lockpick loop, if a debug level-jump key is
   // pressed mid-lockpick) must not survive into whatever level just
   // activated. Harmless when nothing was playing, and safe even with the
@@ -1762,6 +1902,7 @@ function tick() {
   // standing in a corner reads as a statue rather than as something watching.
   if (creatureStanding) creature.update(dt);
   creatureAI.update(dt);
+  if (sceneManager.activeKey === 'backrooms') updateBackroomsShadow(dt);
   dustMotes.update(dt, elapsed);
   // Per rendered frame rather than on a fixed step: the hands are
   // presentation, and pinning them to 60 Hz on a 144 Hz display would throw

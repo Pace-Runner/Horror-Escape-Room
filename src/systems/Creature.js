@@ -281,6 +281,17 @@ export function createCreature() {
   /** Blended proportions, rebuilt each frame the dial moves. */
   const p = { ...HUMAN };
   let dirty = true;
+  /**
+   * True for glimpses that are meant to read as a shadow, not a lit body --
+   * the backrooms figure trailing at a distance, seen under ordinary corridor
+   * light. At normal size a lit, textured rig at that range reads as exactly
+   * what it is: a small set of boxes and capsules. Multiplying the correction
+   * colour down near-black (independent of the correction/proportion dial,
+   * so it survives whatever else calls setCorrection()) hides that geometry
+   * in its own shadow instead, the same way a real backlit figure loses its
+   * surface detail long before it loses its outline.
+   */
+  let silhouette = false;
 
   /** Distance walked, so the gait is driven by movement like the player's. */
   let gaitPhase = 0;
@@ -363,17 +374,23 @@ export function createCreature() {
     // Colour follows shape. The Hollow is nearly unlit black -- a hole in the
     // room -- and Annabelle is cloth and skin. Lerped in the same dial so a
     // half-corrected figure is coherent rather than a black shape in a coat.
+    // silhouette scales the RESULT down further still, after the lerp, so it
+    // composes with whatever correction is set rather than replacing it.
+    const sMul = silhouette ? 0.05 : 1;
     skin.color.setRGB(
-      THREE.MathUtils.lerp(0.055, 0.34, correction),
-      THREE.MathUtils.lerp(0.048, 0.26, correction),
-      THREE.MathUtils.lerp(0.045, 0.22, correction)
+      THREE.MathUtils.lerp(0.055, 0.34, correction) * sMul,
+      THREE.MathUtils.lerp(0.048, 0.26, correction) * sMul,
+      THREE.MathUtils.lerp(0.045, 0.22, correction) * sMul
     );
     clothes.color.setRGB(
-      THREE.MathUtils.lerp(0.048, 0.17, correction),
-      THREE.MathUtils.lerp(0.044, 0.19, correction),
-      THREE.MathUtils.lerp(0.042, 0.22, correction)
+      THREE.MathUtils.lerp(0.048, 0.17, correction) * sMul,
+      THREE.MathUtils.lerp(0.044, 0.19, correction) * sMul,
+      THREE.MathUtils.lerp(0.042, 0.22, correction) * sMul
     );
-    // Hair does NOT lerp. See the material note above.
+    // Hair is already near-black and does not lerp with correction, but it
+    // still needs the silhouette multiplier or it would be the one part of a
+    // "shadow" that visibly has a colour.
+    hair.color.setRGB(0.078 * sMul, 0.063 * sMul, 0.055 * sMul);
 
     dirty = false;
   }
@@ -486,6 +503,21 @@ export function createCreature() {
     get correction() {
       return correction;
     },
+    /**
+     * Toggles the shadow-only colour multiplier -- see the note above
+     * `silhouette`'s declaration. Independent of setCorrection(): a caller
+     * can turn this on and off without disturbing whatever proportion blend
+     * is currently set, and vice versa.
+     */
+    setSilhouette(on) {
+      const next = !!on;
+      if (next === silhouette) return;
+      silhouette = next;
+      dirty = true;
+    },
+    get isSilhouette() {
+      return silhouette;
+    },
     /** Standing height at the current blend, for door and sightline checks. */
     get height() {
       return standingHeight(p);
@@ -500,9 +532,10 @@ export function createCreature() {
       if (dirty) applyProportions();
       animate(dt);
     },
-    /** Back to a standing, uncorrected figure. Called on restart. */
+    /** Back to a standing, uncorrected, non-silhouette figure. Called on restart. */
     reset() {
       correction = 0;
+      silhouette = false;
       speed = 0;
       gaitPhase = 0;
       elapsed = 0;
