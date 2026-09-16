@@ -683,7 +683,13 @@ const bedroom = createBedroomLevel({
       });
       if (!await s.play(BEATS.bulbBlows)) return;
       if (!await s.wait(1.8)) return;
-      s.do(() => audio.creak());
+      s.do(() => {
+        audio.creak();
+        // Arms the one glimpse at the window -- see the note above
+        // bedroomStorm. Left until now rather than the moment the bulb goes,
+        // so it lands as its own jolt instead of piling onto that beat.
+        windowFlashArmed = true;
+      });
     });
   },
   onFlashlightPicked: () => {
@@ -1155,6 +1161,35 @@ function updateBackroomsShadow(dt) {
 const AMBIENT_LIT = 0.31;
 const AMBIENT_DARK = 0.13;
 
+/**
+ * One glimpse of it at the bedroom window.
+ *
+ * Armed once the bulb has blown and the room has settled (see onFreed) --
+ * dark enough that the lightning is worth watching, and late enough that it
+ * lands as a second jolt rather than piling onto the bulb beat itself.
+ * Fires on the very next flash after that, for exactly that flash's own
+ * duration, then never again this run: a repeated sighting would stop being
+ * a shock and start being a schedule.
+ *
+ * Full Hollow reading (correction 0), not the partial blend the backrooms
+ * figure uses -- this one is meant to read as unambiguously wrong the
+ * instant the light catches it, not to leave the player wondering.
+ *
+ * NOT lit by the storm's own lightningLight, measured: at this distance
+ * outside the window that light (peak ~3.2, the same value that also
+ * brightens the rain-glass shader itself via its uFlash uniform) left her
+ * completely invisible -- the glass's own flash brightening dominates the
+ * blend long before a dark, distant figure reads through it at that
+ * intensity. A dedicated light fixes this without touching the room: it is
+ * scoped to REVEAL_LAYER, which only the creature is ever put on, so it
+ * illuminates her and nothing else -- the walls stay exactly as dark as
+ * they already were.
+ */
+let windowFlashArmed = false;
+let windowFlashUsed = false;
+const WINDOW_REVEAL_LAYER = 6;
+let windowRevealLight = null;
+
 const bedroomStorm = new Storm({
   bulbLight: bedroom.refs.bulbLight,
   lightningLight: bedroom.refs.lightning,
@@ -1172,9 +1207,49 @@ const bedroomStorm = new Storm({
      * in Storm.js because Storm has no business knowing a light has a shadow.
      */
     bedroom.refs.lightning.shadow.needsUpdate = true;
+
+    if (windowFlashArmed && !windowFlashUsed) {
+      windowFlashArmed = false;
+      windowFlashUsed = true;
+      const wz = bedroom.refs.windowGroup.position.z;
+      creature.reset();
+      creature.setCorrection(0);
+      creature.setPosition(-2.1, wz - 0.9);
+      creature.setYaw(Math.PI); // faces back through the window, into the room
+      creature.setSpeed(0);
+      creatureStanding = true;
+      creature.visible = true;
+
+      // layers are NOT inherited by children in three.js -- every mesh in the
+      // rig needs the bit set directly, or a light scoped to this layer would
+      // illuminate nothing (the top-level group has no geometry of its own).
+      creature.group.traverse((o) => o.layers?.enable(WINDOW_REVEAL_LAYER));
+      windowRevealLight = new THREE.DirectionalLight(0xbcd4ff, 8);
+      windowRevealLight.layers.set(WINDOW_REVEAL_LAYER);
+      windowRevealLight.position.set(-2.1, 2.3, wz - 0.1);
+      windowRevealLight.target.position.set(-2.1, 1.6, wz - 0.9);
+      bedroom.group.add(windowRevealLight, windowRevealLight.target);
+
+      const shownFor = bedroomStorm?.flashDuration || 0.2;
+      script.run(async (s) => {
+        if (!await s.wait(shownFor)) return;
+        s.do(hideWindowReveal);
+      });
+    }
   },
   onBlow: () => audio.bulbPop()
 });
+
+/** Hides the window-flash figure and tears down its dedicated light -- see the note above. */
+function hideWindowReveal() {
+  creature.visible = false;
+  creatureStanding = false;
+  if (windowRevealLight) {
+    bedroom.group.remove(windowRevealLight, windowRevealLight.target);
+    windowRevealLight = null;
+  }
+  creature.group.traverse((o) => o.layers?.disable(WINDOW_REVEAL_LAYER));
+}
 
 const rain = new Rain({
   count: 400,
@@ -1417,6 +1492,12 @@ function resetGame() {
   // out here left the glass dark on the second run.
   bedroomStorm.relight();
   bedroom.refs.ambient.intensity = AMBIENT_LIT;
+  // A fresh run gets to see the window glimpse again. hideWindowReveal() also
+  // covers a restart landing mid-flash, which would otherwise leave its
+  // dedicated light and the creature's extra render layer behind forever.
+  windowFlashArmed = false;
+  windowFlashUsed = false;
+  hideWindowReveal();
   flashlightFound = false;
   setFlashlight(false);
   // A restart mid-clip (R pressed while, say, the lockpick loop is still
@@ -1844,6 +1925,13 @@ if (import.meta.env.DEV) {
     creature,
     creatureAI,
     visor,
+    // Test-only access to the backrooms trailing shadow and the bedroom
+    // window flash, neither of which has a keyboard trigger of its own to
+    // drive from a headless harness.
+    updateBackroomsShadow,
+    resetBackroomsShadow,
+    armWindowFlash: () => { windowFlashArmed = true; windowFlashUsed = false; },
+    get windowFlashUsed() { return windowFlashUsed; },
     // The F key is in the pointer-lock-gated listener, so a headless harness
     // has no way to turn the torch on -- and the torch is what the player sees
     // by for most of the game.
