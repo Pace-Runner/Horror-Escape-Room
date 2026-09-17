@@ -81,6 +81,8 @@ function initialState() {
 export const ITEMS = {
   flashlight: { label: 'Flashlight', hint: 'F to toggle' },
   crowbar: { label: 'Crowbar' },
+  brassKey: { label: 'Brass safe key' },
+  bedroomKey: { label: 'Bedroom door key' },
   visor: { label: "Annabelle's visor", hint: 'V to toggle' },
   doorKey: { label: 'Desk drawer key' },
   gateKey: { label: 'Gate key' }

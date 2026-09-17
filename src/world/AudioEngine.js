@@ -585,6 +585,27 @@ export class AudioEngine {
     src.stop(now + 0.6);
   }
 
+  /** A single heavy impact, used for nearby knocks without implying an attack. */
+  thump(level = 0.72) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.#noiseBuffer(0.3);
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 110;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(level, now + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+
+    src.connect(filter).connect(gain).connect(this.master);
+    src.start(now);
+    src.stop(now + 0.34);
+  }
+
   // Tears the whole graph down and closes the context. Safe before start(),
   // safe twice, and start() afterwards rebuilds from scratch (the decoded
   // buffer belongs to the closed context, so it is dropped and refetched).

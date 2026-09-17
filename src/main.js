@@ -230,8 +230,8 @@ const player = new PointerLockPlayer(camera, renderer.domElement);
  * object out of the dark at four metres. Both hang off the camera, so they
  * stay aligned with each other for free.
  */
-const flashlightSpot = new THREE.SpotLight(0xfff2c0, 0, 9, THREE.MathUtils.degToRad(28), 0.75, 1.4);
-const flashlightHot = new THREE.SpotLight(0xfff6d8, 0, 11, THREE.MathUtils.degToRad(11), 0.28, 1.5);
+const flashlightSpot = new THREE.SpotLight(0xfff2c0, 0, 10.5, THREE.MathUtils.degToRad(36), 0.78, 1.4);
+const flashlightHot = new THREE.SpotLight(0xfff6d8, 0, 12, THREE.MathUtils.degToRad(12.5), 0.28, 1.5);
 // SpotLight is the one Object3D subclass that defaults its own local
 // position to (0, 1, 0) instead of the origin (it's built to act like an
 // overhead stage light pointing down at 0,0,0 by default). Left alone,
@@ -259,7 +259,7 @@ camera.add(flashlightHot);
 // see world/DustMotes.js) -- shares the spotlight's own angle/distance so
 // the visible dust field always matches the light it's supposedly floating
 // in, and is a child of the camera for the same reason the spotlight is.
-const dustMotes = createDustMotes({ coneAngleRad: THREE.MathUtils.degToRad(28), maxDistance: 9 });
+const dustMotes = createDustMotes({ coneAngleRad: THREE.MathUtils.degToRad(36), maxDistance: 10.5 });
 camera.add(dustMotes.points);
 
 scene.add(camera);
@@ -489,17 +489,28 @@ function setFlashlight(on) {
   // The spill drops well below the old 2.4: it is now filling AROUND a hot
   // spot rather than being the whole beam, and leaving both at full strength
   // would just be a brighter blob.
-  flashlightSpot.intensity = flashlightOn ? 1.35 : 0;
-  flashlightHot.intensity = flashlightOn ? 3.1 : 0;
+  flashlightSpot.intensity = flashlightOn ? 1.75 : 0;
+  flashlightHot.intensity = flashlightOn ? 3.35 : 0;
   dustMotes.setBeamOn(flashlightOn);
   flashlightStateEl.textContent = !flashlightFound ? 'not found' : flashlightOn ? 'on' : 'off';
   flashlightStateEl.classList.toggle('on', flashlightOn);
 }
 
 // ---------- inventory ----------
-/** Adds an item and redraws the HUD list -- the only two things a pickup ever does. */
+// Inventory visibility and first-person presentation are intentionally
+// separate. A hotbar item is not permission to parent an arbitrary world mesh
+// into the hand rig; only the torch has an authored socket, scale and pose.
+const FIRST_PERSON_HELD_ITEM_IDS = new Set(['flashlight']);
+
+function equipSupportedFirstPersonItem(id) {
+  if (!FIRST_PERSON_HELD_ITEM_IDS.has(id)) return;
+  equipTorch();
+}
+
+/** Adds an item, equips only supported view models, and redraws the HUD. */
 function pickUpItem(id) {
   addItem(id);
+  equipSupportedFirstPersonItem(id);
   refreshInventoryUI();
 }
 function dropItem(id) {
@@ -566,6 +577,19 @@ const cutscene = createCutsceneRunner({
 // Story beats. Every delayed beat in the game runs through this so a restart
 // can cancel it -- see core/Script.js for the bug that made it necessary.
 const script = createScriptRunner({ captions });
+const bedroomHorrorScript = createScriptRunner({ captions });
+const bedroomHorrorEvents = new Set();
+// Level 1 is quiet by default. Breath only comes close enough to be heard for
+// the two authored door beats; later levels keep their own intensity calls.
+const LEVEL_ONE_BREATHING_BASE = 0.035;
+const LEVEL_ONE_DOOR_BREATHING = 0.72;
+
+/** Runs each Level 1 environmental beat once and makes its delays reset-safe. */
+function runBedroomHorrorEvent(id, sequence) {
+  if (bedroomHorrorEvents.has(id)) return;
+  bedroomHorrorEvents.add(id);
+  bedroomHorrorScript.run(sequence);
+}
 
 /**
  * ONE creature for the whole game, parented to the world root rather than to
@@ -650,6 +674,11 @@ const bedroom = createBedroomLevel({
   // story already says it takes -- no separate duration to keep in sync.
   onPaperclipUsed: () => hands.play('right', 'lockpick', { fade: 0.2 }),
   onFreed: () => {
+    // The wake-up scene starts on the mattress. Leave it intact while chained,
+    // then move to the clear foot-end position before the full bed collider is
+    // allowed to resolve movement. teleport() retains the player's look state.
+    const [bedExitPositionX, bedExitPositionZ] = bedroom.refs.bedExitPosition;
+    player.teleport(bedExitPositionX, bedExitPositionZ);
     player.movementEnabled = true;
     objectiveEl.textContent = 'Escape the house without getting caught.';
     // The lockpick loop has no natural end of its own (see clips/lockpick.js -
@@ -668,9 +697,7 @@ const bedroom = createBedroomLevel({
       if (!await s.wait(1.4)) return;
       s.do(() => {
         bedroomStorm.blowBulb();
-        // Losing the bulb is the beat where the presence stops being background
-        // texture, so the breathing comes up with the darkness.
-        audio.setBreathing(0.8);
+        audio.setBreathing(LEVEL_ONE_BREATHING_BASE);
       });
       // The caption waits for the filament to actually go, rather than
       // announcing it over the top of the surge.
@@ -685,6 +712,7 @@ const bedroom = createBedroomLevel({
       if (!await s.wait(1.8)) return;
       s.do(() => {
         audio.creak();
+        audio.footsteps({ count: 1, pan: 0.55, level: 0.28 });
         // Arms the one glimpse at the window -- see the note above
         // bedroomStorm. Left until now rather than the moment the bulb goes,
         // so it lands as its own jolt instead of piling onto that beat.
@@ -701,13 +729,110 @@ const bedroom = createBedroomLevel({
     // now, so the lightning stops being the only way to navigate.
     bedroomStorm.calm();
     captions.play(BEATS.flashlightOn);
+    runBedroomHorrorEvent('flashlight-sound', (s) => {
+      s.do(() => {
+        bedroom.refs.disturbChair();
+        audio.footsteps({ count: 1, pan: -0.45, level: 0.24 });
+      });
+    });
   },
+  onBrassKeyFound: () => {
+    // The right hand is already posed and framed around the held torch. The
+    // generic pickup clip temporarily replaces that pose, even though the
+    // brass key has no supported first-person mesh or socket presentation.
+    // Keep this puzzle key inventory-only; the safe reads its game state.
+    pickUpItem('brassKey');
+  },
+  onBrassKeyUsed: () => dropItem('brassKey'),
   onCrowbarFound: () => {
-    hands.play('right', 'pickup', { fade: 0.15 });
     pickUpItem('crowbar');
   },
   onCrowbarUsed: () => dropItem('crowbar'),
-  onDoorOpened: () => exitLevel('bedroom'),
+  onBedroomKeyFound: () => {
+    pickUpItem('bedroomKey');
+  },
+  onBedroomKeyUsed: () => dropItem('bedroomKey'),
+  onPhotoCollected: (count) => {
+    if (count !== 2) return;
+    runBedroomHorrorEvent('two-photos', (s) => {
+      s.do(() => {
+        bedroom.refs.disturbBin();
+        audio.creak();
+      });
+    });
+  },
+  onPhotoPuzzleSolved: () => {
+    runBedroomHorrorEvent('photo-puzzle-perception-pulse', async (s) => {
+      // The board UI has a close beat of its own. Wait until the player is
+      // back in the bedroom so this reads as their perception of the room,
+      // rather than tinting an interface panel.
+      if (!await s.wait(0.4)) return;
+      s.do(() => postFX.setCaught(0.22));
+      if (!await s.wait(0.32)) return;
+      s.do(() => postFX.setCaught(0));
+    });
+  },
+  onDrawerUnlocked: () => {
+    runBedroomHorrorEvent('drawer-thump', async (s) => {
+      if (!await s.wait(0.55)) return;
+      s.do(() => {
+        bedroom.refs.flashLamp();
+        audio.thump(0.8);
+      });
+    });
+  },
+  onSafeOpened: () => {
+    runBedroomHorrorEvent('safe-door-rattle', async (s) => {
+      if (!await s.wait(0.45)) return;
+      s.do(() => {
+        bedroom.refs.rattleDoor();
+        audio.creak();
+      });
+      if (!await s.wait(0.22)) return;
+      s.do(() => audio.creak());
+    });
+  },
+  onFloorboardOpened: () => {
+    runBedroomHorrorEvent('key-footsteps-retreat', async (s) => {
+      if (!await s.wait(0.18)) return;
+      s.do(() => {
+        bedroom.refs.playDoorPass();
+        audio.footsteps({ count: 4, spacing: 0.32, pan: 0.55, panTo: -0.85, level: 0.42 });
+      });
+    });
+  },
+  onDoorPlankRemoved: () => {
+    runBedroomHorrorEvent('plank-breathing-retreat', async (s) => {
+      s.do(() => {
+        bedroom.refs.rattleDoor();
+        audio.setBreathing(LEVEL_ONE_DOOR_BREATHING);
+      });
+      if (!await s.wait(0.8)) return;
+      s.do(() => audio.footsteps({ count: 4, spacing: 0.36, pan: 0.3, panTo: -0.9, level: 0.45 }));
+      if (!await s.wait(1.8)) return;
+      s.do(() => audio.setBreathing(LEVEL_ONE_BREATHING_BASE));
+    });
+  },
+  onReadDrawerClue: () => {
+    player.unlock();
+    documentUI.open({
+      title: 'PROJECT HOLLOW — Drawer Note',
+      body: 'HOLLOW archive reference: 06-1987. Do not move the family records from the house. The brass key remains with the sealed evidence.',
+      variant: 'note'
+    });
+  },
+  onReadSafeTag: () => {
+    player.unlock();
+    documentUI.open({
+      title: 'PROJECT HOLLOW — Evidence Tag',
+      body: 'Recovered item: pry bar. Location: upstairs bedroom. Status: retain on site. The original bedroom key is concealed below the loose floorboard.',
+      variant: 'note'
+    });
+  },
+  onDoorOpened: () => {
+    bedroomHorrorScript.cancel();
+    exitLevel('bedroom');
+  },
 
   /**
    * The scratched floor message, and what it brings.
@@ -728,14 +853,12 @@ const bedroom = createBedroomLevel({
         audio.footsteps({ count: 7, spacing: 0.62, pan: -0.8, panTo: 0.8, level: 0.55 });
         bedroom.refs.playDoorPass();
         // It is right outside. Nothing in the game has been this close yet.
-        audio.setBreathing(0.95);
+        audio.setBreathing(LEVEL_ONE_DOOR_BREATHING);
       });
       if (!await s.play(BEATS.pastTheDoor)) return;
       s.do(() => {
         objectiveEl.textContent = 'Escape the house without getting caught.';
-        // Back down, but not to where it was: the house is worse now than it
-        // was five minutes ago, and it stays that way.
-        audio.setBreathing(0.55);
+        audio.setBreathing(LEVEL_ONE_BREATHING_BASE);
       });
     });
   },
@@ -1364,6 +1487,9 @@ function activateLevel(key, { lockMovement = false } = {}) {
   // The whole reason Script.js exists: onFreed used to arm timers that nothing
   // cancelled, so a restart mid-beat blew the new room's bulb seconds later.
   script.cancel();
+  bedroomHorrorScript.cancel();
+  bedroomHorrorEvents.clear();
+  if (key === 'bedroom') audio.setBreathing(LEVEL_ONE_BREATHING_BASE);
   player.movementEnabled = !lockMovement;
   // postFX.reset() above zeroes the visor dial, and the level just activated has
   // never been told what the player can see. Without this, walking into a room
@@ -1481,6 +1607,8 @@ function resetGame() {
   // A restart from the pause menu can land mid-fade; without this the freshly
   // reset bedroom would come up behind a black overlay that never lifts.
   abortTransition();
+  bedroomHorrorScript.cancel();
+  bedroomHorrorEvents.clear();
   // Was bedroom.reset() alone, which left Level 2's breaker flipped and its
   // door still reading "Open the door" across an R.
   sceneManager.resetAll();

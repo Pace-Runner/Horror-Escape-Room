@@ -566,7 +566,8 @@ html, body {
 }
 
 #board-slots {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, 150px);
   gap: 22px;
   justify-content: center;
   padding: 22px;
@@ -612,6 +613,24 @@ html, body {
   -webkit-user-select: none;
   user-select: none;
   transition: transform 0.15s ease;
+  position: relative;
+}
+
+/* The puzzle is chronological, so the clue needs to survive a normal-size
+   150px tile. The label sits on the print's lower border rather than covering
+   the family image and does not receive pointer events during drag. */
+.board-photo::after {
+  content: attr(data-date);
+  position: absolute;
+  right: 6px;
+  bottom: 5px;
+  padding: 1px 5px 2px;
+  color: #f6edcf;
+  background: rgba(35, 26, 17, 0.88);
+  border: 1px solid rgba(246, 237, 207, 0.75);
+  font: 700 1.05rem/1 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.04em;
+  pointer-events: none;
 }
 
 .board-photo:hover {

@@ -53,9 +53,34 @@ const PAPERCLIP_SCALE = 3.0;
  */
 const PAPERCLIP_WIRE_RADIUS = 0.0011;
 
-const ROOM_W = 6.4;
-const ROOM_D = 5.2;
-const ROOM_H = 2.8;
+const ROOM_W = 7.4;
+const ROOM_D = 6.0;
+const ROOM_H = 2.9;
+
+// Keep the room's major gameplay landmarks together. The original bedroom
+// grew organically around its props, leaving the board, door and furniture
+// competing for the same few walkable metres. These anchors reserve a clear
+// centre route without changing what any interaction does.
+const WINDOW_POSITION_X = -2.35;
+const PIN_RECESS_POSITION_Z = -1.35;
+const BED_POSITION_X = 1.65;
+const BED_POSITION_Z = -1.9;
+// The wake-up position is deliberately on the mattress. Once the cuff is
+// released, main.js moves the player to this clear point at the foot of the
+// bed before enabling movement, allowing the bed to keep one solid footprint.
+const BED_EXIT_POSITION_Z = BED_POSITION_Z + 1.42;
+const BEDSIDE_TABLE_POSITION_X = 3.3;
+const BEDSIDE_TABLE_POSITION_Z = -1.72;
+const BEDSIDE_TABLE_FOOTPRINT_METRES = 0.42;
+const SEARCH_NIGHTSTAND_POSITION_X = 0.65;
+const SEARCH_NIGHTSTAND_POSITION_Z = -2.2;
+const DRESSER_POSITION_X = 3.0;
+const DRESSER_POSITION_Z = 1.35;
+const DOOR_POSITION_X = 1.2;
+const CHAIR_POSITION_X = -3.15;
+const CHAIR_POSITION_Z = 2.2;
+const BIN_POSITION_X = 3.3;
+const BIN_POSITION_Z = 1.9;
 
 /**
  * Builds Level 1: the bedroom the player wakes up in.
@@ -84,8 +109,20 @@ export function createBedroomLevel({
   // lock takes.
   onPaperclipUsed = () => {},
   onFlashlightPicked = () => {},
+  onBrassKeyFound = () => {},
+  onBrassKeyUsed = () => {},
   onCrowbarFound = () => {},
   onCrowbarUsed = () => {},
+  onBedroomKeyFound = () => {},
+  onBedroomKeyUsed = () => {},
+  onReadDrawerClue = () => {},
+  onReadSafeTag = () => {},
+  onPhotoCollected = () => {},
+  onPhotoPuzzleSolved = () => {},
+  onDrawerUnlocked = () => {},
+  onSafeOpened = () => {},
+  onFloorboardOpened = () => {},
+  onDoorPlankRemoved = () => {},
   onDoorOpened = () => {},
   onExaminePhotos = () => {},
   onExaminePinpad = () => {},
@@ -106,8 +143,10 @@ export function createBedroomLevel({
     hasFlashlight: false,
     foundPhotos: new Set(),
     photosArranged: false,
-    hasKey: false,
+    hasBrassKey: false,
     hasCrowbar: false,
+    floorboardPried: false,
+    hasBedroomKey: false,
     planksRemoved: false,
     doorUnlocked: false, // true once the door has actually been swung open
     // Story beats, tracked so each fires once. Examining a prop a second time
@@ -263,7 +302,7 @@ export function createBedroomLevel({
   }
 
   // back wall (has the window), front wall (has the door), right wall
-  addWallWithGap(ROOM_W, ROOM_H, -ROOM_D / 2, -2.1, 1.5, 1.3, 1.5);
+  addWallWithGap(ROOM_W, ROOM_H, -ROOM_D / 2, WINDOW_POSITION_X, 1.5, 1.3, 1.5);
   addWall(ROOM_D, ROOM_H, ROOM_W / 2, ROOM_H / 2, 0, -Math.PI / 2);
   addWall(ROOM_W, ROOM_H, 0, ROOM_H / 2, ROOM_D / 2, Math.PI);
 
@@ -273,7 +312,7 @@ export function createBedroomLevel({
   // rotated onto the Z axis, plus a hollow pocket (back panel + four
   // connecting sides) behind the gap so the reveal isn't a hole into the
   // void once the pinboard swings open.
-  const pinRecess = { z: -1.7, y: 1.3, w: 0.74, h: 0.78, depth: 0.42 };
+  const pinRecess = { z: PIN_RECESS_POSITION_Z, y: 1.3, w: 0.74, h: 0.78, depth: 0.42 };
   {
     const wallThickness = 0.12;
     const wallX = -ROOM_W / 2;
@@ -442,7 +481,7 @@ export function createBedroomLevel({
 
   // ---------- window (back-left wall) with rain seen through it ----------
   const windowGroup = new THREE.Group();
-  windowGroup.position.set(-2.1, 1.5, -ROOM_D / 2 + 0.02);
+  windowGroup.position.set(WINDOW_POSITION_X, 1.5, -ROOM_D / 2 + 0.02);
   group.add(windowGroup);
 
   /**
@@ -503,7 +542,7 @@ export function createBedroomLevel({
 
   // ---------- old cast-iron radiator beneath the window ----------
   const radiatorGroup = new THREE.Group();
-  radiatorGroup.position.set(-2.1, 0, -ROOM_D / 2 + 0.14);
+  radiatorGroup.position.set(WINDOW_POSITION_X, 0, -ROOM_D / 2 + 0.14);
   group.add(radiatorGroup);
 
   const radiatorMat = new THREE.MeshStandardMaterial({ color: 0x22231f, metalness: 0.6, roughness: 0.65 });
@@ -561,7 +600,7 @@ export function createBedroomLevel({
 
   // ---------- bed (headboard post is the parent of the chain + cuff) ----------
   const bedGroup = new THREE.Group();
-  bedGroup.position.set(1.9, 0, -ROOM_D / 2 + 1.1);
+  bedGroup.position.set(BED_POSITION_X, 0, BED_POSITION_Z);
   group.add(bedGroup);
 
   const frameMatWood = new THREE.MeshStandardMaterial({ color: 0x3c2c1e, roughness: 0.85 });
@@ -666,6 +705,20 @@ export function createBedroomLevel({
   const headboardPost = new THREE.Object3D();
   headboardPost.position.set(-0.6, 0.55, -0.95);
   bedGroup.add(headboardPost);
+
+  // Keep the whole physical mattress/frame footprint solid. The player wakes
+  // on the mattress, so main.js moves them to BED_EXIT_POSITION_Z immediately
+  // before restoring movement after the cuff release.
+  const bedColliderMinX = BED_POSITION_X - 0.8;
+  const bedColliderMaxX = BED_POSITION_X + 0.8;
+  const bedColliderMinZ = BED_POSITION_Z - 1.05;
+  const bedColliderMaxZ = BED_POSITION_Z + 1.05;
+  colliders.push({
+    minX: bedColliderMinX,
+    maxX: bedColliderMaxX,
+    minZ: bedColliderMinZ,
+    maxZ: bedColliderMaxZ
+  });
 
   loadModel(bedModelUrl).then((bedFrame) => {
     bedFrame.traverse((child) => {
@@ -779,7 +832,7 @@ export function createBedroomLevel({
   // (unlike the bed's headboardPost/chain), so it's just loaded and added
   // directly, no placeholder anchor needed.
   const dresser = new THREE.Group();
-  dresser.position.set(2.7, 0, 1.6);
+  dresser.position.set(DRESSER_POSITION_X, 0, DRESSER_POSITION_Z);
   dresser.rotation.y = -Math.PI / 2;
   group.add(dresser);
 
@@ -804,7 +857,7 @@ export function createBedroomLevel({
 
   // ---------- door with boarded planks + polaroid (children of the frame) ----------
   const doorFrame = new THREE.Group();
-  doorFrame.position.set(-1.4, 0, ROOM_D / 2 - 0.02);
+  doorFrame.position.set(DOOR_POSITION_X, 0, ROOM_D / 2 - 0.02);
   group.add(doorFrame);
 
   // The actual door leaf (+ knob + the claw marks scratched into its
@@ -819,6 +872,14 @@ export function createBedroomLevel({
   doorHinge.position.set(-0.5, 1.0, 0.025);
   doorFrame.add(doorHinge);
   const doorOpenSwing = Math.PI / 2;
+  const doorRattleDurationSeconds = 0.28;
+  const doorRattleAmplitudeRadians = 0.045;
+  let doorRattleRemainingSeconds = 0;
+
+  /** Briefly nudges the locked slab without changing its puzzle-open state. */
+  function rattleDoor() {
+    doorRattleRemainingSeconds = doorRattleDurationSeconds;
+  }
 
   /**
    * "Something moves past the door."
@@ -1068,54 +1129,90 @@ export function createBedroomLevel({
   }
 
   // ---------- scattered photographs + scratched floor message ----------
-  const photoTex = createFamilyPhotoTexture();
-  for (let i = 0; i < 4; i++) {
-    const photo = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.22, 0.17),
-      new THREE.MeshStandardMaterial({ map: photoTex, roughness: 1 })
-    );
-    photo.rotation.x = -Math.PI / 2;
-    photo.rotation.z = Math.random() * Math.PI;
-    photo.position.set(0.4 + Math.random() * 1.2, 0.015, 0.4 + Math.random() * 0.8);
-    photo.userData.interact = {
-      label: i === 0 ? 'Examine family photograph' : 'Examine photograph',
-      onInteract: () => showCaption(
-        i === 0
-          ? 'A family photo. Three people, and a gap on the end where a fourth would stand.'
-          : 'An old photograph, face down among the mess.'
-      )
-    };
-    interactables.push(photo);
-    group.add(photo);
-  }
-
   // The third puzzle photo (used to live in a second nightstand drawer
   // wedged awkwardly against the bed/wall corner -- removed, see the
-  // drawer system below) lies loose on the floor with the rest of this
-  // pile instead: the same family photo as the other two puzzle photos,
-  // dated 1986 (between the other two), with a corner torn away so it
-  // still reads as visually distinct from the purely decorative photos.
+  // drawer system below) lies as one clear, loose photograph beside the
+  // board. Keeping decorative duplicates out of this spot means nothing
+  // visually or in the flat interaction target list can obscure this pickup.
   const tornPhotoTex = tearPhotoCorner(stampPhotoDate(createFamilyPhotoTexture(), '1986'));
   const floorPhoto = new THREE.Mesh(
     new THREE.PlaneGeometry(0.22, 0.17),
-    new THREE.MeshStandardMaterial({ map: tornPhotoTex, roughness: 1 })
+    new THREE.MeshStandardMaterial({ map: tornPhotoTex, roughness: 1, side: THREE.DoubleSide })
   );
+  floorPhoto.name = 'Level1_1986FloorPhoto';
   floorPhoto.rotation.x = -Math.PI / 2;
   floorPhoto.rotation.z = -0.4;
-  floorPhoto.position.set(1.6, 0.016, 0.5);
-  floorPhoto.userData.interact = {
+  floorPhoto.position.set(-2.7, 0.018, -0.85);
+  const floorPhotoHitbox = new THREE.Mesh(
+    new THREE.BoxGeometry(0.3, 0.16, 0.25),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  floorPhotoHitbox.name = 'Level1_1986FloorPhotoHitbox';
+  // This is the exact flat-raycast target; Interaction.js never traverses a
+  // group, so the visible photo and its dedicated hitbox stay co-located.
+  floorPhotoHitbox.position.set(floorPhoto.position.x, 0.09, floorPhoto.position.z);
+  floorPhotoHitbox.userData.interact = {
     label: 'Pick up photograph',
     onInteract: () => {
       showCaption('A third photograph, torn at the corner. The family again -- dated 1986.');
       puzzleState.foundPhotos.add('floorPhoto');
+      onPhotoCollected(puzzleState.foundPhotos.size);
       photoThumbMeshes.floorPhoto.visible = true;
       floorPhoto.visible = false;
-      const idx = interactables.indexOf(floorPhoto);
+      floorPhotoHitbox.visible = false;
+      const idx = interactables.indexOf(floorPhotoHitbox);
       if (idx >= 0) interactables.splice(idx, 1);
     }
   };
-  interactables.push(floorPhoto);
   group.add(floorPhoto);
+  group.add(floorPhotoHitbox);
+  interactables.push(floorPhotoHitbox);
+
+  // The fourth dated photograph lives beside the window/radiator. It pulls the
+  // collection into a separate exploration zone without adding another puzzle
+  // type; its 1984 stamp makes it the first photo in the board sequence.
+  const windowPhotoTex = stampPhotoDate(createFamilyPhotoTexture(), '1984');
+  const windowPhoto = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.22, 0.17),
+    new THREE.MeshStandardMaterial({ map: windowPhotoTex, roughness: 1, side: THREE.DoubleSide })
+  );
+  windowPhoto.name = 'Level1_1984RadiatorPhoto';
+  const radiatorPhotoLeanRadians = -0.61;
+  const radiatorPhotoHalfHeight = 0.17 / 2;
+  const radiatorPhotoBottomY = 0.012;
+  const radiatorPhotoBottomZ = radiatorGroup.position.z + 0.16;
+  // The photo leans from the floor against the radiator's front face: its
+  // lower edge rests on the boards and its upper edge meets the fins. This
+  // gives it two obvious supports instead of a flat plane hovering on one rail.
+  windowPhoto.position.set(
+    WINDOW_POSITION_X,
+    radiatorPhotoBottomY + radiatorPhotoHalfHeight * Math.cos(radiatorPhotoLeanRadians),
+    radiatorPhotoBottomZ + radiatorPhotoHalfHeight * Math.sin(radiatorPhotoLeanRadians)
+  );
+  windowPhoto.rotation.set(radiatorPhotoLeanRadians, 0, 0);
+  const windowPhotoHitbox = new THREE.Mesh(
+    new THREE.BoxGeometry(0.3, 0.24, 0.05),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  windowPhotoHitbox.name = 'Level1_1984RadiatorPhotoHitbox';
+  windowPhotoHitbox.position.copy(windowPhoto.position);
+  windowPhotoHitbox.rotation.copy(windowPhoto.rotation);
+  windowPhotoHitbox.userData.interact = {
+    label: 'Pick up photograph',
+    onInteract: () => {
+      showCaption('A damp photograph tucked beside the radiator. The family is younger here — dated 1984.');
+      puzzleState.foundPhotos.add('windowPhoto');
+      onPhotoCollected(puzzleState.foundPhotos.size);
+      photoThumbMeshes.windowPhoto.visible = true;
+      windowPhoto.visible = false;
+      windowPhotoHitbox.visible = false;
+      const index = interactables.indexOf(windowPhotoHitbox);
+      if (index >= 0) interactables.splice(index, 1);
+    }
+  };
+  group.add(windowPhoto);
+  group.add(windowPhotoHitbox);
+  interactables.push(windowPhotoHitbox);
 
   const messageTex = createScratchedMessageTexture("DON'T LET IT OUT");
   const messageNormal = createScratchedMessageNormalTexture("DON'T LET IT OUT");
@@ -1130,7 +1227,7 @@ export function createBedroomLevel({
     })
   );
   message.rotation.x = -Math.PI / 2;
-  message.position.set(1.35, 0.011, -1.0);
+  message.position.set(-0.85, 0.011, -2.35);
   message.userData.interact = {
     label: 'Read the floor',
     onInteract: () => {
@@ -1170,7 +1267,7 @@ export function createBedroomLevel({
   // inside the table edge -- so the torch reads as set down in the free
   // corner rather than floating through the dressing.
   const flashlight = new THREE.Group();
-  flashlight.position.set(-2.552, 0.825, 1.776);
+  flashlight.position.set(BEDSIDE_TABLE_POSITION_X - 0.052, 0.825, BEDSIDE_TABLE_POSITION_Z + 0.076);
   // The model is authored beam-down-+Y per the socket convention in
   // systems/hands/sockets.js, i.e. standing on its tail. Rolling -90 degrees
   // about Z lays that axis into the horizontal plane, and the Y term then
@@ -1225,7 +1322,7 @@ export function createBedroomLevel({
   // slab overhanging the legs rather than a single block, and small
   // clutter so it doesn't read as bare
   const sideTable = new THREE.Group();
-  sideTable.position.set(-2.5, 0, 1.7);
+  sideTable.position.set(BEDSIDE_TABLE_POSITION_X, 0, BEDSIDE_TABLE_POSITION_Z);
   group.add(sideTable);
 
   const tableLeg = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.76, 0.04), frameMatWood);
@@ -1234,7 +1331,10 @@ export function createBedroomLevel({
     leg.position.set(lx, 0.38, lz);
     sideTable.add(leg);
   });
-  const tableTop = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.04, 0.42), frameMatWood);
+  const tableTop = new THREE.Mesh(
+    new THREE.BoxGeometry(BEDSIDE_TABLE_FOOTPRINT_METRES, 0.04, BEDSIDE_TABLE_FOOTPRINT_METRES),
+    frameMatWood
+  );
   tableTop.position.y = 0.78;
   tableTop.castShadow = true;
   sideTable.add(tableTop);
@@ -1281,6 +1381,14 @@ export function createBedroomLevel({
   const lampLight = new THREE.PointLight(0xffb347, 0.04, 1.6, 2);
   lampLight.position.y = 0.24;
   lampGroup.add(lampLight);
+  const lampShockDurationSeconds = 0.32;
+  const lampShockIntervalSeconds = 0.055;
+  let lampShockRemainingSeconds = 0;
+
+  /** Flashes the bedside lamp once without changing its repeating code clue. */
+  function flashLamp() {
+    lampShockRemainingSeconds = lampShockDurationSeconds;
+  }
 
   // The combination for the drawer below, as a flicker pattern: three
   // pulses, a pause, one pulse, a pause, five pulses, a longer pause,
@@ -1383,24 +1491,36 @@ export function createBedroomLevel({
         code: drawerPinCode,
         onSolved: () => {
           drawerStates.lampDrawer.isOpen = true;
-          puzzleState.hasKey = true;
-          showCaption('The lock gives with a click. Inside the drawer: an old brass key.');
+          puzzleState.hasBrassKey = true;
+          onBrassKeyFound();
+          onDrawerUnlocked();
+          onReadDrawerClue();
         }
       });
     }
   };
   interactables.push(lampDrawerHitbox);
 
-  colliders.push({
-    minX: sideTable.position.x - 0.21, maxX: sideTable.position.x + 0.21,
-    minZ: sideTable.position.z - 0.21, maxZ: sideTable.position.z + 0.21
-  });
+  // Build this collider from the rendered tabletop's final world bounds rather
+  // than reconstructing them from layout constants. sideTable is currently a
+  // direct child of the bedroom group, but this remains correct if that parent
+  // gains a transform later. SceneManager forwards this exact list to the
+  // active PointerLockPlayer during bedroom activation.
+  sideTable.updateMatrixWorld(true);
+  const bedsideTableWorldBounds = new THREE.Box3().setFromObject(tableTop);
+  const bedsideTableCollider = {
+    minX: bedsideTableWorldBounds.min.x,
+    maxX: bedsideTableWorldBounds.max.x,
+    minZ: bedsideTableWorldBounds.min.z,
+    maxZ: bedsideTableWorldBounds.max.z
+  };
+  colliders.push(bedsideTableCollider);
 
   // ---------- paperclip, on the blanket within reach of the cuffed hand ----------
   //
   // WHY IT USED TO BE INVISIBLE, since the previous two attempts both got this
   // wrong: it was never a material or a lighting problem. The spawn point
-  // (1.9, -1.0) is INSIDE the bed's own footprint (x 1.15..2.65, z -2.5..-0.5)
+  // (1.65, -1.4) is inside the bed's footprint (x 0.9..2.4, z -2.9..-0.9)
   // -- there is no bed collider, so the player wakes up standing in it -- and
   // from that eye position the sightline to the old floor spot passed straight
   // through the blanket, then the mattress, then the bed base. Interaction
@@ -1425,7 +1545,7 @@ export function createBedroomLevel({
   // hand that is actually chained -- the old floor position was 1.23m away and
   // under the bed frame, which no cuffed person could have got to.
   const paperclip = new THREE.Group();
-  paperclip.position.set(1.55, 0.80, -1.95);
+  paperclip.position.set(BED_POSITION_X - 0.35, 0.80, BED_POSITION_Z - 0.45);
   paperclip.rotation.y = 0.7;
   paperclip.scale.setScalar(PAPERCLIP_SCALE);
   group.add(paperclip);
@@ -1558,29 +1678,59 @@ export function createBedroomLevel({
   group.add(chairGroup);
   // Sit it ON the boards. Measured from the assembled group rather than guessed,
   // so adding another part later cannot quietly sink it again.
-  chairGroup.position.set(-1.6, 0, 0.4);
+  chairGroup.position.set(CHAIR_POSITION_X, 0, CHAIR_POSITION_Z);
   chairGroup.updateMatrixWorld(true);
   {
     const box = new THREE.Box3().setFromObject(chairGroup);
     chairGroup.position.y += Math.max(0, -box.min.y) + 0.004;
   }
+  const chairRestPosition = chairGroup.position.clone();
+  const chairRestRotation = chairGroup.rotation.clone();
+
+  /** A small, local shift that reads as uncertain memory rather than a teleport. */
+  function disturbChair() {
+    chairGroup.position.x = chairRestPosition.x + 0.08;
+    chairGroup.position.z = chairRestPosition.z - 0.05;
+    chairGroup.rotation.y = chairRestRotation.y + 0.16;
+  }
 
   // ---------- knocked-over waste bin (abandoned-in-a-hurry dressing) ----------
   const binMat = new THREE.MeshStandardMaterial({ color: 0x34342f, metalness: 0.5, roughness: 0.6 });
   const bin = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.11, 0.28, 14, 1, true), binMat);
-  bin.position.set(2.35, 0.11, 0.75);
-  bin.rotation.set(0, 0.3, Math.PI / 2 + 0.12);
+  bin.position.set(BIN_POSITION_X, 0.11, BIN_POSITION_Z);
+  const binRestRotationZ = Math.PI / 2 + 0.12;
+  bin.rotation.set(0, 0.3, binRestRotationZ);
   bin.castShadow = true;
   group.add(bin);
+  const binRestPosition = bin.position.clone();
+  const binPapers = [];
+  const binPaperRestPositions = [];
+
+  /** A resettable nudge and one displaced paper for the two-photo beat. */
+  function disturbBin() {
+    bin.position.set(binRestPosition.x - 0.09, binRestPosition.y, binRestPosition.z + 0.06);
+    bin.rotation.z = binRestRotationZ + 0.36;
+    const displacedPaper = binPapers[0];
+    const displacedPaperRestPosition = binPaperRestPositions[0];
+    if (displacedPaper && displacedPaperRestPosition) {
+      displacedPaper.position.set(
+        displacedPaperRestPosition.x - 0.16,
+        displacedPaperRestPosition.y,
+        displacedPaperRestPosition.z + 0.09
+      );
+    }
+  }
 
   // a few crumpled balls of paper spilled out across the floor
   const paperMat = new THREE.MeshStandardMaterial({ color: 0xd8d0b8, roughness: 1 });
-  [[2.55, 0.025, 0.6], [2.62, 0.025, 0.88], [2.18, 0.025, 0.92], [2.4, 0.025, 1.02]].forEach(([x, y, z]) => {
+  [[3.05, 0.025, 1.7], [3.32, 0.025, 1.58], [3.12, 0.025, 2.05], [2.85, 0.025, 1.95]].forEach(([x, y, z]) => {
     const paper = new THREE.Mesh(new THREE.IcosahedronGeometry(0.032, 0), paperMat);
     paper.position.set(x, y, z);
     paper.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
     paper.scale.set(1, 0.7, 1);
     group.add(paper);
+    binPapers.push(paper);
+    binPaperRestPositions.push(paper.position.clone());
   });
 
   // ---------- more claw-mark decals scattered around the room -- the
@@ -1662,7 +1812,8 @@ export function createBedroomLevel({
   );
   rug.rotation.x = -Math.PI / 2;
   rug.rotation.z = 0.05;
-  rug.position.set(0.6, 0.008, 0.3);
+  rug.position.set(0, 0.008, 0.15);
+  rug.scale.setScalar(0.88);
   group.add(rug);
 
   // Tassels are children of the rug plane itself, so they inherit its
@@ -1681,24 +1832,109 @@ export function createBedroomLevel({
     }
   });
 
+  // The floorboard sits in the front-left route, visibly lifted from the
+  // surrounding boards. It can be examined before the safe is opened, but the
+  // crowbar is the only tool that exposes the bedroom door key beneath it.
+  const looseFloorboard = new THREE.Mesh(
+    new THREE.BoxGeometry(0.72, 0.04, 0.28),
+    new THREE.MeshStandardMaterial({ color: 0x4a3321, roughness: 0.9 })
+  );
+  looseFloorboard.position.set(-1.55, 0.025, 2.3);
+  looseFloorboard.rotation.z = 0.035;
+  looseFloorboard.castShadow = true;
+  group.add(looseFloorboard);
+
+  const looseFloorboardHitbox = new THREE.Mesh(
+    new THREE.BoxGeometry(0.78, 0.16, 0.36),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  looseFloorboardHitbox.position.copy(looseFloorboard.position);
+  looseFloorboardHitbox.userData.interact = {
+    label: 'Examine loose floorboard',
+    onInteract: () => {
+      if (!puzzleState.hasCrowbar) {
+        showCaption('One floorboard has been pried loose before. It needs leverage to lift the rest of the way.');
+        return;
+      }
+      puzzleState.floorboardPried = true;
+      looseFloorboard.visible = false;
+      looseFloorboardHitbox.visible = false;
+      const floorboardIndex = interactables.indexOf(looseFloorboardHitbox);
+      if (floorboardIndex >= 0) interactables.splice(floorboardIndex, 1);
+      bedroomKey.visible = true;
+      bedroomKeyHitbox.visible = true;
+      if (!interactables.includes(bedroomKeyHitbox)) interactables.push(bedroomKeyHitbox);
+      onFloorboardOpened();
+      showCaption('The crowbar lifts the board. A steel key has been hidden underneath.');
+    }
+  };
+  group.add(looseFloorboardHitbox);
+  interactables.push(looseFloorboardHitbox);
+
+  const bedroomKey = new THREE.Group();
+  bedroomKey.position.set(-1.55, 0.07, 2.3);
+  bedroomKey.rotation.y = 0.5;
+  bedroomKey.visible = false;
+  const bedroomKeyMetal = new THREE.MeshStandardMaterial({ color: 0xb9c2cc, metalness: 0.8, roughness: 0.35 });
+  const bedroomKeyShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.16, 8), bedroomKeyMetal);
+  bedroomKeyShaft.rotation.z = Math.PI / 2;
+  bedroomKey.add(bedroomKeyShaft);
+  const bedroomKeyBow = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.01, 8, 12), bedroomKeyMetal);
+  bedroomKeyBow.position.x = -0.08;
+  bedroomKey.add(bedroomKeyBow);
+  const bedroomKeyBit = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.012, 0.03), bedroomKeyMetal);
+  bedroomKeyBit.position.set(0.07, -0.018, 0);
+  bedroomKey.add(bedroomKeyBit);
+  group.add(bedroomKey);
+
+  const bedroomKeyHitbox = new THREE.Mesh(
+    new THREE.SphereGeometry(0.11, 8, 8),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  bedroomKeyHitbox.position.copy(bedroomKey.position);
+  bedroomKeyHitbox.visible = false;
+  bedroomKeyHitbox.userData.interact = {
+    label: 'Pick up bedroom key',
+    onInteract: () => {
+      puzzleState.hasBedroomKey = true;
+      bedroomKey.visible = false;
+      bedroomKeyHitbox.visible = false;
+      const keyIndex = interactables.indexOf(bedroomKeyHitbox);
+      if (keyIndex >= 0) interactables.splice(keyIndex, 1);
+      onBedroomKeyFound();
+      showCaption('A bedroom door key. The lock on the boarded door should take it.');
+    }
+  };
+  group.add(bedroomKeyHitbox);
+
   interactables.push(doorSlab);
   doorSlab.userData.interact = {
     label: 'Open door',
     onInteract: () => {
       if (!puzzleState.planksRemoved) {
         if (puzzleState.hasCrowbar) {
+          if (!puzzleState.floorboardPried) {
+            showCaption('The planks can wait. Use the crowbar on the loose floorboard first — the door still needs a key.');
+            return;
+          }
           puzzleState.planksRemoved = true;
-          puzzleState.hasCrowbar = false;
           onCrowbarUsed();
           boardedPlankParts.forEach((part) => { part.visible = false; });
+          onDoorPlankRemoved();
           showCaption('You wedge the crowbar behind the planks and pry them off the door.');
         } else {
           showCaption('Two wooden planks, boarded diagonally. Whatever is in this house trapped you inside.');
         }
       } else if (!puzzleState.doorUnlocked) {
+        if (!puzzleState.hasBedroomKey) {
+          showCaption('The planks are gone, but the bedroom door is still locked. A keyhole waits beneath the knob.');
+          return;
+        }
         // Set synchronously, which is what makes spamming E safe: the third
         // branch below catches every press after the first.
         puzzleState.doorUnlocked = true;
+        puzzleState.hasBedroomKey = false;
+        onBedroomKeyUsed();
         showCaption('The door creaks open on its hinges. You slip out into the dark hallway...');
         // Enough of the hinge swing to read as a door opening, and no more.
         // This used to be 1400ms and cut straight to Level 2; now a 700ms fade
@@ -1781,15 +2017,67 @@ export function createBedroomLevel({
 
   // Nightstand left drawer (freely searchable) -- against the back wall
   // between the window and the bed, with clearance to walk up to it.
-  const nightstandLeft = addNightstand(-0.3, -1.95);
+  function createDrawerPhotoPickup({ key, texture, position }) {
+    const photo = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.22, 0.17),
+      new THREE.MeshStandardMaterial({ map: texture, roughness: 1 })
+    );
+    photo.position.copy(position);
+    photo.rotation.x = -Math.PI / 2;
+    photo.visible = false;
+    group.add(photo);
+
+    const hitbox = new THREE.Mesh(
+      new THREE.BoxGeometry(0.32, 0.12, 0.27),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+    );
+    hitbox.position.copy(position);
+    hitbox.position.y += 0.06;
+    hitbox.visible = false;
+    hitbox.userData.interact = {
+      label: 'Pick up photograph',
+      onInteract: () => {
+        puzzleState.foundPhotos.add(key);
+        onPhotoCollected(puzzleState.foundPhotos.size);
+        photoThumbMeshes[key].visible = true;
+        photo.visible = false;
+        hitbox.visible = false;
+        const index = interactables.indexOf(hitbox);
+        if (index >= 0) interactables.splice(index, 1);
+      }
+    };
+    group.add(hitbox);
+
+    return {
+      reveal() {
+        photo.visible = true;
+        hitbox.visible = true;
+        if (!interactables.includes(hitbox)) interactables.push(hitbox);
+      },
+      reset() {
+        photo.visible = false;
+        hitbox.visible = false;
+        const index = interactables.indexOf(hitbox);
+        if (index >= 0) interactables.splice(index, 1);
+      }
+    };
+  }
+
+  const nightstandPhotoPickup = createDrawerPhotoPickup({
+    key: 'nightstandLeft',
+    texture: stampPhotoDate(createFamilyPhotoTexture(), '1985'),
+    position: new THREE.Vector3(SEARCH_NIGHTSTAND_POSITION_X, 0.46, SEARCH_NIGHTSTAND_POSITION_Z)
+  });
+  const nightstandLeft = addNightstand(SEARCH_NIGHTSTAND_POSITION_X, SEARCH_NIGHTSTAND_POSITION_Z);
   nightstandLeft.userData.interact = {
     label: 'Search drawer',
     onInteract: () => {
       if (!drawerStates.nightstandLeft.isOpen) {
         drawerStates.nightstandLeft.isOpen = true;
-        showCaption('Inside the drawer you find a faded family photograph, dated 1985, and an old battery.');
-        puzzleState.foundPhotos.add('nightstandLeft');
-        photoThumbMeshes.nightstandLeft.visible = true;
+        nightstandPhotoPickup.reveal();
+        const nightstandIndex = interactables.indexOf(nightstandLeft);
+        if (nightstandIndex >= 0) interactables.splice(nightstandIndex, 1);
+        showCaption('Inside the drawer is a faded family photograph, dated 1985, and an old battery.');
       } else {
         showCaption('You already searched this drawer.');
       }
@@ -1821,20 +2109,26 @@ export function createBedroomLevel({
   interactables.push(binHitbox);
 
   // Dresser top drawer (freely searchable)
+  const dresserPhotoPickup = createDrawerPhotoPickup({
+    key: 'dresserTop',
+    texture: stampPhotoDate(createFamilyPhotoTexture(), '1987'),
+    position: new THREE.Vector3(DRESSER_POSITION_X, 0.915, DRESSER_POSITION_Z)
+  });
   const dresserTop = new THREE.Mesh(
     new THREE.BoxGeometry(0.8, 0.2, 0.6),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
-  dresserTop.position.set(2.7, 1.1, 1.6);
+  dresserTop.position.set(DRESSER_POSITION_X, 1.1, DRESSER_POSITION_Z);
   group.add(dresserTop);
   dresserTop.userData.interact = {
     label: 'Search dresser',
     onInteract: () => {
       if (!drawerStates.dresserTop.isOpen) {
         drawerStates.dresserTop.isOpen = true;
-        showCaption('Under some old trinkets, another photograph, dated 1987. The same three faces. The same empty space beside them.');
-        puzzleState.foundPhotos.add('dresserTop');
-        photoThumbMeshes.dresserTop.visible = true;
+        dresserPhotoPickup.reveal();
+        const dresserIndex = interactables.indexOf(dresserTop);
+        if (dresserIndex >= 0) interactables.splice(dresserIndex, 1);
+        showCaption('Under the trinkets is another photograph, dated 1987. The same three faces. The same empty space beside them.');
       } else {
         showCaption('You already searched this dresser.');
       }
@@ -1880,7 +2174,7 @@ export function createBedroomLevel({
   corkPanel.position.z = 0.02;
   photoHolderGroup.add(corkPanel);
 
-  // Each of the three findable photos gets its own pin + a real photo
+  // Each of the four findable photos gets its own pin + a real photo
   // thumbnail underneath it (hidden until that photo is actually found),
   // so the corkboard fills in as you search the room instead of staying
   // an abstract counter. They're purely a preview here, though -- actually
@@ -1889,9 +2183,10 @@ export function createBedroomLevel({
   // rather than clicking each one in the 3D world.
   const pinGeo = new THREE.SphereGeometry(0.015, 8, 6);
   const photoSlots = {
-    nightstandLeft: { pin: [-0.2, 0.28], pinColor: 0xa02020, photo: [-0.2, 0.16, -0.06], tex: stampPhotoDate(createFamilyPhotoTexture(), '1985'), date: 1985, w: 0.22, h: 0.17 },
-    floorPhoto: { pin: [0.16, 0.31], pinColor: 0x1f4f8f, photo: [0.16, 0.19, 0.05], tex: tornPhotoTex, date: 1986, w: 0.22, h: 0.17 },
-    dresserTop: { pin: [-0.02, -0.08], pinColor: 0xc9a227, photo: [-0.02, -0.2, 0.03], tex: stampPhotoDate(createFamilyPhotoTexture(), '1987'), date: 1987, w: 0.22, h: 0.17 }
+    windowPhoto: { pin: [-0.2, 0.3], pinColor: 0x477a96, photo: [-0.2, 0.18, -0.04], tex: windowPhotoTex, date: 1984, w: 0.19, h: 0.15 },
+    nightstandLeft: { pin: [0.2, 0.3], pinColor: 0xa02020, photo: [0.2, 0.18, 0.05], tex: stampPhotoDate(createFamilyPhotoTexture(), '1985'), date: 1985, w: 0.19, h: 0.15 },
+    floorPhoto: { pin: [-0.2, -0.1], pinColor: 0x1f4f8f, photo: [-0.2, -0.22, -0.06], tex: tornPhotoTex, date: 1986, w: 0.19, h: 0.15 },
+    dresserTop: { pin: [0.2, -0.1], pinColor: 0xc9a227, photo: [0.2, -0.22, 0.03], tex: stampPhotoDate(createFamilyPhotoTexture(), '1987'), date: 1987, w: 0.19, h: 0.15 }
   };
   const photoThumbMeshes = {};
   Object.entries(photoSlots).forEach(([key, slot]) => {
@@ -1919,8 +2214,8 @@ export function createBedroomLevel({
     onInteract: () => {
       if (puzzleState.photosArranged) {
         showCaption('The corkboard hangs open.');
-      } else if (puzzleState.foundPhotos.size < 3) {
-        showCaption('A corkboard. You could pin photographs up here.');
+      } else if (puzzleState.foundPhotos.size < 4) {
+        showCaption('A corkboard with four empty places. You need to find the rest of the family photographs.');
       } else {
         // Hand off to the close-up board view -- dragging the photos into
         // place (and figuring out what order they actually belong in) is
@@ -1937,6 +2232,7 @@ export function createBedroomLevel({
             boxBody.visible = true;
             boxLid.visible = true;
             lockPlate.visible = true;
+            onPhotoPuzzleSolved();
           }
         });
       }
@@ -1983,15 +2279,18 @@ export function createBedroomLevel({
   boxHitbox.userData.interact = {
     label: 'Open box',
     onInteract: () => {
-      if (puzzleState.photosArranged && puzzleState.hasKey) {
-        showCaption('The key fits! Inside the box you find a crowbar. This should remove those wooden planks...');
+      if (puzzleState.photosArranged && puzzleState.hasBrassKey) {
+        showCaption('The brass key fits. Inside is a crowbar and a Project HOLLOW evidence tag.');
         boxHitbox.visible = false;
         boxBody.visible = false;
         boxLid.visible = false;
         lockPlate.visible = false;
-        puzzleState.hasKey = false;
+        puzzleState.hasBrassKey = false;
+        onBrassKeyUsed();
         puzzleState.hasCrowbar = true;
         onCrowbarFound();
+        onReadSafeTag();
+        onSafeOpened();
       } else if (puzzleState.photosArranged) {
         showCaption('The box is locked. You need to find a key first.');
       } else {
@@ -2006,7 +2305,7 @@ export function createBedroomLevel({
     group,
     interactables,
     colliders,
-    spawn: [1.9, -ROOM_D / 2 + 1.6],
+    spawn: [BED_POSITION_X, BED_POSITION_Z + 0.5],
     // Face roughly toward the headboard/window/paperclip corner on wake
     // (matches the storyline's own beat order: storm/window first, then
     // adjusting to the room, then spotting the paperclip by the bed) --
@@ -2023,6 +2322,12 @@ export function createBedroomLevel({
     // level omits spawnPitch and is unaffected.
     spawnPitch: -0.30,
     refs: {
+      bedExitPosition: [BED_POSITION_X, BED_EXIT_POSITION_Z],
+      bedsideTableCollider,
+      disturbChair,
+      disturbBin,
+      flashLamp,
+      rattleDoor,
       bulbLight,
       bulbMaterial,
       lightning,
@@ -2077,9 +2382,23 @@ export function createBedroomLevel({
       drawerStates.dresserTop.isOpen = false;
       drawerStates.bin.isOpen = false;
       drawerStates.lampDrawer.isOpen = false;
+      chairGroup.position.copy(chairRestPosition);
+      chairGroup.rotation.copy(chairRestRotation);
+      bin.position.copy(binRestPosition);
+      bin.rotation.z = binRestRotationZ;
+      binPapers.forEach((paper, index) => paper.position.copy(binPaperRestPositions[index]));
+      lampShockRemainingSeconds = 0;
+      if (!interactables.includes(nightstandLeft)) interactables.push(nightstandLeft);
+      if (!interactables.includes(dresserTop)) interactables.push(dresserTop);
 
       floorPhoto.visible = true;
-      if (!interactables.includes(floorPhoto)) interactables.push(floorPhoto);
+      floorPhotoHitbox.visible = true;
+      if (!interactables.includes(floorPhotoHitbox)) interactables.push(floorPhotoHitbox);
+      windowPhoto.visible = true;
+      windowPhotoHitbox.visible = true;
+      if (!interactables.includes(windowPhotoHitbox)) interactables.push(windowPhotoHitbox);
+      nightstandPhotoPickup.reset();
+      dresserPhotoPickup.reset();
       Object.values(photoThumbMeshes).forEach((thumb) => { thumb.visible = false; });
       pinboardHinge.rotation.y = pinboardClosedRotY;
 
@@ -2088,8 +2407,17 @@ export function createBedroomLevel({
       boxLid.visible = false;
       lockPlate.visible = false;
 
+      looseFloorboard.visible = true;
+      looseFloorboardHitbox.visible = true;
+      if (!interactables.includes(looseFloorboardHitbox)) interactables.push(looseFloorboardHitbox);
+      bedroomKey.visible = false;
+      bedroomKeyHitbox.visible = false;
+      const bedroomKeyIndex = interactables.indexOf(bedroomKeyHitbox);
+      if (bedroomKeyIndex >= 0) interactables.splice(bedroomKeyIndex, 1);
+
       boardedPlankParts.forEach((part) => { part.visible = true; });
       doorHinge.rotation.y = 0;
+      doorRattleRemainingSeconds = 0;
 
       doorPass.active = false;
       doorPass.phase = 0;
@@ -2100,8 +2428,10 @@ export function createBedroomLevel({
       puzzleState.hasFlashlight = false;
       puzzleState.foundPhotos.clear();
       puzzleState.photosArranged = false;
-      puzzleState.hasKey = false;
+      puzzleState.hasBrassKey = false;
       puzzleState.hasCrowbar = false;
+      puzzleState.floorboardPried = false;
+      puzzleState.hasBedroomKey = false;
       puzzleState.planksRemoved = false;
       puzzleState.doorUnlocked = false;
       puzzleState.messageRead = false;
@@ -2116,8 +2446,11 @@ export function createBedroomLevel({
       // brighter pulses layered on top for each flash in the code.
       this._lampT = ((this._lampT ?? 0) + dt) % lampFlicker.total;
       const lampPulseOn = lampFlicker.intervals.some(([s, e]) => this._lampT >= s && this._lampT < e);
-      lampLight.intensity = lampPulseOn ? 0.55 : 0.04;
-      lampBulbMat.emissiveIntensity = lampPulseOn ? 1.1 : 0.12;
+      const lampShockOn = lampShockRemainingSeconds > 0
+        && Math.floor(lampShockRemainingSeconds / lampShockIntervalSeconds) % 2 === 0;
+      lampShockRemainingSeconds = Math.max(0, lampShockRemainingSeconds - dt);
+      lampLight.intensity = lampShockOn ? 1.15 : (lampPulseOn ? 0.55 : 0.04);
+      lampBulbMat.emissiveIntensity = lampShockOn ? 1.8 : (lampPulseOn ? 1.1 : 0.12);
       // Storm.js drives `lightning`'s intensity up to ~3.2 during a flash;
       // feed that same value into the shader (normalised to 0-1) so the
       // window pane brightens in sync with the flash instead of on its
@@ -2133,7 +2466,12 @@ export function createBedroomLevel({
 
       // Same easing treatment for the front door once the planks are
       // pried off and it's actually been opened.
-      const targetDoorRotY = puzzleState.doorUnlocked ? doorOpenSwing : 0;
+      const doorRattlePhase = 1 - doorRattleRemainingSeconds / doorRattleDurationSeconds;
+      const doorRattleOffset = doorRattleRemainingSeconds > 0
+        ? Math.sin(doorRattlePhase * Math.PI * 3) * doorRattleAmplitudeRadians * (1 - doorRattlePhase)
+        : 0;
+      doorRattleRemainingSeconds = Math.max(0, doorRattleRemainingSeconds - dt);
+      const targetDoorRotY = (puzzleState.doorUnlocked ? doorOpenSwing : 0) + doorRattleOffset;
       doorHinge.rotation.y += (targetDoorRotY - doorHinge.rotation.y) * Math.min(1, dt * 3);
 
       // "Something moves past the door." See the note where these were built.
