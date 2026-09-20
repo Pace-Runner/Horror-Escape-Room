@@ -170,3 +170,82 @@ def export_glb(out_path):
         export_apply=True
     )
     print(f'Exported {out_path}')
+
+
+def export_rigged_glb(out_path, objects):
+    """
+    Export a SKINNED, shape-keyed character. Sibling of export_glb(), not a
+    replacement for it.
+
+    WHY A SECOND FUNCTION. export_glb passes export_apply=True, and that is
+    load-bearing for the props: make_box adds a Bevel, make_turned_post adds a
+    Subsurf, make_panel_frame adds a Bevel, and none of them are applied in the
+    mesh data. Flipping the shared helper to False would silently ship bed.glb,
+    door.glb and dresser.glb with hard un-bevelled edges and a faceted bedpost.
+
+    WHY export_apply MUST BE FALSE HERE. The 5.2 exporter's own tooltip says it:
+    "Apply modifiers (excluding Armatures) to mesh objects - WARNING: prevents
+    exporting shape keys". An evaluated to_mesh() result has shape_keys = None
+    and every morph read site guards on that, so you get a VALID GLB with zero
+    morph targets and no error at all. Since the whole twist is driven by
+    setCorrection lerping a morph, that is the single most expensive silent
+    failure available in this pipeline.
+
+    Note it does NOT destroy skinning, contrary to a note in
+    src/systems/hands/HANDOVER.md -- the exporter disables Armature modifiers
+    before evaluating. The advice there is right for the wrong reason.
+
+    `objects` must include the armature AND every skinned mesh. Selecting the
+    mesh without its armature makes the exporter drop the skin and ship a
+    static mesh, again silently.
+    """
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+    bpy.ops.object.select_all(action='DESELECT')
+    for obj in objects:
+        obj.hide_set(False)
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = objects[0]
+
+    bpy.ops.export_scene.gltf(
+        filepath=out_path,
+        export_format='GLB',
+        use_selection=True,
+        export_apply=False,                   # see above; MANDATORY
+        export_yup=True,                      # Blender +Y becomes glTF -Z
+
+        # --- skinning -------------------------------------------------------
+        export_skins=True,
+        export_influence_nb=4,                # three.js reads only JOINTS_0
+        export_all_influences=False,          # ...so never emit JOINTS_1
+        export_def_bones=False,               # every bone here already deforms
+        export_leaf_bone=False,               # also keeps the export free of
+                                              # mode switches under --background
+        export_rest_position_armature=True,   # joints ship at the EDIT-bone
+                                              # rest pose, so whatever is in the
+                                              # viewport at export time is moot
+
+        # --- morph targets --------------------------------------------------
+        export_morph=True,
+        export_morph_normal=False,            # halves the key's cost; at 5 m in
+                                              # fog through a barrel-warp pass
+                                              # nobody resolves the difference
+        export_morph_tangent=False,
+        export_morph_animation=False,
+        export_try_sparse_sk=True,            # stores only moved vertices
+
+        # --- no animation ---------------------------------------------------
+        export_animations=False,
+
+        # --- attributes -----------------------------------------------------
+        export_materials='EXPORT',            # ENUM, not a bool
+        export_texcoords=True,                # no UVs means every runtime
+                                              # canvas texture is a no-op
+        export_normals=True,
+        export_tangents=False,                # three derives them from UVs
+        export_vertex_color='NONE',           # ENUM, not a bool
+        export_all_vertex_colors=False,       # DEFAULTS TO TRUE, and fabricates
+                                              # a COLOR_0 that then multiplies
+                                              # the albedo at runtime
+    )
+    print(f'Exported {out_path} ({os.path.getsize(out_path)} bytes)')

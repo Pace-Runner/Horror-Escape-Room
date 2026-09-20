@@ -20,6 +20,13 @@ import {
   createFixtureSteelNormalTexture,
   createLampGlareTexture,
   createPuddleTextures,
+  createDampStainTexture,
+  createFloorStainTexture,
+  createBloodPoolTexture,
+  createBloodDryTexture,
+  createBloodWallRunTexture,
+  createBloodCeilingTexture,
+  createBloodDripStrandTexture,
   PUDDLE_PATTERNS,
   tiled
 } from '../world/textures.js';
@@ -352,6 +359,397 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     wall.receiveShadow = true;
     group.add(wall);
     group.add(tide);
+  });
+
+  // ---------- damp stains, per wall ----------
+  // THESE USED TO LIVE IN THE WALLPAPER CANVAS, and that was the bug. One
+  // texture is shared by every wall and tiles every 2.12 m, so three stains
+  // baked into it came out as thirty on a 22 m corridor -- ten identical
+  // groups of three, every one at the same height off the skirting. It read as
+  // a printed pattern, and no amount of thinning fixed it, because the fault
+  // was the repetition rather than the count.
+  //
+  // As decals they are placed per WALL RUN at real-world size, so "three max"
+  // means three on that wall. Most walls get none.
+  //
+  // DETERMINISTIC, from the run's own geometry. Math.random() here would deal
+  // a different level every reload and make "the wall by the third turn has two
+  // stains" impossible to check -- the same reason nameNoise() exists for the
+  // per-leg dressing. Wall runs have no names, so the seed is their
+  // coordinates, quantised to the 0.1 grid the layout is already proved to sit
+  // on (see validateMaze's isTenth rule).
+  const STAIN_VARIANTS = [0, 1, 2, 3, 4, 5].map((i) => createDampStainTexture(i));
+  const stainMats = STAIN_VARIANTS.map((map) => new THREE.MeshStandardMaterial({
+    map,
+    transparent: true,
+    // Coplanar with the wall, pulled forward in DEPTH only. The alternative --
+    // offsetting along the wall normal -- needs to know which side the corridor
+    // is on, and a run between two parallel corridors has two. polygonOffset
+    // works from either side at once.
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+    side: THREE.DoubleSide,
+    roughness: 0.92
+  }));
+  const stainGeo = new THREE.PlaneGeometry(1, 1);
+
+  const runSeed = (axis, at, from, to) => {
+    let h = axis === 'x' ? 0x9e3779b9 : 0x85ebca6b;
+    for (const v of [at, from, to]) {
+      h = (Math.imul(h ^ (Math.round(v * 10) + 0x27d4eb2f), 2654435761)) >>> 0;
+    }
+    return h;
+  };
+  const lcg = (seed) => {
+    let t = seed >>> 0;
+    return () => {
+      t = (Math.imul(t, 1664525) + 1013904223) >>> 0;
+      return t / 4294967296;
+    };
+  };
+
+  /**
+   * How many marks a surface of this span gets: nought to three, deterministic.
+   *
+   * ONE RULE FOR EVERY SURFACE. The walls, the floor, the ceiling and all four
+   * kinds of blood call this, which is what makes "the same frequency as the
+   * wall dirt stains" true by construction instead of by six sets of
+   * hand-tuned numbers that drift the first time one of them is touched.
+   *
+   * `spacing` is the physical room one mark needs. A surface that cannot fit
+   * three without them merging gets fewer -- two merged marks are one big
+   * mark, which loses the count the whole design is about. It also sets the
+   * threshold for three: at 2.2 m a wall needs 6.6 m, and at 2.6 it needed 7.8,
+   * which only seventeen of the two hundred runs clear. That produced exactly
+   * one three-stain wall in the level, and a variation the player never meets
+   * is not a variation.
+   *
+   * CLEAN IS THE DEFAULT and it is a flat 45% whatever the span. A level where
+   * every surface is marked has no marked surfaces in it -- the eye stops
+   * reading damage the moment it stops being an exception.
+   *
+   * Among the surfaces that ARE marked, longer ones carry more, which is both
+   * physically sensible and what keeps the top of the range reachable.
+   */
+  const decalCount = (rand, span, spacing, clean = 0.45) => {
+    const cap = Math.min(3, Math.floor(span / spacing));
+    if (cap <= 0 || rand() < clean) return 0;
+    const lean = Math.min(1, (span - spacing) / 10);
+    const r = rand();
+    return Math.min(cap, r < 0.62 - 0.30 * lean ? 1 : r < 0.90 - 0.10 * lean ? 2 : 3);
+  };
+
+  let stainCount = 0;
+  let stainMaxH = 0;
+  WALL_RUNS.forEach(({ axis, at, from, to }) => {
+    const len = to - from;
+    const rand = lcg(runSeed(axis, at, from, to));
+    const n = decalCount(rand, len, 2.2);
+    for (let i = 0; i < n; i++) {
+      const w = 0.72 + rand() * 0.62;
+      // CLAMPED TO THE WALL. Height was derived from width alone, which let a
+      // wide draw reach 2.9 m on a 2.35 m wall -- the quad ran through the
+      // ceiling and the stain became a full-height smear instead of rising
+      // damp. 0.72 of the hall height puts the top of the quad at 1.69 m, and
+      // the gradient has faded out well before that.
+      const h = Math.min(HALL_H * 0.72, w * (1.5 + rand() * 0.9));
+      // Spread along the run in even bands with jitter inside each, rather
+      // than independent uniform draws: two independent draws land on top of
+      // each other often enough to matter at n = 3, and two merged stains are
+      // one big stain, which loses the count the brief actually asked for.
+      const band = (i + 0.5) / n;
+      const along = from + len * Math.min(0.92, Math.max(0.08,
+        band + (rand() - 0.5) * (0.7 / n)));
+      const stain = new THREE.Mesh(stainGeo, stainMats[Math.floor(rand() * stainMats.length)]);
+      // Rising damp: the quad sits ON the skirting, so the stain's dense end
+      // is at the floor where the canvas puts it.
+      stain.scale.set(w * (rand() < 0.5 ? -1 : 1), h, 1);
+      if (axis === 'x') {
+        stain.position.set(at, h / 2, along);
+        stain.rotation.y = Math.PI / 2;
+      } else {
+        stain.position.set(along, h / 2, at);
+      }
+      group.add(stain);
+      stainCount++;
+      stainMaxH = Math.max(stainMaxH, h);
+    }
+  });
+  if (stainMaxH > HALL_H) {
+    console.error('backroomsLevel: a damp stain is ' + stainMaxH.toFixed(2)
+      + ' m tall on a ' + HALL_H + ' m wall, so it runs through the ceiling. '
+      + 'Rising damp has to stay under the hall height -- check the clamp on h '
+      + 'in the stain pass.');
+  }
+  if (stainCount === 0) {
+    console.error('backroomsLevel: no damp stains were placed on any of the '
+      + WALL_RUNS.length + ' wall runs. The wallpaper no longer carries them, '
+      + 'so the corridor is now perfectly clean -- check the length gate in the '
+      + 'stain pass against the actual run lengths.');
+  }
+
+  // ---------- decals: floor damp, and blood ----------
+  //
+  // Everything below hangs off decalCount() above, so the floor and the ceiling
+  // are dirty at the SAME rate as the walls by construction rather than by
+  // three sets of hand-tuned numbers that drift apart the first time one is
+  // touched. The brief for the blood was explicitly "the same frequency as the
+  // wall dirt stains", and that is what sharing the function means.
+  //
+  // WHY THE FLOOR NEEDED THIS AT ALL. The carpet had nine wet patches and six
+  // mould blooms baked into a 512 canvas, and the floor is ONE plane spanning
+  // the whole 53 x 53 m bounding box tiled every 2.6 m -- 424 tiles. Nine
+  // became about 3,800, six became about 2,500, and all of them sat on a
+  // dead-regular 2.6 m grid. Exactly the wallpaper's problem, an order of
+  // magnitude worse.
+  //
+  // The UNIT of variation differs per surface and that is deliberate. A wall is
+  // a run; a floor and a ceiling belong to a CORRIDOR, because that is the
+  // thing a player walks down and forms an impression of. Necks are excluded --
+  // a 1.4 m doorway cannot hold a 1.5 m pool.
+  const stainableLegs = Object.keys(LEGS).filter((n) => LEGS[n].kind !== 'neck');
+  const legSpan = (n) => Math.abs(LEGS[n].to - LEGS[n].from);
+
+  /** FNV-1a over a name, full 32 bits. nameNoise() quantises to 10,000 buckets. */
+  const hashName = (name, salt) => {
+    let h = (2166136261 ^ salt) >>> 0;
+    for (let i = 0; i < name.length; i++) {
+      h = Math.imul(h ^ name.charCodeAt(i), 16777619) >>> 0;
+    }
+    return h;
+  };
+
+  /**
+   * A point inside a leg's rectangle, inset far enough that a decal of `size`
+   * cannot cross the wall. On a 3.2 m corridor a 1.5 m decal leaves only 0.3 m
+   * of freedom across, so the across-axis collapses to the centre-line rather
+   * than clamping to one side and stacking every decal against the same wall.
+   */
+  const pointInLeg = (name, rand, size) => {
+    const [x0, x1, z0, z1] = CORRIDORS[name];
+    const m = size / 2 + 0.1;
+    const span = (lo, hi) => (hi - lo <= 2 * m ? (lo + hi) / 2 : lo + m + rand() * (hi - lo - 2 * m));
+    return { x: span(x0, x1), z: span(z0, z1) };
+  };
+
+  const decalMat = (map, roughness, extra = {}) => new THREE.MeshStandardMaterial({
+    map,
+    transparent: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+    roughness,
+    ...extra
+  });
+
+  // SIX VARIANTS OF EACH, not one. The brief asked for the blood specifically to
+  // carry the most variation of anything in here, and a decal is only as varied
+  // as its texture set -- placement jitter cannot hide that two marks are the
+  // same shape, which is the whole lesson of the tiling wallpaper.
+  const VARIANTS = 6;
+  const seeds = Array.from({ length: VARIANTS }, (_, i) => i);
+  // 0.82 against the carpet's own 0.97. Damp carpet is matted and slightly
+  // glossier than dry pile, and since these decals are colour-only -- no normal
+  // map of their own -- the roughness step is the only thing distinguishing a
+  // damp patch from a painted one when the torch rakes across it.
+  const floorStainMats = seeds.map((i) => decalMat(createFloorStainTexture(i), 0.82));
+  // ROUGHNESS IS WHAT MAKES A POOL WET, and it is not a detail. Nothing painted
+  // into an albedo map reads as liquid under a moving torch; a sharp specular
+  // highlight sliding across it does. 0.18 against the carpet's 0.97 is the
+  // single strongest cue in this whole pass -- a wet pool and a dry patch are
+  // nearly the same colour and are told apart almost entirely by this number.
+  const bloodPoolMats = seeds.map((i) => decalMat(createBloodPoolTexture(i), 0.18));
+  const bloodDryMats = seeds.map((i) => decalMat(createBloodDryTexture(i), 0.95));
+  const bloodRunMats = seeds.map((i) => decalMat(createBloodWallRunTexture(i), 0.38));
+  const bloodCeilMats = seeds.map((i) => decalMat(createBloodCeilingTexture(i), 0.46));
+  const bloodStrandMats = seeds.map((i) => decalMat(createBloodDripStrandTexture(i), 0.32,
+    { side: THREE.DoubleSide }));
+
+  const pick = (arr, rand) => arr[Math.min(arr.length - 1, Math.floor(rand() * arr.length))];
+  const flatGeo = new THREE.PlaneGeometry(1, 1);
+
+  /** A quad lying flat at height y, face up or down. */
+  const addFlat = (mat, x, y, z, size, spin, faceDown = false) => {
+    const m = new THREE.Mesh(flatGeo, mat);
+    m.position.set(x, y, z);
+    m.rotation.set(faceDown ? Math.PI / 2 : -Math.PI / 2, 0, spin);
+    m.scale.set(size, size, 1);
+    group.add(m);
+    return m;
+  };
+
+  /**
+   * How often a surface is CLEAN of blood, against 0.45 for the damp stains.
+   *
+   * Blood started at the damp stains' own 0.45, which is what "the same
+   * frequency as the wall dirt stains" literally produces -- and what it
+   * produced was 218 marks, which is a massacre rather than a trace. Halved to
+   * 109 by raising the clean rate rather than by capping the count, so the
+   * places that DO have blood still carry one to three marks and still read as
+   * something having happened there; there are simply half as many of them.
+   * Thinning every scene instead would have left a level uniformly flecked with
+   * single drops, which is the weaker picture.
+   *
+   * Blood being rarer than damp is also the right ordering: damp is what the
+   * building does on its own, blood is an event.
+   */
+  const BLOOD_CLEAN = 0.74;
+
+  const counts = { floorDamp: 0, pool: 0, dryFloor: 0, wallRun: 0, dryWall: 0, ceiling: 0, strand: 0 };
+
+  // --- damp on the carpet, per corridor ---
+  stainableLegs.forEach((name) => {
+    const rand = lcg(hashName(name, 53));
+    const n = decalCount(rand, legSpan(name), 3.0);
+    for (let i = 0; i < n; i++) {
+      const size = 1.05 + rand() * 0.95;
+      const p = pointInLeg(name, rand, size);
+      addFlat(pick(floorStainMats, rand), p.x, 0.006, p.z, size, rand() * Math.PI * 2);
+      counts.floorDamp++;
+    }
+  });
+
+  // --- blood on the carpet: pools and dry patches, per corridor ---
+  stainableLegs.forEach((name) => {
+    const rand = lcg(hashName(name, 59));
+    const n = decalCount(rand, legSpan(name), 3.0, BLOOD_CLEAN);
+    for (let i = 0; i < n; i++) {
+      // Alternated rather than drawn independently, so a corridor that has
+      // blood in it reliably shows BOTH states. Two independent coin flips give
+      // an all-wet or all-dry corridor a quarter of the time, and the contrast
+      // between fresh and old is the thing worth having.
+      const wet = (i % 2 === 0) === (rand() < 0.62);
+      const size = (wet ? 1.0 : 0.85) + rand() * 0.95;
+      const p = pointInLeg(name, rand, size);
+      // A pool sits fractionally higher than a dry patch so that where the two
+      // overlap the wet one wins -- fresh blood runs over old, never under.
+      addFlat(pick(wet ? bloodPoolMats : bloodDryMats, rand),
+        p.x, wet ? 0.010 : 0.008, p.z, size, rand() * Math.PI * 2);
+      if (wet) counts.pool++; else counts.dryFloor++;
+    }
+  });
+
+  // --- blood on the ceiling, with drips still hanging off it ---
+  stainableLegs.forEach((name) => {
+    const rand = lcg(hashName(name, 61));
+    const n = decalCount(rand, legSpan(name), 3.4, BLOOD_CLEAN);
+    for (let i = 0; i < n; i++) {
+      const size = 0.95 + rand() * 1.0;
+      const p = pointInLeg(name, rand, size);
+      addFlat(pick(bloodCeilMats, rand), p.x, HALL_H - 0.006, p.z, size,
+        rand() * Math.PI * 2, true);
+      counts.ceiling++;
+      // The strands are what make it READ as dripping rather than as a stain on
+      // the ceiling. They hang from inside the stain's own radius so the paint
+      // and the geometry agree about where the drip is coming from.
+      const strands = 1 + Math.floor(rand() * 3);
+      for (let k = 0; k < strands; k++) {
+        const len = 0.14 + rand() * 0.34;
+        const a = rand() * Math.PI * 2;
+        const d = rand() * size * 0.3;
+        const s = new THREE.Mesh(flatGeo, pick(bloodStrandMats, rand));
+        s.position.set(p.x + Math.cos(a) * d, HALL_H - len / 2, p.z + Math.sin(a) * d);
+        // Random yaw: a row of strands all facing the same way is a row of
+        // billboards, and at 0.05 m wide the edge-on ones are the tell.
+        s.rotation.y = rand() * Math.PI;
+        s.scale.set(0.05 + rand() * 0.05, len, 1);
+        group.add(s);
+        counts.strand++;
+      }
+    }
+  });
+
+  // --- blood on the walls: runs coming down, and dry smears ---
+  WALL_RUNS.forEach(({ axis, at, from, to }) => {
+    const len = to - from;
+    const rand = lcg(runSeed(axis, at, from, to) ^ 0x5bf03635);
+    const n = decalCount(rand, len, 2.2, BLOOD_CLEAN);
+    for (let i = 0; i < n; i++) {
+      const running = rand() < 0.66;
+      const w = (running ? 0.46 : 0.58) + rand() * 0.5;
+      const h = running ? Math.min(HALL_H * 0.82, w * (2.0 + rand() * 1.7))
+        : Math.min(HALL_H * 0.5, w * (0.85 + rand() * 0.5));
+      const band = (i + 0.5) / n;
+      const along = from + len * Math.min(0.92, Math.max(0.08,
+        band + (rand() - 0.5) * (0.7 / n)));
+      // A RUN HANGS FROM THE TOP, a smear sits where a body touched the wall.
+      // createBloodWallRunTexture is top-anchored for exactly this reason, so
+      // the quad's top edge goes near the ceiling and the rivulets fall out of
+      // it; hanging one from the middle puts the source smear at waist height
+      // with the blood running up out of nothing.
+      const y = running ? HALL_H - 0.08 - h / 2 : 0.45 + rand() * 0.95;
+      const mesh = new THREE.Mesh(flatGeo, pick(running ? bloodRunMats : bloodDryMats, rand));
+      mesh.scale.set(w * (rand() < 0.5 ? -1 : 1), h, 1);
+      if (axis === 'x') {
+        mesh.position.set(at, y, along);
+        mesh.rotation.y = Math.PI / 2;
+      } else {
+        mesh.position.set(along, y, at);
+      }
+      group.add(mesh);
+      if (running) counts.wallRun++; else counts.dryWall++;
+    }
+  });
+
+  // Every kind the brief named has to actually appear. These are cheap and they
+  // fail loudly, which matters because a kind that silently never places looks
+  // exactly like a kind that is merely rare -- and the maze's leg names are the
+  // seed, so renaming one corridor is enough to shift every draw in here.
+  for (const [kind, n] of Object.entries(counts)) {
+    if (n === 0) {
+      console.error('backroomsLevel: not one "' + kind + '" decal was placed across '
+        + stainableLegs.length + ' corridors and ' + WALL_RUNS.length + ' wall runs. '
+        + 'The brief asked for pools, dry patches, ceiling drips and wall runs to all '
+        + 'be present -- check decalCount and the spacing gate for this pass.');
+    }
+  }
+
+  // ---------- the room doorways ----------
+  // WHAT MAKES AN ENTRANCE READ AS A DOOR IS ITS TOP EDGE, not its sides. The
+  // neck legs in backroomsMaze already narrow the opening to 1.4 m and the wall
+  // builder gives it jambs for free -- the boundary of the corridor union runs
+  // down both sides of the neck where it pierces the 1.6 m wall. What the union
+  // cannot produce is a HEADER, because the walls it builds are floor to
+  // ceiling and the opening it leaves is too: a 1.4 m full-height slot reads as
+  // a gap where a wall is missing, which is exactly the modelling-error look
+  // this is supposed to avoid.
+  //
+  // So each neck gets a soffit dropped over its whole 1.6 m length. That gives
+  // the opening a lintel at 2.05 m, a 0.30 m header above it, and a reveal deep
+  // enough to be a doorway rather than a hole punched in a sheet.
+  //
+  // No collider. The player cannot leave the floor, so the only thing a
+  // collider up there could do is snag them in the doorway.
+  const DOOR_H = 2.05;
+  Object.keys(LEGS).filter((n) => LEGS[n].kind === 'neck').forEach((name) => {
+    const L = LEGS[name];
+    const P = LEGS[L.parent];
+    const R = LEGS[Object.keys(LEGS).find((m) => LEGS[m].parent === name)];
+    // Everything below is measured ALONG the neck's own axis. The parent and
+    // the room each occupy a band on it, and the tunnel is the gap between
+    // them -- derived rather than typed, so moving a room cannot leave a soffit
+    // hanging in the corridor.
+    const pLo = P.at - P.w / 2, pHi = P.at + P.w / 2;
+    const rLo = R.at - R.w / 2, rHi = R.at + R.w / 2;
+    const [t0, t1] = rHi <= pLo ? [rHi, pLo] : [pHi, rLo];
+    const soffit = new THREE.Mesh(
+      new THREE.BoxGeometry(
+        L.axis === 'z' ? L.w : t1 - t0,
+        HALL_H - DOOR_H,
+        L.axis === 'z' ? t1 - t0 : L.w
+      ),
+      wallMatFor(t1 - t0)
+    );
+    soffit.position.set(
+      L.axis === 'z' ? L.at : (t0 + t1) / 2,
+      (DOOR_H + HALL_H) / 2,
+      L.axis === 'z' ? (t0 + t1) / 2 : L.at
+    );
+    soffit.receiveShadow = true;
+    group.add(soffit);
   });
 
   // ---------- lighting ----------

@@ -24,6 +24,7 @@ import { createCutsceneRunner } from './core/Cutscene.js';
 import { createScriptRunner } from './core/Script.js';
 import { createCreature } from './systems/Creature.js';
 import { createCreatureAI } from './systems/CreatureAI.js';
+import { createBackroomsHunter } from './systems/BackroomsHunter.js';
 import { createVisor } from './core/Visor.js';
 import { BEATS, DOCUMENTS, ENDINGS } from './story/lines.js';
 import { Hands } from './systems/hands/hands.js';
@@ -1136,6 +1137,39 @@ const backrooms = createBackroomsLevel({
 sceneManager.register('backrooms', backrooms);
 
 /**
+ * The thing that hunts you on the SECOND crossing.
+ *
+ * Two crossings, two different scares, and they share one creature rig so they
+ * can never both be running:
+ *
+ *   bedroom -> hallwayBasement   the trailing shadow, below. A glimpse you
+ *                                cannot reach and that never reaches you.
+ *   hallwayBasement -> study     this. It looks for you, and it catches you.
+ *
+ * That order is the escalation: the first crossing establishes that something
+ * is back there, the second makes it a problem. `backroomsFrom` is what tells
+ * them apart -- exitLevel already hands the interstitial the level it came
+ * from, so nothing new has to be tracked to know which crossing this is.
+ */
+const backroomsHunter = createBackroomsHunter({
+  creature,
+  getPlayer: () => ({
+    x: camera.position.x,
+    z: camera.position.z,
+    // player.sprint is a 0..1 blend, not a boolean -- it eases in over
+    // SPRINT_BLEND so the FOV kick has something continuous to follow. Half way
+    // is the point where the player has committed to the sprint.
+    sprinting: player.sprint > 0.5
+  }),
+  colliders: backrooms.colliders,
+  onBreathing: (level) => audio.setBreathing(level),
+  onCaught: () => onHunterCaught()
+});
+
+/** Which level this crossing started from, or null when not crossing. */
+let backroomsFrom = null;
+
+/**
  * Something trailing behind you in the corridor between levels.
  *
  * Not the CreatureAI chase -- that only starts in Level 3, after the reveal
@@ -1164,11 +1198,63 @@ const BACKROOMS_SHADOW_HIDE_RANGE = 5;    // closer than this (player closing th
 const BACKROOMS_SHADOW_SAMPLE_DIST = 0.15; // metres between recorded path points
 const BACKROOMS_SHADOW_CORRECTION = 0.35;  // human-ish, not clean -- see the header above
 
+/**
+ * Metres the player must cover before the figure may appear AT ALL.
+ *
+ * 1.5x the 11 m at which it used to turn up, measured by replaying a realistic
+ * first crossing -- the route plus the detours into six decoy branches that a
+ * player who does not know the maze actually walks. 11 m is about five and a
+ * half seconds, which puts the figure behind them before they have worked out
+ * the corridor goes anywhere.
+ *
+ * NOT the same knob as MIN_PATH above, and it cannot be. That one measures the
+ * RECORDED trail, which is deliberately trimmed to LAG + 4 = 15 m to keep
+ * pathLength() cheap, so it saturates almost immediately and can never express
+ * a distance longer than the trim. This counts the crossing instead, and
+ * resetBackroomsShadow() zeroes it, so walking through a second time starts the
+ * wait again rather than inheriting it.
+ */
+const BACKROOMS_SHADOW_GRACE = 16.5;
+
+/**
+ * Metres the player must cover after it HIDES before it may come back.
+ *
+ * THE FIGURE IS NOT A ONE-OFF, which is easy to miss reading the code. It hides
+ * whenever the point 11 m back along the TRAIL comes within HIDE_RANGE of the
+ * player as the crow flies, and in a maze of ten turns that is constantly:
+ * round a corner and the trail doubles back into the corridor beside you, so
+ * the thing standing on it is suddenly 5 m away and blinks out; walk on and it
+ * is far again and blinks back.
+ *
+ * 17 m, and the number is measured rather than picked. Replaying a realistic
+ * first crossing -- the route plus detours into six decoy branches, 159 m
+ * walked -- the untouched system showed the figure EIGHT times with a median
+ * gap of 16.2 m and gaps as short as 7.4 m, which is under four seconds and is
+ * why it read as ever-present rather than as a glimpse. At 17 the median gap
+ * is 24.2 m: a ratio of 1.49, the 1.5x that was asked for.
+ *
+ * The response is lumpy, so do not expect fine control. Past about 19 the
+ * cooldown starts MERGING sightings rather than spacing them -- two that were
+ * 20 m apart become one -- and the median jumps to 34 m because the survivors
+ * are sums of several old gaps. 13 and 15 undershoot at 1.12x and 1.22x. The
+ * usable band for 1.5x is 16-18.
+ *
+ * DISTANCE, not seconds, like everything else in this system. Standing still
+ * does not earn a reappearance -- it comes back when you press on, which is the
+ * only version of this that is about the player's choice rather than about
+ * waiting them out.
+ */
+const BACKROOMS_SHADOW_COOLDOWN = 17;
+
 /** Recorded {x,z} player positions, oldest first, trimmed to stay bounded. */
 let backroomsPath = [];
 /** The figure's last computed position, so its speed can be read off its own movement. */
 let backroomsShadowPos = null;
 let backroomsShadowVisible = false;
+/** Metres walked since entering, for BACKROOMS_SHADOW_GRACE. Not the trail length. */
+let backroomsWalked = 0;
+/** backroomsWalked at the moment it last hid, for BACKROOMS_SHADOW_COOLDOWN. */
+let backroomsShadowHidAt = -Infinity;
 
 /** Sum of consecutive segment lengths -- how much corridor is actually recorded. */
 function pathLength(path) {
@@ -1200,6 +1286,11 @@ function pointBehindOnPath(path, x, z, distance) {
 function resetBackroomsShadow() {
   backroomsPath = [];
   backroomsShadowPos = null;
+  backroomsWalked = 0;
+  // -Infinity, not 0: the cooldown must not gate the FIRST sighting as well,
+  // which is what GRACE is for. At 0 the two would add up and the opening wait
+  // would silently be GRACE + COOLDOWN.
+  backroomsShadowHidAt = -Infinity;
   if (backroomsShadowVisible) {
     creature.visible = false;
     // Back to the default layer mask, or the AI chase / scripted placements
@@ -1217,6 +1308,10 @@ function updateBackroomsShadow(dt) {
 
   const last = backroomsPath[backroomsPath.length - 1];
   if (!last || Math.hypot(px - last.x, pz - last.z) >= BACKROOMS_SHADOW_SAMPLE_DIST) {
+    // Counted here rather than per frame, off the same sample the trail uses,
+    // so the grace measures GROUND COVERED and not time spent standing still.
+    // Doubling back counts too: the distance is what the wait is made of.
+    if (last) backroomsWalked += Math.hypot(px - last.x, pz - last.z);
     backroomsPath.push({ x: px, z: pz });
     // Bounded: once the recorded trail comfortably exceeds the lag distance,
     // older points are dropped a few at a time rather than one by one, since
@@ -1228,7 +1323,10 @@ function updateBackroomsShadow(dt) {
 
   const found = pointBehindOnPath(backroomsPath, px, pz, BACKROOMS_SHADOW_LAG);
   const closeBy = found && Math.hypot(px - found.x, pz - found.z) < BACKROOMS_SHADOW_HIDE_RANGE;
-  const shouldShow = !!found && !closeBy && pathLength(backroomsPath) >= BACKROOMS_SHADOW_MIN_PATH;
+  const shouldShow = !!found && !closeBy
+    && backroomsWalked >= BACKROOMS_SHADOW_GRACE
+    && backroomsWalked - backroomsShadowHidAt >= BACKROOMS_SHADOW_COOLDOWN
+    && pathLength(backroomsPath) >= BACKROOMS_SHADOW_MIN_PATH;
 
   if (found) {
     if (backroomsShadowVisible && backroomsShadowPos) {
@@ -1248,6 +1346,9 @@ function updateBackroomsShadow(dt) {
       creature.visible = false;
       creature.group.layers.set(0);
       backroomsShadowVisible = false;
+      // Stamped on the way OUT, so the cooldown measures the gap between
+      // sightings rather than the time since some arbitrary frame.
+      backroomsShadowHidAt = backroomsWalked;
     }
     return;
   }
@@ -1444,8 +1545,70 @@ const ON_ENTER = {
       s.do(() => { creature.visible = false; });
       await s.play(BEATS.hallwaySighting);
     });
+  },
+
+  /**
+   * The second crossing, and the only one that hunts.
+   *
+   * Started on a delay rather than the instant the level comes up: spawning it
+   * while the fade is still lifting means the first thing a player hears is
+   * breathing, before they have worked out they are somewhere new. The pause is
+   * the difference between a threat and a jump scare.
+   */
+  backrooms: () => {
+    if (backroomsFrom !== 'hallwayBasement') return;
+    script.run(async (s) => {
+      if (!await s.wait(2.2)) return;
+      s.do(() => backroomsHunter.start());
+    });
   }
 };
+
+/**
+ * Caught in the corridor.
+ *
+ * STOPPED, NOT KILLED -- the same rule CreatureAI.js sets out and for the same
+ * reason. The cost is the crossing: you wake at the mouth of the maze with the
+ * whole route to walk again, and it is somewhere else by the time you do. That
+ * is a real penalty measured in the thing this level trades in, which is time,
+ * without ever being a death.
+ */
+function onHunterCaught() {
+  if (caughtInFlight || transitionInFlight) return;
+  caughtInFlight = true;
+  script.run(async (s) => {
+    try {
+      s.do(() => {
+        player.movementEnabled = false;
+        player.lookEnabled = false;
+        interaction.setEnabled(false);
+        // Stop it dead first: without this it keeps closing during the fade and
+        // is standing on top of the spawn point when the screen comes back.
+        backroomsHunter.stop();
+      });
+      if (!await s.play('It has you. The corridor goes out like a bulb.')) return;
+      await fade.fadeOut(450);
+      if (!s.alive()) return;
+      s.do(() => {
+        const [sx, sz] = backrooms.spawn;
+        player.spawn(sx, sz, backrooms.spawnYaw ?? 0);
+      });
+      await fade.fadeIn(650);
+      if (!s.alive()) return;
+      s.do(() => {
+        player.lookEnabled = true;
+        player.movementEnabled = true;
+        interaction.setEnabled(true);
+        // Re-drawn somewhere new, so a caught player is not handed the same
+        // chase back. start() already biases the draw away from the player.
+        backroomsHunter.start();
+      });
+      await s.play('Back at the mouth of the corridor. It is still in here.');
+    } finally {
+      caughtInFlight = false;
+    }
+  });
+}
 
 function activateLevel(key, { lockMovement = false } = {}) {
   const level = sceneManager.activate(key, player);
@@ -1469,6 +1632,7 @@ function activateLevel(key, { lockMovement = false } = {}) {
   creatureStanding = false;
   creatureAI.reset();
   resetBackroomsShadow();
+  backroomsHunter.reset();
   // A leftover animator clip (the lockpick loop, if a debug level-jump key is
   // pressed mid-lockpick) must not survive into whatever level just
   // activated. Harmless when nothing was playing, and safe even with the
@@ -1598,6 +1762,7 @@ async function exitLevel(fromKey) {
   if (!interstitial?.setRoute) { await transitionTo(route.to); return; }
   // Armed BEFORE activateLevel, so the destination, the re-armed exit door and
   // spawn/spawnYaw are all in place by the time SceneManager reads them.
+  backroomsFrom = fromKey;
   interstitial.setRoute({ from: fromKey, ...route });
   await transitionTo(route.via);
 }
@@ -1815,12 +1980,27 @@ const CREDITS = [
   'PointerLockControls -- Three.js official examples module (MIT licence)',
   'Vite -- build tool used to produce the deployment bundle (MIT licence)',
   'All textures are generated procedurally on <canvas> at runtime -- no image assets used.',
-  'Wind, thunder and creaks are synthesised with the Web Audio API at runtime -- no audio files used.',
-  'The looping breathing track is the one audio file in the project (src/assets/audio/breathing.m4a).',
-  // TODO: replace this line with the real source, author and licence of the
-  // breathing loop that gets dropped into src/assets/audio -- or delete it if
-  // the loop was recorded by the team.
+  // CC-BY REQUIRES ATTRIBUTION AND THIS IS IT. hands.glb is the one piece of
+  // third-party geometry in the project; everything else under
+  // src/assets/models/ is generated by the scripts in blender/. This line was
+  // missing while the game was already deployed publicly, which is a licence
+  // breach rather than an oversight -- do not remove it without also removing
+  // the asset.
+  'Hands model -- "First Person hands rigged" by davidfischer, via Sketchfab, '
+    + 'licensed CC BY 4.0 (creativecommons.org/licenses/by/4.0). Modified: '
+    + 'left arm removed, wrist re-aligned, re-rigged for this project.',
+  'All other models (bed, door, dresser, flashlight, creature) are generated '
+    + 'from the Python scripts in blender/ -- see blender/build_*.py.',
+  'Wind, thunder and creaks are synthesised with the Web Audio API at runtime -- no audio files used for those.',
+  'Three audio files ship with the project, all in src/assets/audio: breathing.m4a, '
+    + 'walking_audio.mp3 and running_audio.mp3.',
+  // TODO: replace these lines with the real source, author and licence of each
+  // recording -- or delete a line if that one was recorded by the team.
+  // THIS IS NOT A FORMALITY. hands.glb above is CC-BY and the attribution
+  // beside it is what keeps using it legal; the same applies to anything here
+  // that came from a library. The game deploys publicly to GitHub Pages.
   'Breathing loop -- [SOURCE / AUTHOR / LICENCE TO BE FILLED IN].',
+  'Footstep recordings (walking, running) -- [SOURCE / AUTHOR / LICENCE TO BE FILLED IN].',
   'Game concept, story, world and code: the project team, for COMS3006A/COMS3025A.'
 ];
 /**
@@ -2052,6 +2232,7 @@ if (import.meta.env.DEV) {
     script,
     creature,
     creatureAI,
+    backroomsHunter,
     visor,
     // Test-only access to the backrooms trailing shadow and the bedroom
     // window flash, neither of which has a keyboard trigger of its own to
@@ -2107,6 +2288,13 @@ function tick() {
   elapsed += dt;
 
   player.update(dt);
+  // Footsteps ride the player's own bob clock, so they land with the visual dip
+  // and stop dead when a wall does. See AudioEngine.updateFootsteps.
+  audio.updateFootsteps(player.bobPhase, {
+    moving: player.moving,
+    sprint: player.sprint,
+    crouch: player.crouch
+  });
 
   if (sceneManager.activeKey === 'bedroom') {
     bedroomStorm.update(dt);
@@ -2118,7 +2306,11 @@ function tick() {
   // standing in a corner reads as a statue rather than as something watching.
   if (creatureStanding) creature.update(dt);
   creatureAI.update(dt);
-  if (sceneManager.activeKey === 'backrooms') updateBackroomsShadow(dt);
+  if (sceneManager.activeKey === 'backrooms') {
+    // Never both: one rig, and the hunter owns it outright while it is running.
+    if (backroomsHunter.state === 'stopped') updateBackroomsShadow(dt);
+    else backroomsHunter.update(dt);
+  }
   dustMotes.update(dt, elapsed);
   // Per rendered frame rather than on a fixed step: the hands are
   // presentation, and pinning them to 60 Hz on a 144 Hz display would throw

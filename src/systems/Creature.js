@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import creatureModelUrl from '../assets/models/creature.glb?url';
+import { loadModel } from '../world/modelLoader.js';
+import { createCreatureTextures } from '../world/textures.js';
 
 /**
  * The thing in the house.
@@ -19,14 +22,65 @@ import * as THREE from 'three';
  * figure ever stopping being itself. The twist is a rendering problem, and this
  * is the rendering.
  *
- * DELIBERATELY NOT BUILT ON src/systems/hands/. That module's clip playback is
- * a documented no-op -- animator.js literally does `void clip; return
- * INERT_CLIP_HANDLE;` -- and it is hard-wired to two camera-parented hands.
+ * BUILT ON A .glb NOW -- and the argument that said it should not be is worth
+ * recording, because it was right about the principle and wrong about the
+ * mechanism. It said: "a rigged model would be a nicer creature and a worse
+ * twist: the whole point is that both readings are the same body, and that is
+ * trivially true when the body is one parametric rig and merely asserted when
+ * it is two files."
  *
- * DELIBERATELY NOT A .glb EITHER. A rigged model would be a nicer creature and
- * a worse twist: the whole point is that both readings are the same body, and
- * that is trivially true when the body is one parametric rig and merely
- * asserted when it is two files.
+ * The principle holds and nothing below weakens it. There is still ONE body.
+ * The Hollow is a shape KEY -- a per-vertex delta on the same mesh, the same
+ * skeleton, the same UVs -- so "the same body" is still true by construction
+ * rather than by assertion. What changed is that a parametric rig of capsules
+ * cannot wear a lab coat, and the coat turned out to be the whole design:
+ *
+ *   in the HUMAN reading the hem sits at 0.700 m and the fingertips at 0.717,
+ *   so the hands are AT pocket height and the arms vanish into one column;
+ *   in the HOLLOW reading the torso grows, the hem rides up to 0.771, and the
+ *   arms grow so the fingertips fall to 0.531.
+ *
+ * The hands end up hanging 24 cm clear of a coat that has become a short
+ * jacket. Those are MEASURED in the running game through
+ * SkinnedMesh.getVertexPosition, which applies bones and morph together --
+ * an earlier draft of this comment claimed 40 cm, taken from a design estimate
+ * that anchored the hem to the shoulder. It does not: the coat is weighted to
+ * the hips and the coat bones, so it only partly follows the torso as that
+ * lengthens. 24 cm is what the effect is actually worth, and it is plenty.
+ *
+ * The coat is a ruler the viewer measures the distortion against, and that
+ * is a far stronger cue than long arms on a bare body, which has nothing to
+ * be long RELATIVE TO. A knee-length coat would cover the fingertip/knee
+ * relationship and throw it away, which is why the hem length is a constant
+ * and not a taste.
+ *
+ * WHAT IS STILL PARAMETRIC, AND WHY IT HAS TO BE. Bone LENGTHS and rotations
+ * are still lerped from the two tables below, exactly as before -- only now
+ * they are written to bone translations instead of Object3D positions. A shape
+ * key moves vertices and cannot move a joint: morph the arm half again as long
+ * and the elbow BONE stays where it was, so the limb creases through the
+ * middle of the forearm. So the work is split by what each tool can actually
+ * do -- bones carry length and rotation, the key carries thinning and the
+ * stretched skull -- and setCorrection drives both from one dial in lockstep,
+ * so a half-corrected figure is still a coherent body.
+ *
+ * The coat is deliberately EXCLUDED from the key. The body inside it thins to
+ * 0.65-0.76 while the garment keeps its own dimensions, so it starts hanging
+ * visibly too big on a wasted frame. That is free, and thinning the coat with
+ * the body would have thrown it away.
+ *
+ * THE PRIMITIVE RIG IS STILL HERE, as the fallback. Every other loadModel()
+ * call in this repo degrades gracefully when its asset does not arrive, and a
+ * creature is a worse thing to lose than a dresser: the scripted beats place it
+ * synchronously at main.js:580 while the GLB is still in flight. So the capsule
+ * rig builds first and the mesh takes over when it lands.
+ *
+ * DELIBERATELY NOT BUILT ON src/systems/hands/ -- that module is hard-wired to
+ * two camera-parented hands. (An older note here said its clip playback was a
+ * documented no-op. That stopped being true in 3d15d7c, and the
+ * snapshot-and-slerp idea from its animator is exactly what the gait below
+ * borrows: a pose is an OFFSET FROM REST, never an absolute local rotation,
+ * because the rest orientation of a glTF bone carries the rig's own axes.)
  */
 
 // ---------------------------------------------------------------------------
@@ -137,6 +191,36 @@ function standingHeight(p) {
 // ---------------------------------------------------------------------------
 
 /** Metres per full stride, matching PointerLockPlayer's STRIDE so gaits agree. */
+/**
+ * How far setSilhouette(true) dims the creature, as a multiplier on whatever
+ * the correction dial already produced.
+ *
+ * RAISED from 0.05. At 0.05 the roaming hunter rendered at 0.42 x 0.05 = 0.021
+ * linear, which is #282828 on screen -- not "a dark figure" but a hole in the
+ * corridor you could lose against an unlit wall. The brief was to significantly
+ * reduce that shadow, and this is the only knob that does it: rendered
+ * brightness is albedo x irradiance, and the backrooms ambient is deliberately
+ * 0.14 against the 0.37-0.43 every other level uses, so lifting the LIGHT
+ * instead would raise the wallpaper (albedo 0.565 linear) about forty times
+ * harder than it raises the creature (effective albedo 0.0147) -- the monster
+ * would come out relatively DARKER against a brighter wall, which is the
+ * opposite of what was asked. It would also flatten the dark gaps into mustard,
+ * which the note on that AmbientLight exists to prevent.
+ *
+ * At 0.18 the hunter lands at 0.0756 linear = #4E4E4E, roughly double the
+ * displayed brightness, and still around 8:1 darker than the lit wallpaper --
+ * so it is a dark shape with an outline, not a lit mannequin. 0.20 is the
+ * ceiling; past about 0.25 the coat texture comes through and it stops reading
+ * as a silhouette at all.
+ *
+ * IT IS A CONSTANT BECAUSE IT IS USED TWICE -- the GLB path and the fallback
+ * primitive rig each apply it, and the fallback is a supported state (see
+ * check-creature.mjs, which passes when creature.glb is absent). Two literals
+ * would let the two figures drift to different brightnesses, and the one that
+ * drifted would be the one nobody looks at.
+ */
+const SILHOUETTE_DIM = 0.18;
+
 const STRIDE = 1.55;
 /** Radians of hip swing at a walk. The Hollow's gait is wider and looser. */
 const HIP_SWING_HUMAN = 0.52;
@@ -184,6 +268,75 @@ function limb(material, parent, lengths, radius) {
   }
   return { joints, meshes };
 }
+
+// ---------------------------------------------------------------------------
+// The mesh
+// ---------------------------------------------------------------------------
+
+/**
+ * WHICH BONE CARRIES WHICH LENGTH.
+ *
+ * Every joint in creature.glb ships with its translation as (0, parentBoneLength, 0)
+ * in the parent's bone space -- that is simply how the glTF exporter writes an
+ * armature, and it was read back out of the exported file rather than assumed.
+ * So lengthening a limb is one assignment: move the CHILD further down its
+ * parent's axis.
+ *
+ *     chest.position.y  = p.spine        forearm.position.y = p.upperArm
+ *     neck.position.y   = p.chest        hand.position.y    = p.forearm
+ *     head.position.y   = p.neck         shin.position.y    = p.thigh
+ *                                        foot.position.y    = p.shin
+ *
+ * THE NAMES HERE HAVE NO DOTS, AND THAT IS NOT A TYPO. The armature calls them
+ * `forearm.L`; the GLB on disk stores `forearm.L`; and three.js renames it to
+ * `forearmL` while loading, because GLTFLoader runs every node name through
+ * PropertyBinding.sanitizeNodeName(), which strips the characters the animation
+ * binding syntax reserves -- '.' among them. Verified in the running game, not
+ * assumed: sanitizeNodeName('forearm.L') === 'forearmL'.
+ *
+ * src/systems/hands/HANDOVER.md records this same symptom and blames the
+ * Blender exporter. The exporter is innocent -- the dots are present in the
+ * file -- but the practical advice there was right, and anyone "fixing" it by
+ * putting the dots back here will find every limb silently stops changing
+ * length. Which is why the assertion below exists.
+ *
+ * THIS TABLE IS ALSO COUPLED TO blender/build_creature.py AND NOTHING ENFORCES
+ * THAT. If a bone is renamed or re-parented there, the lookup finds nothing and
+ * that limb stops changing length -- which reads as a weak twist, not as an
+ * error. scripts/check-creature.mjs asserts the joint COUNT and the material
+ * names; it cannot assert this.
+ */
+const BONE_LENGTH = {
+  chest: 'spine',
+  neck: 'chest',
+  head: 'neck',
+  forearmL: 'upperArm',
+  forearmR: 'upperArm',
+  handL: 'forearm',
+  handR: 'forearm',
+  shinL: 'thigh',
+  shinR: 'thigh',
+  footL: 'shin',
+  footR: 'shin'
+};
+
+/**
+ * Constants baked into the armature by build_creature.py that the runtime has
+ * to agree with. They are here rather than inlined so the coupling is at least
+ * visible in one place -- a .py and a .js cannot share a module, which is the
+ * one case where this project's "two files must not invent two numbers" rule
+ * has no clean answer.
+ */
+const HIPS_BONE_LENGTH = 0.06;   // hips bone head sits at hipHeight - this
+const CLAVICLE_ROOT_X = 0.03;    // clavicle head offset from the spine axis
+const SHOULDER_OF_CHEST = 0.86;  // shoulder joint height, as a fraction of chest
+
+/** Blender's .L is +X. Creature.js's `l` is -X. They are opposite on purpose. */
+const SIDE_SUFFIX = { l: 'R', r: 'L' };
+
+const _q = new THREE.Quaternion();
+const _v = new THREE.Vector3();
+const WORLD_X = new THREE.Vector3(1, 0, 0);
 
 export function createCreature() {
   const group = new THREE.Group();
@@ -286,10 +439,12 @@ export function createCreature() {
    * the backrooms figure trailing at a distance, seen under ordinary corridor
    * light. At normal size a lit, textured rig at that range reads as exactly
    * what it is: a small set of boxes and capsules. Multiplying the correction
-   * colour down near-black (independent of the correction/proportion dial,
-   * so it survives whatever else calls setCorrection()) hides that geometry
-   * in its own shadow instead, the same way a real backlit figure loses its
-   * surface detail long before it loses its outline.
+   * colour down hard (independent of the correction/proportion dial, so it
+   * survives whatever else calls setCorrection()) hides that geometry in its
+   * own shadow instead, the same way a real backlit figure loses its surface
+   * detail long before it loses its outline. Not "near-black" any more -- see
+   * SILHOUETTE_DIM, which was raised because at 0.05 it had gone past losing
+   * surface detail and was losing the figure.
    */
   let silhouette = false;
 
@@ -297,6 +452,14 @@ export function createCreature() {
   let gaitPhase = 0;
   let speed = 0;
   let elapsed = 0;
+
+  /**
+   * The loaded mesh, or null while creature.glb is still in flight or if it
+   * never arrives. Everything below branches on this rather than assuming it:
+   * main.js:580 builds the creature synchronously and the Level 1 window beat
+   * can fire before a 150 KB asset has landed.
+   */
+  let glb = null;
 
   function applyProportions() {
     for (const key of KEYS) p[key] = THREE.MathUtils.lerp(HOLLOW[key], HUMAN[key], correction);
@@ -376,7 +539,7 @@ export function createCreature() {
     // half-corrected figure is coherent rather than a black shape in a coat.
     // silhouette scales the RESULT down further still, after the lerp, so it
     // composes with whatever correction is set rather than replacing it.
-    const sMul = silhouette ? 0.05 : 1;
+    const sMul = silhouette ? SILHOUETTE_DIM : 1;
     skin.color.setRGB(
       THREE.MathUtils.lerp(0.055, 0.34, correction) * sMul,
       THREE.MathUtils.lerp(0.048, 0.26, correction) * sMul,
@@ -391,6 +554,10 @@ export function createCreature() {
     // still needs the silhouette multiplier or it would be the one part of a
     // "shadow" that visibly has a colour.
     hair.color.setRGB(0.078 * sMul, 0.063 * sMul, 0.055 * sMul);
+
+    // The same dial, pushed into the mesh. Both run: the primitive rig stays
+    // live but invisible so `refs` keep meaning something -- see attachGlb().
+    if (glb) applyGlb();
 
     dirty = false;
   }
@@ -449,7 +616,266 @@ export function createCreature() {
     // The head keeps its crooked set but drifts, which at a distance is what
     // makes it look like it is deciding something.
     head.rotation.y = Math.sin(elapsed * 0.55) * 0.14 * (1 - walking);
+
+    if (glb) animateGlb();
   }
+
+  // --- the mesh -------------------------------------------------------------
+
+  /**
+   * Take over the rendering with creature.glb.
+   *
+   * THE PRIMITIVE RIG KEEPS RUNNING, INVISIBLY, AND THAT IS DELIBERATE. `refs`
+   * hands out live Object3Ds -- CreatureAI starts its sightline at refs.head,
+   * because a creature that decides what it can see from between its own feet
+   * will happily stare through a table. Those refs are handed out once, at
+   * construction, before this asset exists. Re-pointing them at glTF bones
+   * afterwards would mean every holder of a ref was silently holding the wrong
+   * object. Driving both instead costs a few dozen Object3D writes a frame,
+   * which is nothing, and keeps the whole public surface honest.
+   */
+  function attachGlb(scene) {
+    const bones = {};
+    /**
+     * ALL of them, not the first.
+     *
+     * GLTFLoader splits a multi-material mesh into one SkinnedMesh PER
+     * PRIMITIVE, so five materials means five meshes sharing one skeleton and
+     * each carrying its own copy of the Hollow morph. Driving only the first
+     * one was the bug this comment exists to stop coming back: the head and
+     * arms thinned while the coat, shirt, trousers and hair did not, which does
+     * not look like a bug -- it looks like a body shrinking inside its clothes,
+     * which is a thing that could plausibly be intended.
+     */
+    const meshes = [];
+    scene.traverse((o) => {
+      if (o.isBone) bones[o.name] = o;
+      if (o.isSkinnedMesh) meshes.push(o);
+    });
+    if (!meshes.length) {
+      console.warn('Creature: creature.glb has no SkinnedMesh; keeping the primitive rig.');
+      return null;
+    }
+
+    // SkinnedMesh sets boundingSphere = null, and Frustum.intersectsObject
+    // computes it ONCE and nothing in three ever invalidates it -- so it
+    // freezes at whatever pose and morph weight held on the first frame it was
+    // culled. With setCorrection continuously reshaping the silhouette that
+    // means the creature pops out of view at glancing angles ONLY while the
+    // visor is on, which is precisely the moment the set-piece depends on.
+    // Culling one character saves nothing measurable; this fixes the camera
+    // and the shadow pass together. hand-mesh.js does the same thing.
+    scene.traverse((o) => {
+      o.frustumCulled = false;
+      if (o.isMesh) o.castShadow = true;
+    });
+
+    const rest = new Map();
+    for (const [name, b] of Object.entries(bones)) {
+      rest.set(name, { pos: b.position.clone(), quat: b.quaternion.clone() });
+    }
+
+    // The local axis that swings a limb forward, MEASURED from the rest pose
+    // rather than assumed. Every bone carries a baked rest rotation from the
+    // exporter, so "rotate about local X" means a different thing on a thigh
+    // than on a clavicle -- hardcoding it is how you get a leg that swings
+    // sideways and a shoulder that folds into the chest.
+    scene.updateMatrixWorld(true);
+    const swing = new Map();
+    for (const [name, b] of Object.entries(bones)) {
+      b.getWorldQuaternion(_q);
+      swing.set(name, WORLD_X.clone().applyQuaternion(_q.invert()).normalize());
+    }
+
+    // Every primitive carries the same dictionary, so the first is enough to
+    // read the index from -- but the influence has to be written to all of them.
+    const morphIndex = meshes[0].morphTargetDictionary?.Hollow;
+    if (morphIndex === undefined) {
+      console.warn('Creature: creature.glb has no "Hollow" morph target. Check that '
+        + 'extras.targetNames survived the export -- without it GLTFLoader falls '
+        + 'back to a numeric morphTargetDictionary and the twist does not read.');
+    }
+
+    // Canvas textures, bound by the material NAME the .glb carries. The names
+    // come from blender/build_creature.py and are asserted by
+    // scripts/check-creature.mjs, so this lookup is the one place the two
+    // halves of the pipeline actually meet.
+    const textures = createCreatureTextures();
+    const materials = [];
+    const textured = [];
+    scene.traverse((o) => {
+      if (!o.material) return;
+      for (const m of (Array.isArray(o.material) ? o.material : [o.material])) {
+        if (materials.includes(m)) continue;
+        materials.push(m);
+        const set = textures[m.name];
+        if (set) {
+          m.map = set.map;
+          m.normalMap = set.normalMap;
+          if (set.roughnessMap) {
+            m.roughnessMap = set.roughnessMap;
+            // three MULTIPLIES roughnessMap by material.roughness, and the .glb
+            // carries whatever Blender exported. Left alone, a 0.9 base would
+            // scale the whole map down and flatten the variation the map exists
+            // to provide.
+            m.roughness = 1.0;
+          }
+          // THE ALBEDO CARRIES THE COLOUR NOW, so the base has to go white.
+          // three multiplies map by color, and the .glb ships a flat base
+          // colour of its own -- leaving it in place would darken the creature
+          // by roughly its own albedo a second time. Handing material.color
+          // over to the dimmer is what lets setCorrection and setSilhouette
+          // keep working as pure multipliers.
+          m.color.setRGB(1, 1, 1);
+          m.needsUpdate = true;
+          textured.push(m.name);
+        }
+        m.userData.baseColor = m.color ? m.color.clone() : null;
+      }
+    });
+    const untextured = materials.map((m) => m.name).filter((n) => !textured.includes(n));
+    if (untextured.length) {
+      console.warn('Creature: no canvas texture for material(s) ' + untextured.join(', ')
+        + '. createCreatureTextures() and build_creature.py disagree on names.');
+    }
+
+    // Warn at boot, do not throw, so a renamed bone costs a console line rather
+    // than the whole app -- the same rule CreatureAI.js's speed assertions use.
+    // This is the only thing standing between "somebody renamed a bone in
+    // build_creature.py" and a twist that quietly stops working.
+    const missing = [
+      ...Object.keys(BONE_LENGTH),
+      'hips', 'spine',
+      ...['L', 'R'].flatMap((s) => ['clavicle' + s, 'upper_arm' + s, 'thigh' + s]),
+      'coat_frontL', 'coat_frontR', 'coat_back'
+    ].filter((n) => !bones[n]);
+    if (missing.length) {
+      console.error('Creature: creature.glb is missing bones the runtime drives: '
+        + missing.join(', ') + '. These limbs will not change length or swing. '
+        + 'Names are sanitised by THREE.PropertyBinding on load, so "forearm.L" '
+        + 'in Blender is "forearmL" here. Found: ' + Object.keys(bones).join(', '));
+    }
+
+    root.add(scene);
+    hips.visible = false;   // the primitive rig keeps updating, unseen
+    return { scene, meshes, bones, rest, swing, morphIndex, materials };
+  }
+
+  /** Push the blended proportions and the correction dial into the loaded mesh. */
+  function applyGlb() {
+    const { bones, morphIndex, meshes, materials } = glb;
+
+    for (const [boneName, key] of Object.entries(BONE_LENGTH)) {
+      const b = bones[boneName];
+      if (b) b.position.y = p[key];
+    }
+    // The handful that are not a plain parent-bone length.
+    if (bones.hips) bones.hips.position.y = p.hipHeight - HIPS_BONE_LENGTH;
+    for (const suffix of ['L', 'R']) {
+      const sign = suffix === 'L' ? 1 : -1;
+      const clav = bones['clavicle' + suffix];
+      if (clav) {
+        clav.position.set(sign * CLAVICLE_ROOT_X, p.chest * SHOULDER_OF_CHEST, 0);
+      }
+      const upper = bones['upper_arm' + suffix];
+      if (upper) upper.position.y = p.shoulderWidth - CLAVICLE_ROOT_X;
+      const thigh = bones['thigh' + suffix];
+      if (thigh) thigh.position.set(sign * p.hipWidth, HIPS_BONE_LENGTH, 0);
+
+    }
+
+    // NOTHING HERE SCALES A BONE, and that is deliberate.
+    //
+    // The bones above move the JOINTS. They do not, and cannot, stretch the
+    // flesh between them: in a skinned mesh, moving a child bone moves only
+    // the vertices weighted to that child, so lengthening the forearm this way
+    // leaves a 0.27 m forearm with its hand floating 0.17 m past the end of
+    // it. An earlier pass tried to patch the visible half of that by scaling
+    // the hand bone, which fixed the fingers and left the same hole at every
+    // other joint.
+    //
+    // Scaling the bones generally is worse, not better -- a non-uniform scale
+    // shears every child sitting at an angle to its parent, which is most of
+    // an arm. So the stretch lives in the Hollow shape key, keyed off the same
+    // HOLLOW/HUMAN ratios (see SEGMENT_STRETCH in blender/build_creature.py),
+    // and the two halves agree because they are read off one table.
+
+    // The key carries what bones cannot: thinning, the stretched skull. Note
+    // the inversion -- correction 1 is Annabelle, which is the BASE shape, so
+    // the morph is fully ON at correction 0.
+    if (morphIndex !== undefined) {
+      for (const m of meshes) {
+        if (m.morphTargetInfluences) m.morphTargetInfluences[morphIndex] = 1 - correction;
+      }
+    }
+
+    // Colour. The shape does most of the work now, so this is a much lighter
+    // touch than the primitive rig's full black-to-flesh lerp -- but the Hollow
+    // still has to sit darker, and setSilhouette still has to crush everything
+    // to a shadow. silhouette multiplies the RESULT so the two compose.
+    const dim = THREE.MathUtils.lerp(0.42, 1.0, correction) * (silhouette ? SILHOUETTE_DIM : 1);
+    for (const m of materials) {
+      const base = m.userData.baseColor;
+      if (base && m.color) m.color.copy(base).multiplyScalar(dim);
+    }
+  }
+
+  /** Write the gait onto bones, as OFFSETS FROM REST. */
+  function animateGlb() {
+    const { bones, rest, swing } = glb;
+    const walking = THREE.MathUtils.clamp(speed / 1.2, 0, 1);
+    const hipSwing = THREE.MathUtils.lerp(HIP_SWING_HOLLOW, HIP_SWING_HUMAN, correction) * walking;
+    const armSwing = THREE.MathUtils.lerp(ARM_SWING_HOLLOW, ARM_SWING_HUMAN, correction) * walking;
+    const s = Math.sin(gaitPhase);
+    const c = Math.cos(gaitPhase);
+    const hang = THREE.MathUtils.lerp(0.10, 0.28, correction);
+
+    // A pose is rest * offset, never an absolute local rotation: the rest
+    // quaternion IS the rig's axes, and overwriting it throws the bone's
+    // orientation away. Borrowed straight from src/systems/hands/animator.js.
+    const bend = (name, angle) => {
+      const b = bones[name];
+      const r = rest.get(name);
+      const axis = swing.get(name);
+      if (!b || !r || !axis) return;
+      b.quaternion.copy(r.quat).multiply(_q.setFromAxisAngle(axis, angle));
+    };
+
+    // Creature.js's `l` is -X, which is Blender's .R -- see SIDE_SUFFIX.
+    bend('thigh' + SIDE_SUFFIX.l, s * hipSwing);
+    bend('thigh' + SIDE_SUFFIX.r, -s * hipSwing);
+    bend('shin' + SIDE_SUFFIX.l, -Math.max(0, -c) * hipSwing * 1.5);
+    bend('shin' + SIDE_SUFFIX.r, -Math.max(0, c) * hipSwing * 1.5);
+    bend('upper_arm' + SIDE_SUFFIX.l, -s * armSwing - p.shoulderRoll * 0.5);
+    bend('upper_arm' + SIDE_SUFFIX.r, s * armSwing - p.shoulderRoll * 0.5);
+    bend('forearm' + SIDE_SUFFIX.l, hang);
+    bend('forearm' + SIDE_SUFFIX.r, hang);
+    bend('spine', -p.hunch);
+    bend('neck', -p.neckLean);
+
+    // The coat panels lag behind the stride. Motion survives fog long after
+    // value contrast has gone, so a hem that swings is the long-range read.
+    const lag = Math.sin(gaitPhase - 0.9) * 0.12 * walking;
+    bend('coat_frontL', lag);
+    bend('coat_frontR', lag);
+    bend('coat_back', -lag * 0.6);
+
+    const bob = Math.abs(s) * 0.022 * walking;
+    const breath = Math.sin(elapsed * 1.4) * 0.008 * (1 - walking);
+    if (bones.hips) bones.hips.position.y = p.hipHeight - HIPS_BONE_LENGTH + bob + breath;
+  }
+
+  loadModel(creatureModelUrl)
+    .then((scene) => {
+      glb = attachGlb(scene);
+      dirty = true;
+    })
+    .catch((err) => {
+      // Same contract as every other loadModel() call in this repo: the level
+      // still runs, it just looks worse. A creature is a worse thing to lose
+      // than a dresser, which is exactly why the primitive rig is still here.
+      console.warn('Creature: creature.glb failed to load; keeping the primitive rig.', err);
+    });
 
   applyProportions();
 
@@ -548,6 +974,12 @@ export function createCreature() {
       skin.dispose();
       clothes.dispose();
       hair.dispose();
+      // The loaded materials too -- traverse() above only reaches geometry, and
+      // the GLB brings five of its own.
+      if (glb) {
+        for (const m of glb.materials) m.dispose();
+        glb = null;
+      }
     }
   };
 }
