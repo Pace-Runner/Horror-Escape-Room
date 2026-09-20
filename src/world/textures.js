@@ -1535,6 +1535,390 @@ function buildBackroomsWallpaperHeightCanvas() {
  * runs a far lower ambient than every other room in this game -- see the note
  * on the AmbientLight in backroomsLevel.js.
  */
+/**
+ * How much dirt is baked into the TILING wallpaper. The damp stains are no
+ * longer among it, and that is the point.
+ *
+ * WHY THE STAINS LEFT THIS CANVAS. This texture is generated once, shared by
+ * every wall in the level, and tiled every 2.12 m along a wall's length. Three
+ * stains in it are therefore not three stains: on a 22 m corridor they are
+ * THIRTY, in ten identical groups of three, every one of them at exactly the
+ * same height off the skirting. That reads as a printed pattern rather than as
+ * damage, and no reduction in the count fixes it -- cutting to one stain just
+ * gives you ten identical stains instead of thirty. The repetition, not the
+ * quantity, was the defect.
+ *
+ * So stains are now DECALS, placed per wall run by backroomsLevel.js from
+ * createDampStainTexture() below: nought to three on any given wall, at
+ * physical size, wherever that wall's own seed puts them. A count of "3 max"
+ * finally means three on the wall rather than three per two metres.
+ *
+ * What stays here is what genuinely wants to tile: the height-derived mottling
+ * (which is the wallpaper itself, not dirt) and a couple of faint run-streaks
+ * at 13% alpha, which are vertical and read as part of the paper's own grain
+ * against its vertical stripe.
+ *
+ * MILDEW_SPECKS is kept for the decals rather than for this canvas -- the
+ * speckle only ever drew INSIDE a stain, so with no stains here it draws
+ * nothing, and the loop below is guarded for that.
+ */
+const DAMP_STAINS = 0;
+const MILDEW_SPECKS = 128;
+const RUN_STREAKS = 2;
+
+/**
+ * ONE damp stain on a transparent canvas, for use as a wall decal.
+ *
+ * Drawn rising from the BOTTOM edge rather than centred, because that is what
+ * the thing actually is: damp wicking up out of the floor. The caller gives
+ * the plane its real-world size, so the stain scales with the wall instead of
+ * with the texture's tiling -- which is the whole reason these moved out of
+ * createBackroomsWallpaperTexture.
+ *
+ * `seed` picks a deterministic variant. Same seed, same stain, every reload:
+ * "the wall by the third turn has two stains" has to survive a refresh or it
+ * cannot be tested, and Math.random() at build time would deal a different
+ * level every boot.
+ */
+export function createDampStainTexture(seed = 0, {
+  damp = [74, 60, 26],
+  tide = [96, 76, 32]
+} = {}) {
+  const rand = creatureRand(0x5721 + seed * 7919);
+  const S = 256;
+  const canvas = makeCanvas(S, S);
+  const ctx = canvas.getContext('2d');
+
+  // Wider than tall in canvas space, then stretched upward by the transform --
+  // the same "water runs down" idiom the wallpaper used, kept because it is
+  // what makes a blob read as a stain rather than as a smudge.
+  const r = S * (0.40 + rand() * 0.16);
+  const rise = 1.15 + rand() * 0.55;
+  const cx = S * (0.36 + rand() * 0.28);
+  const alpha = 0.34 + rand() * 0.16;
+
+  ctx.save();
+  ctx.translate(cx, S);
+  ctx.scale(1, rise);
+  const g = ctx.createRadialGradient(0, 0, 0, 0, 0, r);
+  g.addColorStop(0, `rgba(${damp[0]},${damp[1]},${damp[2]},${alpha})`);
+  g.addColorStop(0.55, `rgba(${damp[0]},${damp[1]},${damp[2]},${alpha * 0.55})`);
+  g.addColorStop(1, `rgba(${damp[0]},${damp[1]},${damp[2]},0)`);
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+
+  // Tide-line. Real water stains concentrate their solute at the edge, and
+  // this one detail is the difference between "a water stain" and "a brown
+  // smudge". Soft on purpose -- crisp, it reads as a drawn circle.
+  ctx.save();
+  ctx.translate(cx, S);
+  ctx.scale(1, rise);
+  ctx.strokeStyle = `rgba(${tide[0]},${tide[1]},${tide[2]},0.13)`;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.arc(0, 0, r * (0.80 + rand() * 0.12), 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  // Mildew, rejection-sampled inside this stain only.
+  ctx.fillStyle = 'rgba(24, 20, 10, 0.30)';
+  const specks = Math.round(MILDEW_SPECKS / 4 * (0.6 + rand() * 0.8));
+  for (let i = 0; i < specks; i++) {
+    const a = rand() * Math.PI * 2;
+    const d = Math.sqrt(rand()) * r;
+    const x = cx + Math.cos(a) * d;
+    const y = S + Math.sin(a) * d * rise;
+    if (y > S) continue;
+    ctx.beginPath();
+    ctx.arc(x, y, 0.5 + rand() * 1.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // ClampToEdge, NOT the RepeatWrapping finish() hands out: this is a decal on
+  // its own quad, and repeat-wrapping a stain that runs off one edge would
+  // wrap it back in on the other as a hard seam.
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+
+// ---------- decals: floor damp, and blood ----------
+
+/**
+ * Shared plumbing for every decal below.
+ *
+ * `decal()` finishes a canvas as a ClampToEdge texture rather than the
+ * RepeatWrapping one finish() hands out. That is not a preference: a decal sits
+ * on its own quad and its content runs off the edge by design, so repeat
+ * wrapping brings it back in on the opposite side as a hard seam.
+ *
+ * `blob()` is the reason these read as fluid rather than as circles. A single
+ * radial gradient is a disc, and a floor covered in discs reads as a pattern
+ * however it is coloured -- the wallpaper learned that already, in its comment
+ * about hard-edged mould rings. Overlapping several gradients on jittered
+ * centres gives an outline with lobes and inlets, which is what a spill has.
+ */
+function decal(canvas) {
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+function blob(ctx, rand, cx, cy, r, rgb, alpha, lobes = 5, squash = 1) {
+  for (let i = 0; i < lobes; i++) {
+    const a = (i / lobes) * Math.PI * 2 + rand() * 0.9;
+    const d = i === 0 ? 0 : r * (0.18 + rand() * 0.42);
+    const lr = r * (i === 0 ? 1 : 0.42 + rand() * 0.46);
+    const x = cx + Math.cos(a) * d;
+    const y = cy + Math.sin(a) * d * squash;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(1, squash);
+    const g = ctx.createRadialGradient(0, 0, 0, 0, 0, lr);
+    g.addColorStop(0, 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + alpha + ')');
+    g.addColorStop(0.62, 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + alpha * 0.72 + ')');
+    g.addColorStop(1, 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(0, 0, lr, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+/** Satellite droplets thrown clear of a spill. What stops it reading as a rug. */
+function spatter(ctx, rand, cx, cy, r, rgb, count, reach = 1.9) {
+  for (let i = 0; i < count; i++) {
+    const a = rand() * Math.PI * 2;
+    const d = r * (1.0 + rand() * reach);
+    const rr = 1.2 + rand() * 4.4;
+    ctx.fillStyle = 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + (0.30 + rand() * 0.45) + ')';
+    ctx.beginPath();
+    ctx.ellipse(cx + Math.cos(a) * d, cy + Math.sin(a) * d, rr, rr * (0.6 + rand() * 0.8),
+      rand() * Math.PI, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+/**
+ * A damp / mould patch on the carpet, seen from above.
+ *
+ * The floor's counterpart to createDampStainTexture, and it exists for the same
+ * reason: buildDampCarpetHeightCanvas used to carry nine of these, and the floor
+ * tiles that canvas every 2.6 m across a 53 m box, so nine became about 3,800 in
+ * a dead-regular grid. Here they are placed per corridor instead.
+ *
+ * Centred rather than edge-anchored -- a wall stain wicks up from the skirting
+ * and has a bottom, a floor stain is seen from directly above and has none.
+ */
+export function createFloorStainTexture(seed = 0, {
+  wet = [74, 65, 42],
+  mould = [34, 32, 20]
+} = {}) {
+  const rand = creatureRand(0x1f83d9 + seed * 7717);
+  const S = 256;
+  const canvas = makeCanvas(S, S);
+  const ctx = canvas.getContext('2d');
+  const r = S * (0.26 + rand() * 0.10);
+  blob(ctx, rand, S / 2, S / 2, r, wet, 0.42 + rand() * 0.16, 5 + Math.floor(rand() * 3));
+  // A darker mould heart, offset from the middle -- damp spreads outward from
+  // wherever the water actually got in, not from the centre of the patch.
+  blob(ctx, rand, S / 2 + (rand() - 0.5) * r * 0.7, S / 2 + (rand() - 0.5) * r * 0.7,
+    r * (0.34 + rand() * 0.2), mould, 0.34, 4);
+  spatter(ctx, rand, S / 2, S / 2, r, mould, 10 + Math.floor(rand() * 14), 0.7);
+  return decal(canvas);
+}
+
+// Blood, three states. Kept as one palette so a pool and the dry patch beside
+// it are obviously the same substance at different ages, which is most of what
+// makes a scene read as having happened rather than having been decorated.
+const BLOOD_WET = [112, 14, 16];
+const BLOOD_DEEP = [52, 6, 9];
+const BLOOD_DRY = [86, 38, 28];
+const BLOOD_CRUST = [58, 24, 18];
+
+/**
+ * A pool, seen from above. Still wet.
+ *
+ * WETNESS IS NOT IN THIS CANVAS -- it is the material's roughness, and it has
+ * to be, because a pool reads as wet by holding a sharp specular reflection of
+ * the fluorescents and nothing painted into an albedo map can fake that under a
+ * moving light. What the canvas contributes is the shape: a lobed outline, a
+ * deep almost-black heart where it is thickest, a lighter rim where it is
+ * shallow enough to see the carpet through, and thrown droplets.
+ */
+export function createBloodPoolTexture(seed = 0) {
+  const rand = creatureRand(0x7ac3e1 + seed * 6971);
+  const S = 256;
+  const canvas = makeCanvas(S, S);
+  const ctx = canvas.getContext('2d');
+  const r = S * (0.24 + rand() * 0.11);
+  const squash = 0.72 + rand() * 0.5;
+  blob(ctx, rand, S / 2, S / 2, r * 1.06, BLOOD_WET, 0.60, 6, squash);
+  blob(ctx, rand, S / 2, S / 2, r * 0.62, BLOOD_DEEP, 0.78, 4, squash);
+  spatter(ctx, rand, S / 2, S / 2, r, BLOOD_WET, 12 + Math.floor(rand() * 18));
+  return decal(canvas);
+}
+
+/**
+ * A dry patch. Older, browner, matte, and cracked.
+ *
+ * The cracks are ERASED rather than drawn, which is the whole trick: a crack in
+ * a dried film shows the carpet underneath it, so cutting alpha out reads as
+ * less blood while painting a dark line reads as more. Getting that backwards
+ * is what makes dried blood look like wet blood with scratches on it.
+ */
+export function createBloodDryTexture(seed = 0) {
+  const rand = creatureRand(0x3d9e77 + seed * 8663);
+  const S = 256;
+  const canvas = makeCanvas(S, S);
+  const ctx = canvas.getContext('2d');
+  const r = S * (0.23 + rand() * 0.12);
+  blob(ctx, rand, S / 2, S / 2, r, BLOOD_DRY, 0.54, 6, 0.8 + rand() * 0.45);
+  blob(ctx, rand, S / 2, S / 2, r * 0.7, BLOOD_CRUST, 0.42, 5);
+
+  ctx.globalCompositeOperation = 'destination-out';
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 5 + Math.floor(rand() * 6); i++) {
+    const a = rand() * Math.PI * 2;
+    const d = rand() * r * 0.55;
+    let x = S / 2 + Math.cos(a) * d;
+    let y = S / 2 + Math.sin(a) * d;
+    let dir = rand() * Math.PI * 2;
+    ctx.strokeStyle = 'rgba(0,0,0,' + (0.30 + rand() * 0.35) + ')';
+    ctx.lineWidth = 0.8 + rand() * 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    for (let k = 0; k < 5; k++) {
+      dir += (rand() - 0.5) * 1.3;
+      x += Math.cos(dir) * r * 0.16;
+      y += Math.sin(dir) * r * 0.16;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  spatter(ctx, rand, S / 2, S / 2, r, BLOOD_CRUST, 8 + Math.floor(rand() * 12));
+  return decal(canvas);
+}
+
+/**
+ * Blood running DOWN a wall: a source smear at the top, rivulets below it.
+ *
+ * Top-anchored, the mirror of createDampStainTexture's bottom anchor, because
+ * this one is falling rather than wicking. Every rivulet ends in a rounded
+ * head: surface tension gathers the front of a run into a bead, and a run that
+ * merely tapers to nothing reads as a brush stroke instead of as liquid. The
+ * runs are also of deliberately UNEVEN length -- equal ones read as a comb.
+ */
+export function createBloodWallRunTexture(seed = 0) {
+  const rand = creatureRand(0x51ab2f + seed * 7333);
+  const S = 256;
+  const canvas = makeCanvas(S, S);
+  const ctx = canvas.getContext('2d');
+
+  const cx = S * (0.34 + rand() * 0.32);
+  const srcR = S * (0.13 + rand() * 0.10);
+  blob(ctx, rand, cx, srcR * 0.75, srcR, BLOOD_WET, 0.62, 5, 0.75);
+  blob(ctx, rand, cx, srcR * 0.75, srcR * 0.6, BLOOD_DEEP, 0.7, 4, 0.75);
+
+  const runs = 2 + Math.floor(rand() * 4);
+  for (let i = 0; i < runs; i++) {
+    const x0 = cx + (rand() - 0.5) * srcR * 1.7;
+    const len = S * (0.22 + rand() * 0.66);
+    const w = 1.6 + rand() * 4.2;
+    ctx.strokeStyle = 'rgba(' + BLOOD_DEEP[0] + ',' + BLOOD_DEEP[1] + ',' + BLOOD_DEEP[2]
+      + ',' + (0.5 + rand() * 0.35) + ')';
+    ctx.lineWidth = w;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x0, srcR * 0.6);
+    let x = x0;
+    const steps = 6;
+    for (let k = 1; k <= steps; k++) {
+      x += (rand() - 0.5) * 5;
+      ctx.lineTo(x, srcR * 0.6 + (len * k) / steps);
+    }
+    ctx.stroke();
+    // The bead at the front of the run.
+    ctx.fillStyle = 'rgba(' + BLOOD_DEEP[0] + ',' + BLOOD_DEEP[1] + ',' + BLOOD_DEEP[2]
+      + ',' + (0.62 + rand() * 0.3) + ')';
+    ctx.beginPath();
+    ctx.ellipse(x, srcR * 0.6 + len, w * 0.85, w * 1.35, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  spatter(ctx, rand, cx, srcR * 0.9, srcR, BLOOD_WET, 6 + Math.floor(rand() * 10), 1.1);
+  return decal(canvas);
+}
+
+/**
+ * Blood on the CEILING, seen from below: a soaked patch with gather points.
+ *
+ * The gather points are the reason this is its own texture rather than the pool
+ * reused upside down. Liquid on a ceiling does not sit in an even film; it
+ * creeps to low spots and hangs there, so the shape is a broad thin stain with
+ * two or three much darker beads in it -- and those beads are where
+ * backroomsLevel hangs its drip strands, so the geometry and the painting agree
+ * about where the drips are coming from.
+ */
+export function createBloodCeilingTexture(seed = 0) {
+  const rand = creatureRand(0x2c7f41 + seed * 6143);
+  const S = 256;
+  const canvas = makeCanvas(S, S);
+  const ctx = canvas.getContext('2d');
+  const r = S * (0.25 + rand() * 0.12);
+  blob(ctx, rand, S / 2, S / 2, r, BLOOD_DEEP, 0.46, 7, 0.85 + rand() * 0.3);
+  for (let i = 0; i < 2 + Math.floor(rand() * 2); i++) {
+    const a = rand() * Math.PI * 2;
+    const d = rand() * r * 0.5;
+    blob(ctx, rand, S / 2 + Math.cos(a) * d, S / 2 + Math.sin(a) * d,
+      r * (0.16 + rand() * 0.12), BLOOD_DEEP, 0.8, 3);
+  }
+  spatter(ctx, rand, S / 2, S / 2, r, BLOOD_DEEP, 6 + Math.floor(rand() * 10), 1.0);
+  return decal(canvas);
+}
+
+/**
+ * One hanging strand, for the drips under a ceiling stain.
+ *
+ * A thread that swells to a bead at the bottom. It is the one blood decal that
+ * is GEOMETRY rather than paint on an existing surface, because a drip hanging
+ * in the air is exactly that -- there is no surface under a ceiling to paint it
+ * on, and without these the ceiling stain reads as a stain rather than as
+ * something still coming down.
+ */
+export function createBloodDripStrandTexture(seed = 0) {
+  const rand = creatureRand(0x6e21b5 + seed * 5849);
+  const W = 32, H = 256;
+  const canvas = makeCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+  const len = H * (0.45 + rand() * 0.5);
+  const w = 2.2 + rand() * 3.0;
+  ctx.strokeStyle = 'rgba(' + BLOOD_DEEP[0] + ',' + BLOOD_DEEP[1] + ',' + BLOOD_DEEP[2] + ',0.88)';
+  ctx.lineWidth = w;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(W / 2, 0);
+  ctx.lineTo(W / 2 + (rand() - 0.5) * 3, len);
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(' + BLOOD_DEEP[0] + ',' + BLOOD_DEEP[1] + ',' + BLOOD_DEEP[2] + ',0.94)';
+  ctx.beginPath();
+  ctx.ellipse(W / 2, len, w * 1.15, w * 1.9, 0, 0, Math.PI * 2);
+  ctx.fill();
+  return decal(canvas);
+}
+
+
 export function createBackroomsWallpaperTexture({
   base = [198, 178, 96],
   lit = [222, 202, 122],
@@ -1570,7 +1954,7 @@ export function createBackroomsWallpaperTexture({
   // exactly one canvas height onto each wall, so those bands land on the real
   // ceiling and skirting lines instead of floating mid-wall.
   const stains = [];
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < DAMP_STAINS; i++) {
     const cx = Math.random() * canvas.width;
     const cy = i < 4 ? canvas.height * (0.85 + Math.random() * 0.15)
       : i < 6 ? canvas.height * Math.random() * 0.10
@@ -1606,9 +1990,11 @@ export function createBackroomsWallpaperTexture({
     ctx.restore();
   }
 
-  // Mildew speckle, rejection-sampled so it only lands inside the stains.
+  // Mildew speckle, rejection-sampled so it only lands inside the stains. With
+  // DAMP_STAINS at 0 there is nothing to sample and this draws nothing -- the
+  // guard is what stops stains[floor(rand * 0)] handing back undefined.
   ctx.fillStyle = 'rgba(24, 20, 10, 0.35)';
-  for (let i = 0; i < 320; i++) {
+  for (let i = 0; stains.length && i < MILDEW_SPECKS; i++) {
     const s = stains[Math.floor(Math.random() * stains.length)];
     const a = Math.random() * Math.PI * 2;
     const d = Math.random() * s[2];
@@ -1620,7 +2006,7 @@ export function createBackroomsWallpaperTexture({
   // Run streaks from the ceiling line -- createPlasterWallTexture's idiom,
   // browner, and only ever downward.
   ctx.strokeStyle = 'rgba(46, 36, 14, 0.13)';
-  for (let i = 0; i < 8; i++) {
+  for (let i = 0; i < RUN_STREAKS; i++) {
     const x = Math.random() * canvas.width;
     ctx.beginPath();
     ctx.moveTo(x, 0);
@@ -1640,6 +2026,47 @@ export function createBackroomsWallpaperNormalTexture() {
 }
 
 // ---------- damp beige carpet ----------
+
+/**
+ * Dirt in the TILING carpet, and this is NOT the same edit the wallpaper got.
+ *
+ * The floor is ONE plane spanning the whole 53 x 53 m bounding box, tiled every
+ * 2.6 m: 424 tiles of this canvas. Nine wet patches were therefore about 3,800
+ * wet patches and six mould blooms about 2,500, all on a dead-regular 2.6 m
+ * grid -- the wallpaper's problem an order of magnitude worse.
+ *
+ * THE OBVIOUS FIX WAS WRONG, and the asymmetry is worth spelling out because it
+ * is invisible until you look. On the WALL the stains lived only in the COLOUR
+ * pass; backroomsWallHeight() was never touched and still carries the roll
+ * seams and blisters, which is why the wall decals can be colour-only and still
+ * sit on a surface with topology. On the FLOOR the wet patches are drawn into
+ * the HEIGHT canvas, and heightToNormalMap() derives the floor's normal map
+ * from it. They are the only large-scale feature in there. Zeroing them to
+ * match the wallpaper would have deleted the carpet's entire undulation along
+ * with the stain -- measured on a 16x downsample, coarse normal tilt collapses
+ * from 2.70 deg mean to 0.54, and the coarse height range from 50..129 to
+ * 114..129. The floor is the surface most often seen at a grazing angle under
+ * pooled fluorescents, so it is the worst possible place to lose raking-light
+ * response, and a flat colour decal dropped on it reads as a sticker.
+ *
+ * So the patches STAY in the height canvas and what was deleted is the COLOUR
+ * consequence: createDampCarpetTexture no longer tints h < 92 toward `wet`.
+ * That is the true equivalent of the wall fix -- the stain's colour leaves the
+ * tiling texture, its topology does not. What survives is the shade term, a
+ * ~9% darkening where the pile is matted, with no hue shift: enough to be the
+ * floor's tonal variation, far too subtle to read as a repeated stain. It also
+ * degrades better under tiling than a colour blob ever could, because the
+ * normal response changes with each corridor's own lighting while a dark blob
+ * looks identical everywhere -- which is precisely why the repeat was visible.
+ *
+ * The MOULD blooms were pure colour and are the ones that read as stains, so
+ * they are cut from six to three AND rescaled: radius 150-250 px at 6% alpha
+ * rather than 34-98 px at 20%. At that size one bloom is most of a tile and
+ * never resolves as a shape, so it carries tone without being a mark. The
+ * discrete floor staining is decals now -- see createFloorStainTexture.
+ */
+const CARPET_WET_PATCHES = 9;
+const CARPET_MOULD_BLOOMS = 3;
 
 let _dampCarpetHeight = null;
 function dampCarpetHeight() {
@@ -1695,7 +2122,7 @@ function buildDampCarpetHeightCanvas() {
 
   // Wet patches. Recessed, because wet carpet mats DOWN -- and the colour pass
   // thresholds on the same values, so stain and normal stay registered.
-  for (let i = 0; i < 9; i++) {
+  for (let i = 0; i < CARPET_WET_PATCHES; i++) {
     const x = Math.random() * canvas.width;
     const y = Math.random() * canvas.height;
     const r = 40 + Math.random() * 70;
@@ -1754,14 +2181,15 @@ export function createDampCarpetTexture({
     let r = base[0] * shade;
     let g = base[1] * shade;
     let b = base[2] * shade;
-    // Same threshold the height pass used for its wet patches, so the damp
-    // colour can never drift off the matted pile it belongs to.
-    if (h < 92) {
-      const w = (92 - h) / 92;
-      r += (wet[0] - r) * w;
-      g += (wet[1] - g) * w;
-      b += (wet[2] - b) * w;
-    }
+    // NO WET TINT. This used to pull anything under h = 92 toward `wet`, which
+    // is what turned the height canvas's nine recessed patches into nine
+    // visible stains -- and then into ~3,800 of them once the floor tiled this
+    // canvas 424 times. The recesses are still there and still shade
+    // themselves through the `shade` term above; what is gone is the extra
+    // colour that made them read as damage rather than as matted pile. See the
+    // note on CARPET_WET_PATCHES. `wet` is kept in the signature because
+    // createFloorStainTexture takes the same colour for the decals that
+    // replaced these.
     out.data[i] = Math.min(255, r);
     out.data[i + 1] = Math.min(255, g);
     out.data[i + 2] = Math.min(255, b);
@@ -1773,12 +2201,14 @@ export function createDampCarpetTexture({
   // the one feature in this canvas that survived tiling as an obviously
   // repeated shape -- a floor covered in identical drawn rings. Soft radial
   // gradients blend into their neighbours and read as staining instead.
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < CARPET_MOULD_BLOOMS; i++) {
     const x = Math.random() * canvas.width;
     const y = Math.random() * canvas.height;
-    const r = 34 + Math.random() * 64;
+    // Deliberately BIGGER and fainter than a stain: at this radius one bloom
+    // covers most of the tile, so it never resolves as a repeated shape.
+    const r = 150 + Math.random() * 100;
     const g = ctx.createRadialGradient(x, y, 0, x, y, r);
-    g.addColorStop(0, 'rgba(' + mould[0] + ',' + mould[1] + ',' + mould[2] + ',0.20)');
+    g.addColorStop(0, 'rgba(' + mould[0] + ',' + mould[1] + ',' + mould[2] + ',0.06)');
     g.addColorStop(1, 'rgba(' + mould[0] + ',' + mould[1] + ',' + mould[2] + ',0)');
     ctx.fillStyle = g;
     ctx.beginPath();
@@ -2960,5 +3390,278 @@ export function createPuddleTextures(variant = 'pool') {
     // map can get; this one is deliberately smooth, so it needs the extra gain
     // to reach a slope that bounces the torch back at the player at all.
     normalMap: decal(finishBump(heightToNormalMap(height, 1.9), 1, 1))
+  };
+}
+
+// ===========================================================================
+// The creature
+// ===========================================================================
+//
+// Five surfaces for src/assets/models/creature.glb, bound by MATERIAL NAME
+// through applyTextureByMaterialName() -- the .glb ships flat PBR colours and
+// no baked maps, exactly like the props.
+//
+// WHY THESE ARE TILED NOISE AND NOT PAINTED MAPS. The creature is unwrapped
+// with Smart UV Project, so its UV islands are an arbitrary scatter -- there is
+// no stable place to paint a collar or a stain, because the island that holds
+// the collar moves the moment the geometry changes. What survives that is
+// MATERIAL detail: weave, pores, strand direction. Tiled, seamless, and
+// meaningful wherever it lands.
+//
+// Everything is driven off a seeded PRNG rather than Math.random(), so the
+// albedo and the normal map are drawn from the same noise -- the memoisation
+// note further up this file records what happens when they are not.
+
+/** Deterministic LCG. Same seed, same cloth, every reload and both maps. */
+function creatureRand(seed) {
+  let s = seed >>> 0;
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 4294967296;
+  };
+}
+
+/**
+ * Tileable value noise, summed over octaves. Wraps, so the cloth has no seam.
+ *
+ * `aspect` stretches the features along y: above 1 they get longer than they
+ * are wide. The stretch is done by giving the noise GRID fewer rows rather
+ * than by sampling a square grid with a scaled coordinate, which matters --
+ * a scaled sample only tiles when the scale divides the grid exactly, and a
+ * texture that does not tile shows a hard seam wherever Smart UV Project
+ * happened to put an island edge. Each octave still wraps on its own row
+ * count, so any aspect at all is safe.
+ */
+function creatureNoise(size, seed, octaves = 4, aspect = 1) {
+  const rand = creatureRand(seed);
+  const out = new Float32Array(size * size);
+  let amp = 1;
+  let total = 0;
+  for (let o = 0; o < octaves; o++) {
+    const cells = 4 << o;
+    const rows = Math.max(1, Math.round(cells / aspect));
+    const grid = new Float32Array(cells * rows);
+    for (let i = 0; i < grid.length; i++) grid[i] = rand();
+    const step = size / cells;
+    const rowStep = size / rows;
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const gx = x / step;
+        const gy = y / rowStep;
+        const x0 = Math.floor(gx) % cells;
+        const y0 = Math.floor(gy) % rows;
+        const x1 = (x0 + 1) % cells;
+        const y1 = (y0 + 1) % rows;
+        const fx = gx - Math.floor(gx);
+        const fy = gy - Math.floor(gy);
+        // smoothstep, so the octaves read as cloth rather than as a grid
+        const sx = fx * fx * (3 - 2 * fx);
+        const sy = fy * fy * (3 - 2 * fy);
+        const a = grid[y0 * cells + x0] + (grid[y0 * cells + x1] - grid[y0 * cells + x0]) * sx;
+        const b = grid[y1 * cells + x0] + (grid[y1 * cells + x1] - grid[y1 * cells + x0]) * sx;
+        out[y * size + x] += (a + (b - a) * sy) * amp;
+      }
+    }
+    total += amp;
+    amp *= 0.5;
+  }
+  for (let i = 0; i < out.length; i++) out[i] /= total;
+  return out;
+}
+
+function grayCanvas(size, fn) {
+  const canvas = makeCanvas(size, size);
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(size, size);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = (y * size + x) * 4;
+      const v = Math.max(0, Math.min(255, fn(x, y) * 255));
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+      img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
+/**
+ * A woven cloth height field. `skew` shears the weave into a twill diagonal,
+ * which is what tells trousers apart from a lab coat at a glance.
+ */
+function buildCreatureWeave(size, thread, skew, seed) {
+  const slub = creatureNoise(size, seed, 4);
+  return grayCanvas(size, (x, y) => {
+    const u = x + y * skew;
+    const over = (Math.floor(u / thread) + Math.floor(y / thread)) % 2 === 0;
+    const rise = over
+      ? Math.sin((((u % thread) + thread) % thread) / thread * Math.PI)
+      : Math.sin((y % thread) / thread * Math.PI);
+    return 0.42 + rise * 0.34 + (slub[y * size + x] - 0.5) * 0.22;
+  });
+}
+
+const CREATURE_HEIGHT_CACHE = new Map();
+function creatureHeight(key, build) {
+  if (!CREATURE_HEIGHT_CACHE.has(key)) CREATURE_HEIGHT_CACHE.set(key, build());
+  return CREATURE_HEIGHT_CACHE.get(key);
+}
+
+/**
+ * Colour from a height field: light where the weave rises, dark in the valleys,
+ * plus a second low-frequency noise as grime. `grime` is how filthy it gets --
+ * the coat has been in this house since 1987.
+ */
+function creatureAlbedo(height, size, rgb, { contrast = 0.30, grime = 0.0, grimeSeed = 7 } = {}) {
+  const src = height.getContext('2d').getImageData(0, 0, size, size).data;
+  const dirt = grime > 0 ? creatureNoise(size, grimeSeed, 3) : null;
+  const canvas = makeCanvas(size, size);
+  const ctx = canvas.getContext('2d');
+  const img = ctx.createImageData(size, size);
+  for (let i = 0; i < src.length; i += 4) {
+    const t = src[i] / 255;
+    let shade = 1 - contrast * 0.5 + t * contrast;
+    if (dirt) {
+      const d = dirt[i >> 2];
+      shade *= 1 - grime * Math.max(0, d - 0.35);
+    }
+    img.data[i] = Math.min(255, rgb[0] * shade);
+    img.data[i + 1] = Math.min(255, rgb[1] * shade);
+    img.data[i + 2] = Math.min(255, rgb[2] * shade);
+    img.data[i + 3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
+/**
+ * Every map the creature needs, keyed by the material name in the .glb.
+ *
+ * Returns { CreatureSkin: {map, normalMap}, ... } so main.js can bind the whole
+ * set in one loop instead of five hand-written calls that can drift apart from
+ * the names blender/build_creature.py writes.
+ *
+ * NOTE ON BRIGHTNESS. These albedos carry the colour, so the caller must set
+ * material.color to white -- otherwise the .glb's own base colour multiplies
+ * against the map and the creature comes out twice as dark as intended.
+ * Creature.js then uses material.color purely as the correction/silhouette
+ * dimmer, which is exactly what it wants it for.
+ */
+export function createCreatureTextures() {
+  const BIG = 512;    // coat and skin: the two surfaces the reveal actually lights
+  const SMALL = 256;  // shirt, trousers, hair: never seen in isolation
+
+  const coatH = creatureHeight('coat', () => buildCreatureWeave(BIG, 9, 0, 21));
+  // Skin is pores over mottling, not a weave -- two noise scales multiplied so
+  // the fine grain only shows where the coarse one is already light.
+  const skinH = creatureHeight('skin', () => {
+    const pores = creatureNoise(BIG, 33, 5);
+    const mottle = creatureNoise(BIG, 34, 2);
+    return grayCanvas(BIG, (x, y) => {
+      const i = y * BIG + x;
+      return 0.52 + (pores[i] - 0.5) * 0.30 + (mottle[i] - 0.5) * 0.26;
+    });
+  });
+  const shirtH = creatureHeight('shirt', () => buildCreatureWeave(SMALL, 5, 0, 55));
+  const trouserH = creatureHeight('trousers', () => buildCreatureWeave(SMALL, 6, 0.6, 77));
+  // HAIR IS MOULDED, NOT GROWN, and that is a deliberate reversal. The version
+  // before this compressed the noise 4x in y to resolve individual strands,
+  // which is the one thing the hair must not do: build_creature.py models the
+  // hair as a single solid piece, so a strand texture on it reads as strands
+  // PAINTED on a helmet, and at 5-15 m through FogExp2 a strand is finer than
+  // a pixel anyway -- it aliases into grey mush and takes the shape's edges
+  // with it.
+  //
+  // What a sculpted hair piece actually has is CLUMPS: a handful of broad
+  // masses with narrow grooves between them, at roughly a centimetre, which is
+  // a feature size that survives both the fog and the mip chain. So:
+  //
+  //   `clump` is three octaves at aspect 3.2 -- long in the sweep direction,
+  //   narrow across it. Anisotropy WITHOUT resolving strands.
+  //
+  //   The ridge remap is what turns noise into clumps. Plain noise is
+  //   symmetric: as much of it is groove as is crest, which reads as lumpy
+  //   rather than as combed. Folding it about 0.5 and raising the result to a
+  //   power above 1 makes the GROOVES NARROW and the CRESTS BROAD -- a few
+  //   dark partings between wide lit masses, which is what hair does.
+  //
+  //   `grain` is a fine, very low amplitude wobble that only stops the crests
+  //   looking extruded. It is 10% of the range; any more and it is strands
+  //   again by the back door.
+  const hairH = creatureHeight('hair', () => {
+    const clump = creatureNoise(SMALL, 91, 3, 3.2);
+    const grain = creatureNoise(SMALL, 92, 5, 1.6);
+    return grayCanvas(SMALL, (x, y) => {
+      const i = y * SMALL + x;
+      const ridge = 1 - Math.min(1, Math.abs(clump[i] - 0.5) * 2.4) ** 1.7;
+      return 0.26 + ridge * 0.54 + (grain[i] - 0.5) * 0.10;
+    });
+  });
+
+  /**
+   * Roughness from the same height field, inverted and remapped.
+   *
+   * This is the cheapest PS3-era cue there is and it costs one more canvas:
+   * uniform roughness makes every surface respond to the torch identically, so
+   * cloth, skin and hair all read as the same plastic. Raised threads and the
+   * high points of skin catch more light (lower roughness) than the valleys
+   * between them, and `lo`/`hi` set how glossy each surface is allowed to get
+   * -- hair near 0.45, dry cloth barely below 1.
+   */
+  const roughFrom = (height, size, lo, hi) => {
+    const src = height.getContext('2d').getImageData(0, 0, size, size).data;
+    const canvas = makeCanvas(size, size);
+    const ctx = canvas.getContext('2d');
+    const img = ctx.createImageData(size, size);
+    for (let i = 0; i < src.length; i += 4) {
+      const t = src[i] / 255;
+      const v = Math.max(0, Math.min(255, (hi - (hi - lo) * t) * 255));
+      img.data[i] = img.data[i + 1] = img.data[i + 2] = v;
+      img.data[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+    return canvas;
+  };
+
+  const pack = (height, size, rgb, opts, strength, repeat, rough = [0.74, 0.98]) => ({
+    map: finish(creatureAlbedo(height, size, rgb, opts), repeat, repeat),
+    normalMap: finishBump(heightToNormalMap(height, strength), repeat, repeat),
+    roughnessMap: finishBump(roughFrom(height, size, rough[0], rough[1]), repeat, repeat)
+  });
+
+  // REPEAT COUNTS ARE THE WHOLE BALLGAME AND THEY ARE NOT INTUITIVE. Smart UV
+  // Project scales its islands to fill 0-1, so the coat -- the largest island
+  // by far -- gets the full texture across roughly half a metre of cloth. At a
+  // repeat of 4 that put the weave at about 3 cm a thread and the lab coat came
+  // out looking like a hand-knitted jumper. A lab coat's weave is closer to
+  // 1 mm, so these are deliberately high: the detail should be something you
+  // read as a SURFACE, not as a pattern.
+  return {
+    // Pale, unhealthy, and grimier than a living person's -- she has been in
+    // that basement since 1987.
+    CreatureSkin: pack(skinH, BIG, [150, 124, 105], { contrast: 0.22, grime: 0.45, grimeSeed: 12 }, 1.1, 9),
+    // #EFEDE8, never pure white, and heavily grimed: the coat is the brightest
+    // thing on the figure, so it is the one that most needs to look OLD.
+    CreatureCoat: pack(coatH, BIG, [239, 237, 232], { contrast: 0.26, grime: 0.62, grimeSeed: 5 }, 1.5, 16),
+    // THE CORE IS MUCH DARKER THAN THE REFERENCE, ON PURPOSE. The source calls
+    // the tee heather grey (#BDBCB7) and the slacks khaki (#AD9A74), which are
+    // daylight values -- used literally they came out within a few percent of
+    // the coat's own brightness and the figure read as one pale mass. The whole
+    // design is a PALE COAT OVER A DARK CORE: the coat only reads as a garment
+    // because there is something darker inside it. So the hue is kept and the
+    // value is dropped by about 60%, which is also just what 1987 basement
+    // clothing looks like.
+    CreatureShirt: pack(shirtH, SMALL, [74, 74, 72], { contrast: 0.34, grime: 0.40, grimeSeed: 18 }, 1.4, 16),
+    CreatureTrousers: pack(trouserH, SMALL, [82, 72, 55], { contrast: 0.32, grime: 0.50, grimeSeed: 23 }, 1.5, 14),
+    // Repeat 3, not 6, and a roughness range that is actually GLOSSY at the
+    // top of the range. Both follow from the clumps being clumps: at 6 the
+    // masses came out around 5 mm, which is strand scale by another route, and
+    // the docstring above has claimed hair sits "near 0.45" since it was
+    // written while this entry quietly took the default 0.74-0.98 and rendered
+    // as matte felt. A broad soft sheen sliding across the crests as the torch
+    // moves is the single strongest cue that a dark mass is hair and not cloth
+    // -- it is most of what sells real hair at a distance, and it costs one
+    // canvas that is already being generated.
+    CreatureHair: pack(hairH, SMALL, [27, 33, 28], { contrast: 0.50 }, 2.4, 3, [0.38, 0.88])
   };
 }

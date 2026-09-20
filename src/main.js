@@ -24,6 +24,7 @@ import { createCutsceneRunner } from './core/Cutscene.js';
 import { createScriptRunner } from './core/Script.js';
 import { createCreature } from './systems/Creature.js';
 import { createCreatureAI } from './systems/CreatureAI.js';
+import { createBackroomsHunter } from './systems/BackroomsHunter.js';
 import { createVisor } from './core/Visor.js';
 import { BEATS, DOCUMENTS, ENDINGS } from './story/lines.js';
 import { Hands } from './systems/hands/hands.js';
@@ -1013,6 +1014,39 @@ const backrooms = createBackroomsLevel({
 sceneManager.register('backrooms', backrooms);
 
 /**
+ * The thing that hunts you on the SECOND crossing.
+ *
+ * Two crossings, two different scares, and they share one creature rig so they
+ * can never both be running:
+ *
+ *   bedroom -> hallwayBasement   the trailing shadow, below. A glimpse you
+ *                                cannot reach and that never reaches you.
+ *   hallwayBasement -> study     this. It looks for you, and it catches you.
+ *
+ * That order is the escalation: the first crossing establishes that something
+ * is back there, the second makes it a problem. `backroomsFrom` is what tells
+ * them apart -- exitLevel already hands the interstitial the level it came
+ * from, so nothing new has to be tracked to know which crossing this is.
+ */
+const backroomsHunter = createBackroomsHunter({
+  creature,
+  getPlayer: () => ({
+    x: camera.position.x,
+    z: camera.position.z,
+    // player.sprint is a 0..1 blend, not a boolean -- it eases in over
+    // SPRINT_BLEND so the FOV kick has something continuous to follow. Half way
+    // is the point where the player has committed to the sprint.
+    sprinting: player.sprint > 0.5
+  }),
+  colliders: backrooms.colliders,
+  onBreathing: (level) => audio.setBreathing(level),
+  onCaught: () => onHunterCaught()
+});
+
+/** Which level this crossing started from, or null when not crossing. */
+let backroomsFrom = null;
+
+/**
  * Something trailing behind you in the corridor between levels.
  *
  * Not the CreatureAI chase -- that only starts in Level 3, after the reveal
@@ -1321,8 +1355,70 @@ const ON_ENTER = {
       s.do(() => { creature.visible = false; });
       await s.play(BEATS.hallwaySighting);
     });
+  },
+
+  /**
+   * The second crossing, and the only one that hunts.
+   *
+   * Started on a delay rather than the instant the level comes up: spawning it
+   * while the fade is still lifting means the first thing a player hears is
+   * breathing, before they have worked out they are somewhere new. The pause is
+   * the difference between a threat and a jump scare.
+   */
+  backrooms: () => {
+    if (backroomsFrom !== 'hallwayBasement') return;
+    script.run(async (s) => {
+      if (!await s.wait(2.2)) return;
+      s.do(() => backroomsHunter.start());
+    });
   }
 };
+
+/**
+ * Caught in the corridor.
+ *
+ * STOPPED, NOT KILLED -- the same rule CreatureAI.js sets out and for the same
+ * reason. The cost is the crossing: you wake at the mouth of the maze with the
+ * whole route to walk again, and it is somewhere else by the time you do. That
+ * is a real penalty measured in the thing this level trades in, which is time,
+ * without ever being a death.
+ */
+function onHunterCaught() {
+  if (caughtInFlight || transitionInFlight) return;
+  caughtInFlight = true;
+  script.run(async (s) => {
+    try {
+      s.do(() => {
+        player.movementEnabled = false;
+        player.lookEnabled = false;
+        interaction.setEnabled(false);
+        // Stop it dead first: without this it keeps closing during the fade and
+        // is standing on top of the spawn point when the screen comes back.
+        backroomsHunter.stop();
+      });
+      if (!await s.play('It has you. The corridor goes out like a bulb.')) return;
+      await fade.fadeOut(450);
+      if (!s.alive()) return;
+      s.do(() => {
+        const [sx, sz] = backrooms.spawn;
+        player.spawn(sx, sz, backrooms.spawnYaw ?? 0);
+      });
+      await fade.fadeIn(650);
+      if (!s.alive()) return;
+      s.do(() => {
+        player.lookEnabled = true;
+        player.movementEnabled = true;
+        interaction.setEnabled(true);
+        // Re-drawn somewhere new, so a caught player is not handed the same
+        // chase back. start() already biases the draw away from the player.
+        backroomsHunter.start();
+      });
+      await s.play('Back at the mouth of the corridor. It is still in here.');
+    } finally {
+      caughtInFlight = false;
+    }
+  });
+}
 
 function activateLevel(key, { lockMovement = false } = {}) {
   const level = sceneManager.activate(key, player);
@@ -1346,6 +1442,7 @@ function activateLevel(key, { lockMovement = false } = {}) {
   creatureStanding = false;
   creatureAI.reset();
   resetBackroomsShadow();
+  backroomsHunter.reset();
   // A leftover animator clip (the lockpick loop, if a debug level-jump key is
   // pressed mid-lockpick) must not survive into whatever level just
   // activated. Harmless when nothing was playing, and safe even with the
@@ -1472,6 +1569,7 @@ async function exitLevel(fromKey) {
   if (!interstitial?.setRoute) { await transitionTo(route.to); return; }
   // Armed BEFORE activateLevel, so the destination, the re-armed exit door and
   // spawn/spawnYaw are all in place by the time SceneManager reads them.
+  backroomsFrom = fromKey;
   interstitial.setRoute({ from: fromKey, ...route });
   await transitionTo(route.via);
 }
@@ -1687,6 +1785,17 @@ const CREDITS = [
   'PointerLockControls -- Three.js official examples module (MIT licence)',
   'Vite -- build tool used to produce the deployment bundle (MIT licence)',
   'All textures are generated procedurally on <canvas> at runtime -- no image assets used.',
+  // CC-BY REQUIRES ATTRIBUTION AND THIS IS IT. hands.glb is the one piece of
+  // third-party geometry in the project; everything else under
+  // src/assets/models/ is generated by the scripts in blender/. This line was
+  // missing while the game was already deployed publicly, which is a licence
+  // breach rather than an oversight -- do not remove it without also removing
+  // the asset.
+  'Hands model -- "First Person hands rigged" by davidfischer, via Sketchfab, '
+    + 'licensed CC BY 4.0 (creativecommons.org/licenses/by/4.0). Modified: '
+    + 'left arm removed, wrist re-aligned, re-rigged for this project.',
+  'All other models (bed, door, dresser, flashlight, creature) are generated '
+    + 'from the Python scripts in blender/ -- see blender/build_*.py.',
   'Wind, thunder and creaks are synthesised with the Web Audio API at runtime -- no audio files used.',
   'The looping breathing track is the one audio file in the project (src/assets/audio/breathing.m4a).',
   // TODO: replace this line with the real source, author and licence of the
@@ -1924,6 +2033,7 @@ if (import.meta.env.DEV) {
     script,
     creature,
     creatureAI,
+    backroomsHunter,
     visor,
     // Test-only access to the backrooms trailing shadow and the bedroom
     // window flash, neither of which has a keyboard trigger of its own to
@@ -1979,6 +2089,13 @@ function tick() {
   elapsed += dt;
 
   player.update(dt);
+  // Footsteps ride the player's own bob clock, so they land with the visual dip
+  // and stop dead when a wall does. See AudioEngine.updateFootsteps.
+  audio.updateFootsteps(player.bobPhase, {
+    moving: player.moving,
+    sprint: player.sprint,
+    crouch: player.crouch
+  });
 
   if (sceneManager.activeKey === 'bedroom') {
     bedroomStorm.update(dt);
@@ -1990,7 +2107,11 @@ function tick() {
   // standing in a corner reads as a statue rather than as something watching.
   if (creatureStanding) creature.update(dt);
   creatureAI.update(dt);
-  if (sceneManager.activeKey === 'backrooms') updateBackroomsShadow(dt);
+  if (sceneManager.activeKey === 'backrooms') {
+    // Never both: one rig, and the hunter owns it outright while it is running.
+    if (backroomsHunter.state === 'stopped') updateBackroomsShadow(dt);
+    else backroomsHunter.update(dt);
+  }
   dustMotes.update(dt, elapsed);
   // Per rendered frame rather than on a fixed step: the hands are
   // presentation, and pinning them to 60 Hz on a 144 Hz display would throw

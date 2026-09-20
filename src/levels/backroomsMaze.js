@@ -8,7 +8,7 @@
  *
  * WHAT A LEG IS. A corridor is declared by its CENTRE-LINE, not by two corners:
  *
- *   { axis, at, from, to, w, parent }
+ *   { axis, at, from, to, w, parent, links }
  *
  *   axis 'z' -- the corridor RUNS along z, and `at` is its x centre-line
  *   axis 'x' -- it runs along x, and `at` is its z centre-line
@@ -17,7 +17,9 @@
  *               descendant, and the rules below are direct comparisons on
  *               absolute coordinates.
  *   w        -- width across the corridor
- *   parent   -- the leg it hangs off. THE TREE IS THE DATA.
+ *   parent   -- the leg it hangs off. THE SPANNING TREE IS THE DATA.
+ *   links    -- OTHER legs this one also joins. Optional, and each one is a
+ *               deliberate LOOP. See below.
  *
  * WHY PARENT POINTERS. The old file kept 14 rectangles and an assertion that
  * counted junctions and checked `count === n - 1`. That cannot say WHICH pair is
@@ -40,6 +42,32 @@
  * junction shapes: P.at at L's end is a T-arm dead-ending into the parent, and
  * P.at in L's interior is this level's signature move -- the route turns and the
  * corridor you were already in carries on without you, as the mistake.
+ *
+ * ---------------------------------------------------------------- LOOPS
+ *
+ * THE MAZE IS NO LONGER A TREE, AND THAT IS THE POINT. There is still exactly
+ * one EXIT, but there is more than one way to reach it. `links` declares the
+ * extra joins.
+ *
+ * The validator used to reject every loop outright, and the message it used is
+ * worth keeping in mind because the concern was real: "that is a loop, so a
+ * wrong turn becomes a shortcut". What has changed is that this is now the
+ * design rather than an accident. An UNDECLARED overlap is still exactly as
+ * wrong as it ever was -- two corridors that touch because somebody mistyped a
+ * coordinate -- so the rule did not go away, it acquired an exception that has
+ * to be written down in the data before it applies.
+ *
+ * The parent pointers are still a spanning tree over every leg, and everything
+ * that walks them (buildRoute, the reachability check, junctionPoint) still
+ * works unchanged. `links` are extra EDGES on top of that tree, not extra
+ * parents, which is what keeps the two concerns separate: the tree says how the
+ * maze was built, the full edge set says how you can walk it.
+ *
+ * ROUTE still means THE PRIMARY ROUTE -- the one the lamps light. The loops are
+ * unlit, so following the lights still works and finding a shortcut is still a
+ * discovery. The validator reports which route legs are BYPASSABLE, which is
+ * the property that actually matters and the one that goes red if a link is
+ * broken or removed.
  */
 
 // The only import: the same two numbers PointerLockPlayer and CreatureAI read,
@@ -62,6 +90,14 @@ export const BODY_R = 0.35;
  * now that the arrows are gone. See the reduced `distance` on the fixtures.
  */
 export const MIN_WALL = 1.6;
+
+/**
+ * How many legs of the primary route must be skippable via a loop.
+ *
+ * The brief was more than one way to reach the exit, not more than one exit.
+ * This is that, as a number a check can compare against.
+ */
+export const MIN_BYPASSABLE = 3;
 
 export const LEGS = {
   // ---- THE ROUTE: eleven legs, alternating axis, so TEN turns ------------
@@ -102,7 +138,10 @@ export const LEGS = {
   // the walk. Width is the tell, which is why only the closets are narrow.
   d2a: { axis: 'z', at: -19.2, from:  14.4, to:  20.8, w: 3.2, parent: 'EW2', kind: 'decoy' },
   d2b: { axis: 'x', at:  19.2, from: -30.4, to: -17.6, w: 3.2, parent: 'd2a', kind: 'decoy' },
-  d2c: { axis: 'z', at: -28.8, from:  19.2, to:  28.8, w: 3.2, parent: 'd2b', kind: 'decoy' },
+  // Runs 4.8 m further north than it used to, far enough to cross d4a. That
+  // turns the deepest, most punishing branch in the maze into the third way
+  // through -- the longest walk back becomes the biggest payoff.
+  d2c: { axis: 'z', at: -28.8, from:  19.2, to:  33.6, w: 3.2, parent: 'd2b', kind: 'decoy', links: ['d4a'] },
   d2d: { axis: 'x', at:  27.6, from: -28.8, to: -25.6, w: 2.4, parent: 'd2c', kind: 'decoy' },
   d2e: { axis: 'x', at:  23.6, from: -32.0, to: -28.8, w: 2.4, parent: 'd2c', kind: 'decoy' },
   d2f: { axis: 'z', at: -24.0, from:   8.0, to:  14.4, w: 3.2, parent: 'EW2', kind: 'decoy' },
@@ -118,7 +157,14 @@ export const LEGS = {
   // d4a sits at z = 33.6, exactly collinear with EW5 on the route and 1.6 m of
   // solid wall away from it. The longest backtrack in the maze is from d4c,
   // and it is 19.2 m -- under the 20 m ceiling the fairness rules set.
-  d4a: { axis: 'x', at:  33.6, from: -22.4, to:  -8.0, w: 3.2, parent: 'NS4', kind: 'decoy' },
+  // THE LEG THAT CARRIES BOTH LOOPS, and it is the tease the level already set
+  // up: the comment above used to end "exactly collinear with EW5 on the route
+  // and 1.6 m of solid wall away from it". It now runs the last 3.2 m and joins
+  // it. A player who took this branch, saw it pointing straight at the route and
+  // felt sure it had to connect was RIGHT, which is a far better payoff than
+  // being taunted -- and the 1.6 m wall is still there everywhere else, so the
+  // tease still works the first time.
+  d4a: { axis: 'x', at:  33.6, from: -28.8, to:  -4.8, w: 3.2, parent: 'NS4', kind: 'decoy', links: ['EW5', 'NS6'] },
   d4b: { axis: 'z', at: -19.2, from:  33.6, to:  44.8, w: 3.2, parent: 'd4a', kind: 'decoy' },
   d4c: { axis: 'x', at:  43.2, from: -19.2, to:  -8.0, w: 3.2, parent: 'd4b', kind: 'decoy' },
   d4d: { axis: 'x', at:  38.4, from: -19.2, to: -14.4, w: 2.4, parent: 'd4b', kind: 'decoy' },
@@ -140,7 +186,38 @@ export const LEGS = {
   sC: { axis: 'z', at:   4.8, from:   1.6, to:   4.8, w: 2.4, parent: 'EW1', kind: 'decoy' },
   sD: { axis: 'x', at:  10.0, from:  -9.6, to:  -6.4, w: 2.4, parent: 'NS2', kind: 'decoy' },
   sE: { axis: 'z', at: -19.2, from:  24.0, to:  30.4, w: 3.2, parent: 'EW3', kind: 'decoy' },
-  sF: { axis: 'z', at: -14.4, from:  43.2, to:  46.4, w: 2.4, parent: 'd4c', kind: 'decoy' }
+  sF: { axis: 'z', at: -14.4, from:  43.2, to:  46.4, w: 2.4, parent: 'd4c', kind: 'decoy' },
+
+  // ---- rooms: 6.4 x 8.0, entered through a 1.4 m neck --------------------
+  // Empty on purpose. No door, no pickup, no beat -- a room you walk into,
+  // stand in, and walk out of. What they are FOR is scale: every other space in
+  // here is 3.2 m across and lit end to end, so the first time the walls stop
+  // being an arm's length away is an event on its own, and it is the only place
+  // in the maze where the hunter can be somewhere other than in front of you or
+  // behind you.
+  //
+  // THE NECK IS WHAT MAKES THE ENTRANCE A DOORWAY. Hung straight off a corridor
+  // a room's whole near side is the opening, because the wall builder walls the
+  // boundary of the corridor UNION and there is no boundary where two rects
+  // overlap. The neck is a 1.4 m leg that pierces the 1.6 m wall between them,
+  // so the gap left in that wall is 1.4 m wide -- and backroomsLevel drops a
+  // lintel over it to give the shape its top edge.
+  //
+  // THESE THREE POSITIONS ARE THE ONLY ONES THAT FIT, which is not a figure of
+  // speech: the placement was searched rather than eyeballed, over every leg,
+  // both sides, every 0.8 m, sliding the room along its corridor, and validated
+  // at each step. At 6.4 x 8.0 exactly three sites clear MIN_WALL on all four
+  // sides. Moving one is therefore not a matter of taste -- re-run the search.
+  nA: { axis: 'z', at: -13.6, from:   0.2, to:   4.8, w: 1.4, parent: 'EW1', kind: 'neck' },
+  RA: { axis: 'x', at:  -1.6, from: -20.8, to: -12.8, w: 6.4, parent: 'nA',  kind: 'room' },
+
+  nB: { axis: 'x', at:   8.8, from: -28.6, to: -24.0, w: 1.4, parent: 'd2f', kind: 'neck' },
+  RB: { axis: 'z', at: -30.4, from:   2.4, to:  10.4, w: 6.4, parent: 'nB',  kind: 'room' },
+
+  // Off the loop corridor, so it is only found by a player who took the
+  // shortcut -- and it is the far corner of the maze, 40 m from the entrance.
+  nC: { axis: 'z', at: -24.8, from:  33.6, to:  38.2, w: 1.4, parent: 'd4a', kind: 'neck' },
+  RC: { axis: 'x', at:  40.0, from: -31.2, to: -23.2, w: 6.4, parent: 'nC',  kind: 'room' }
 };
 
 /** [x0, x1, z0, z1] -- the walkable interior, derived from a leg. */
@@ -322,6 +399,75 @@ export function junctionPoint(name, legs = LEGS) {
   return L.axis === 'z' ? { x: L.at, z: P.at } : { x: P.at, z: L.at };
 }
 
+/**
+ * name -> [names], the FULL walkable adjacency: parent edges plus `links`.
+ *
+ * Exported because the parent pointers alone stopped being the whole picture
+ * when the loops landed. Anything that needs to know how the maze can be WALKED
+ * -- BackroomsHunter's pathfinding, the bypass check below -- has to read this
+ * and not the tree, or it will confidently route around a shortcut that is
+ * right there.
+ */
+export function neighbours(legs = LEGS) {
+  const out = {};
+  for (const n of Object.keys(legs)) out[n] = [];
+  const add = (a, b) => {
+    if (!out[a].includes(b)) out[a].push(b);
+    if (!out[b].includes(a)) out[b].push(a);
+  };
+  for (const n of Object.keys(legs)) {
+    if (legs[n].parent) add(n, legs[n].parent);
+    for (const m of legs[n].links || []) if (legs[m]) add(n, m);
+  }
+  return out;
+}
+
+/**
+ * Route legs that can be MISSED OUT and still leave the exit reachable.
+ *
+ * This is the property "there is more than one way through" stated so that it
+ * can fail. Counting loops cannot fail usefully -- every declared link adds one
+ * by construction, whether or not it goes anywhere near the exit. Deleting a
+ * leg and asking whether the exit is still reachable is the actual question.
+ */
+export function bypassable(legs = LEGS) {
+  const adj = neighbours(legs);
+  const root = Object.keys(legs).find((n) => legs[n].parent === null);
+  const exit = Object.keys(legs).find((n) => legs[n].exit);
+  const route = buildRoute(legs);
+  const reaches = (banned) => {
+    if (banned === root || banned === exit) return false;
+    const seen = new Set([root]);
+    const queue = [root];
+    while (queue.length) {
+      const n = queue.shift();
+      if (n === exit) return true;
+      for (const m of adj[n]) if (m !== banned && !seen.has(m)) { seen.add(m); queue.push(m); }
+    }
+    return false;
+  };
+  return route.filter(reaches);
+}
+
+/**
+ * The centre of the floor two ADJACENT legs share, or null if they share none.
+ *
+ * junctionPoint() answers the same question for a parent edge by construction
+ * -- a child crosses its parent's centre-line, so the crossing is (L.at, P.at).
+ * That formula says nothing about a `links` edge, where neither leg is the
+ * other's parent and the legs may even be parallel. Taking the centre of the
+ * overlap RECTANGLE works for both, needs no case analysis, and is the point a
+ * body would actually walk through rather than a corner of it.
+ */
+export function crossPoint(a, b, legs = LEGS) {
+  const [ax0, ax1, az0, az1] = legRect(legs[a]);
+  const [bx0, bx1, bz0, bz1] = legRect(legs[b]);
+  const x0 = Math.max(ax0, bx0), x1 = Math.min(ax1, bx1);
+  const z0 = Math.max(az0, bz0), z1 = Math.min(az1, bz1);
+  if (x1 < x0 || z1 < z0) return null;
+  return { x: (x0 + x1) / 2, z: (z0 + z1) / 2 };
+}
+
 /** Every junction in the maze, each tagged with whether it is on the route. */
 export function junctions(legs = LEGS) {
   const onRoute = new Set(buildRoute(legs));
@@ -458,6 +604,21 @@ export function validateMaze(legs = LEGS) {
       if (!isTenth(r[i])) errors.push(`${n}: ${edge} edge lands at ${r[i]}, not a multiple of 0.1 -- wall runs would stop being exact`);
     }
   }
+  // --- links: each one is a deliberate loop, so each one must be deliberate --
+  for (const n of names) {
+    const L = legs[n];
+    if (L.links === undefined) continue;
+    if (!Array.isArray(L.links)) { errors.push(`${n}: links must be an array of leg names`); continue; }
+    for (const m of L.links) {
+      if (!legs[m]) errors.push(`${n}: links names "${m}", which does not exist`);
+      else if (m === n) errors.push(`${n}: links to itself`);
+      else if (L.parent === m || legs[m].parent === n) {
+        errors.push(`${n} links to ${m}, but ${m} is already its parent or its child -- that is the junction it has, not a loop`);
+      } else if ((legs[m].links || []).includes(n)) {
+        errors.push(`${n} and ${m} both declare the link -- declare it once, it is undirected`);
+      }
+    }
+  }
   if (errors.length) return { errors, warnings };   // everything below assumes well-formed
 
   // --- cycles in the declaration, then reachability from the root ----------
@@ -495,6 +656,17 @@ export function validateMaze(legs = LEGS) {
       const miss = P.at < L.from ? L.from - P.at : P.at - L.to;
       errors.push(`R1: ${n} never reaches ${L.parent}'s centre-line -- ${L.parent} is at ${P.at}, ${n} spans ${L.from}..${L.to}, short by ${miss.toFixed(2)} m`);
     }
+    // R2 IS A RULE ABOUT CORRIDOR T-JUNCTIONS, and a room is not one. It says
+    // the parent must still be there on BOTH sides of the child, which is what
+    // makes a T walkable in three directions. A room hangs off the END of its
+    // neck and the neck is not supposed to continue past it -- that is what a
+    // room is. Applying R2 anyway is not conservative, it is impossible: a 6.8 m
+    // room off a 6.2 m neck needs the neck to extend 3.4 m beyond the room's
+    // centre-line in both directions, so the valid band is empty for EVERY room
+    // narrower than its own neck. R1 still applies and still means something --
+    // the room must reach across the neck's centre-line, or the doorway opens
+    // onto the room's corner.
+    if (L.kind === 'room') continue;
     const lo = P.from + L.w / 2;
     const hi = P.to - L.w / 2;
     if (L.at < lo - EPS || L.at > hi + EPS) {
@@ -504,7 +676,10 @@ export function validateMaze(legs = LEGS) {
   }
 
   // --- separation: anything NOT a declared junction must be properly apart --
-  const joined = (a, b) => legs[a].parent === b || legs[b].parent === a;
+  // A junction is declared either by a parent pointer or by a `links` entry.
+  // Everything else touching is still an error -- see the LOOPS note up top.
+  const joined = (a, b) => legs[a].parent === b || legs[b].parent === a
+    || (legs[a].links || []).includes(b) || (legs[b].links || []).includes(a);
   for (let i = 0; i < names.length; i++) {
     for (let j = i + 1; j < names.length; j++) {
       const a = names[i], b = names[j];
@@ -527,10 +702,50 @@ export function validateMaze(legs = LEGS) {
     }
   }
 
+  // --- rooms and the necks that let you in ---------------------------------
+  // The brief: larger than a corridor, empty, no door, just an entrance shaped
+  // like one. The SHAPE of that entrance is geometry, not dressing -- it is the
+  // gap the wall builder leaves where the neck's mouth punches through the
+  // corridor wall. So the neck being narrow is a structural requirement and is
+  // checked here; the renderer only adds the lintel that turns a narrow
+  // full-height slot into a doorway.
+  for (const n of names) {
+    const L = legs[n];
+    if (L.kind === 'room') {
+      if (L.w <= CORRIDOR_W) errors.push(`${n} is a room but is ${L.w} m across, no wider than a corridor (${CORRIDOR_W}) -- rooms are supposed to open out`);
+      if (Math.abs(L.to - L.from) <= CORRIDOR_W) errors.push(`${n} is a room but is only ${Math.abs(L.to - L.from)} m deep -- that is a wide corridor, not a room`);
+      if (!L.parent || legs[L.parent].kind !== 'neck') errors.push(`${n} is a room but hangs off ${L.parent}, which is not a neck -- without a neck the whole side of the room is the doorway`);
+      if (names.some((m) => legs[m].parent === n)) errors.push(`${n} is a room but something hangs off it -- rooms are dead ends, not junctions`);
+    }
+    if (L.kind === 'neck') {
+      if (L.w >= CORRIDOR_W) errors.push(`${n} is a neck but is ${L.w} m across, as wide as a corridor -- then its mouth is an opening, not a doorway`);
+      const kids = names.filter((m) => legs[m].parent === n);
+      if (kids.length !== 1 || legs[kids[0]].kind !== 'room') {
+        errors.push(`${n} is a neck but leads to ${kids.length === 1 ? kids[0] : kids.length + ' legs'} rather than exactly one room`);
+      }
+    }
+  }
+
+  // --- more than one way through -------------------------------------------
+  // THE POINT OF THE LOOPS, stated so it can fail. If a link is broken, moved
+  // or deleted the corridors still validate perfectly -- they are simply a tree
+  // again, which every other rule in this file is happy with. Only this one
+  // notices that the maze quietly went back to having a single forced path.
+  const bypasses = bypassable(legs);
+  if (bypasses.length < MIN_BYPASSABLE) {
+    errors.push(`only ${bypasses.length} route leg(s) can be missed out and still `
+      + `reach the exit (${bypasses.join(', ') || 'none'}), under MIN_BYPASSABLE `
+      + `${MIN_BYPASSABLE} -- the maze has gone back to one forced path. A link is `
+      + 'broken or missing.');
+  }
+
   // --- the annotation must agree with the derived route --------------------
   const route = buildRoute(legs);
   const onRoute = new Set(route);
   for (const n of names) {
+    if (!['route', 'decoy', 'neck', 'room'].includes(legs[n].kind)) {
+      errors.push(`${n}: kind ${JSON.stringify(legs[n].kind)} is not one of route, decoy, neck, room`);
+    }
     if ((legs[n].kind === 'route') !== onRoute.has(n)) {
       errors.push(`${n} is annotated kind:'${legs[n].kind}' but is ${onRoute.has(n) ? '' : 'not '}on the derived route -- mislabelled, or hung off the wrong parent`);
     }
@@ -622,8 +837,13 @@ export function reportMaze(legs = LEGS) {
   const len = routeLength(legs);
 
   console.log('--- backrooms maze --------------------------------------------');
-  console.log(`corridors    ${names.length}   route ${v.route ? v.route.length : '?'}, decoy ${v.decoys ?? '?'}`);
+  const kinds = (k) => names.filter((n) => LEGS[n].kind === k).length;
+  console.log(`corridors    ${names.length}   route ${v.route ? v.route.length : '?'}, `
+    + `decoy ${kinds('decoy')}, neck ${kinds('neck')}, room ${kinds('room')}`);
   if (v.route) console.log(`route        ${v.route.join(' -> ')}`);
+  // The loops, reported as what they buy rather than as how many there are.
+  const skip = bypassable();
+  console.log(`bypassable   ${skip.length} route leg(s) can be missed out: ${skip.join(', ') || 'none'}`);
   console.log(`route length ${len.toFixed(1)} m   ${(len / WALK_SPEED).toFixed(0)}s walking, ${(len / SPRINT_SPEED).toFixed(0)}s sprinting`);
   console.log(`turns        ${v.route ? v.route.length - 1 : '?'}`);
   console.log(`deepest wrong route  ${v.maxDepth ?? '?'} turn(s) off the route`);

@@ -1,7 +1,7 @@
 /**
  * Validate the backrooms maze without a browser.  `npm run check:maze`
  *
- * This exists because the maze is 42 hand-authored corridors and the only thing
+ * This exists because the maze is 48 hand-authored corridors and the only thing
  * that used to check them was a boot-time assertion that counted junctions --
  * it could tell you the count was wrong but not which pair was at fault, and a
  * disconnected corridor plus an accidental loop cancelled out and passed it
@@ -66,6 +66,35 @@ const CASES = [
     name: 'a route annotation that disagrees with the derived route',
     break: (L) => { L.sF = { ...L.sF, kind: 'route' }; },
     expect: /annotated kind:'route' but is not on the derived route/
+  },
+  {
+    name: 'the loops quietly gone, leaving one forced path to the exit again',
+    // THE CASE THAT MOTIVATED THE RULE. Drop d4a's links and pull it back off
+    // the route corridors it now joins, and the maze is a tree again -- which
+    // every other rule in this file is perfectly happy with. Only the bypass
+    // count notices that there is suddenly only one way through.
+    break: (L) => { L.d4a = { ...L.d4a, to: -8.0, links: undefined }; delete L.d2c.links; },
+    expect: /route leg\(s\) can be missed out/
+  },
+  {
+    name: 'a link that no longer reaches what it claims to join',
+    break: (L) => { L.d4a = { ...L.d4a, to: -8.0 }; },
+    expect: /d4a and (EW5|NS6) .* apart, under MIN_WALL|junction is .* at its narrowest/
+  },
+  {
+    name: 'a room hung straight off a corridor, so its whole side is the doorway',
+    break: (L) => { L.RA = { ...L.RA, parent: 'EW1' }; },
+    expect: /is a room but hangs off EW1, which is not a neck/
+  },
+  {
+    name: 'a neck widened to a corridor, so the entrance stops being a doorway',
+    break: (L) => { L.nA = { ...L.nA, w: 3.2 }; },
+    expect: /is a neck but is 3.2 m across/
+  },
+  {
+    name: 'a room shrunk to corridor width, which is a corridor',
+    break: (L) => { L.RB = { ...L.RB, w: 3.2 }; },
+    expect: /is a room but is 3.2 m across, no wider than a corridor/
   }
 ];
 

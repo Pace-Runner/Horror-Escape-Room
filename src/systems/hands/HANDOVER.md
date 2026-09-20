@@ -29,13 +29,31 @@ build 55 modules · check:deploy PASS · check:assets PASS (1 expected warning)
    nothing.** `WebGLRenderer.render()` traverses from `scene`; a camera outside
    that graph is never visited, so its children are silently skipped. No error, no
    warning. That line in `main.js` is load-bearing — do not "tidy" it away.
-2. **The glTF exporter strips dots from node names.** `hand.R_010` ships as
-   `handR_010`, so a side matcher expecting a separator before the `R` matches
-   nothing, no wrist is found, and the hand silently fails to bind — which is
-   exactly what happened. What survives is the CASE: the side letter is the only
-   uppercase character. `sideOf()` accepts both spellings.
+2. **Dots vanish from node names between Blender and three.** `hand.R_010`
+   arrives as `handR_010`, so a side matcher expecting a separator before the
+   `R` matches nothing, no wrist is found, and the hand silently fails to bind —
+   which is exactly what happened. What survives is the CASE: the side letter is
+   the only uppercase character. `sideOf()` accepts both spellings.
    **My unit test passed while the real asset failed**, because the fixture used
    dotted names. There is now a second fixture using the exact shipped names.
+
+   > **CORRECTION (creature work, 2026-09).** This originally blamed the glTF
+   > exporter, and that is wrong — the exporter writes `blender_bone.name`
+   > verbatim, and the dots ARE present in the file. Both were checked directly:
+   > all 63 joint names inside `hands.glb` contain dots, and so do the creature's
+   > (`forearm.L`, `coat_front.R`).
+   >
+   > **three.js strips them at load.** `GLTFLoader` runs every node name through
+   > `PropertyBinding.sanitizeNodeName()`, which removes the characters the
+   > animation-binding syntax reserves, `.` among them. Verified live in the
+   > running game: `sanitizeNodeName('forearm.L') === 'forearmL'`.
+   >
+   > So the ADVICE above is right and the CAUSE was not. It matters because the
+   > two lead opposite ways: believing the exporter did it invites "fixing" the
+   > export, which cannot work. `src/systems/Creature.js` has a boot-time
+   > assertion that names every bone the runtime wanted and did not find,
+   > because this failure is otherwise completely silent — every limb simply
+   > stops changing length.
 3. **The asset's origin was ~100 units from the wrist**, with fingers pointing up
    and backwards. Hands were being drawn — the triangle count proved it — just
    nowhere near the frustum.
@@ -148,6 +166,22 @@ and it halves the poly count.
 roughly 2–4 draw calls for both hands against the 30 our segmented version needed.
 That clears the draw-call budget Unit 3 failed.
 
+> **A TRAP THIS ASSET CARRIES (noted during the creature work, 2026-09).**
+> `hands.glb` ships **two** materials, not one: `basicRigSkin` and
+> `basicRigSkin.001`. They are one mesh each — Blender duplicated the material
+> when the hand was split — and the `.001` suffix round-trips into the GLB
+> verbatim, because neither the exporter nor three ever strips it.
+>
+> Nothing is broken today: the hands are textured by `hand-mesh.js`, and no
+> call site passes `basicRigSkin` to `applyTextureByMaterialName()`. But that
+> helper is a plain string compare, so the first person who reaches for the
+> obvious `applyTextureByMaterialName(root, 'basicRigSkin', …)` will texture
+> one hand and silently skip the other, in a game where both hands are
+> generally the same few dark pixels.
+>
+> `scripts/check-creature.mjs` fails the build on any material name matching
+> `/\.\d{3}$/` for exactly this reason — but it only guards `creature.glb`.
+
 The `check:assets` warning ("skin but no animation clips") is **expected and
 correct**: this project drives the rig from code and deliberately wants no baked
 clips.
@@ -176,8 +210,30 @@ faithful regardless.
    into two independent hands to match our existing two-rig architecture.
 2. Export to `public/models/characters/hands.glb`, **+Y Up**, **Bone Influences =
    4 with "Include All Bone Influences" OFF** (three only reads
-   `JOINTS_0`/`WEIGHTS_0`; extra influences stretch vertices to the origin), no
-   animation export, and do **not** apply modifiers (that would destroy skinning).
+   `JOINTS_0`/`WEIGHTS_0`), no animation export, and do **not** apply modifiers.
+
+   > **TWO CORRECTIONS (creature work, 2026-09).** Both settings above are
+   > right; both reasons given for them were wrong, and the wrong reasons are
+   > the kind that get a setting "corrected" back later.
+   >
+   > **Extra influences do not stretch vertices to the origin** — not in
+   > r0.169.0, which is what this project ships. `GLTFLoader` calls
+   > `mesh.normalizeSkinWeights()` unconditionally on every skinned primitive,
+   > so the surviving four weights are rescaled to sum to 1 and the mesh stays
+   > intact. What you actually get is worse to catch: correct-looking geometry
+   > that deforms WRONGLY at exactly the multi-bone regions — shoulder, hip,
+   > jaw. Keep the cap at 4, and decide which four survive in Blender
+   > (`vertex_group_limit_total`) rather than letting the exporter pick.
+   >
+   > **`export_apply=True` does not destroy skinning** — the exporter disables
+   > Armature modifiers before evaluating and restores them afterwards. It
+   > destroys **shape keys**: an evaluated mesh has `shape_keys = None`, every
+   > morph read site guards on that, and you get a perfectly valid GLB with zero
+   > morph targets and no error at all. For the creature, whose whole twist is a
+   > morph driven by `setCorrection`, that is the single most expensive silent
+   > failure in the pipeline. See `common.export_rigged_glb()`, which exists as
+   > a SIBLING of `export_glb()` precisely because the props still need
+   > `export_apply=True` for their bevels.
 3. Verify with `node tools/inspect-glb.mjs` and `npm run check:assets`.
 4. Rewrite `hand-mesh.js` to load the GLB and bind the skin — **map bones by
    walking the hierarchy outward from the hand bone, not by parsing names.** One
