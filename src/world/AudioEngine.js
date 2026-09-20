@@ -179,14 +179,39 @@ const STEP_MAX_MAKEUP = 24;
  */
 const STEP_EVEN = 0.5;
 
-// Under the breathing, well under the wind: footsteps are the sound you stop
-// hearing after a minute and notice the absence of. Crouching is the whole
-// point of crouching.
-const STEP_LEVEL = 0.42;
-const STEP_CROUCH_LEVEL = 0.30;
+/**
+ * Where footsteps sit in the mix. DERIVED, because the first pair of numbers
+ * here were asserted and were the opposite of true.
+ *
+ * That comment claimed "under the breathing, well under the wind" while
+ * setting 0.42, which works out as follows. A step peaks at STEP_TARGET_PEAK x
+ * STEP_LEVEL, so 0.42 x 0.42 = 0.176 = -15.1 dBFS before the master. The
+ * breathing at the level the game opens on peaks at 10^(-23.7/20) x
+ * (BREATH_BASE_LEVEL x BREATH_MAKEUP) = 0.0327 = -29.7 dBFS. The wind drone is
+ * uniform noise through a 2nd-order 340 Hz lowpass at gain 0.06, roughly
+ * -35 dBFS peak. So the player's own feet were landing 14.6 dB ABOVE the
+ * ambient breathing and 20 dB above the wind -- the loudest recurring thing in
+ * the game, and within 5 dB of the loudest story beat there is.
+ *
+ * 0.12 puts a step at 0.0504 = -25.9 dBFS: about 4 dB over the base breathing
+ * peak, 9 dB under a story-beat breath, 9 dB over the wind. Clearly audible as
+ * a transient, underneath everything that is supposed to carry the scene.
+ *
+ * CROUCH IS A REAL DUCK NOW. 0.42 against 0.30 was -2.9 dB, roughly one
+ * just-noticeable difference -- crouching sounded like walking. 0.04 is
+ * -9.5 dB under the walk, which is the difference the mechanic is promising.
+ */
+const STEP_LEVEL = 0.12;
+const STEP_CROUCH_LEVEL = 0.04;
 
 /** Grab this much before the detected onset, so no attack transient is clipped. */
 const STEP_PRE_ROLL = 0.015;
+
+// Fade at each end of a slice. Short enough not to soften the transient that
+// makes a footstep a footstep, long enough to kill the edge click -- see the
+// note in #playStep.
+const STEP_ATTACK = 0.003;
+const STEP_RELEASE = 0.006;
 
 /**
  * Slice a recording of walking into single footsteps.
@@ -639,23 +664,6 @@ export class AudioEngine {
     src.stop(now + 1.4);
   }
 
-  /**
-   * Slow, heavy footsteps on boards, receding or approaching.
-   *
-   * Synthesised like the thunder and the creak rather than sampled, for the
-   * reason at the top of this file. A footstep is a low thump plus a short
-   * board-resonance ring, so it is a filtered noise burst with a fast attack
-   * and a bandpass partial on top -- a plain lowpass thump alone reads as a
-   * door closing, not as weight on a floorboard.
-   *
-   * @param count  how many steps
-   * @param spacing seconds between them. 0.62 is a slow walk; anything under
-   *                0.4 reads as running, which this creature never does past a
-   *                closed door.
-   * @param pan    -1 to 1, swept across the steps, so the thing passes rather
-   *                than pacing on the spot. The whole beat is worthless without
-   *                it: footsteps with no travel are just noise.
-   */
   // ---------- player footsteps ----------
   //
   // NOT to be confused with footsteps() further down, which synthesises a
@@ -693,7 +701,18 @@ export class AudioEngine {
     // Standing still: resync and fire nothing. Without the gate, the tiny
     // residual phase left over when the player stops could cross a trigger and
     // drop one unattached footstep after they have come to a halt.
-    if (prev === null || moving < 0.2) return;
+    // NO `moving` GATE, and the version that had one was wrong twice over. Its
+    // stated reason -- residual phase drift after a stop -- does not exist:
+    // PointerLockPlayer initialises `walked` to 0 and only assigns it inside
+    // `if (MOVE.lengthSq() > 0)`, so the frame the keys come up it adds exactly
+    // 0 and the phase FREEZES. A frozen phase gives t === prev, which the test
+    // below already rejects, so the gate bought nothing. What it cost was the
+    // first step of a walk: `moving` is a lerp with BOB_BLEND 0.16 and needs
+    // three frames at 60 Hz to pass 0.2, the phase moves 0.41 rad in those
+    // three frames against trigger points pi apart, and stepPhase is written
+    // every frame regardless -- so roughly one walk-start in eight had its
+    // opening footfall consumed in silence.
+    if (prev === null) return;
     if (t >= prev) return;                       // no wrap, no footfall
     const set = sprint > 0.5 ? this.stepRun : this.stepWalk;
     if (!set || !set.slices.length) return;
@@ -718,13 +737,37 @@ export class AudioEngine {
     // A couple of percent of detune per step. Real footfalls are never twice
     // the same, and without it the shuffle through a handful of slices starts
     // to sound like a shuffle through a handful of slices.
-    src.playbackRate.value = 0.96 + Math.random() * 0.08;
+    const rate = 0.96 + Math.random() * 0.08;
+    src.playbackRate.value = rate;
 
     // Its own gain node per step, not a shared one: these overlap by design at
     // a run, and a single node would have each new step stamp on the previous
     // one's tail. Same reason the breathing loop and each voice line have one.
     const out = ctx.createGain();
-    out.gain.setValueAtTime(level * slice.gain, now);
+
+    // RAMPED AT BOTH ENDS, which is not polish -- without it every footstep
+    // clicks. A slice is cut out of the middle of a recording: it ends where
+    // the NEXT foot lands, so the signal there is not silence, and jumping it
+    // to zero in one sample is a broadband tick. Measured on these two files,
+    // the boundary sample reaches -16.3 dBFS on the running recording and the
+    // click lands at -20.7 dBFS after the slice makeup -- about 13 dB under
+    // the footstep it is attached to, on every step, at 3.25 a second while
+    // sprinting. The start needs it too: 15 ms before an onset is mid-decay of
+    // the previous footfall, not silence. Every other one-shot in this class
+    // (thunder, creak, bulbPop, the synthesised footsteps) already ramps both
+    // ends for exactly this reason.
+    //
+    // `duration` in start(when, offset, duration) is in BUFFER seconds, so the
+    // slice lasts duration / playbackRate of WALL CLOCK. Scheduling the release
+    // at now + slice.duration would miss the cut by up to 4% and the ramp would
+    // land in the wrong place -- which is the same bug, quieter.
+    const peak = level * slice.gain;
+    const end = now + slice.duration / rate;
+    const hold = Math.max(now + STEP_ATTACK, end - STEP_RELEASE);
+    out.gain.setValueAtTime(0, now);
+    out.gain.linearRampToValueAtTime(peak, now + STEP_ATTACK);
+    out.gain.setValueAtTime(peak, hold);
+    out.gain.linearRampToValueAtTime(0, end);
 
     let tail = out;
     if (ctx.createStereoPanner) {
@@ -780,6 +823,23 @@ export class AudioEngine {
       });
   }
 
+  /**
+   * Slow, heavy footsteps on boards, receding or approaching.
+   *
+   * Synthesised like the thunder and the creak rather than sampled, for the
+   * reason at the top of this file. A footstep is a low thump plus a short
+   * board-resonance ring, so it is a filtered noise burst with a fast attack
+   * and a bandpass partial on top -- a plain lowpass thump alone reads as a
+   * door closing, not as weight on a floorboard.
+   *
+   * @param count  how many steps
+   * @param spacing seconds between them. 0.62 is a slow walk; anything under
+   *                0.4 reads as running, which this creature never does past a
+   *                closed door.
+   * @param pan    -1 to 1, swept across the steps, so the thing passes rather
+   *                than pacing on the spot. The whole beat is worthless without
+   *                it: footsteps with no travel are just noise.
+   */
   footsteps({ count = 6, spacing = 0.62, pan = 0, panTo = null, level = 0.5 } = {}) {
     if (!this.ctx) return;
     const ctx = this.ctx;

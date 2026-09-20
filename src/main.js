@@ -1075,11 +1075,63 @@ const BACKROOMS_SHADOW_HIDE_RANGE = 5;    // closer than this (player closing th
 const BACKROOMS_SHADOW_SAMPLE_DIST = 0.15; // metres between recorded path points
 const BACKROOMS_SHADOW_CORRECTION = 0.35;  // human-ish, not clean -- see the header above
 
+/**
+ * Metres the player must cover before the figure may appear AT ALL.
+ *
+ * 1.5x the 11 m at which it used to turn up, measured by replaying a realistic
+ * first crossing -- the route plus the detours into six decoy branches that a
+ * player who does not know the maze actually walks. 11 m is about five and a
+ * half seconds, which puts the figure behind them before they have worked out
+ * the corridor goes anywhere.
+ *
+ * NOT the same knob as MIN_PATH above, and it cannot be. That one measures the
+ * RECORDED trail, which is deliberately trimmed to LAG + 4 = 15 m to keep
+ * pathLength() cheap, so it saturates almost immediately and can never express
+ * a distance longer than the trim. This counts the crossing instead, and
+ * resetBackroomsShadow() zeroes it, so walking through a second time starts the
+ * wait again rather than inheriting it.
+ */
+const BACKROOMS_SHADOW_GRACE = 16.5;
+
+/**
+ * Metres the player must cover after it HIDES before it may come back.
+ *
+ * THE FIGURE IS NOT A ONE-OFF, which is easy to miss reading the code. It hides
+ * whenever the point 11 m back along the TRAIL comes within HIDE_RANGE of the
+ * player as the crow flies, and in a maze of ten turns that is constantly:
+ * round a corner and the trail doubles back into the corridor beside you, so
+ * the thing standing on it is suddenly 5 m away and blinks out; walk on and it
+ * is far again and blinks back.
+ *
+ * 17 m, and the number is measured rather than picked. Replaying a realistic
+ * first crossing -- the route plus detours into six decoy branches, 159 m
+ * walked -- the untouched system showed the figure EIGHT times with a median
+ * gap of 16.2 m and gaps as short as 7.4 m, which is under four seconds and is
+ * why it read as ever-present rather than as a glimpse. At 17 the median gap
+ * is 24.2 m: a ratio of 1.49, the 1.5x that was asked for.
+ *
+ * The response is lumpy, so do not expect fine control. Past about 19 the
+ * cooldown starts MERGING sightings rather than spacing them -- two that were
+ * 20 m apart become one -- and the median jumps to 34 m because the survivors
+ * are sums of several old gaps. 13 and 15 undershoot at 1.12x and 1.22x. The
+ * usable band for 1.5x is 16-18.
+ *
+ * DISTANCE, not seconds, like everything else in this system. Standing still
+ * does not earn a reappearance -- it comes back when you press on, which is the
+ * only version of this that is about the player's choice rather than about
+ * waiting them out.
+ */
+const BACKROOMS_SHADOW_COOLDOWN = 17;
+
 /** Recorded {x,z} player positions, oldest first, trimmed to stay bounded. */
 let backroomsPath = [];
 /** The figure's last computed position, so its speed can be read off its own movement. */
 let backroomsShadowPos = null;
 let backroomsShadowVisible = false;
+/** Metres walked since entering, for BACKROOMS_SHADOW_GRACE. Not the trail length. */
+let backroomsWalked = 0;
+/** backroomsWalked at the moment it last hid, for BACKROOMS_SHADOW_COOLDOWN. */
+let backroomsShadowHidAt = -Infinity;
 
 /** Sum of consecutive segment lengths -- how much corridor is actually recorded. */
 function pathLength(path) {
@@ -1111,6 +1163,11 @@ function pointBehindOnPath(path, x, z, distance) {
 function resetBackroomsShadow() {
   backroomsPath = [];
   backroomsShadowPos = null;
+  backroomsWalked = 0;
+  // -Infinity, not 0: the cooldown must not gate the FIRST sighting as well,
+  // which is what GRACE is for. At 0 the two would add up and the opening wait
+  // would silently be GRACE + COOLDOWN.
+  backroomsShadowHidAt = -Infinity;
   if (backroomsShadowVisible) {
     creature.visible = false;
     // Back to the default layer mask, or the AI chase / scripted placements
@@ -1128,6 +1185,10 @@ function updateBackroomsShadow(dt) {
 
   const last = backroomsPath[backroomsPath.length - 1];
   if (!last || Math.hypot(px - last.x, pz - last.z) >= BACKROOMS_SHADOW_SAMPLE_DIST) {
+    // Counted here rather than per frame, off the same sample the trail uses,
+    // so the grace measures GROUND COVERED and not time spent standing still.
+    // Doubling back counts too: the distance is what the wait is made of.
+    if (last) backroomsWalked += Math.hypot(px - last.x, pz - last.z);
     backroomsPath.push({ x: px, z: pz });
     // Bounded: once the recorded trail comfortably exceeds the lag distance,
     // older points are dropped a few at a time rather than one by one, since
@@ -1139,7 +1200,10 @@ function updateBackroomsShadow(dt) {
 
   const found = pointBehindOnPath(backroomsPath, px, pz, BACKROOMS_SHADOW_LAG);
   const closeBy = found && Math.hypot(px - found.x, pz - found.z) < BACKROOMS_SHADOW_HIDE_RANGE;
-  const shouldShow = !!found && !closeBy && pathLength(backroomsPath) >= BACKROOMS_SHADOW_MIN_PATH;
+  const shouldShow = !!found && !closeBy
+    && backroomsWalked >= BACKROOMS_SHADOW_GRACE
+    && backroomsWalked - backroomsShadowHidAt >= BACKROOMS_SHADOW_COOLDOWN
+    && pathLength(backroomsPath) >= BACKROOMS_SHADOW_MIN_PATH;
 
   if (found) {
     if (backroomsShadowVisible && backroomsShadowPos) {
@@ -1159,6 +1223,9 @@ function updateBackroomsShadow(dt) {
       creature.visible = false;
       creature.group.layers.set(0);
       backroomsShadowVisible = false;
+      // Stamped on the way OUT, so the cooldown measures the gap between
+      // sightings rather than the time since some arbitrary frame.
+      backroomsShadowHidAt = backroomsWalked;
     }
     return;
   }
@@ -1796,12 +1863,16 @@ const CREDITS = [
     + 'left arm removed, wrist re-aligned, re-rigged for this project.',
   'All other models (bed, door, dresser, flashlight, creature) are generated '
     + 'from the Python scripts in blender/ -- see blender/build_*.py.',
-  'Wind, thunder and creaks are synthesised with the Web Audio API at runtime -- no audio files used.',
-  'The looping breathing track is the one audio file in the project (src/assets/audio/breathing.m4a).',
-  // TODO: replace this line with the real source, author and licence of the
-  // breathing loop that gets dropped into src/assets/audio -- or delete it if
-  // the loop was recorded by the team.
+  'Wind, thunder and creaks are synthesised with the Web Audio API at runtime -- no audio files used for those.',
+  'Three audio files ship with the project, all in src/assets/audio: breathing.m4a, '
+    + 'walking_audio.mp3 and running_audio.mp3.',
+  // TODO: replace these lines with the real source, author and licence of each
+  // recording -- or delete a line if that one was recorded by the team.
+  // THIS IS NOT A FORMALITY. hands.glb above is CC-BY and the attribution
+  // beside it is what keeps using it legal; the same applies to anything here
+  // that came from a library. The game deploys publicly to GitHub Pages.
   'Breathing loop -- [SOURCE / AUTHOR / LICENCE TO BE FILLED IN].',
+  'Footstep recordings (walking, running) -- [SOURCE / AUTHOR / LICENCE TO BE FILLED IN].',
   'Game concept, story, world and code: the project team, for COMS3006A/COMS3025A.'
 ];
 /**
