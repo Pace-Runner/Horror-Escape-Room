@@ -35,18 +35,27 @@ import { createCreatureTextures } from '../world/textures.js';
  * rather than by assertion. What changed is that a parametric rig of capsules
  * cannot wear a lab coat, and the coat turned out to be the whole design:
  *
- *   in the HUMAN reading the hem sits at 0.700 m and the fingertips at 0.717,
- *   so the hands are AT pocket height and the arms vanish into one column;
- *   in the HOLLOW reading the torso grows, the hem rides up to 0.771, and the
- *   arms grow so the fingertips fall to 0.531.
+ *   in the HUMAN reading the hem runs 0.648-0.700 m and the fingertips sit at
+ *   0.707, so the hands are AT pocket height and the arms vanish into one
+ *   column;
+ *   in the HOLLOW reading the torso grows, the hem rides up to 0.709-0.769,
+ *   and the arms grow so the fingertips fall to 0.419.
  *
- * The hands end up hanging 24 cm clear of a coat that has become a short
- * jacket. Those are MEASURED in the running game through
- * SkinnedMesh.getVertexPosition, which applies bones and morph together --
- * an earlier draft of this comment claimed 40 cm, taken from a design estimate
- * that anchored the hem to the shoulder. It does not: the coat is weighted to
- * the hips and the coat bones, so it only partly follows the torso as that
- * lengthens. 24 cm is what the effect is actually worth, and it is plenty.
+ * The hands end up hanging 29 cm clear of the hem's lowest point, 35 cm clear
+ * of its highest, on a coat that has become a short jacket.
+ *
+ * THE HEM IS A RANGE, AND THESE NUMBERS HAVE MOVED TWICE. An early draft of
+ * this comment claimed 40 cm from a design estimate that anchored the hem to
+ * the shoulder; it does not, because the coat is weighted to the hips and the
+ * coat bones, so it only partly follows the torso as that lengthens. That was
+ * corrected to a measured 24 cm. Since then the hem stopped being one height
+ * at all -- it was a dead-flat horizontal cut in profile until HEM_SWEEP gave
+ * it 52 mm of uneven hang -- and the fingertips fell another 112 mm when the
+ * monster's fingers were curled into a claw instead of left pointing, which
+ * is what stopped the hand reading as a garden fork. Both are re-measured on
+ * the posed rig, bones and morph together; a measurement from the shape key
+ * alone reports the two readings as identical, because the Hollow's hem rides
+ * up on the BONES and COAT_COLLAPSE deliberately leaves the hem at 1.00.
  *
  * The coat is a ruler the viewer measures the distortion against, and that
  * is a far stronger cue than long arms on a bare body, which has nothing to
@@ -222,16 +231,46 @@ function standingHeight(p) {
 const SILHOUETTE_DIM = 0.18;
 
 const STRIDE = 1.55;
-/** Radians of hip swing at a walk. The Hollow's gait is wider and looser. */
-const HIP_SWING_HUMAN = 0.52;
-const HIP_SWING_HOLLOW = 0.66;
+/**
+ * Radians of hip swing at a walk. The Hollow's gait is wider and looser.
+ *
+ * RAISED, because the feet were skating and that is the loudest single thing
+ * separating a procedural walk from an animated one. Measured, not estimated:
+ * the foot's travel relative to the hips over one cycle is the distance the
+ * body may advance before the planted foot has to slide. At 0.52/0.66 that
+ * sweep was 0.98 m (human) and 1.04 m (Hollow) against a STRIDE of 1.55 -- so
+ * roughly a third of every stride was the foot sliding along the floor.
+ *
+ * These do not remove it, and it is worth being exact about why rather than
+ * implying they do. Closing the gap entirely needs a sweep of 1.55 m, which on
+ * this leg (effective radius ~0.85 m) is asin(1.55 / 1.70) = 1.15 rad, a
+ * 66-degree hip swing each way. That is not a walk, it is a parade march. The
+ * honest options are a shorter STRIDE -- which raises the step RATE, and
+ * PointerLockPlayer already records where that ends up ("273 steps a minute is
+ * a comedy scurry") -- or foot IK, which is a different piece of work. These
+ * values take the Hollow's skate from 0.51 m to 0.37 m and the human's from
+ * 0.57 to 0.45, measured, without touching the cadence -- a 27% and 22% cut
+ * rather than a fix. A longer stride suits a tall long-limbed thing anyway.
+ * The residual is the honest cost of having no foot IK.
+ */
+const HIP_SWING_HUMAN = 0.64;
+const HIP_SWING_HOLLOW = 0.82;
 const ARM_SWING_HUMAN = 0.42;
 /**
- * Barely swings. A person walking swings their arms as a counterweight; this
- * lets its arms hang and drags them, which is most of why it reads as wrong
- * even before you notice how long they are.
+ * Under-swings, rather than not swinging at all.
+ *
+ * This was 0.13 -- about seven degrees, which is not a drag, it is a stall.
+ * Combined with the bad-side multiplier it left one arm moving four degrees
+ * over a whole stride, so at a silhouette the arms simply hung there while the
+ * legs worked, and the figure read as being slid along rather than walking.
+ *
+ * 0.34 against the human 0.42 keeps the original intent -- it still swings
+ * visibly LESS than a person does, which is the tell -- while actually moving.
+ * The dead-arm asymmetry does the rest of that job now, and does it better,
+ * because an arm that swings wrongly is stranger than an arm that does not
+ * swing at all.
  */
-const ARM_SWING_HOLLOW = 0.13;
+const ARM_SWING_HOLLOW = 0.34;
 
 // ---------------------------------------------------------------------------
 
@@ -337,6 +376,104 @@ const SIDE_SUFFIX = { l: 'R', r: 'L' };
 const _q = new THREE.Quaternion();
 const _v = new THREE.Vector3();
 const WORLD_X = new THREE.Vector3(1, 0, 0);
+const WORLD_Y = new THREE.Vector3(0, 1, 0);
+const WORLD_Z = new THREE.Vector3(0, 0, 1);
+const _q2 = new THREE.Quaternion();
+
+/**
+ * Deterministic smooth noise on one axis, for gait layers that must not repeat.
+ *
+ * A walk built from one sine at one frequency is a walk that lines up exactly
+ * with itself every stride, and a viewer reads that as a machine long before
+ * they could say why. The cure is a slow layer whose period does not divide the
+ * stride -- but it has to be the same on every frame, every machine and across
+ * a reload, so Math.random() is out: sampled per frame it fizzes rather than
+ * drifts, and it would make the gait untestable.
+ *
+ * Integer hash, quintic fade. The quintic matters: a linear or cubic fade leaves
+ * a velocity discontinuity at each cell boundary, which on a limb shows up as a
+ * tick once a second.
+ */
+function _hash1(i) {
+  let h = Math.imul(i | 0, 0x27d4eb2d);
+  h ^= h >>> 15;
+  h = Math.imul(h, 0x85ebca6b);
+  h ^= h >>> 13;
+  return (h >>> 0) / 4294967296;
+}
+
+const TAU = Math.PI * 2;
+
+/**
+ * Depth of the gait's phase warp. 0 is the old pure sine; below 1 the warp
+ * stays monotone (d/dphi = 1 + DUTY*cos, minimum 1 - DUTY).
+ *
+ * 0.35 puts roughly 60% of the cycle in stance, which is what a human walk
+ * does and what a raw sine cannot express at any amplitude -- sin is 50/50 by
+ * construction. Because sin has zero mean over a cycle, the average stride
+ * RATE is untouched, which is what keeps the feet under a body whose position
+ * is driven externally.
+ */
+const GAIT_DUTY = 0.35;
+
+/**
+ * How much deeper the warp runs on the bad leg than the good one.
+ *
+ * WITHOUT THIS THERE IS NO LIMP, and the reason is structural rather than a
+ * matter of tuning -- which is worth writing down, because the first version
+ * of this gait had a per-side amplitude asymmetry and looked like it had one.
+ * A single warp is monotone and satisfies gp(u + 2pi) = gp(u) + 2pi, so if the
+ * two legs are driven from ONE warped phase offset by pi, leg B's footfall
+ * solves its threshold at exactly leg A's time minus pi. Always. The strikes
+ * come out perfectly evenly spaced no matter how hard the warp is pushed:
+ * measured footfall intervals were 3.142, 3.142, 3.142 with the asymmetry on
+ * and identical with it off.
+ *
+ * Amplitude asymmetry is still real and still shows -- a shorter step and a
+ * stiffer knee are visible. What it cannot do is make the RHYTHM uneven, and
+ * an unpredictable footfall is the thing that makes an approaching figure
+ * unbearable rather than merely odd.
+ *
+ * Two warps fixes it. Each leg keeps its own depth, each is individually
+ * monotone (needs depth < 1; 0.35 +/- 0.18 stays well inside) and each still
+ * has zero mean over a cycle, so neither leg's average stride rate moves and
+ * the feet stay under the body.
+ */
+const GAIT_LIMP = 0.18;
+
+/** Phase warp at an explicit depth. See GAIT_DUTY and GAIT_LIMP. */
+const gaitWarp = (u, duty = GAIT_DUTY) => u + duty * Math.sin(u);
+
+/**
+ * Radians of phase each joint trails the one before it.
+ *
+ * Without these the entire body arrives at every pose on the same frame, which
+ * is what a puppet on a single rod does. Propagation outward from the hips is
+ * most of the difference between a figure that walks and a figure that is
+ * being moved.
+ */
+const GAIT_LAG = {
+  shin: 0.14, foot: 0.30,
+  spine: 0.16, chest: 0.26, neck: 0.44, head: 0.60,
+  upper_arm: 0.30, forearm: 0.62,
+  coat: 1.25
+};
+
+/** 0 outside [a, b], a smooth arch peaking at 1 in the middle. */
+function _arch(t, a, b) {
+  const u = (t - a) / (b - a);
+  return (u <= 0 || u >= 1) ? 0 : Math.sin(Math.PI * u);
+}
+
+/** Smooth noise in -1..1 with a period of 1 in `t`. */
+function _noise1(t) {
+  const i = Math.floor(t);
+  const f = t - i;
+  const u = f * f * f * (f * (f * 6 - 15) + 10);
+  const a = _hash1(i);
+  const b = _hash1(i + 1);
+  return (a + (b - a) * u) * 2 - 1;
+}
 
 export function createCreature() {
   const group = new THREE.Group();
@@ -566,12 +703,21 @@ export function createCreature() {
     elapsed += dt;
     gaitPhase += (speed / STRIDE) * Math.PI * 2 * dt;
 
-    const walking = THREE.MathUtils.clamp(speed / 1.2, 0, 1);
+    // THE SAME TIMING THE GLB GAIT USES, deliberately. This rig only ever shows
+    // when creature.glb fails to load -- a supported state, see the loadModel
+    // catch below and check-creature.mjs -- and letting the two drift to
+    // different curves is exactly the class of bug that makes a fallback look
+    // like a different creature. It does NOT get the rest of animateGlb's
+    // work: this rig is capsules and boxes with no pelvis, chest or feet to
+    // rotate, so there is nothing here for pelvic drop or a held head to
+    // write to.
+    const walking = THREE.MathUtils.smoothstep(speed, 0.12, 0.95);
     const hipSwing = THREE.MathUtils.lerp(HIP_SWING_HOLLOW, HIP_SWING_HUMAN, correction) * walking;
     const armSwing = THREE.MathUtils.lerp(ARM_SWING_HOLLOW, ARM_SWING_HUMAN, correction) * walking;
 
-    const s = Math.sin(gaitPhase);
-    const c = Math.cos(gaitPhase);
+    const gp = gaitWarp(gaitPhase);
+    const s = Math.sin(gp);
+    const c = Math.cos(gp);
 
     legs.l.joints[0].rotation.x = s * hipSwing;
     legs.r.joints[0].rotation.x = -s * hipSwing;
@@ -609,7 +755,7 @@ export function createCreature() {
 
     // Bob with the stride, and breathe when standing still, so it is never a
     // statue -- a figure that holds perfectly still reads as scenery.
-    const bob = Math.abs(Math.sin(gaitPhase)) * 0.022 * walking;
+    const bob = Math.abs(Math.sin(gp)) * 0.022 * walking;
     const breath = Math.sin(elapsed * 1.4) * 0.008 * (1 - walking);
     hips.position.y = p.hipHeight + bob + breath;
 
@@ -680,11 +826,29 @@ export function createCreature() {
     // exporter, so "rotate about local X" means a different thing on a thigh
     // than on a clavicle -- hardcoding it is how you get a leg that swings
     // sideways and a shoulder that folds into the chest.
+    //
+    // THREE axes now, not one. swing is the sagittal plane -- the forward/back
+    // rotation a leg or an arm makes -- and it was all the old gait had, which
+    // is a large part of why that gait read as a toy: a pelvis that never drops,
+    // shoulders that never counter-rotate against the hips and a head that is
+    // welded to the chest are not stylisation, they are three whole channels of
+    // human motion that were simply absent. twist is about the world vertical
+    // (rotation in the transverse plane) and lean about the world forward axis
+    // (the frontal plane). All three are MEASURED off the rest pose for the
+    // same reason the first one was: every bone carries a baked rest rotation,
+    // so "local Y" means something different on a thigh than on a clavicle.
     scene.updateMatrixWorld(true);
     const swing = new Map();
+    const twist = new Map();
+    const lean = new Map();
     for (const [name, b] of Object.entries(bones)) {
       b.getWorldQuaternion(_q);
-      swing.set(name, WORLD_X.clone().applyQuaternion(_q.invert()).normalize());
+      // invert() is IN PLACE, so _q is the inverse from here on -- take all
+      // three axes off the same inverse rather than re-fetching it.
+      _q.invert();
+      swing.set(name, WORLD_X.clone().applyQuaternion(_q).normalize());
+      twist.set(name, WORLD_Y.clone().applyQuaternion(_q).normalize());
+      lean.set(name, WORLD_Z.clone().applyQuaternion(_q).normalize());
     }
 
     // Every primitive carries the same dictionary, so the first is enough to
@@ -758,7 +922,7 @@ export function createCreature() {
 
     root.add(scene);
     hips.visible = false;   // the primitive rig keeps updating, unseen
-    return { scene, meshes, bones, rest, swing, morphIndex, materials };
+    return { scene, meshes, bones, rest, swing, twist, lean, morphIndex, materials };
   }
 
   /** Push the blended proportions and the correction dial into the loaded mesh. */
@@ -820,49 +984,219 @@ export function createCreature() {
     }
   }
 
-  /** Write the gait onto bones, as OFFSETS FROM REST. */
+  /**
+   * Write the gait onto bones, as OFFSETS FROM REST.
+   *
+   * WHAT WAS WRONG WITH THE OLD ONE, because "robloxy" turns out to be a
+   * precise complaint rather than a vague one. It was a single sine, at a
+   * single frequency, phase-locked across every joint, perfectly symmetric
+   * left to right, with the pelvis, chest, head and both feet not moving at
+   * all. Every one of those is a separate tell and they compound:
+   *
+   *   one sine          -> stance and swing take equal time. Real walking is
+   *                        about 60/40, and the ear-equivalent is a drum
+   *                        machine with swing turned off.
+   *   perfect symmetry  -> nothing alive is bilaterally identical. This is the
+   *                        single loudest "machine" cue there is.
+   *   phase-locked      -> the whole body arrives at once, like a puppet on
+   *                        one rod, instead of a chain propagating outward.
+   *   exact periodicity -> stride N is stride N+1 to the pixel.
+   *   dead pelvis/chest -> the three channels that carry WEIGHT are missing,
+   *                        so nothing looks heavy.
+   *
+   * At 5-15 m through FogExp2 with setSilhouette on, surface detail is gone
+   * and only SILHOUETTE and TIMING survive -- so every fix below is aimed at
+   * one of those two and nothing is spent on anything else.
+   *
+   * NONE OF IT CAN MOVE THE FEET OUT FROM UNDER THE BODY. The creature's world
+   * position is driven externally (BackroomsHunter, CreatureAI), and gaitPhase
+   * advances with DISTANCE via speed/STRIDE -- so anything that changes the
+   * average step rate slides the feet. The warp below is monotone and its
+   * added term has zero mean over a cycle, so the average rate is exactly
+   * unchanged; the asymmetry is amplitude-only for the same reason.
+   */
   function animateGlb() {
-    const { bones, rest, swing } = glb;
-    const walking = THREE.MathUtils.clamp(speed / 1.2, 0, 1);
-    const hipSwing = THREE.MathUtils.lerp(HIP_SWING_HOLLOW, HIP_SWING_HUMAN, correction) * walking;
-    const armSwing = THREE.MathUtils.lerp(ARM_SWING_HOLLOW, ARM_SWING_HUMAN, correction) * walking;
-    const s = Math.sin(gaitPhase);
-    const c = Math.cos(gaitPhase);
+    const { bones, rest, swing, twist, lean } = glb;
+
+    // Smoothstep, not a linear ramp: a gait that fades in linearly spends its
+    // first half-second as a barely-moving figure, which reads as a stutter.
+    const walking = THREE.MathUtils.smoothstep(speed, 0.12, 0.95);
+    const wrong = 1 - correction;
+
+    // PHASE WARP. gp = gaitPhase + DUTY*sin(gaitPhase) stretches the half of
+    // the cycle where the foot is planted and compresses the half where it
+    // swings through -- 60/40 at DUTY 0.35, against the 50/50 a raw sine gives.
+    // Monotone for DUTY < 1 (d/dphi = 1 + DUTY*cos, minimum 0.65), so the phase
+    // never runs backwards, and sin has zero mean so the stride rate is
+    // untouched. One line, and it is the largest single improvement here.
+    // TWO WARPED PHASES, one per leg, at different depths -- see GAIT_LIMP for
+    // why one shared phase cannot produce a limp however hard it is pushed.
+    // At limp 0 they collapse to exact mirrors, because gpB(u) = gpA(u + pi)
+    // identically when the depths match, which is what keeps Annabelle even.
+    const limp = GAIT_LIMP * wrong;
+    const gpA = gaitWarp(gaitPhase, GAIT_DUTY + limp);
+    const gpB = gaitWarp(gaitPhase + Math.PI, GAIT_DUTY - limp);
+    // The torso, arms and coat ride the mean of the two, so they do not inherit
+    // either leg's limp wholesale.
+    const gp = gaitWarp(gaitPhase);
+    // Per-joint lag, so the body is a CHAIN rather than one rigid piece: the
+    // shin follows the thigh, the chest follows the hips, the hand is last.
+    const at = (k) => gaitWarp(gaitPhase - (GAIT_LAG[k] || 0));
+
+    const s = Math.sin(gp);
+
+    // ASYMMETRY. A fixed bad side -- shorter step, a knee that barely folds, an
+    // arm that hardly swings -- lerped away as correction rises, because
+    // Annabelle in the family portrait walks like a person and only the Hollow
+    // drags. g() is the lerp: 1 means "no limp".
+    const g = (v) => THREE.MathUtils.lerp(v, 1, correction);
+    const HIP = { l: g(1.00), r: g(0.74) };
+    const KNEE = { l: g(1.55), r: g(1.02) };
+    // 0.55, not 0.30. At 0.30 the bad arm was frozen rather than lagging, and
+    // a frozen limb reads as a rig that is broken rather than as a body that
+    // is wrong.
+    const ARM = { l: g(1.00), r: g(0.55) };
+
+    // SLOW DRIFT on an incommensurate period, so stride N is not stride N+1.
+    // _noise1 is deterministic (see its note) -- this must not fizz per frame.
+    const drift = 1 + 0.085 * _noise1(elapsed * 0.17) + 0.05 * Math.cos(elapsed * 0.41);
+
+    const hipSwing = THREE.MathUtils.lerp(HIP_SWING_HOLLOW, HIP_SWING_HUMAN, correction)
+      * walking * drift;
+    const armSwing = THREE.MathUtils.lerp(ARM_SWING_HOLLOW, ARM_SWING_HUMAN, correction)
+      * walking;
     const hang = THREE.MathUtils.lerp(0.10, 0.28, correction);
 
     // A pose is rest * offset, never an absolute local rotation: the rest
     // quaternion IS the rig's axes, and overwriting it throws the bone's
     // orientation away. Borrowed straight from src/systems/hands/animator.js.
-    const bend = (name, angle) => {
+    //
+    // Three axes now. sw is the sagittal swing the old bend() had; tw is yaw
+    // about the world vertical (pelvic and thoracic rotation); ln is roll about
+    // the world forward axis (pelvic drop, the head's list). They compose in a
+    // fixed order so the result is stable frame to frame.
+    const pose = (name, sw, tw, ln) => {
       const b = bones[name];
       const r = rest.get(name);
-      const axis = swing.get(name);
-      if (!b || !r || !axis) return;
-      b.quaternion.copy(r.quat).multiply(_q.setFromAxisAngle(axis, angle));
+      if (!b || !r) return;
+      b.quaternion.copy(r.quat);
+      if (sw) b.quaternion.multiply(_q.setFromAxisAngle(swing.get(name), sw));
+      if (tw) b.quaternion.multiply(_q2.setFromAxisAngle(twist.get(name), tw));
+      if (ln) b.quaternion.multiply(_q2.setFromAxisAngle(lean.get(name), ln));
     };
+    const bend = (name, angle) => pose(name, angle, 0, 0);
 
+    // --- legs ---------------------------------------------------------------
     // Creature.js's `l` is -X, which is Blender's .R -- see SIDE_SUFFIX.
-    bend('thigh' + SIDE_SUFFIX.l, s * hipSwing);
-    bend('thigh' + SIDE_SUFFIX.r, -s * hipSwing);
-    bend('shin' + SIDE_SUFFIX.l, -Math.max(0, -c) * hipSwing * 1.5);
-    bend('shin' + SIDE_SUFFIX.r, -Math.max(0, c) * hipSwing * 1.5);
-    bend('upper_arm' + SIDE_SUFFIX.l, -s * armSwing - p.shoulderRoll * 0.5);
-    bend('upper_arm' + SIDE_SUFFIX.r, s * armSwing - p.shoulderRoll * 0.5);
-    bend('forearm' + SIDE_SUFFIX.l, hang);
-    bend('forearm' + SIDE_SUFFIX.r, hang);
-    bend('spine', -p.hunch);
-    bend('neck', -p.neckLean);
+    bend('thigh' + SIDE_SUFFIX.l, Math.sin(gpA) * hipSwing * HIP.l);
+    bend('thigh' + SIDE_SUFFIX.r, Math.sin(gpB) * hipSwing * HIP.r);
+
+    // THE KNEE FLEXES TWICE A CYCLE, which the old max(0, cos) could not do: a
+    // small absorption right after the foot lands (taking the body's weight)
+    // and a large one through swing (clearing the ground). One bend per cycle
+    // is a stilt, and a stilt is most of what made the legs read as plastic.
+    // The Hollow barely absorbs -- it does not care about its own joints.
+    const kStance = THREE.MathUtils.lerp(0.05, 0.30, correction);
+    const kSwing = THREE.MathUtils.lerp(1.30, 1.15, correction);
+    const knee = (ph) => {
+      const t = ((ph / TAU) % 1 + 1) % 1;
+      return (kStance * _arch(t, 0.00, 0.30) + kSwing * _arch(t, 0.55, 1.00)) * walking;
+    };
+    // Each knee follows ITS OWN leg's warped phase, or the limp would be in the
+    // hips and not in the knees, which reads as a hitch rather than a limp.
+    const lag = GAIT_LAG.shin;
+    bend('shin' + SIDE_SUFFIX.l, -knee(gaitWarp(gaitPhase - lag, GAIT_DUTY + limp)) * KNEE.l);
+    bend('shin' + SIDE_SUFFIX.r, -knee(gaitWarp(gaitPhase + Math.PI - lag, GAIT_DUTY - limp)) * KNEE.r);
+
+    // FEET, which were never animated at all -- they hung rigid off the shins
+    // like a doll's. A foot that rolls is the difference between walking and
+    // being slid along the floor, and the bad side does not roll: it scuffs.
+    const roll = (ph) => {
+      const t = ((ph / TAU) % 1 + 1) % 1;
+      return (0.30 * _arch(t, 0.30, 0.62) - 0.16 * _arch(t, 0.62, 1.00)) * walking;
+    };
+    const fl = GAIT_LAG.foot;
+    bend('foot' + SIDE_SUFFIX.l, roll(gaitWarp(gaitPhase - fl, GAIT_DUTY + limp)) * g(1.0));
+    bend('foot' + SIDE_SUFFIX.r,
+      roll(gaitWarp(gaitPhase + Math.PI - fl, GAIT_DUTY - limp)) * g(0.25) + 0.16 * walking * wrong);
+
+    // --- pelvis and torso ---------------------------------------------------
+    // THE THREE MISSING CHANNELS. A walking pelvis drops on whichever side has
+    // no foot under it, rotates in the transverse plane, and the ribcage
+    // counter-rotates against it. Without them the torso is cargo; with them
+    // the figure has weight, and weight is what reads at distance.
+    const drop = THREE.MathUtils.lerp(0.17, 0.08, correction) * walking
+      * Math.sin(gp + THREE.MathUtils.lerp(0.55, 0.20, correction));
+    const prot = THREE.MathUtils.lerp(0.05, 0.10, correction) * walking * Math.sin(gp - 0.20);
+    pose('hips', 0, prot, drop);
+
+    // Counter-rotation, and then ONE coupling deliberately broken: at
+    // correction 0 the lag is ~pi, which flips the sign, so the Hollow's
+    // shoulders rotate WITH its hips instead of against them. Every human
+    // walks with the opposite arm forward; a body that does not is wrong in a
+    // way most people feel before they can name it.
+    const torsoLag = THREE.MathUtils.lerp(2.05, 0.0, correction);
+    const srot = -THREE.MathUtils.lerp(0.09, 0.12, correction) * walking
+      * Math.sin(gp - 0.20 + torsoLag);
+    pose('chest', 0, srot, 0);
+    pose('spine', -p.hunch, 0, srot * 0.35);
+
+    // --- the head that will not bob ----------------------------------------
+    // The neck undoes what the torso is doing, so the skull hangs almost still
+    // in space while the body works underneath it. Over-corrected at
+    // correction 0 (stab > 1): TOO still is the effect -- a head that tracks
+    // you with none of the sway a real one would have.
+    const stab = THREE.MathUtils.lerp(1.15, 0.65, correction);
+    pose('neck', -p.neckLean, -srot * stab, -drop * stab);
+    // headTilt finally reaches the GLB. It is a frontal-plane list, so it goes
+    // on the LEAN axis; putting it on swing would nod rather than tilt.
+    pose('head', 0, 0, p.headTilt * wrong * 0.6 + _noise1(elapsed * 0.23 + 7.1) * 0.05 * wrong);
+
+    // --- arms ---------------------------------------------------------------
+    const armPh = at('upper_arm');
+    const sa = Math.sin(armPh);
+    bend('upper_arm' + SIDE_SUFFIX.l, -sa * armSwing * ARM.l - p.shoulderRoll * 0.5);
+    bend('upper_arm' + SIDE_SUFFIX.r, sa * armSwing * ARM.r - p.shoulderRoll * 0.5);
+    // THE SHOULDER GIRDLE MOVES TOO. The clavicles were in the rig, named in
+    // the boot-time bone check, and never written to -- so the arm rotated out
+    // of a shoulder that stayed perfectly still, which is the single clearest
+    // way to make a limb look bolted on. A real shoulder rides forward and up
+    // a little with its own arm, about a fifth of what the arm does, and a
+    // beat behind it.
+    const clav = Math.sin(at('upper_arm') - 0.35) * armSwing * 0.22;
+    bend('clavicle' + SIDE_SUFFIX.l, -clav * ARM.l);
+    bend('clavicle' + SIDE_SUFFIX.r, clav * ARM.r);
+    // The elbows were a CONSTANT. A forearm welded at a fixed angle through a
+    // whole stride is the clearest single giveaway in the old gait, because
+    // the eye tracks hands. They now trail the shoulder by GAIT_LAG.forearm.
+    const elb = Math.sin(at('forearm'));
+    // 0.30 at the Hollow end, up from 0.12. An elbow that moves a seventh of a
+    // radian over a stride is an elbow nobody can see move.
+    const elbow = THREE.MathUtils.lerp(0.30, 0.45, correction) * walking;
+    bend('forearm' + SIDE_SUFFIX.l, hang - elbow * elb * ARM.l);
+    bend('forearm' + SIDE_SUFFIX.r, hang + elbow * elb * ARM.r);
 
     // The coat panels lag behind the stride. Motion survives fog long after
     // value contrast has gone, so a hem that swings is the long-range read.
-    const lag = Math.sin(gaitPhase - 0.9) * 0.12 * walking;
-    bend('coat_frontL', lag);
-    bend('coat_frontR', lag);
-    bend('coat_back', -lag * 0.6);
+    const lagPh = Math.sin(at('coat')) * 0.12 * walking;
+    bend('coat_frontL', lagPh);
+    bend('coat_frontR', lagPh);
+    bend('coat_back', -lagPh * 0.6);
 
-    const bob = Math.abs(s) * 0.022 * walking;
+    // --- weight -------------------------------------------------------------
+    // TWO peaks per stride, not one, and no cusp. abs(sin) has a corner at
+    // every footfall, which on a silhouette is a visible tick; cos(2*gp) is
+    // smooth and peaks at mid-stance where the body really is highest. The
+    // extra drop on the bad side is the lurch, and it is most of the limp's
+    // read at distance.
+    const bob = (0.024 * Math.cos(2 * gp - 3.77) - 0.016 * Math.max(0, -s) * wrong) * walking;
     const breath = Math.sin(elapsed * 1.4) * 0.008 * (1 - walking);
-    if (bones.hips) bones.hips.position.y = p.hipHeight - HIPS_BONE_LENGTH + bob + breath;
+    // Lateral weight shift. hips.position is in the armature root's space, the
+    // same space applyGlb() places the thigh roots in, so X is safe to write.
+    const sway = THREE.MathUtils.lerp(0.034, 0.022, correction) * walking * Math.sin(gp + 0.25);
+    if (bones.hips) {
+      bones.hips.position.set(sway, p.hipHeight - HIPS_BONE_LENGTH + bob + breath, 0);
+    }
   }
 
   loadModel(creatureModelUrl)
