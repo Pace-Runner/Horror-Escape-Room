@@ -205,6 +205,8 @@ export class PointerLockPlayer {
     this._pendingPitch = 0;
     /** Cleared during transitions, so looking freezes without dropping the lock. */
     this.lookEnabled = true;
+    /** Optional absolute yaw/pitch bounds for short scripted gameplay states. */
+    this.lookBounds = null;
     /**
      * While true, update() returns immediately and the camera is not touched at
      * all -- for scripted shots. See the note at the top of update().
@@ -327,6 +329,23 @@ export class PointerLockPlayer {
     this.sensitivity = Math.min(SENSITIVITY_MAX, Math.max(SENSITIVITY_MIN, multiplier));
   }
 
+  /**
+   * Limits where the player can look without disabling mouse look entirely.
+   *
+   * Bounds are absolute radians in this player's yaw/pitch space. Passing null
+   * restores the normal unrestricted view used by the rest of the game.
+   */
+  setLookBounds(bounds = null) {
+    this.lookBounds = bounds ? {
+      minYaw: bounds.minYaw,
+      maxYaw: bounds.maxYaw,
+      minPitch: bounds.minPitch,
+      maxPitch: bounds.maxPitch
+    } : null;
+    this.#clampLookToBounds();
+    this.#applyLook();
+  }
+
   get isLocked() {
     return this.controls.isLocked;
   }
@@ -344,6 +363,7 @@ export class PointerLockPlayer {
     this.object.position.set(x, this.eyeHeight, z);
     this._yaw = yaw;
     this._pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch));
+    this.#clampLookToBounds();
     this._pendingYaw = 0;
     this._pendingPitch = 0;
     this.lookDeltaX = 0;
@@ -405,6 +425,13 @@ export class PointerLockPlayer {
     this.camera.quaternion.setFromEuler(LOOK);
   }
 
+  /** Keeps the authored look state inside an optional scripted presentation arc. */
+  #clampLookToBounds() {
+    if (!this.lookBounds) return;
+    this._yaw = Math.max(this.lookBounds.minYaw, Math.min(this.lookBounds.maxYaw, this._yaw));
+    this._pitch = Math.max(this.lookBounds.minPitch, Math.min(this.lookBounds.maxPitch, this._pitch));
+  }
+
   // Colliders are simple { minX, maxX, minZ, maxZ } boxes in world space
   // (room walls, furniture footprints). Kept 2D since the player never
   // needs to duck or jump in this world.
@@ -462,6 +489,7 @@ export class PointerLockPlayer {
     if (dYaw !== 0 || dPitch !== 0) {
       this._yaw += this.lookDeltaX;
       this._pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this._pitch + this.lookDeltaY));
+      this.#clampLookToBounds();
       this.#applyLook();
     }
 

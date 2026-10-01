@@ -216,6 +216,15 @@ camera.layers.enable(MAIN_ONLY);
 // ---------- player ----------
 const player = new PointerLockPlayer(camera, renderer.domElement);
 
+// The opening restraint is a presentation beat, not a frozen cutscene: the
+// player can inspect the bedding and headboard but cannot turn toward the room.
+const BEDROOM_RESTRAINED_LOOK_BOUNDS = Object.freeze({
+  minYaw: -0.05,
+  maxYaw: 0.95,
+  minPitch: -0.95,
+  maxPitch: 0.15
+});
+
 // handheld flashlight -- a spotlight attached to the camera so it always
 // points wherever the player looks, only added to the camera once found
 /**
@@ -680,6 +689,7 @@ const bedroom = createBedroomLevel({
     // allowed to resolve movement. teleport() retains the player's look state.
     const [bedExitPositionX, bedExitPositionZ] = bedroom.refs.bedExitPosition;
     player.teleport(bedExitPositionX, bedExitPositionZ);
+    player.setLookBounds(null);
     player.movementEnabled = true;
     objectiveEl.textContent = 'Escape the house without getting caught.';
     // The lockpick loop has no natural end of its own (see clips/lockpick.js -
@@ -1611,10 +1621,15 @@ function onHunterCaught() {
 }
 
 function activateLevel(key, { lockMovement = false } = {}) {
+  // A prior restrained bedroom view must never clamp the spawn orientation of
+  // another level during SceneManager.activate()'s player.spawn() call.
+  player.setLookBounds(null);
   const level = sceneManager.activate(key, player);
   // Was a TypeError on an unregistered key -- a routing typo should cost a
   // wrong room, never a crash mid-transition.
   if (!level) return null;
+  const isBedroomRestraintActive = key === 'bedroom' && !level.refs.puzzleState.chainsEscaped;
+  player.setLookBounds(isBedroomRestraintActive ? BEDROOM_RESTRAINED_LOOK_BOUNDS : null);
   interaction.setTargets(level.interactables);
   scene.fog = LEVEL_FOG[key] ?? null;
   objectiveEl.textContent = LEVEL_OBJECTIVES[key] ?? '';
