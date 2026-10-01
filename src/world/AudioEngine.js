@@ -94,11 +94,210 @@ const BREATH_MAKEUP = 5;
 // drift the moment either is tuned.
 export const BREATH_BASE_LEVEL = 0.1;
 
+// Player footsteps. Two supplied recordings, sliced into individual steps at
+// load and fired one per footfall -- NOT looped. See detectFootstepSlices.
+//
+// Globbed for the same reason the breathing loop and the voice clips are: a
+// plain import of a file that is not there fails the BUILD, a glob that matches
+// nothing is an empty object, and the game simply runs silent.
+const WALK_STEP_FILES = import.meta.glob('../assets/audio/walking_audio.*', {
+  query: '?url',
+  import: 'default',
+  eager: true
+});
+const RUN_STEP_FILES = import.meta.glob('../assets/audio/running_audio.*', {
+  query: '?url',
+  import: 'default',
+  eager: true
+});
+const WALK_STEP_URL = Object.values(WALK_STEP_FILES)[0] ?? null;
+const RUN_STEP_URL = Object.values(RUN_STEP_FILES)[0] ?? null;
+
+/**
+ * WHERE IN THE STRIDE A FOOT LANDS.
+ *
+ * PointerLockPlayer.bobPhase advances 2*pi per STRIDE, which is TWO steps, and
+ * #applyEyeHeight draws the head as sin(bobPhase * 2). The head is lowest where
+ * that is -1: bobPhase = 3*pi/4 and 7*pi/4. Firing there is what makes the
+ * sound land with the visual dip instead of near it.
+ *
+ * The two points are exactly pi apart, so ONE test finds both: reduce the phase
+ * modulo pi and watch for it to wrap. That also disposes of the 2*pi wrap for
+ * free, which a pair of explicit threshold tests would each have to handle.
+ */
+const STEP_PHASE_OFFSET = Math.PI * 0.75;
+
+/**
+ * Peak each individual slice is normalised to, before the level dials below.
+ *
+ * BY PEAK, not by RMS. The two files as supplied are 23.7 dB apart at peak
+ * (-25.7 dBFS walking against -2.0 running) and 25.1 dB apart in RMS, so they
+ * cannot share a gain -- played at one level the run would be deafening beside
+ * the walk. RMS would be worse than useless for choosing between them: the
+ * walking file is mostly silence between steps and the running file is 27 s of
+ * continuous running, so their RMS figures measure how much GAP each recording
+ * has rather than how hard the foot lands. Peak measures the transient, which
+ * is what a footstep is.
+ *
+ * TWO STAGES, because one was wrong. Normalising every SLICE to this peak
+ * sounded right and is not: it flattens the recording's own dynamics, it fights
+ * STEP_MAX_MAKEUP (five of the eight walking slices pinned to the ceiling and
+ * came out anywhere from 0.16 to 0.42 anyway, which is the spread it was
+ * supposed to remove), and a tread where every footfall is identical is the
+ * metronome the alternating weight below exists to avoid. So the file is
+ * matched to this peak, and slices are levelled only PARTWAY toward it --
+ * enough that a random shuffle does not jump, not so much that the performance
+ * is ironed flat.
+ */
+const STEP_TARGET_PEAK = 0.42;
+
+/**
+ * Ceiling on that normalisation, so near-silence is not lifted into hiss.
+ *
+ * 12, not 6, and the difference is not cosmetic. The supplied walking file
+ * peaks at -25.7 dBFS, so reaching STEP_TARGET_PEAK needs x8.1 -- at a ceiling
+ * of 6 EVERY walk slice clamped, which had two consequences: the walk came out
+ * 2.6 dB under the run instead of matched to it, and, because they were all
+ * pinned to the same number, the per-slice levelling that the clamp is sitting
+ * on top of did nothing at all for that file. Measured after raising it, the
+ * walk slices spread across their real range again.
+ *
+ * Headroom check, since raising a limiter is exactly the change that ships
+ * hiss: the walking recording's RMS is -52.2 dBFS, and the gaps between steps
+ * sit below that. At the ~x12 the file match needs (+21.6 dB) that noise floor
+ * lands near -30 dBFS, under a step that is sitting at -7.5, and a slice only
+ * ever plays the ~0.5 s around one footfall rather than the silence between
+ * two. What reaches the mix is the step.
+ */
+const STEP_MAX_MAKEUP = 24;
+
+/**
+ * How far a slice is levelled toward its file's peak. 0 leaves the recording's
+ * dynamics untouched, 1 makes every footfall identical. At 0.5 a step 12 dB
+ * below the loudest in its file comes up 6 dB, so the shuffle stops jumping
+ * while the tread still breathes.
+ */
+const STEP_EVEN = 0.5;
+
+/**
+ * Where footsteps sit in the mix. DERIVED, because the first pair of numbers
+ * here were asserted and were the opposite of true.
+ *
+ * That comment claimed "under the breathing, well under the wind" while
+ * setting 0.42, which works out as follows. A step peaks at STEP_TARGET_PEAK x
+ * STEP_LEVEL, so 0.42 x 0.42 = 0.176 = -15.1 dBFS before the master. The
+ * breathing at the level the game opens on peaks at 10^(-23.7/20) x
+ * (BREATH_BASE_LEVEL x BREATH_MAKEUP) = 0.0327 = -29.7 dBFS. The wind drone is
+ * uniform noise through a 2nd-order 340 Hz lowpass at gain 0.06, roughly
+ * -35 dBFS peak. So the player's own feet were landing 14.6 dB ABOVE the
+ * ambient breathing and 20 dB above the wind -- the loudest recurring thing in
+ * the game, and within 5 dB of the loudest story beat there is.
+ *
+ * 0.12 puts a step at 0.0504 = -25.9 dBFS: about 4 dB over the base breathing
+ * peak, 9 dB under a story-beat breath, 9 dB over the wind. Clearly audible as
+ * a transient, underneath everything that is supposed to carry the scene.
+ *
+ * CROUCH IS A REAL DUCK NOW. 0.42 against 0.30 was -2.9 dB, roughly one
+ * just-noticeable difference -- crouching sounded like walking. 0.04 is
+ * -9.5 dB under the walk, which is the difference the mechanic is promising.
+ */
+const STEP_LEVEL = 0.12;
+const STEP_CROUCH_LEVEL = 0.04;
+
+/** Grab this much before the detected onset, so no attack transient is clipped. */
+const STEP_PRE_ROLL = 0.015;
+
+// Fade at each end of a slice. Short enough not to soften the transient that
+// makes a footstep a footstep, long enough to kill the edge click -- see the
+// note in #playStep.
+const STEP_ATTACK = 0.003;
+const STEP_RELEASE = 0.006;
+
+/**
+ * Slice a recording of walking into single footsteps.
+ *
+ * MEASURED AT LOAD rather than typed in as a table of times, so replacing
+ * walking_audio.mp3 with a different recording needs no code change -- the same
+ * reasoning as the breathing loop's measured window, but automated because
+ * there are dozens of onsets here rather than two.
+ *
+ * A 10 ms peak envelope, then local maxima above a fraction of the file's own
+ * peak, with a refractory gap so one footstep's decay cannot register as the
+ * next footstep. The supplied files give 8 onsets at a median 0.56 s (1.79
+ * steps/s) and 61 at 0.27 s (3.70 steps/s), which is exactly what walking and
+ * running recordings should look like -- if a future file yields one slice or
+ * two hundred, the assertion in #loadFootsteps says so rather than letting it
+ * quietly sound wrong.
+ */
+function detectFootstepSlices(buffer) {
+  const d = buffer.getChannelData(0);
+  const sr = buffer.sampleRate;
+  const hop = Math.max(1, Math.round(sr * 0.01));
+  const env = [];
+  for (let b = 0; b + hop <= d.length; b += hop) {
+    let m = 0;
+    for (let i = b; i < b + hop; i++) {
+      const a = Math.abs(d[i]);
+      if (a > m) m = a;
+    }
+    env.push(m);
+  }
+  let peak = 0;
+  for (const e of env) if (e > peak) peak = e;
+  if (peak <= 0) return [];
+  // Stage one: bring THIS RECORDING's loudest footfall to the target, which is
+  // what closes the 23.7 dB gap between the two supplied files.
+  const fileGain = STEP_TARGET_PEAK / peak;
+
+  const threshold = peak * 0.18;
+  const refractory = 12;            // 120 ms: shorter than any real stride
+  const onsets = [];
+  for (let i = 1; i < env.length - 1; i++) {
+    if (env[i] < threshold) continue;
+    if (env[i] < env[i - 1] || env[i] < env[i + 1]) continue;
+    if (onsets.length && i - onsets[onsets.length - 1] < refractory) continue;
+    onsets.push(i);
+  }
+
+  return onsets.map((idx, k) => {
+    const start = Math.max(0, idx * 0.01 - STEP_PRE_ROLL);
+    // Run to the NEXT onset, so a slice carries its own decay tail and stops
+    // before the following foot lands. The last one runs to the end of the
+    // recording, which is where its tail already is.
+    const end = k + 1 < onsets.length ? onsets[k + 1] * 0.01 : buffer.duration;
+    let slicePeak = 0;
+    const from = Math.floor(start * sr);
+    const to = Math.min(d.length, Math.floor(end * sr));
+    for (let i = from; i < to; i++) {
+      const a = Math.abs(d[i]);
+      if (a > slicePeak) slicePeak = a;
+    }
+    // Stage two: lift a quiet slice PARTWAY toward its file's peak. At
+    // STEP_EVEN = 1 this is full per-slice normalisation, which flattens the
+    // performance; at 0 it is none, and the shuffle audibly jumps.
+    const rel = slicePeak > 0 ? Math.pow(peak / slicePeak, STEP_EVEN) : 0;
+    return {
+      offset: start,
+      duration: Math.max(0.05, end - start),
+      gain: Math.min(STEP_MAX_MAKEUP, fileGain * rel)
+    };
+  });
+}
+
+// Default master level, matched to what start() used to hardcode so a player
+// who never opens the settings menu hears exactly what they always heard.
+const DEFAULT_MASTER_VOLUME = 0.5;
+
 export class AudioEngine {
   constructor() {
     this.ctx = null;
     this.master = null;
     this.windSource = null;
+
+    // Settable before start(): the settings menu can call this from a value it
+    // restored out of localStorage before the player has even clicked through
+    // the start screen (i.e. before there is an AudioContext to hold it).
+    this.masterVolume = DEFAULT_MASTER_VOLUME;
 
     // Breathing state lives here rather than in start() because every public
     // breathing method is safe to call before start(), before the file has
@@ -121,13 +320,25 @@ export class AudioEngine {
     this.voiceSource = null;
     this.voiceBuffers = new Map();
     this.voiceWarned = new Set();
+
+    // Footstep state, on the instance for the same reason as the two buses
+    // above: main.js drives updateFootsteps() from the frame loop, which starts
+    // running before the player has clicked through the start screen and so
+    // before there is a context or a decoded buffer to play out of.
+    this.stepGain = null;
+    this.stepWalk = null;
+    this.stepRun = null;
+    // null rather than 0 so the first frame RESYNCS instead of counting the
+    // distance from phase 0 as a footfall.
+    this.stepPhase = null;
+    this.stepFoot = false;
   }
 
   start() {
     if (this.ctx) return;
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.master = this.ctx.createGain();
-    this.master.gain.value = 0.5;
+    this.master.gain.value = this.masterVolume;
     this.master.connect(this.ctx.destination);
     this.#startWindDrone();
 
@@ -143,9 +354,17 @@ export class AudioEngine {
     this.voiceGain.gain.value = VOICE_LEVEL;
     this.voiceGain.connect(this.master);
 
+    // Its own bus again, so footsteps can be balanced against the ambience
+    // without the story's breathing dial or a voice line moving them.
+    this.stepGain = this.ctx.createGain();
+    this.stepGain.gain.value = 1;
+    this.stepGain.connect(this.master);
+
     // Fetched here and not at module load: decodeAudioData needs a context,
     // and a context before the user gesture is a context the browser blocks.
     this.#loadBreathing();
+    this.#loadFootstepSet(WALK_STEP_URL, 'walking').then((set) => { this.stepWalk = set; });
+    this.#loadFootstepSet(RUN_STEP_URL, 'running').then((set) => { this.stepRun = set; });
   }
 
   // Suspends the whole AudioContext rather than just zeroing gain, so the
@@ -158,6 +377,20 @@ export class AudioEngine {
 
   resume() {
     if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume();
+  }
+
+  /**
+   * The settings-menu volume slider, 0..1. Stepped rather than ramped: this is
+   * a direct user drag, not a story beat, so it should track the slider with no
+   * lag -- the ramping in setBreathing() is for a level the game changes on its
+   * own timeline, which is a different thing.
+   *
+   * Safe before start(): the value is remembered and applied the moment the
+   * context (and its master gain node) actually exists.
+   */
+  setMasterVolume(level) {
+    this.masterVolume = Math.min(1, Math.max(0, level));
+    if (this.master) this.master.gain.value = this.masterVolume;
   }
 
   // ---------- breathing loop ----------
@@ -431,6 +664,165 @@ export class AudioEngine {
     src.stop(now + 1.4);
   }
 
+  // ---------- player footsteps ----------
+  //
+  // NOT to be confused with footsteps() further down, which synthesises a
+  // scripted pass-by for something that is not the player. This one plays the
+  // supplied recordings, one slice per actual footfall.
+
+  /**
+   * Advance the footstep clock. Call once a frame, after player.update().
+   *
+   * TAKES THE PLAYER'S OWN bobPhase rather than a speed or a timer, and that is
+   * the whole design. bobPhase advances with DISTANCE ACTUALLY TRAVELLED after
+   * collision, so three things fall out for nothing:
+   *
+   *   walking into a wall makes no footsteps, because the bob already stops
+   *   crouch-walking steps slower, because it covers ground slower
+   *   a cutscene makes none, because player.update() returns before moving
+   *
+   * A timer-driven or loop-driven version would have to special-case every one
+   * of those, and would drift out of step with the camera bob and the hands'
+   * walkbob besides -- bobPhase is the single clock all of them already share.
+   *
+   * MISSED STEPS AT LOW FRAME RATE, stated because it is a real limit and a
+   * benign one. The wrap test below sees one step per crossing, so a frame that
+   * advances the phase by more than pi drops a step. main.js clamps dt to
+   * 0.05 s and the fastest the phase moves is sprint: 2*pi * 3.526 / 2.17 =
+   * 10.2 rad/s, so a worst-case frame advances 0.51 rad against the pi it would
+   * need. There is a factor of six in hand, and at a frame rate low enough to
+   * break that, a dropped footstep is not the problem.
+   */
+  updateFootsteps(bobPhase, { moving = 0, sprint = 0, crouch = 0 } = {}) {
+    if (!this.ctx) return;
+    const t = ((bobPhase - STEP_PHASE_OFFSET) % Math.PI + Math.PI) % Math.PI;
+    const prev = this.stepPhase;
+    this.stepPhase = t;
+    // Standing still: resync and fire nothing. Without the gate, the tiny
+    // residual phase left over when the player stops could cross a trigger and
+    // drop one unattached footstep after they have come to a halt.
+    // NO `moving` GATE, and the version that had one was wrong twice over. Its
+    // stated reason -- residual phase drift after a stop -- does not exist:
+    // PointerLockPlayer initialises `walked` to 0 and only assigns it inside
+    // `if (MOVE.lengthSq() > 0)`, so the frame the keys come up it adds exactly
+    // 0 and the phase FREEZES. A frozen phase gives t === prev, which the test
+    // below already rejects, so the gate bought nothing. What it cost was the
+    // first step of a walk: `moving` is a lerp with BOB_BLEND 0.16 and needs
+    // three frames at 60 Hz to pass 0.2, the phase moves 0.41 rad in those
+    // three frames against trigger points pi apart, and stepPhase is written
+    // every frame regardless -- so roughly one walk-start in eight had its
+    // opening footfall consumed in silence.
+    if (prev === null) return;
+    if (t >= prev) return;                       // no wrap, no footfall
+    const set = sprint > 0.5 ? this.stepRun : this.stepWalk;
+    if (!set || !set.slices.length) return;
+
+    // Alternating weight, for the same reason the synthesised footsteps() does
+    // it: a person does not put both feet down equally hard, and a perfectly
+    // even tread sounds like a metronome rather than like somebody walking.
+    this.stepFoot = !this.stepFoot;
+    const level = (crouch > 0.5 ? STEP_CROUCH_LEVEL : STEP_LEVEL)
+      * (this.stepFoot ? 1 : 0.82);
+    this.#playStep(set, level, this.stepFoot ? -0.12 : 0.12);
+  }
+
+  #playStep(set, level, pan) {
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const slice = set.slices[Math.floor(Math.random() * set.slices.length)];
+    if (!slice) return;
+
+    const src = ctx.createBufferSource();
+    src.buffer = set.buffer;
+    // A couple of percent of detune per step. Real footfalls are never twice
+    // the same, and without it the shuffle through a handful of slices starts
+    // to sound like a shuffle through a handful of slices.
+    const rate = 0.96 + Math.random() * 0.08;
+    src.playbackRate.value = rate;
+
+    // Its own gain node per step, not a shared one: these overlap by design at
+    // a run, and a single node would have each new step stamp on the previous
+    // one's tail. Same reason the breathing loop and each voice line have one.
+    const out = ctx.createGain();
+
+    // RAMPED AT BOTH ENDS, which is not polish -- without it every footstep
+    // clicks. A slice is cut out of the middle of a recording: it ends where
+    // the NEXT foot lands, so the signal there is not silence, and jumping it
+    // to zero in one sample is a broadband tick. Measured on these two files,
+    // the boundary sample reaches -16.3 dBFS on the running recording and the
+    // click lands at -20.7 dBFS after the slice makeup -- about 13 dB under
+    // the footstep it is attached to, on every step, at 3.25 a second while
+    // sprinting. The start needs it too: 15 ms before an onset is mid-decay of
+    // the previous footfall, not silence. Every other one-shot in this class
+    // (thunder, creak, bulbPop, the synthesised footsteps) already ramps both
+    // ends for exactly this reason.
+    //
+    // `duration` in start(when, offset, duration) is in BUFFER seconds, so the
+    // slice lasts duration / playbackRate of WALL CLOCK. Scheduling the release
+    // at now + slice.duration would miss the cut by up to 4% and the ramp would
+    // land in the wrong place -- which is the same bug, quieter.
+    const peak = level * slice.gain;
+    const end = now + slice.duration / rate;
+    const hold = Math.max(now + STEP_ATTACK, end - STEP_RELEASE);
+    out.gain.setValueAtTime(0, now);
+    out.gain.linearRampToValueAtTime(peak, now + STEP_ATTACK);
+    out.gain.setValueAtTime(peak, hold);
+    out.gain.linearRampToValueAtTime(0, end);
+
+    let tail = out;
+    if (ctx.createStereoPanner) {
+      const panner = ctx.createStereoPanner();
+      panner.pan.setValueAtTime(pan, now);
+      out.connect(panner);
+      tail = panner;
+    }
+    tail.connect(this.stepGain);
+    src.connect(out);
+    src.start(now, slice.offset, slice.duration);
+    // AudioBufferSourceNode is single-use; drop the graph when it finishes so a
+    // long session does not accumulate a node per step taken.
+    src.onended = () => {
+      try {
+        src.disconnect();
+        out.disconnect();
+        if (tail !== out) tail.disconnect();
+      } catch { /* already torn down */ }
+    };
+  }
+
+  #loadFootstepSet(url, label) {
+    if (!url) {
+      console.warn(`AudioEngine: no ${label} recording found -- expected `
+        + `src/assets/audio/${label}_audio.mp3 (or .m4a/.ogg/.wav). `
+        + 'Footsteps for this gait will be silent.');
+      return Promise.resolve(null);
+    }
+    return fetch(url)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.arrayBuffer();
+      })
+      .then((bytes) => this.ctx.decodeAudioData(bytes))
+      .then((buffer) => {
+        const slices = detectFootstepSlices(buffer);
+        // A recording that yields no steps is the one failure that would
+        // otherwise be silent in every sense -- the game would run, footsteps
+        // would simply never play, and nothing would say why.
+        if (!slices.length) {
+          console.error(`AudioEngine: found no footsteps in the ${label} recording `
+            + `(${buffer.duration.toFixed(2)} s). detectFootstepSlices needs clear `
+            + 'transients above 18% of the file peak, at least 120 ms apart. A '
+            + 'continuous or heavily compressed recording will not slice.');
+        }
+        return { buffer, slices };
+      })
+      .catch((err) => {
+        console.warn(`AudioEngine: could not load the ${label} recording, `
+          + `continuing without it: ${err.message}`);
+        return null;
+      });
+  }
+
   /**
    * Slow, heavy footsteps on boards, receding or approaching.
    *
@@ -581,6 +973,27 @@ export class AudioEngine {
     src.connect(filter).connect(gain).connect(this.master);
     src.start();
     src.stop(now + 0.3);
+  }
+
+  /** A single heavy impact, used for nearby knocks without implying an attack. */
+  thump(level = 0.72) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = this.#noiseBuffer(0.3);
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 110;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(level, now + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.32);
+
+    src.connect(filter).connect(gain).connect(this.master);
+    src.start(now);
+    src.stop(now + 0.34);
   }
 
   // Tears the whole graph down and closes the context. Safe before start(),

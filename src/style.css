@@ -124,7 +124,8 @@ html, body {
   border-color: #b3271a;
 }
 
-#restart-button {
+#restart-button,
+#settings-button {
   margin-top: 14px;
   padding: 8px 22px;
   font-size: 0.75rem;
@@ -137,7 +138,8 @@ html, body {
   transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
 
-#restart-button:hover {
+#restart-button:hover,
+#settings-button:hover {
   background: rgba(216, 210, 196, 0.08);
   border-color: #8a8478;
   color: #d8d2c4;
@@ -266,9 +268,27 @@ html, body {
   height: 100%;
 }
 
-/* The player marker: fixed at the map's centre, since the camera that draws
-   the map is always centred on the player -- only its rotation moves, to
-   show which way the player is facing. */
+/* Overview mode -- the backrooms, where the whole floor plan is framed at once
+   instead of 14m around the player.
+
+   Square, not round: a circular crop would cut the corners off a square floor
+   plan, and in a maze the corners are exactly where the dead ends are. The
+   change of shape also tells the player, without a word, that this map is a
+   different kind of thing from the house's little compass. */
+#minimap-wrap.overview {
+  border-radius: 10px;
+}
+
+#minimap-wrap.overview::after {
+  border-radius: 10px;
+  box-shadow: inset 0 0 18px 4px rgba(0, 0, 0, 0.55);
+}
+
+/* The player marker. In follow mode the map camera is always centred on the
+   player, so the marker is pinned at 50%/50% and only its rotation moves. In
+   overview mode the camera is pinned to the LEVEL instead, so Minimap.js
+   overwrites left/top each frame with the player's projected position -- the
+   translate(-50%,-50%) below keeps it centred on whatever those resolve to. */
 #minimap-arrow {
   position: absolute;
   top: 50%;
@@ -283,6 +303,44 @@ html, body {
 }
 
 /* ---------- hotbar ---------- */
+/* ---------- sprint stamina ---------- */
+/* Only visible while it matters. A permanently-full bar is a permanent reminder
+   of a resource the player is not spending, which is noise -- so it fades in
+   when it drops and fades out again once it is back. */
+#stamina {
+  position: absolute;
+  bottom: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 140px;
+  height: 4px;
+  background: rgba(10, 9, 8, 0.72);
+  border: 1px solid #3a332b;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  pointer-events: none;
+}
+
+#stamina.visible {
+  opacity: 1;
+}
+
+#stamina-fill {
+  height: 100%;
+  width: 100%;
+  background: #c9c2b4;
+  transform-origin: left center;
+  /* Scaled rather than width-animated: a transform does not trigger layout,
+     and this updates every frame. */
+  transform: scaleX(1);
+}
+
+/* Empty, and locked out until it recovers. Reads as "you cannot use this yet"
+   rather than just "this is low". */
+#stamina.spent #stamina-fill {
+  background: #8c4a3a;
+}
+
 #hotbar {
   position: absolute;
   bottom: 24px;
@@ -525,7 +583,8 @@ html, body {
 }
 
 #board-slots {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, 150px);
   gap: 22px;
   justify-content: center;
   padding: 22px;
@@ -571,6 +630,24 @@ html, body {
   -webkit-user-select: none;
   user-select: none;
   transition: transform 0.15s ease;
+  position: relative;
+}
+
+/* The puzzle is chronological, so the clue needs to survive a normal-size
+   150px tile. The label sits on the print's lower border rather than covering
+   the family image and does not receive pointer events during drag. */
+.board-photo::after {
+  content: attr(data-date);
+  position: absolute;
+  right: 6px;
+  bottom: 5px;
+  padding: 1px 5px 2px;
+  color: #f6edcf;
+  background: rgba(35, 26, 17, 0.88);
+  border: 1px solid rgba(246, 237, 207, 0.75);
+  font: 700 1.05rem/1 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.04em;
+  pointer-events: none;
 }
 
 .board-photo:hover {
@@ -756,6 +833,90 @@ html, body {
 }
 
 #credits-close:hover {
+  background: rgba(179, 39, 26, 0.15);
+}
+
+/* ---------- settings screen ---------- */
+#settings-screen {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 60;
+}
+
+#settings-screen.hidden {
+  display: none;
+}
+
+#settings-panel {
+  width: min(420px, 90vw);
+  background: #14110e;
+  border: 1px solid #3a332b;
+  padding: 26px 30px;
+}
+
+#settings-panel h2 {
+  letter-spacing: 0.2rem;
+  text-transform: uppercase;
+  font-size: 1rem;
+  margin-bottom: 20px;
+  color: #b3271a;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid #241f1a;
+}
+
+.settings-row label {
+  flex: 1 0 auto;
+  font-size: 0.8rem;
+  letter-spacing: 0.04rem;
+  color: #c9c2b4;
+}
+
+.settings-row input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: #b3271a;
+}
+
+.settings-value {
+  flex: 0 0 3.2em;
+  text-align: right;
+  font-size: 0.75rem;
+  color: #8a8478;
+}
+
+.settings-row-toggle input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: #b3271a;
+}
+
+#settings-captions-hint {
+  font-size: 0.68rem;
+  line-height: 1.5;
+  color: #55504a;
+  padding: 10px 0 4px;
+}
+
+#settings-close {
+  margin-top: 18px;
+  padding: 8px 18px;
+  background: transparent;
+  border: 1px solid #6b6459;
+  color: #d8d2c4;
+  cursor: pointer;
+}
+
+#settings-close:hover {
   background: rgba(179, 39, 26, 0.15);
 }
 

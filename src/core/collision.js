@@ -37,9 +37,26 @@ export function resolveCircle(pos, radius, colliders) {
     const dz = pos.z - closestZ;
     const distSq = dx * dx + dz * dz;
     if (distSq < radius * radius) {
-      // 0.0001 rather than 0: dead centre of a box gives a zero-length normal,
-      // and dividing by it would put the body at NaN and never bring it back.
-      const dist = Math.sqrt(distSq) || 0.0001;
+      // A centre inside an AABB has no closest-point direction. Resolve it
+      // through the nearest face instead; the old tiny-distance fallback kept
+      // dx/dz at zero, so a player could walk through any solid footprint.
+      if (distSq === 0) {
+        const distanceToLeft = pos.x - box.minX;
+        const distanceToRight = box.maxX - pos.x;
+        const distanceToBack = pos.z - box.minZ;
+        const distanceToFront = box.maxZ - pos.z;
+        const nearestFaceDistance = Math.min(distanceToLeft, distanceToRight, distanceToBack, distanceToFront);
+
+        if (nearestFaceDistance === distanceToLeft) pos.x = box.minX - radius;
+        else if (nearestFaceDistance === distanceToRight) pos.x = box.maxX + radius;
+        else if (nearestFaceDistance === distanceToBack) pos.z = box.minZ - radius;
+        else pos.z = box.maxZ + radius;
+
+        hit = true;
+        continue;
+      }
+
+      const dist = Math.sqrt(distSq);
       const push = radius - dist;
       pos.x += (dx / dist) * push;
       pos.z += (dz / dist) * push;

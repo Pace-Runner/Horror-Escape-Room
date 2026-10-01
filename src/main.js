@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { PointerLockPlayer } from './core/PointerLockPlayer.js';
+import { PointerLockPlayer, SENSITIVITY_MIN, SENSITIVITY_MAX } from './core/PointerLockPlayer.js';
+import { WALK_SPEED } from './core/MoveSpeeds.js';
 import { SceneManager } from './core/SceneManager.js';
 import { Interaction } from './core/Interaction.js';
 import { createPhotoBoardUI } from './core/PhotoBoardUI.js';
@@ -14,7 +15,8 @@ import { createStudyLevel } from './levels/studyLevel.js';
 import { createBackroomsLevel } from './levels/backroomsLevel.js';
 import { createScreenFade, wait } from './core/ScreenFade.js';
 import { gameState, resetState, addItem, removeItem } from './core/GameState.js';
-import { MINIMAP_ONLY, MAIN_ONLY } from './core/RenderLayers.js';
+import { MAIN_ONLY } from './core/RenderLayers.js';
+import { createMinimap } from './core/Minimap.js';
 import { CaptionSequencer } from './core/CaptionSequencer.js';
 import { createDocumentUI } from './core/DocumentUI.js';
 import { createPostFX } from './world/Postprocessing.js';
@@ -22,6 +24,7 @@ import { createCutsceneRunner } from './core/Cutscene.js';
 import { createScriptRunner } from './core/Script.js';
 import { createCreature } from './systems/Creature.js';
 import { createCreatureAI } from './systems/CreatureAI.js';
+import { createBackroomsHunter } from './systems/BackroomsHunter.js';
 import { createVisor } from './core/Visor.js';
 import { BEATS, DOCUMENTS, ENDINGS } from './story/lines.js';
 import { Hands } from './systems/hands/hands.js';
@@ -50,10 +53,21 @@ const flashlightStateEl = document.getElementById('flashlight-state');
 const hotbarSlots = document.querySelectorAll('#hotbar .hotbar-slot');
 const minimapCanvas = document.getElementById('minimap');
 const minimapArrowEl = document.getElementById('minimap-arrow');
+const minimapWrapEl = document.getElementById('minimap-wrap');
 const creditsScreen = document.getElementById('credits-screen');
 const creditsList = document.getElementById('credits-list');
+const staminaEl = document.getElementById('stamina');
+const staminaFillEl = document.getElementById('stamina-fill');
 const creditsCloseBtn = document.getElementById('credits-close');
 const fadeOverlay = document.getElementById('fade-overlay');
+const settingsButton = document.getElementById('settings-button');
+const settingsScreen = document.getElementById('settings-screen');
+const settingsCloseBtn = document.getElementById('settings-close');
+const volumeInput = document.getElementById('settings-volume');
+const volumeValueEl = document.getElementById('settings-volume-value');
+const sensitivityInput = document.getElementById('settings-sensitivity');
+const sensitivityValueEl = document.getElementById('settings-sensitivity-value');
+const captionsCheckbox = document.getElementById('settings-captions');
 
 // The black between levels. Deliberately not a `.hidden` toggle like every
 // other overlay in this file -- see core/ScreenFade.js for why that would snap
@@ -152,7 +166,20 @@ scene.environmentIntensity = 0.5;
 const worldRoot = new THREE.Group();
 scene.add(worldRoot);
 
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.05, 100);
+/**
+ * The camera's resting field of view, and how far sprinting widens it.
+ *
+ * +8 degrees, and no more, because THE HANDS AND THE TORCH ARE CHILDREN OF THIS
+ * CAMERA -- a wider FOV shrinks them. tan(35)/tan(39) = 0.86, so the torch
+ * reads about 14% smaller at full sprint, which passes as the arm dropping. At
+ * +15 it would be 24% smaller, which reads as the torch physically shrinking,
+ * and the proper fix for that is a separate fixed-FOV view-model pass this game
+ * does not need.
+ */
+const BASE_FOV = 70;
+const SPRINT_FOV_KICK = 8;
+
+const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.05, 100);
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -170,81 +197,34 @@ window.addEventListener('resize', () => {
 const postFX = createPostFX(renderer, scene, camera);
 
 // ---------- minimap ----------
-// A second, small WebGLRenderer sharing this scene, rather than a
-// scissor/viewport split on the main one: postFX owns that renderer's whole
-// surface via its composer, and carving a corner out of a composer target is
-// far more invasive than just handing the map its own tiny canvas.
-const MINIMAP_VIEW_SIZE = 14;   // metres of world shown across the map
-const MINIMAP_PX = 180;         // matches #minimap's CSS size in style.css
+// Lives in core/Minimap.js now: it grew a second mode and a fog-of-war, and it
+// was already the longest thing in this file that had nothing to do with the
+// frame loop. See that file for why the backrooms needs a different scale.
+const minimap = createMinimap({
+  canvas: minimapCanvas,
+  arrowEl: minimapArrowEl,
+  wrapEl: minimapWrapEl,
+  scene,
+  camera
+});
 
-const minimapRenderer = new THREE.WebGLRenderer({ canvas: minimapCanvas, antialias: true, alpha: true });
-minimapRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-minimapRenderer.setSize(MINIMAP_PX, MINIMAP_PX);
-minimapRenderer.outputColorSpace = THREE.SRGBColorSpace;
-
-const minimapCamera = new THREE.OrthographicCamera(
-  -MINIMAP_VIEW_SIZE / 2, MINIMAP_VIEW_SIZE / 2,
-  MINIMAP_VIEW_SIZE / 2, -MINIMAP_VIEW_SIZE / 2,
-  0.1, 40
-);
-// Sees the ordinary layer-0 world plus its own private light below -- never
-// the other way round, since the main camera never enables MINIMAP_ONLY.
-minimapCamera.layers.enable(MINIMAP_ONLY);
-// The main camera's own reserved channel: real geometry a level wants shown
-// at eye level but hidden from the map (see RenderLayers.js) -- currently the
-// backrooms' floor and its light-fixture housings, which read wrong from
+// The main camera's own reserved channel: real geometry a level wants shown at
+// eye level but hidden from the map (see RenderLayers.js) -- the backrooms'
+// oversized floor slab and its light-fixture housings, which read wrong from
 // directly above. Layer 0 (everything else) stays shared by both cameras.
 camera.layers.enable(MAIN_ONLY);
 
-/**
- * The map's only light source, and the reason it stays legible in rooms the
- * story keeps deliberately dark for the main view.
- *
- * Scoped to MINIMAP_ONLY so it is invisible to every other camera in the
- * game -- three.js only feeds a light into a render pass when
- * `light.layers.test(camera.layers)` is true, which is a per-camera check
- * done once per render, not a per-object one. Nothing about the main view's
- * carefully measured brightness changes.
- */
-const minimapLight = new THREE.AmbientLight(0xffffff, 2.6);
-minimapLight.layers.set(MINIMAP_ONLY);
-scene.add(minimapLight);
-
-const _minimapForward = new THREE.Vector3();
-function updateMinimap() {
-  minimapCamera.position.set(camera.position.x, camera.position.y + 16, camera.position.z);
-  minimapCamera.up.set(0, 0, -1);
-  minimapCamera.lookAt(camera.position);
-
-  camera.getWorldDirection(_minimapForward);
-  // Under the up vector above, world +X lands on screen-right and world -Z on
-  // screen-up, so atan2(x, -z) is the facing angle measured from "up" -- and
-  // it grows in the same clockwise sense CSS rotate() does, so no sign flip.
-  const heading = Math.atan2(_minimapForward.x, -_minimapForward.z);
-  minimapArrowEl.style.transform = `translate(-50%, -50%) rotate(${heading}rad)`;
-
-  // Fog is tuned for a horizontal sightline; 16m of pure altitude would blow
-  // through most levels' fog budget before the frustum even starts and wash
-  // the whole map to a flat haze. Off for this one render, restored before
-  // the main pass reads it.
-  const savedFog = scene.fog;
-  scene.fog = null;
-  // The hands, the held torch, its two spotlights and the dust motes are all
-  // parented to `camera` (see the "first-person hands" section below), so a
-  // second camera rendering the same scene sees them too -- from directly
-  // above, the torch model reads as a stray line poking out of the player
-  // marker. `visible = false` on a parent stops WebGLRenderer's traversal from
-  // ever reaching its children (see projectObject in three's source), so this
-  // hides the whole view-model rig for one render and costs nothing else --
-  // the camera itself was never drawn to begin with.
-  camera.visible = false;
-  minimapRenderer.render(scene, minimapCamera);
-  camera.visible = true;
-  scene.fog = savedFog;
-}
-
 // ---------- player ----------
 const player = new PointerLockPlayer(camera, renderer.domElement);
+
+// The opening restraint is a presentation beat, not a frozen cutscene: the
+// player can inspect the bedding and headboard but cannot turn toward the room.
+const BEDROOM_RESTRAINED_LOOK_BOUNDS = Object.freeze({
+  minYaw: -0.05,
+  maxYaw: 0.95,
+  minPitch: -0.95,
+  maxPitch: 0.15
+});
 
 // handheld flashlight -- a spotlight attached to the camera so it always
 // points wherever the player looks, only added to the camera once found
@@ -261,8 +241,8 @@ const player = new PointerLockPlayer(camera, renderer.domElement);
  * object out of the dark at four metres. Both hang off the camera, so they
  * stay aligned with each other for free.
  */
-const flashlightSpot = new THREE.SpotLight(0xfff2c0, 0, 9, THREE.MathUtils.degToRad(28), 0.75, 1.4);
-const flashlightHot = new THREE.SpotLight(0xfff6d8, 0, 11, THREE.MathUtils.degToRad(11), 0.28, 1.5);
+const flashlightSpot = new THREE.SpotLight(0xfff2c0, 0, 10.5, THREE.MathUtils.degToRad(36), 0.78, 1.4);
+const flashlightHot = new THREE.SpotLight(0xfff6d8, 0, 12, THREE.MathUtils.degToRad(12.5), 0.28, 1.5);
 // SpotLight is the one Object3D subclass that defaults its own local
 // position to (0, 1, 0) instead of the origin (it's built to act like an
 // overhead stage light pointing down at 0,0,0 by default). Left alone,
@@ -290,7 +270,7 @@ camera.add(flashlightHot);
 // see world/DustMotes.js) -- shares the spotlight's own angle/distance so
 // the visible dust field always matches the light it's supposedly floating
 // in, and is a child of the camera for the same reason the spotlight is.
-const dustMotes = createDustMotes({ coneAngleRad: THREE.MathUtils.degToRad(28), maxDistance: 9 });
+const dustMotes = createDustMotes({ coneAngleRad: THREE.MathUtils.degToRad(36), maxDistance: 10.5 });
 camera.add(dustMotes.points);
 
 scene.add(camera);
@@ -520,17 +500,28 @@ function setFlashlight(on) {
   // The spill drops well below the old 2.4: it is now filling AROUND a hot
   // spot rather than being the whole beam, and leaving both at full strength
   // would just be a brighter blob.
-  flashlightSpot.intensity = flashlightOn ? 1.35 : 0;
-  flashlightHot.intensity = flashlightOn ? 3.1 : 0;
+  flashlightSpot.intensity = flashlightOn ? 1.75 : 0;
+  flashlightHot.intensity = flashlightOn ? 3.35 : 0;
   dustMotes.setBeamOn(flashlightOn);
   flashlightStateEl.textContent = !flashlightFound ? 'not found' : flashlightOn ? 'on' : 'off';
   flashlightStateEl.classList.toggle('on', flashlightOn);
 }
 
 // ---------- inventory ----------
-/** Adds an item and redraws the HUD list -- the only two things a pickup ever does. */
+// Inventory visibility and first-person presentation are intentionally
+// separate. A hotbar item is not permission to parent an arbitrary world mesh
+// into the hand rig; only the torch has an authored socket, scale and pose.
+const FIRST_PERSON_HELD_ITEM_IDS = new Set(['flashlight']);
+
+function equipSupportedFirstPersonItem(id) {
+  if (!FIRST_PERSON_HELD_ITEM_IDS.has(id)) return;
+  equipTorch();
+}
+
+/** Adds an item, equips only supported view models, and redraws the HUD. */
 function pickUpItem(id) {
   addItem(id);
+  equipSupportedFirstPersonItem(id);
   refreshInventoryUI();
 }
 function dropItem(id) {
@@ -597,6 +588,19 @@ const cutscene = createCutsceneRunner({
 // Story beats. Every delayed beat in the game runs through this so a restart
 // can cancel it -- see core/Script.js for the bug that made it necessary.
 const script = createScriptRunner({ captions });
+const bedroomHorrorScript = createScriptRunner({ captions });
+const bedroomHorrorEvents = new Set();
+// Level 1 is quiet by default. Breath only comes close enough to be heard for
+// the two authored door beats; later levels keep their own intensity calls.
+const LEVEL_ONE_BREATHING_BASE = 0.035;
+const LEVEL_ONE_DOOR_BREATHING = 0.72;
+
+/** Runs each Level 1 environmental beat once and makes its delays reset-safe. */
+function runBedroomHorrorEvent(id, sequence) {
+  if (bedroomHorrorEvents.has(id)) return;
+  bedroomHorrorEvents.add(id);
+  bedroomHorrorScript.run(sequence);
+}
 
 /**
  * ONE creature for the whole game, parented to the world root rather than to
@@ -612,10 +616,56 @@ const creature = createCreature();
 creature.visible = false;
 worldRoot.add(creature.group);
 
+/**
+ * Being caught is being STOPPED, not killed -- see CreatureAI.js's header. The
+ * player comes to a little further back in the room, having lost the ground
+ * they just covered, rather than facing any kind of death or reload.
+ */
+let caughtInFlight = false;
 const creatureAI = createCreatureAI({
   creature,
   getPlayer: () => ({ x: camera.position.x, z: camera.position.z, yaw: player.yaw }),
-  onBreathing: (level) => audio.setBreathing(level)
+  onBreathing: (level) => audio.setBreathing(level),
+  onCaught: () => {
+    // Guards against the vanishingly small window where a level transition is
+    // already mid-flight (e.g. the player solved the last lock in the same
+    // frame) -- CreatureAI's own CATCH_COOLDOWN already stops this firing
+    // twice in a row on its own.
+    if (caughtInFlight || transitionInFlight) return;
+    caughtInFlight = true;
+    script.run(async (s) => {
+      try {
+        s.do(() => {
+          player.movementEnabled = false;
+          player.lookEnabled = false;
+          interaction.setEnabled(false);
+        });
+        if (!await s.play('Something closes around your arm and hauls you back.')) return;
+        // fade.fadeOut()/fadeIn() are not part of Script's cancellation system
+        // (they always resolve, unlike s.wait()/s.play()) -- checking s.alive()
+        // afterward is what stops a restart mid-fade from having this sequence
+        // teleport the player or re-enable input into a level that has since
+        // moved on. If a restart happened, resetGame()'s abortTransition()
+        // already cleared the fade overlay itself.
+        await fade.fadeOut(450);
+        if (!s.alive()) return;
+        s.do(() => {
+          const [sx, sz] = study.spawn;
+          player.spawn(sx, sz, study.spawnYaw ?? 0);
+        });
+        await fade.fadeIn(650);
+        if (!s.alive()) return;
+        s.do(() => {
+          player.lookEnabled = true;
+          player.movementEnabled = true;
+          interaction.setEnabled(true);
+        });
+        await s.play("You're back by the door. Whatever had you has let go.");
+      } finally {
+        caughtInFlight = false;
+      }
+    });
+  }
 });
 
 /**
@@ -630,9 +680,26 @@ const visor = createVisor({
 
 const bedroom = createBedroomLevel({
   showCaption,
+  // The paperclip's own 900ms delay before onFreed IS the time the player
+  // spends picking the lock, so the loop plays for exactly as long as the
+  // story already says it takes -- no separate duration to keep in sync.
+  onPaperclipUsed: () => hands.play('right', 'lockpick', { fade: 0.2 }),
   onFreed: () => {
+    // The wake-up scene starts on the mattress. Leave it intact while chained,
+    // then move to the clear foot-end position before the full bed collider is
+    // allowed to resolve movement. teleport() retains the player's look state.
+    const [bedExitPositionX, bedExitPositionZ] = bedroom.refs.bedExitPosition;
+    player.teleport(bedExitPositionX, bedExitPositionZ);
+    player.setLookBounds(null);
     player.movementEnabled = true;
     objectiveEl.textContent = 'Escape the house without getting caught.';
+    // The lockpick loop has no natural end of its own (see clips/lockpick.js -
+    // it is a loop, so nothing ever fires hands:clip-end for it), so being
+    // freed is what stops it. stop() leaves the joints wherever the loop left
+    // them; blendToPose eases the rest of the way back to a normal hand
+    // rather than snapping.
+    hands.stop('right');
+    hands.blendToPose('right', 'relaxed', 0.3);
     // Was two bare setTimeouts at 4200 and 9000 ms that nothing cancelled, so
     // pressing R inside that window blew the bulb of the freshly restarted room
     // several seconds later with no way to work out why. Now a script: every
@@ -642,9 +709,7 @@ const bedroom = createBedroomLevel({
       if (!await s.wait(1.4)) return;
       s.do(() => {
         bedroomStorm.blowBulb();
-        // Losing the bulb is the beat where the presence stops being background
-        // texture, so the breathing comes up with the darkness.
-        audio.setBreathing(0.8);
+        audio.setBreathing(LEVEL_ONE_BREATHING_BASE);
       });
       // The caption waits for the filament to actually go, rather than
       // announcing it over the top of the surge.
@@ -657,7 +722,14 @@ const bedroom = createBedroomLevel({
       });
       if (!await s.play(BEATS.bulbBlows)) return;
       if (!await s.wait(1.8)) return;
-      s.do(() => audio.creak());
+      s.do(() => {
+        audio.creak();
+        audio.footsteps({ count: 1, pan: 0.55, level: 0.28 });
+        // Arms the one glimpse at the window -- see the note above
+        // bedroomStorm. Left until now rather than the moment the bulb goes,
+        // so it lands as its own jolt instead of piling onto that beat.
+        windowFlashArmed = true;
+      });
     });
   },
   onFlashlightPicked: () => {
@@ -669,10 +741,110 @@ const bedroom = createBedroomLevel({
     // now, so the lightning stops being the only way to navigate.
     bedroomStorm.calm();
     captions.play(BEATS.flashlightOn);
+    runBedroomHorrorEvent('flashlight-sound', (s) => {
+      s.do(() => {
+        bedroom.refs.disturbChair();
+        audio.footsteps({ count: 1, pan: -0.45, level: 0.24 });
+      });
+    });
   },
-  onCrowbarFound: () => pickUpItem('crowbar'),
+  onBrassKeyFound: () => {
+    // The right hand is already posed and framed around the held torch. The
+    // generic pickup clip temporarily replaces that pose, even though the
+    // brass key has no supported first-person mesh or socket presentation.
+    // Keep this puzzle key inventory-only; the safe reads its game state.
+    pickUpItem('brassKey');
+  },
+  onBrassKeyUsed: () => dropItem('brassKey'),
+  onCrowbarFound: () => {
+    pickUpItem('crowbar');
+  },
   onCrowbarUsed: () => dropItem('crowbar'),
-  onDoorOpened: () => exitLevel('bedroom'),
+  onBedroomKeyFound: () => {
+    pickUpItem('bedroomKey');
+  },
+  onBedroomKeyUsed: () => dropItem('bedroomKey'),
+  onPhotoCollected: (count) => {
+    if (count !== 2) return;
+    runBedroomHorrorEvent('two-photos', (s) => {
+      s.do(() => {
+        bedroom.refs.disturbBin();
+        audio.creak();
+      });
+    });
+  },
+  onPhotoPuzzleSolved: () => {
+    runBedroomHorrorEvent('photo-puzzle-perception-pulse', async (s) => {
+      // The board UI has a close beat of its own. Wait until the player is
+      // back in the bedroom so this reads as their perception of the room,
+      // rather than tinting an interface panel.
+      if (!await s.wait(0.4)) return;
+      s.do(() => postFX.setCaught(0.22));
+      if (!await s.wait(0.32)) return;
+      s.do(() => postFX.setCaught(0));
+    });
+  },
+  onDrawerUnlocked: () => {
+    runBedroomHorrorEvent('drawer-thump', async (s) => {
+      if (!await s.wait(0.55)) return;
+      s.do(() => {
+        bedroom.refs.flashLamp();
+        audio.thump(0.8);
+      });
+    });
+  },
+  onSafeOpened: () => {
+    runBedroomHorrorEvent('safe-door-rattle', async (s) => {
+      if (!await s.wait(0.45)) return;
+      s.do(() => {
+        bedroom.refs.rattleDoor();
+        audio.creak();
+      });
+      if (!await s.wait(0.22)) return;
+      s.do(() => audio.creak());
+    });
+  },
+  onFloorboardOpened: () => {
+    runBedroomHorrorEvent('key-footsteps-retreat', async (s) => {
+      if (!await s.wait(0.18)) return;
+      s.do(() => {
+        bedroom.refs.playDoorPass();
+        audio.footsteps({ count: 4, spacing: 0.32, pan: 0.55, panTo: -0.85, level: 0.42 });
+      });
+    });
+  },
+  onDoorPlankRemoved: () => {
+    runBedroomHorrorEvent('plank-breathing-retreat', async (s) => {
+      s.do(() => {
+        bedroom.refs.rattleDoor();
+        audio.setBreathing(LEVEL_ONE_DOOR_BREATHING);
+      });
+      if (!await s.wait(0.8)) return;
+      s.do(() => audio.footsteps({ count: 4, spacing: 0.36, pan: 0.3, panTo: -0.9, level: 0.45 }));
+      if (!await s.wait(1.8)) return;
+      s.do(() => audio.setBreathing(LEVEL_ONE_BREATHING_BASE));
+    });
+  },
+  onReadDrawerClue: () => {
+    player.unlock();
+    documentUI.open({
+      title: 'PROJECT HOLLOW — Drawer Note',
+      body: 'HOLLOW archive reference: 06-1987. Do not move the family records from the house. The brass key remains with the sealed evidence.',
+      variant: 'note'
+    });
+  },
+  onReadSafeTag: () => {
+    player.unlock();
+    documentUI.open({
+      title: 'PROJECT HOLLOW — Evidence Tag',
+      body: 'Recovered item: pry bar. Location: upstairs bedroom. Status: retain on site. The original bedroom key is concealed below the loose floorboard.',
+      variant: 'note'
+    });
+  },
+  onDoorOpened: () => {
+    bedroomHorrorScript.cancel();
+    exitLevel('bedroom');
+  },
 
   /**
    * The scratched floor message, and what it brings.
@@ -693,14 +865,12 @@ const bedroom = createBedroomLevel({
         audio.footsteps({ count: 7, spacing: 0.62, pan: -0.8, panTo: 0.8, level: 0.55 });
         bedroom.refs.playDoorPass();
         // It is right outside. Nothing in the game has been this close yet.
-        audio.setBreathing(0.95);
+        audio.setBreathing(LEVEL_ONE_DOOR_BREATHING);
       });
       if (!await s.play(BEATS.pastTheDoor)) return;
       s.do(() => {
         objectiveEl.textContent = 'Escape the house without getting caught.';
-        // Back down, but not to where it was: the house is worse now than it
-        // was five minutes ago, and it stays that way.
-        audio.setBreathing(0.55);
+        audio.setBreathing(LEVEL_ONE_BREATHING_BASE);
       });
     });
   },
@@ -891,6 +1061,14 @@ const hallwayBasement = createHallwayBasementLevel({
 });
 sceneManager.register('hallwayBasement', hallwayBasement);
 
+/**
+ * Where the free-roam creature AI stands to block the one way out of the
+ * study once it takes over -- just inside the front doorway (DOOR_X=2.5,
+ * frontZ=3.25 in studyLevel.js), clear of the door's own collider (which
+ * spans z 3.1-3.35 while shut) so she is never spawned standing inside a wall.
+ */
+const STUDY_GUARD_POINT = [2.5, 2.9];
+
 const study = createStudyLevel({
   showCaption,
   // The study is the last room, so its exit is the ENDING rather than another
@@ -921,12 +1099,16 @@ const study = createStudyLevel({
   },
 
   onTakeVisor: () => {
+    hands.play('right', 'pickup', { fade: 0.15 });
     visor.take();
     pickUpItem('visor');
     objectiveEl.textContent = 'Put the visor on. [V]';
     captions.play(BEATS.visorFound);
   },
-  onTakeDoorKey: () => pickUpItem('doorKey'),
+  onTakeDoorKey: () => {
+    hands.play('right', 'pickup', { fade: 0.15 });
+    pickUpItem('doorKey');
+  },
 
   /**
    * Mark's letter, which is where the game explains itself. It only says
@@ -971,7 +1153,23 @@ const study = createStudyLevel({
           });
           if (!await s.play(BEATS.annabelle)) return;
           s.do(() => { objectiveEl.textContent = 'Decide.'; });
-          await s.play(BEATS.theChoice);
+          if (!await s.play(BEATS.theChoice)) return;
+          s.do(() => {
+            /**
+             * Hand off from "stands still and breathes" to the free-roam AI.
+             * She now actively tries to keep the player from the front door
+             * while staying out of reach -- see CreatureAI.js. creatureAI
+             * owns creature.update() itself from here, which is why
+             * creatureStanding (main.js's own "just breathe in place" path)
+             * has to come off, or the two would fight over the same rig every
+             * frame.
+             */
+            creatureStanding = false;
+            creatureAI.setColliders(study.colliders);
+            creatureAI.setGuardPoints([STUDY_GUARD_POINT]);
+            const spot = study.refs.annabelleSpot;
+            creatureAI.start(spot[0], spot[1]);
+          });
         });
       }
     });
@@ -980,6 +1178,7 @@ const study = createStudyLevel({
   onChooseEnding: (which) => { playEnding(which); },
 
   onTakeGateKey: () => {
+    hands.play('right', 'pickup', { fade: 0.15 });
     pickUpItem('gateKey');
     captions.play([
       'A key, hanging on the side of the mirror frame.',
@@ -1019,6 +1218,244 @@ const backrooms = createBackroomsLevel({
 sceneManager.register('backrooms', backrooms);
 
 /**
+ * The thing that hunts you on the SECOND crossing.
+ *
+ * Two crossings, two different scares, and they share one creature rig so they
+ * can never both be running:
+ *
+ *   bedroom -> hallwayBasement   the trailing shadow, below. A glimpse you
+ *                                cannot reach and that never reaches you.
+ *   hallwayBasement -> study     this. It looks for you, and it catches you.
+ *
+ * That order is the escalation: the first crossing establishes that something
+ * is back there, the second makes it a problem. `backroomsFrom` is what tells
+ * them apart -- exitLevel already hands the interstitial the level it came
+ * from, so nothing new has to be tracked to know which crossing this is.
+ */
+const backroomsHunter = createBackroomsHunter({
+  creature,
+  getPlayer: () => ({
+    x: camera.position.x,
+    z: camera.position.z,
+    // player.sprint is a 0..1 blend, not a boolean -- it eases in over
+    // SPRINT_BLEND so the FOV kick has something continuous to follow. Half way
+    // is the point where the player has committed to the sprint.
+    sprinting: player.sprint > 0.5
+  }),
+  colliders: backrooms.colliders,
+  onBreathing: (level) => audio.setBreathing(level),
+  onCaught: () => onHunterCaught()
+});
+
+/** Which level this crossing started from, or null when not crossing. */
+let backroomsFrom = null;
+
+/**
+ * Something trailing behind you in the corridor between levels.
+ *
+ * Not the CreatureAI chase -- that only starts in Level 3, after the reveal
+ * -- this is pure atmosphere, and it is built out of the same "keep away"
+ * idea CreatureAI.js's header describes even though it does not use that
+ * module: the same rough distance behind, always, and it recedes the moment
+ * the player turns around and closes the gap rather than ever being caught
+ * up to. It is never a threat here, only a glimpse.
+ *
+ * POSITIONED FROM THE PLAYER'S OWN WALKED PATH, not by steering toward a
+ * target. A history of the player's last several metres of travel is kept,
+ * and the figure sits at a fixed distance back along THAT recorded path --
+ * so it can never be inside a wall or cut a corner the player did not, with
+ * no collision code of its own needed. It simply retraces where the player
+ * has already proven the floor is.
+ *
+ * CORRECTION IS DELIBERATELY PARTWAY, not the clean Annabelle reading and
+ * not the full Hollow either -- see Creature.js's two proportion sets. A
+ * partial blend gives a shape that reads as human (upright, ordinary limb
+ * length) but subtly wrong up close, which is exactly "can only sort of make
+ * it out" at the distance and light level this is ever seen at.
+ */
+const BACKROOMS_SHADOW_LAG = 11;          // metres behind the player it trails at
+const BACKROOMS_SHADOW_MIN_PATH = 4;      // metres of recorded path before it may appear at all
+const BACKROOMS_SHADOW_HIDE_RANGE = 5;    // closer than this (player closing the gap) and it is gone
+const BACKROOMS_SHADOW_SAMPLE_DIST = 0.15; // metres between recorded path points
+const BACKROOMS_SHADOW_CORRECTION = 0.35;  // human-ish, not clean -- see the header above
+
+/**
+ * Metres the player must cover before the figure may appear AT ALL.
+ *
+ * 1.5x the 11 m at which it used to turn up, measured by replaying a realistic
+ * first crossing -- the route plus the detours into six decoy branches that a
+ * player who does not know the maze actually walks. 11 m is about five and a
+ * half seconds, which puts the figure behind them before they have worked out
+ * the corridor goes anywhere.
+ *
+ * NOT the same knob as MIN_PATH above, and it cannot be. That one measures the
+ * RECORDED trail, which is deliberately trimmed to LAG + 4 = 15 m to keep
+ * pathLength() cheap, so it saturates almost immediately and can never express
+ * a distance longer than the trim. This counts the crossing instead, and
+ * resetBackroomsShadow() zeroes it, so walking through a second time starts the
+ * wait again rather than inheriting it.
+ */
+const BACKROOMS_SHADOW_GRACE = 16.5;
+
+/**
+ * Metres the player must cover after it HIDES before it may come back.
+ *
+ * THE FIGURE IS NOT A ONE-OFF, which is easy to miss reading the code. It hides
+ * whenever the point 11 m back along the TRAIL comes within HIDE_RANGE of the
+ * player as the crow flies, and in a maze of ten turns that is constantly:
+ * round a corner and the trail doubles back into the corridor beside you, so
+ * the thing standing on it is suddenly 5 m away and blinks out; walk on and it
+ * is far again and blinks back.
+ *
+ * 17 m, and the number is measured rather than picked. Replaying a realistic
+ * first crossing -- the route plus detours into six decoy branches, 159 m
+ * walked -- the untouched system showed the figure EIGHT times with a median
+ * gap of 16.2 m and gaps as short as 7.4 m, which is under four seconds and is
+ * why it read as ever-present rather than as a glimpse. At 17 the median gap
+ * is 24.2 m: a ratio of 1.49, the 1.5x that was asked for.
+ *
+ * The response is lumpy, so do not expect fine control. Past about 19 the
+ * cooldown starts MERGING sightings rather than spacing them -- two that were
+ * 20 m apart become one -- and the median jumps to 34 m because the survivors
+ * are sums of several old gaps. 13 and 15 undershoot at 1.12x and 1.22x. The
+ * usable band for 1.5x is 16-18.
+ *
+ * DISTANCE, not seconds, like everything else in this system. Standing still
+ * does not earn a reappearance -- it comes back when you press on, which is the
+ * only version of this that is about the player's choice rather than about
+ * waiting them out.
+ */
+const BACKROOMS_SHADOW_COOLDOWN = 17;
+
+/** Recorded {x,z} player positions, oldest first, trimmed to stay bounded. */
+let backroomsPath = [];
+/** The figure's last computed position, so its speed can be read off its own movement. */
+let backroomsShadowPos = null;
+let backroomsShadowVisible = false;
+/** Metres walked since entering, for BACKROOMS_SHADOW_GRACE. Not the trail length. */
+let backroomsWalked = 0;
+/** backroomsWalked at the moment it last hid, for BACKROOMS_SHADOW_COOLDOWN. */
+let backroomsShadowHidAt = -Infinity;
+
+/** Sum of consecutive segment lengths -- how much corridor is actually recorded. */
+function pathLength(path) {
+  let sum = 0;
+  for (let i = 1; i < path.length; i++) {
+    sum += Math.hypot(path[i].x - path[i - 1].x, path[i].z - path[i - 1].z);
+  }
+  return sum;
+}
+
+/** Walks backward along `path` from (x,z) until `distance` metres have accumulated. */
+function pointBehindOnPath(path, x, z, distance) {
+  let remaining = distance;
+  let ax = x, az = z;
+  for (let i = path.length - 1; i >= 0; i--) {
+    const p = path[i];
+    const segLen = Math.hypot(ax - p.x, az - p.z);
+    if (segLen >= remaining) {
+      const t = segLen > 1e-6 ? remaining / segLen : 0;
+      return { x: ax + (p.x - ax) * t, z: az + (p.z - az) * t };
+    }
+    remaining -= segLen;
+    ax = p.x; az = p.z;
+  }
+  return null; // not enough recorded path yet
+}
+
+/** Called on every level activation -- see activateLevel(). Hides it and drops the trail. */
+function resetBackroomsShadow() {
+  backroomsPath = [];
+  backroomsShadowPos = null;
+  backroomsWalked = 0;
+  // -Infinity, not 0: the cooldown must not gate the FIRST sighting as well,
+  // which is what GRACE is for. At 0 the two would add up and the opening wait
+  // would silently be GRACE + COOLDOWN.
+  backroomsShadowHidAt = -Infinity;
+  if (backroomsShadowVisible) {
+    creature.visible = false;
+    // Back to the default layer mask, or the AI chase / scripted placements
+    // elsewhere would inherit this system's minimap-hiding trick.
+    creature.group.layers.set(0);
+    // And back to a normally-lit figure, or the same leak happens with the
+    // silhouette colour multiplier instead.
+    creature.setSilhouette(false);
+    backroomsShadowVisible = false;
+  }
+}
+
+function updateBackroomsShadow(dt) {
+  const px = camera.position.x, pz = camera.position.z;
+
+  const last = backroomsPath[backroomsPath.length - 1];
+  if (!last || Math.hypot(px - last.x, pz - last.z) >= BACKROOMS_SHADOW_SAMPLE_DIST) {
+    // Counted here rather than per frame, off the same sample the trail uses,
+    // so the grace measures GROUND COVERED and not time spent standing still.
+    // Doubling back counts too: the distance is what the wait is made of.
+    if (last) backroomsWalked += Math.hypot(px - last.x, pz - last.z);
+    backroomsPath.push({ x: px, z: pz });
+    // Bounded: once the recorded trail comfortably exceeds the lag distance,
+    // older points are dropped a few at a time rather than one by one, since
+    // pathLength() is O(n) and this runs every sampled step.
+    while (backroomsPath.length > 4 && pathLength(backroomsPath) > BACKROOMS_SHADOW_LAG + 4) {
+      backroomsPath.splice(0, 4);
+    }
+  }
+
+  const found = pointBehindOnPath(backroomsPath, px, pz, BACKROOMS_SHADOW_LAG);
+  const closeBy = found && Math.hypot(px - found.x, pz - found.z) < BACKROOMS_SHADOW_HIDE_RANGE;
+  const shouldShow = !!found && !closeBy
+    && backroomsWalked >= BACKROOMS_SHADOW_GRACE
+    && backroomsWalked - backroomsShadowHidAt >= BACKROOMS_SHADOW_COOLDOWN
+    && pathLength(backroomsPath) >= BACKROOMS_SHADOW_MIN_PATH;
+
+  if (found) {
+    if (backroomsShadowVisible && backroomsShadowPos) {
+      // Read off its own frame-to-frame movement rather than driving speed
+      // from anything the player is doing -- it walks at whatever pace
+      // keeps it at the recorded distance, capped at a normal walk so a
+      // sudden jump in the trail (e.g. just having appeared) never reads as
+      // a lunge.
+      const speed = Math.min(WALK_SPEED, Math.hypot(found.x - backroomsShadowPos.x, found.z - backroomsShadowPos.z) / dt);
+      creature.setSpeed(speed);
+    }
+    backroomsShadowPos = found;
+  }
+
+  if (!shouldShow) {
+    if (backroomsShadowVisible) {
+      creature.visible = false;
+      creature.group.layers.set(0);
+      backroomsShadowVisible = false;
+      // Stamped on the way OUT, so the cooldown measures the gap between
+      // sightings rather than the time since some arbitrary frame.
+      backroomsShadowHidAt = backroomsWalked;
+    }
+    return;
+  }
+
+  if (!backroomsShadowVisible) {
+    creature.reset();
+    creature.setCorrection(BACKROOMS_SHADOW_CORRECTION);
+    // A lit, textured rig at corridor range reads as exactly what it is --
+    // boxes and capsules. Silhouette mode multiplies the correction colour
+    // down near-black regardless of nearby fixture light, so what shows is a
+    // dark shape, not a small mannequin under a ceiling lamp.
+    creature.setSilhouette(true);
+    // MAIN_ONLY: visible to the player, never to the minimap's own camera --
+    // this is a glimpse, not something to confirm by checking the radar.
+    creature.group.layers.set(MAIN_ONLY);
+    backroomsShadowVisible = true;
+  }
+  creature.setPosition(found.x, found.z);
+  // Faces the player, the same convention every other placement in this file
+  // uses -- being looked back at is the entire point of it existing.
+  creature.setYaw(Math.atan2(-(px - found.x), -(pz - found.z)));
+  creature.visible = true;
+  creature.update(dt);
+}
+
+/**
  * The bedroom's ambient light floor, before and after the bulb.
  *
  * 0.31 is what the level builds with. Dropping to 0.13 is the only place this
@@ -1028,6 +1465,35 @@ sceneManager.register('backrooms', backrooms);
  */
 const AMBIENT_LIT = 0.31;
 const AMBIENT_DARK = 0.13;
+
+/**
+ * One glimpse of it at the bedroom window.
+ *
+ * Armed once the bulb has blown and the room has settled (see onFreed) --
+ * dark enough that the lightning is worth watching, and late enough that it
+ * lands as a second jolt rather than piling onto the bulb beat itself.
+ * Fires on the very next flash after that, for exactly that flash's own
+ * duration, then never again this run: a repeated sighting would stop being
+ * a shock and start being a schedule.
+ *
+ * Full Hollow reading (correction 0), not the partial blend the backrooms
+ * figure uses -- this one is meant to read as unambiguously wrong the
+ * instant the light catches it, not to leave the player wondering.
+ *
+ * NOT lit by the storm's own lightningLight, measured: at this distance
+ * outside the window that light (peak ~3.2, the same value that also
+ * brightens the rain-glass shader itself via its uFlash uniform) left her
+ * completely invisible -- the glass's own flash brightening dominates the
+ * blend long before a dark, distant figure reads through it at that
+ * intensity. A dedicated light fixes this without touching the room: it is
+ * scoped to REVEAL_LAYER, which only the creature is ever put on, so it
+ * illuminates her and nothing else -- the walls stay exactly as dark as
+ * they already were.
+ */
+let windowFlashArmed = false;
+let windowFlashUsed = false;
+const WINDOW_REVEAL_LAYER = 6;
+let windowRevealLight = null;
 
 const bedroomStorm = new Storm({
   bulbLight: bedroom.refs.bulbLight,
@@ -1046,9 +1512,49 @@ const bedroomStorm = new Storm({
      * in Storm.js because Storm has no business knowing a light has a shadow.
      */
     bedroom.refs.lightning.shadow.needsUpdate = true;
+
+    if (windowFlashArmed && !windowFlashUsed) {
+      windowFlashArmed = false;
+      windowFlashUsed = true;
+      const wz = bedroom.refs.windowGroup.position.z;
+      creature.reset();
+      creature.setCorrection(0);
+      creature.setPosition(-2.1, wz - 0.9);
+      creature.setYaw(Math.PI); // faces back through the window, into the room
+      creature.setSpeed(0);
+      creatureStanding = true;
+      creature.visible = true;
+
+      // layers are NOT inherited by children in three.js -- every mesh in the
+      // rig needs the bit set directly, or a light scoped to this layer would
+      // illuminate nothing (the top-level group has no geometry of its own).
+      creature.group.traverse((o) => o.layers?.enable(WINDOW_REVEAL_LAYER));
+      windowRevealLight = new THREE.DirectionalLight(0xbcd4ff, 8);
+      windowRevealLight.layers.set(WINDOW_REVEAL_LAYER);
+      windowRevealLight.position.set(-2.1, 2.3, wz - 0.1);
+      windowRevealLight.target.position.set(-2.1, 1.6, wz - 0.9);
+      bedroom.group.add(windowRevealLight, windowRevealLight.target);
+
+      const shownFor = bedroomStorm?.flashDuration || 0.2;
+      script.run(async (s) => {
+        if (!await s.wait(shownFor)) return;
+        s.do(hideWindowReveal);
+      });
+    }
   },
   onBlow: () => audio.bulbPop()
 });
+
+/** Hides the window-flash figure and tears down its dedicated light -- see the note above. */
+function hideWindowReveal() {
+  creature.visible = false;
+  creatureStanding = false;
+  if (windowRevealLight) {
+    bedroom.group.remove(windowRevealLight, windowRevealLight.target);
+    windowRevealLight = null;
+  }
+  creature.group.traverse((o) => o.layers?.disable(WINDOW_REVEAL_LAYER));
+}
 
 const rain = new Rain({
   count: 400,
@@ -1120,15 +1626,82 @@ const ON_ENTER = {
       s.do(() => { creature.visible = false; });
       await s.play(BEATS.hallwaySighting);
     });
+  },
+
+  /**
+   * The second crossing, and the only one that hunts.
+   *
+   * Started on a delay rather than the instant the level comes up: spawning it
+   * while the fade is still lifting means the first thing a player hears is
+   * breathing, before they have worked out they are somewhere new. The pause is
+   * the difference between a threat and a jump scare.
+   */
+  backrooms: () => {
+    if (backroomsFrom !== 'hallwayBasement') return;
+    script.run(async (s) => {
+      if (!await s.wait(2.2)) return;
+      s.do(() => backroomsHunter.start());
+    });
   }
 };
 
+/**
+ * Caught in the corridor.
+ *
+ * STOPPED, NOT KILLED -- the same rule CreatureAI.js sets out and for the same
+ * reason. The cost is the crossing: you wake at the mouth of the maze with the
+ * whole route to walk again, and it is somewhere else by the time you do. That
+ * is a real penalty measured in the thing this level trades in, which is time,
+ * without ever being a death.
+ */
+function onHunterCaught() {
+  if (caughtInFlight || transitionInFlight) return;
+  caughtInFlight = true;
+  script.run(async (s) => {
+    try {
+      s.do(() => {
+        player.movementEnabled = false;
+        player.lookEnabled = false;
+        interaction.setEnabled(false);
+        // Stop it dead first: without this it keeps closing during the fade and
+        // is standing on top of the spawn point when the screen comes back.
+        backroomsHunter.stop();
+      });
+      if (!await s.play('It has you. The corridor goes out like a bulb.')) return;
+      await fade.fadeOut(450);
+      if (!s.alive()) return;
+      s.do(() => {
+        const [sx, sz] = backrooms.spawn;
+        player.spawn(sx, sz, backrooms.spawnYaw ?? 0);
+      });
+      await fade.fadeIn(650);
+      if (!s.alive()) return;
+      s.do(() => {
+        player.lookEnabled = true;
+        player.movementEnabled = true;
+        interaction.setEnabled(true);
+        // Re-drawn somewhere new, so a caught player is not handed the same
+        // chase back. start() already biases the draw away from the player.
+        backroomsHunter.start();
+      });
+      await s.play('Back at the mouth of the corridor. It is still in here.');
+    } finally {
+      caughtInFlight = false;
+    }
+  });
+}
+
 function activateLevel(key, { lockMovement = false } = {}) {
+  // A prior restrained bedroom view must never clamp the spawn orientation of
+  // another level during SceneManager.activate()'s player.spawn() call.
+  player.setLookBounds(null);
   const level = sceneManager.activate(key, player);
   // Was a TypeError on an unregistered key -- a routing typo should cost a
   // wrong room, never a crash mid-transition.
   if (!level) return null;
   setGlare(0); // the basement's overload wash must not follow the player into another level
+  const isBedroomRestraintActive = key === 'bedroom' && !level.refs.puzzleState.chainsEscaped;
+  player.setLookBounds(isBedroomRestraintActive ? BEDROOM_RESTRAINED_LOOK_BOUNDS : null);
   interaction.setTargets(level.interactables);
   scene.fog = LEVEL_FOG[key] ?? null;
   objectiveEl.textContent = LEVEL_OBJECTIVES[key] ?? '';
@@ -1145,6 +1718,14 @@ function activateLevel(key, { lockMovement = false } = {}) {
   cctvSeen.clear();
   creatureStanding = false;
   creatureAI.reset();
+  resetBackroomsShadow();
+  backroomsHunter.reset();
+  // A leftover animator clip (the lockpick loop, if a debug level-jump key is
+  // pressed mid-lockpick) must not survive into whatever level just
+  // activated. Harmless when nothing was playing, and safe even with the
+  // torch equipped -- that pose is set directly via setPose(), which the
+  // animator's clip player never touches (see animator.js).
+  hands.stop('right');
   // resetState() has already cleared the flags; this pushes that through to the
   // pass, the creature and the room, none of which read GameState themselves.
   visor.reset();
@@ -1157,6 +1738,9 @@ function activateLevel(key, { lockMovement = false } = {}) {
   // The whole reason Script.js exists: onFreed used to arm timers that nothing
   // cancelled, so a restart mid-beat blew the new room's bulb seconds later.
   script.cancel();
+  bedroomHorrorScript.cancel();
+  bedroomHorrorEvents.clear();
+  if (key === 'bedroom') audio.setBreathing(LEVEL_ONE_BREATHING_BASE);
   player.movementEnabled = !lockMovement;
   // postFX.reset() above zeroes the visor dial, and the level just activated has
   // never been told what the player can see. Without this, walking into a room
@@ -1265,6 +1849,7 @@ async function exitLevel(fromKey) {
   if (!interstitial?.setRoute) { await transitionTo(route.to); return; }
   // Armed BEFORE activateLevel, so the destination, the re-armed exit door and
   // spawn/spawnYaw are all in place by the time SceneManager reads them.
+  backroomsFrom = fromKey;
   interstitial.setRoute({ from: fromKey, ...route });
   await transitionTo(route.via);
 }
@@ -1274,6 +1859,8 @@ function resetGame() {
   // A restart from the pause menu can land mid-fade; without this the freshly
   // reset bedroom would come up behind a black overlay that never lifts.
   abortTransition();
+  bedroomHorrorScript.cancel();
+  bedroomHorrorEvents.clear();
   // Was bedroom.reset() alone, which left Level 2's breaker flipped and its
   // door still reading "Open the door" across an R.
   sceneManager.resetAll();
@@ -1285,8 +1872,20 @@ function resetGame() {
   // out here left the glass dark on the second run.
   bedroomStorm.relight();
   bedroom.refs.ambient.intensity = AMBIENT_LIT;
+  // A fresh run gets to see the window glimpse again. hideWindowReveal() also
+  // covers a restart landing mid-flash, which would otherwise leave its
+  // dedicated light and the creature's extra render layer behind forever.
+  windowFlashArmed = false;
+  windowFlashUsed = false;
+  hideWindowReveal();
   flashlightFound = false;
   setFlashlight(false);
+  // A restart mid-clip (R pressed while, say, the lockpick loop is still
+  // going) must not carry an animator clip across into the freshly reset
+  // room -- unequipTorch() below only resets the hand when a torch was
+  // actually equipped, which the lockpick beat predates.
+  hands.stop('right');
+  hands.setPose('right', 'relaxed');
   unequipTorch();
   refreshInventoryUI();
   // The breathing is deliberately NOT stopped and restarted here: it is meant
@@ -1468,12 +2067,27 @@ const CREDITS = [
   'PointerLockControls -- Three.js official examples module (MIT licence)',
   'Vite -- build tool used to produce the deployment bundle (MIT licence)',
   'All textures are generated procedurally on <canvas> at runtime -- no image assets used.',
-  'Wind, thunder and creaks are synthesised with the Web Audio API at runtime -- no audio files used.',
-  'The looping breathing track is the one audio file in the project (src/assets/audio/breathing.m4a).',
-  // TODO: replace this line with the real source, author and licence of the
-  // breathing loop that gets dropped into src/assets/audio -- or delete it if
-  // the loop was recorded by the team.
+  // CC-BY REQUIRES ATTRIBUTION AND THIS IS IT. hands.glb is the one piece of
+  // third-party geometry in the project; everything else under
+  // src/assets/models/ is generated by the scripts in blender/. This line was
+  // missing while the game was already deployed publicly, which is a licence
+  // breach rather than an oversight -- do not remove it without also removing
+  // the asset.
+  'Hands model -- "First Person hands rigged" by davidfischer, via Sketchfab, '
+    + 'licensed CC BY 4.0 (creativecommons.org/licenses/by/4.0). Modified: '
+    + 'left arm removed, wrist re-aligned, re-rigged for this project.',
+  'All other models (bed, door, dresser, flashlight, creature) are generated '
+    + 'from the Python scripts in blender/ -- see blender/build_*.py.',
+  'Wind, thunder and creaks are synthesised with the Web Audio API at runtime -- no audio files used for those.',
+  'Three audio files ship with the project, all in src/assets/audio: breathing.m4a, '
+    + 'walking_audio.mp3 and running_audio.mp3.',
+  // TODO: replace these lines with the real source, author and licence of each
+  // recording -- or delete a line if that one was recorded by the team.
+  // THIS IS NOT A FORMALITY. hands.glb above is CC-BY and the attribution
+  // beside it is what keeps using it legal; the same applies to anything here
+  // that came from a library. The game deploys publicly to GitHub Pages.
   'Breathing loop -- [SOURCE / AUTHOR / LICENCE TO BE FILLED IN].',
+  'Footstep recordings (walking, running) -- [SOURCE / AUTHOR / LICENCE TO BE FILLED IN].',
   'Game concept, story, world and code: the project team, for COMS3006A/COMS3025A.'
 ];
 /**
@@ -1499,6 +2113,85 @@ function toggleCredits(show) {
   if (show && player.isLocked) player.unlock();
 }
 creditsCloseBtn.addEventListener('click', () => toggleCredits(false));
+
+// ---------- settings ----------
+// Volume, mouse sensitivity and captions, persisted in localStorage so they
+// survive a page reload -- the only thing in this project that does, since
+// there is otherwise no save system. Loaded and applied once at boot, well
+// before beginGame(): a player who opens Settings from the start screen
+// before ever clicking "begin" still hears/feels the right values from their
+// very first frame.
+const SETTINGS_STORAGE_KEY = 'dontLetItOut.settings';
+const DEFAULT_SETTINGS = { volume: 50, sensitivity: 100, captions: true };
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
+    if (!raw) return { ...DEFAULT_SETTINGS };
+    const parsed = JSON.parse(raw);
+    return {
+      volume: Number.isFinite(parsed.volume) ? Math.min(100, Math.max(0, parsed.volume)) : DEFAULT_SETTINGS.volume,
+      sensitivity: Number.isFinite(parsed.sensitivity)
+        ? Math.min(SENSITIVITY_MAX * 100, Math.max(SENSITIVITY_MIN * 100, parsed.sensitivity))
+        : DEFAULT_SETTINGS.sensitivity,
+      captions: typeof parsed.captions === 'boolean' ? parsed.captions : DEFAULT_SETTINGS.captions
+    };
+  } catch {
+    // Private browsing (Safari) throws on localStorage access rather than
+    // just returning null, and a corrupt/hand-edited value can fail JSON.parse
+    // -- either way, falling back to defaults keeps the menu usable.
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+function saveSettings(settings) {
+  try {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    // Settings simply do not persist this session; nothing else depends on it.
+  }
+}
+
+function applySettings(settings) {
+  audio.setMasterVolume(settings.volume / 100);
+  player.setSensitivity(settings.sensitivity / 100);
+  captions.setEnabled(settings.captions);
+}
+
+const settings = loadSettings();
+volumeInput.value = String(settings.volume);
+volumeValueEl.textContent = `${settings.volume}%`;
+sensitivityInput.value = String(settings.sensitivity);
+sensitivityValueEl.textContent = `${settings.sensitivity}%`;
+captionsCheckbox.checked = settings.captions;
+applySettings(settings);
+
+volumeInput.addEventListener('input', () => {
+  settings.volume = Number(volumeInput.value);
+  volumeValueEl.textContent = `${settings.volume}%`;
+  audio.setMasterVolume(settings.volume / 100);
+  saveSettings(settings);
+});
+
+sensitivityInput.addEventListener('input', () => {
+  settings.sensitivity = Number(sensitivityInput.value);
+  sensitivityValueEl.textContent = `${settings.sensitivity}%`;
+  player.setSensitivity(settings.sensitivity / 100);
+  saveSettings(settings);
+});
+
+captionsCheckbox.addEventListener('change', () => {
+  settings.captions = captionsCheckbox.checked;
+  captions.setEnabled(settings.captions);
+  saveSettings(settings);
+});
+
+// Opened only from the start/pause/end screen, which has already unlocked the
+// pointer to show itself -- so, unlike toggleCredits(), this never has to call
+// player.unlock() itself or worry about re-triggering the 'unlock' listener's
+// pause-menu logic.
+settingsButton.addEventListener('click', () => settingsScreen.classList.remove('hidden'));
+settingsCloseBtn.addEventListener('click', () => settingsScreen.classList.add('hidden'));
 
 // ---------- pointer lock flow ----------
 function beginGame() {
@@ -1617,6 +2310,8 @@ if (import.meta.env.DEV) {
     activateLevel,
     exitLevel,
     resetGame,
+    hands,
+    THREE,
     sceneManager,
     player,
     postFX,
@@ -1624,19 +2319,33 @@ if (import.meta.env.DEV) {
     script,
     creature,
     creatureAI,
+    backroomsHunter,
     visor,
+    // Test-only access to the backrooms trailing shadow and the bedroom
+    // window flash, neither of which has a keyboard trigger of its own to
+    // drive from a headless harness.
+    updateBackroomsShadow,
+    resetBackroomsShadow,
+    armWindowFlash: () => { windowFlashArmed = true; windowFlashUsed = false; },
+    get windowFlashUsed() { return windowFlashUsed; },
     // The F key is in the pointer-lock-gated listener, so a headless harness
     // has no way to turn the torch on -- and the torch is what the player sees
     // by for most of the game.
     setFlashlight,
     equipTorch,
+    // Sprint is on a held key the harness cannot press meaningfully, and the
+    // FOV/stamina are the observable results, so tests reach them here.
+    get fov() { return camera.fov; },
+    BASE_FOV,
     // Flips the same flag the bedroom's flashlight pickup does, so a headless
     // test can put the torch view-model in hand without faking pointer lock
     // and the real pickup interaction.
     forceFlashlightFound: () => { flashlightFound = true; setFlashlight(true); equipTorch(); },
     pickUpItem,
     refreshInventoryUI,
-    updateMinimap,
+    // The map: headless has no Pointer Lock, so the frame loop's own call to
+    // setMode/revealAt/update never runs and a test drives it from here.
+    minimap,
     storm: bedroomStorm,
     captions,
     documentUI,
@@ -1666,6 +2375,13 @@ function tick() {
   elapsed += dt;
 
   player.update(dt);
+  // Footsteps ride the player's own bob clock, so they land with the visual dip
+  // and stop dead when a wall does. See AudioEngine.updateFootsteps.
+  audio.updateFootsteps(player.bobPhase, {
+    moving: player.moving,
+    sprint: player.sprint,
+    crouch: player.crouch
+  });
 
   if (sceneManager.activeKey === 'bedroom') {
     bedroomStorm.update(dt);
@@ -1677,6 +2393,11 @@ function tick() {
   // standing in a corner reads as a statue rather than as something watching.
   if (creatureStanding) creature.update(dt);
   creatureAI.update(dt);
+  if (sceneManager.activeKey === 'backrooms') {
+    // Never both: one rig, and the hunter owns it outright while it is running.
+    if (backroomsHunter.state === 'stopped') updateBackroomsShadow(dt);
+    else backroomsHunter.update(dt);
+  }
   dustMotes.update(dt, elapsed);
   // Per rendered frame rather than on a fixed step: the hands are
   // presentation, and pinning them to 60 Hz on a 144 Hz display would throw
@@ -1693,7 +2414,57 @@ function tick() {
   handMotion.bobPhase = player.bobPhase;
   handMotion.speed = player.moving;
   handMotion.crouching = player.crouch > 0.5;
-  hands.setLayerWeight('walkbob', player.moving);
+
+  /**
+   * THE SPRINT FOV KICK -- the project's first FOV animation, and the reason
+   * sprinting reads as fast rather than just as a bigger number. Peripheral
+   * geometry pulls into frame and the corridor walls appear to rush past, which
+   * is the strongest "I am moving" cue available in first person.
+   *
+   * It costs one line because postFX's RenderPass holds this camera by
+   * reference and reads it live, so the change flows through the composer with
+   * nothing to notify.
+   *
+   * Driven straight off player.sprint, which is already exponentially smoothed
+   * over SPRINT_BLEND -- easing it a second time here would only add latency.
+   *
+   * Zeroed while `cinematic`, because player.update() returns before touching
+   * sprint during a scripted shot, so the FOV would otherwise sit frozen
+   * wherever the shot started. If a cutscene ever wants to animate FOV itself,
+   * THIS is the line it has to take ownership of.
+   */
+  const wantFov = BASE_FOV + SPRINT_FOV_KICK * (player.cinematic ? 0 : player.sprint);
+  if (Math.abs(wantFov - camera.fov) > 0.02) {
+    camera.fov = wantFov;
+    camera.updateProjectionMatrix();
+  } else if (camera.fov !== wantFov) {
+    // Snap the tail. Without this the projection matrix is left rebuilt at
+    // 70.019 forever and a test can never assert exactly BASE_FOV.
+    camera.fov = wantFov;
+    camera.updateProjectionMatrix();
+  }
+
+  /**
+   * A CROSSFADE, not two layers stacked. The animator SUMS layers, so leaving
+   * walkbob at full weight while runbob comes up would double the bob at full
+   * sprint. `moving` gates both on actually walking; `sprint` splits the gate
+   * between them.
+   */
+  hands.setLayerWeight('walkbob', player.moving * (1 - player.sprint));
+  hands.setLayerWeight('runbob', player.moving * player.sprint);
+
+  /**
+   * The stamina bar, shown only while it matters.
+   *
+   * A permanently-full bar is a permanent reminder of a resource the player is
+   * not spending, so it fades in once it drops and fades out again once it is
+   * back. scaleX rather than width, because this runs every frame and a
+   * transform does not trigger layout.
+   */
+  const stam = player.staminaFraction;
+  staminaFillEl.style.transform = `scaleX(${stam})`;
+  staminaEl.classList.toggle('visible', stam < 0.995);
+  staminaEl.classList.toggle('spent', player.winded);
   // The player's smoothed crouch IS the layer weight, so the hands ease in and
   // out of the tucked pose with the camera's drop rather than snapping.
   hands.setLayerWeight('crouch-shift', player.crouch);
@@ -1704,7 +2475,15 @@ function tick() {
 
   if (player.isLocked) {
     interaction.update();
-    updateMinimap();
+    // Mode comes from the level, read every frame rather than hooked into each
+    // of activate()'s call sites; setMode() guards on identity so this is a
+    // pointer compare on the frames it does not change.
+    const lvl = sceneManager.active;
+    minimap.setMode(lvl?.minimap);
+    // Fog of war. The level owns its own rectangles, so it decides what the
+    // player has now seen -- this only tells it where they are.
+    lvl?.revealAt?.(camera.position.x, camera.position.z);
+    minimap.update();
   }
 
   postFX.update(dt);

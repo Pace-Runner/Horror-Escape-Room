@@ -1,5 +1,5 @@
-// A close-up DOM overlay for the bedroom's photo puzzle: the three found
-// photos start jumbled in a tray and the player drags them into the three
+// A close-up DOM overlay for the bedroom's photo puzzle: found photos start
+// jumbled in a tray and the player drags them into the matching number of
 // slots above. Deliberately silent about what the "right" arrangement is --
 // each photo's date is baked into its own image (see stampPhotoDate in
 // bedroomLevel.js), and solving means noticing that and ordering by it
@@ -15,7 +15,7 @@ export function createPhotoBoardUI({ onClose = () => {} } = {}) {
   let open = false;
   let onSolvedCallback = null;
   let photosByKey = new Map();
-  let slotOccupants = [null, null, null]; // photo key per slot, or null
+  let slotOccupants = []; // photo key per slot, or null
 
   let dragEl = null;
   let dragOffsetX = 0;
@@ -125,7 +125,7 @@ export function createPhotoBoardUI({ onClose = () => {} } = {}) {
   function checkSolved() {
     if (slotOccupants.some((k) => k === null)) return;
     const dates = slotOccupants.map((k) => photosByKey.get(k).date);
-    const inOrder = dates[0] < dates[1] && dates[1] < dates[2];
+    const inOrder = dates.every((date, index) => index === 0 || dates[index - 1] < date);
     if (inOrder && onSolvedCallback) {
       const cb = onSolvedCallback;
       onSolvedCallback = null;
@@ -139,7 +139,7 @@ export function createPhotoBoardUI({ onClose = () => {} } = {}) {
   function open_(photos, onSolved) {
     photosByKey = new Map(photos.map((p) => [p.key, p]));
     onSolvedCallback = onSolved;
-    slotOccupants = [null, null, null];
+    slotOccupants = Array(slots.length).fill(null);
     tray.innerHTML = '';
     slots.forEach((s) => { s.innerHTML = ''; });
 
@@ -150,6 +150,10 @@ export function createPhotoBoardUI({ onClose = () => {} } = {}) {
       const el = document.createElement('div');
       el.className = 'board-photo';
       el.dataset.key = p.key;
+      // The photo texture still carries its original printed date. This
+      // high-contrast border label keeps the chronological clue readable at
+      // normal browser scale without changing the tile size or drag behaviour.
+      el.dataset.date = p.date;
       el.style.backgroundImage = `url(${p.dataUrl})`;
       el.style.transform = `rotate(${(Math.random() - 0.5) * 8}deg)`;
       el.addEventListener('pointerdown', (e) => startDrag(e, el));

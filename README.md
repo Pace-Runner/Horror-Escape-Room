@@ -15,11 +15,10 @@ Open the local URL Vite prints (usually http://localhost:5173/).
 
 ## What's here right now
 
-The house exists and is navigable in first person. Levels 1 and 2 are
-playable end to end; Level 3's lock sequence, the visor mechanic, the
-creature AI and the branching ending are still to come. See
-`docs/WORLD_DESIGN.md` for the full breakdown and the reasoning behind
-the scenegraph hierarchy.
+The house is fully navigable in first person and the story's puzzle
+logic is built end to end, from the opening chained beat through both
+endings. See `docs/WORLD_DESIGN.md` for the full breakdown and the
+reasoning behind the scenegraph hierarchy.
 
 - **Level 1 -- the bedroom**: fully modelled and atmospheric. Storm
   lighting (flickering bulb + lightning through the window), rain,
@@ -40,10 +39,11 @@ the scenegraph hierarchy.
   the metal door holds behind a security code hidden in the panelling of
   the study's front door, countable only through camera four. See
   `docs/LEVEL2_POWER_CHAIN.md` for the full breakdown.
-- **Level 3 -- study (blockout)**: navigable and dressed (desk,
-  bookshelves, the family portrait, the one uncracked mirror, the
-  three-lock front door), but the lock sequence, visor mechanic and
-  branching ending aren't implemented yet.
+- **Level 3 -- study**: navigable and dressed (desk, bookshelves, the
+  family portrait, the one uncracked mirror, the three-lock front
+  door). The three-lock sequence (keyed deadbolt, combination pin-pad,
+  and a containment lock gated on the visor), the visor mechanic, and
+  the branching ending (release or contain) are all implemented.
 - **The backrooms corridor -- the space between levels**: leaving a
   level no longer cuts straight to the next one. The screen fades to
   black and you come up in a short, wrong-feeling yellow corridor --

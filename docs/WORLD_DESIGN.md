@@ -8,33 +8,87 @@ child of another."*
 
 ## Scope of this pass
 
-This is the **world foundation**, not the finished game. It delivers:
+The full story is built, from the opening chained beat through both
+endings. It delivers:
 
 - A fully modelled, atmospheric **Level 1 bedroom**, matching the
   storyline beat for beat (chained wake-up, storm lighting, blown
   bulb, flashlight, scratched message, boarded door, polaroid).
-- Light **environment blockouts** for **Level 2** (hallway + basement
-  lab) and **Level 3** (study), so the whole house already exists and
-  is navigable, dressed, and lit in the right mood.
-- First-person movement and look (WASD + mouse, pointer-locked) with
-  simple collision against walls and furniture.
-- A raycast "examine" interaction system, already wired to every prop
-  called out in the storyline, so props can be looked at and read
-  before their puzzle logic exists.
+- A dressed, puzzle-complete **Level 2** (hallway + basement lab): the
+  power-restore puzzle (fuse box) and the CCTV camera-feed minigame,
+  both wired up and gating the locked basement door.
+- A dressed, puzzle-complete **Level 3** (study): the three-lock front
+  door sequence, the visor mechanic, and the branching ending
+  (release or contain).
+- An unguided **backrooms maze** between levels -- see its own section
+  below.
+- First-person movement and look (WASD + mouse, pointer-locked), with
+  sprint/stamina, crouch, and collision against walls and furniture.
+- A raycast "examine" interaction system wired to every prop called
+  out in the storyline.
+- A fog-of-war overview minimap for the backrooms, and a radar-style
+  follow minimap everywhere else.
 - One custom GLSL shader (the basement CCTV monitor's static).
-- Procedural textures and synthesised audio, so the only binary assets
-  to path or credit are the Blender-authored `.glb` models and one
-  breathing loop (`src/assets/audio/breathing.m4a`, which the game also
-  runs without).
+- Procedural textures and synthesised audio, so the binary assets are
+  few enough to list: the `.glb` models and the audio clips. All but one
+  model is generated from a script in `blender/` and needs no credit.
+  The exception is `hands.glb`, which is third-party (`First Person hands
+  rigged` by davidfischer, Sketchfab, **CC BY 4.0**) and therefore DOES
+  need attribution -- it is in the `CREDITS` array in `main.js`, and it
+  must stay there for as long as the asset does.
 
-**Level 2's power-restore puzzle is now built in full** -- fuse,
+**Level 2's power-restore puzzle is built in full** -- fuse,
 blackout, generator restart and breaker panel, documented separately in
 `docs/LEVEL2_POWER_CHAIN.md`.
 
-What is **not** yet built: the three-lock sequence, the
-visor mechanic, the creature AI, and the branching ending. Each level's
-file has a short header comment flagging exactly what is still a
-blockout.
+Levels 1 and 2's creature appearances (CCTV sightings, the hallway flash, the
+corner reveal) stay scripted set-pieces on purpose -- the player is placed to
+be shown the thing, and a script guarantees they see it. `src/systems/CreatureAI.js`'s
+patrol/watch/flee/block state machine takes over once the letter is read in
+Level 3: she guards the front doorway while staying out of reach, and being
+caught fades to black and sends the player back to the study's own spawn
+point rather than ending the game -- see the `onCaught` handler in `main.js`
+and CreatureAI.js's own header for why a kill would break the story.
+
+### The creature is now a model, and why that is still one body
+
+`src/systems/Creature.js` used to build the figure out of capsules and boxes,
+and its header argued at length that it should never become a `.glb`: two
+models would have to be SWAPPED, and a swap is a cut -- the player would see
+one thing replaced by another, which says "the game changed what is there",
+where lerping says "you are seeing it correctly now".
+
+That argument was right about the principle and wrong about the mechanism, and
+the file now loads `src/assets/models/creature.glb`. There is still exactly one
+body. The Hollow is a **shape key** -- a per-vertex delta on the same mesh, the
+same skeleton, the same UVs -- so "both readings are the same body" is true by
+construction rather than asserted across two files. What changed is that a rig
+made of capsules cannot wear a lab coat, and the coat turned out to be the
+design:
+
+- in the **human** reading the hem sits at 0.700 m and the fingertips at 0.717,
+  so the hands are at pocket height and the arms vanish into one clean column;
+- in the **Hollow** reading the torso grows, the hem rides up to 0.771, and the
+  arms grow so the fingertips fall to 0.531.
+
+The hands end up hanging 24 cm clear of a coat that has become a short jacket
+-- measured in the running game, not estimated.
+
+The coat is a ruler the viewer measures the distortion against, which is a far
+stronger cue than long arms on a bare body -- a bare arm has nothing to be long
+relative to.
+
+**The work is split by what each tool can physically do.** Bones move the
+JOINTS; the shape key stretches and thins the FLESH. That division is not a
+style choice: in a skinned mesh, moving a child bone moves only the vertices
+weighted to that child, so lengthening the forearm by moving the hand bone
+leaves a 0.27 m forearm with its hand floating 0.17 m past the end of it. Both
+halves are driven from the one `setCorrection` dial and read off the one
+HUMAN/HOLLOW table, so a half-corrected figure is a coherent in-between.
+
+The capsule rig is still in the file as the fallback: `main.js` places the
+creature synchronously during scripted beats, and a 280 KB asset arrives
+whenever it arrives.
 
 ## Why each hierarchy decision was made
 
@@ -127,11 +181,35 @@ table decides that this means "through the corridor, then to Level 2".
   computed gap in one of them, which is what put three decals in mid-air
   and two more the moment the walls moved. Editing the maze is now
   editing eight numbers.
-- **The corridor graph must be a tree, and that is asserted at boot.**
-  A tree has exactly one junction fewer than it has corridors; an extra
-  junction means some dead end quietly rejoins the route. Expressing
-  "no shortcuts" as a property of the data rather than something to
-  remember is the whole reason the rectangles are the source of truth.
+- **Every junction must be DECLARED, and that is asserted at boot.**
+  This used to read "the graph must be a tree", and the reasoning was
+  sound: an undeclared junction means some dead end quietly rejoins the
+  route. What changed is that there are now three ways to reach the one
+  exit, so some dead ends rejoin the route *on purpose* -- `d4a` runs the
+  last 3.2 m it used to stop short of, and `d2c` runs 4.8 m further north,
+  which turns the two longest punishments in the maze into the second and
+  third routes through. Those joins are declared in a `links` field, so
+  an UNDECLARED overlap is still exactly as wrong as it ever was. The
+  parent pointers are still a spanning tree over every corridor, which is
+  what the primary (lamp-lit) route is still derived from; `links` are
+  extra edges on top of it.
+- **"More than one way through" is checked as a property, not counted.**
+  Counting loops cannot fail usefully -- every declared link adds one by
+  construction whether or not it goes anywhere near the exit. The
+  validator instead deletes each route corridor in turn and asks whether
+  the exit is still reachable; six of the eleven are. Break a link and
+  the corridors all still validate perfectly, because the maze is simply
+  a tree again -- that check is the only thing that notices.
+- **Three rooms, 6.4 x 8.0, entered through a 1.4 m neck.** Empty on
+  purpose: no door, no pickup, no beat. They exist for scale, because
+  every other space in the level is 3.2 m across. The neck is what makes
+  the entrance a *doorway* -- hung straight off a corridor, a room's whole
+  near side is the opening, since the wall builder walls the boundary of
+  the corridor union and there is no boundary where two rects overlap.
+  The neck pierces the 1.6 m wall between them and leaves a 1.1 m gap;
+  `backroomsLevel` drops a soffit over it for the top edge. Their
+  positions were *searched* rather than chosen -- at that size exactly
+  three sites in the whole maze clear MIN_WALL on all four sides.
 - **A seam would not show black void.** The floor and ceiling are single
   quads spanning the whole bounding box, so a gap shows the lit carpeted
   room next door, which the player can walk into and then straight off
@@ -142,6 +220,43 @@ table decides that this means "through the corridor, then to Level 2".
   which is exactly what happened to three of them, and to two more the
   moment the maze was expanded. It is a console warning now rather than
   something you find by walking into it.
+- **The ceiling fixtures are one shared troffer, not a box.** A
+  surface-mounted pan that flares out toward its opening, two
+  cylindrical tubes with the electrode ends blackened by however worn
+  that fixture is, four lampholders, a ballast cover, and -- on about
+  three in five -- a prismatic lens with dead insects piled behind it.
+  The insects are the point: they are only visible as silhouettes while
+  the fixture is lit, and they are what make a ceiling light read as
+  abandoned rather than merely old. All forty-three share one merged
+  geometry and turn a quarter turn for the corridors running the other
+  way, so a dozen boxes per fixture still costs one buffer. The pan
+  hangs *below* the grid because the ceiling is one unbroken plane:
+  anything modelled above it is behind an opaque surface and is never
+  seen.
+- **The lit fixtures carry an additive glare sprite.** There is no
+  bloom in the post chain, so an emissive tube clamps at white and
+  stops; without the sprite every lit fixture was exactly as bright as
+  its own texture and read as light painted onto a ceiling. It is
+  billboarded rather than a quad under the fixture, which would
+  foreshorten to nothing at exactly the angle the player spends most of
+  their time at. Tube, lens and halo are all driven off the same
+  flicker value, because three surfaces disagreeing about how lit one
+  fixture is read as three objects.
+- **Puddles are a depth field, not a shape.** One greyscale mask per
+  pattern produces the colour, alpha, roughness and normal maps
+  together, so they cannot disagree about where the water is. The
+  roughness map is what sells it -- a glossy middle inside a matte damp
+  fringe, lit by a torch that moves -- because with no environment map
+  in the scene, the near-black near-mirror this obviously wants to be
+  renders as a hole cut in the floor. Eight patterns, each a different
+  answer to *why there is water here* (pool, spill, seep, drips, tide
+  ring, wall streak, drag smear, and a live one still being dripped
+  into) rather than one outline stretched eight ways.
+- **The leak under the fallen tile is the one thing that moves on its
+  own.** A drop falls from the hole in the grid into the puddle below
+  it on a loop, on a quadratic so it accelerates. It also answers the
+  fallen ceiling tile: water came through here, which is why the tile
+  is on the floor.
 - **The exit reuses `door.glb`** -- a domestic wooden house door at the
   end of a mono-yellow corridor is wrong in the right way, and it
   visually rhymes with the bedroom door the player already came

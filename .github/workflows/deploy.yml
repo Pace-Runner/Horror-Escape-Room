@@ -24,6 +24,19 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      # Before the build, because a maze fault is a broken level and the build
+      # cannot see it: the layout is 42 hand-authored corridors and this exits
+      # non-zero on an unreachable corridor, an accidental loop, a junction too
+      # narrow to walk through or a wall too thin to stop lamp light. Runs in
+      # plain node -- backroomsMaze.js imports nothing from three.
+      - run: npm run check:maze
+      # Same reasoning one asset over: a malformed maze fails a playthrough,
+      # but a malformed creature just renders slightly wrongly forever. This
+      # exits non-zero on >4 bone influences, unweighted geometry, a lost
+      # shape-key name, a duplicate-suffixed material that no texture can
+      # bind to, or an export lying on its side. A MISSING creature.glb is
+      # not a failure -- Creature.js falls back to the procedural rig.
+      - run: npm run check:creature
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

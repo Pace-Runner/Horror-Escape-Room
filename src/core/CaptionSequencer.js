@@ -71,6 +71,11 @@ export class CaptionSequencer {
   constructor(el) {
     this.el = el;
     this.paused = false;
+    // The settings-menu captions toggle. Deliberately does not touch the
+    // timing state machine below or onLineStart (which is what fires the
+    // voice clip) -- turning captions off hides the text, it does not change
+    // how long a beat takes or mute a recorded line. See setEnabled().
+    this.enabled = true;
 
     /** Remaining lines of the running sequence; empty when only say() is up. */
     this._queue = [];
@@ -156,6 +161,22 @@ export class CaptionSequencer {
     this.paused = paused;
   }
 
+  /**
+   * The settings-menu captions toggle.
+   *
+   * Turning off just stops the box from being shown -- the reading-time clock
+   * in update() keeps running underneath exactly as if it were visible, so a
+   * story script awaiting captions.play() still waits the same real seconds
+   * either way. Most lines in this game have no recorded voice clip, so
+   * captions off means those beats pass by silently; onLineStart still fires
+   * for the ones that do.
+   */
+  setEnabled(enabled) {
+    this.enabled = enabled;
+    if (!enabled) this.el.classList.remove('visible');
+    else if (this._phase === 'hold' || this._phase === 'in') this.el.classList.add('visible');
+  }
+
   update(dt) {
     if (this.paused || this._phase === 'idle') return;
     this._t += dt;
@@ -199,7 +220,7 @@ export class CaptionSequencer {
     // Set before the class flips, so the browser uses this duration for the
     // transition it is about to start rather than the previous one.
     this.el.style.transitionDuration = `${isSequence ? SWAP_FADE : FADE}s`;
-    this.el.classList.add('visible');
+    if (this.enabled) this.el.classList.add('visible');
     this.onLineStart?.(line);
   }
 
