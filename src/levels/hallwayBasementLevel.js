@@ -448,7 +448,11 @@ export function createHallwayBasementLevel({
   // generators / fuse box against the side wall
   const boxMat = new THREE.MeshStandardMaterial({ color: 0x33362f, roughness: 0.7, metalness: 0.3 });
   const generator = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.2, 0.7), boxMat);
-  generator.position.set(-LAB_W / 2 + 0.7, 0.6, -1.5);
+  // Pushed into the corner beside the doorway rather than standing mid-wall.
+  // Its front edge stops at z = -2.5, which keeps it clear of the black pool's
+  // footprint (nearest edge about -2.46) and of the corner the creature is
+  // shown standing in after camera five.
+  generator.position.set(-LAB_W / 2 + 0.55, 0.6, -LAB_D / 2 + 0.4);
   lab.add(generator);
   colliders.push({
     minX: generator.position.x - 0.55, maxX: generator.position.x + 0.55,
@@ -809,20 +813,40 @@ export function createHallwayBasementLevel({
   // On the WALL above the generator, not hovering behind it. It used to sit at
   // x = -3.29, which is 0.7 m out from the wall and 0.15 m above the
   // generator's top face -- bolted to nothing, in the middle of the air.
-  hazardSign.position.set(-LAB_W / 2 + 0.03, 1.62, -1.5);
+  hazardSign.position.set(-LAB_W / 2 + 0.03, 1.62, generator.position.z);
   hazardSign.rotation.y = Math.PI / 2;
   lab.add(hazardSign);
 
+  /**
+   * The feed from the generator to the fuse box, now a 2.4 m run along the
+   * wall from the corner. It leaves the generator's side panel (the face
+   * pointing at the fuse box) at the wall-side edge and enters the fuse box low
+   * on the same side, so the whole run hangs within 0.2 m of the wall -- the
+   * player's camera can get no closer than 0.5 m, so it never ends up inside it.
+   *
+   * The dangle is a parabola dropped below the straight line between the two
+   * ends, sampled into enough points that the spline follows it instead of
+   * cutting the corner. A three-point curve, which was enough for the old
+   * 1.5 m run, kinks at its one low point over this length.
+   */
+  const CABLE_SAG_IN_METRES = 0.55;
+  const CABLE_SAMPLE_COUNT = 9;
   const cableMat = new THREE.MeshStandardMaterial({ color: 0x14120f, roughness: 0.6 });
-  const cableStart = new THREE.Vector3(generator.position.x + 0.3, 1.0, generator.position.z + 0.1);
-  const cableEnd = new THREE.Vector3(fuseBox.position.x, 1.1, fuseBox.position.z - 0.1);
-  const cableSag = new THREE.Vector3(
-    (cableStart.x + cableEnd.x) / 2,
-    Math.min(cableStart.y, cableEnd.y) - 0.35,
-    (cableStart.z + cableEnd.z) / 2
+  const cableStart = new THREE.Vector3(
+    generator.position.x - 0.35,
+    0.95,
+    generator.position.z + 0.35
   );
-  const cableCurve = new THREE.CatmullRomCurve3([cableStart, cableSag, cableEnd]);
-  const cable = new THREE.Mesh(new THREE.TubeGeometry(cableCurve, 12, 0.012, 6, false), cableMat);
+  const cableEnd = new THREE.Vector3(fuseBox.position.x, 1.1, fuseBox.position.z - 0.1);
+  const cablePoints = [];
+  for (let i = 0; i < CABLE_SAMPLE_COUNT; i++) {
+    const t = i / (CABLE_SAMPLE_COUNT - 1);
+    const point = cableStart.clone().lerp(cableEnd, t);
+    point.y -= 4 * CABLE_SAG_IN_METRES * t * (1 - t);
+    cablePoints.push(point);
+  }
+  const cableCurve = new THREE.CatmullRomCurve3(cablePoints);
+  const cable = new THREE.Mesh(new THREE.TubeGeometry(cableCurve, 40, 0.012, 6, false), cableMat);
   lab.add(cable);
 
   // ---------- puzzle 2a: restarting the generator ----------
