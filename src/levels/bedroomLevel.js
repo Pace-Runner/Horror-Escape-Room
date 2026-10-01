@@ -3,8 +3,6 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import {
   createWoodFloorTexture,
   createWoodFloorNormalTexture,
-  createDamaskWallpaperTexture,
-  createWallpaperNormalTexture,
   createWoodFloorRoughnessTexture,
   createPlasterRoughnessTexture,
   createScratchedMessageTexture,
@@ -12,13 +10,12 @@ import {
   createPolaroidTexture,
   createFamilyPhotoTexture,
   createRugTexture,
-  createClawMarksTexture,
-  createClawMarksNormalTexture,
   createRugNormalTexture,
   createFurnitureWoodTexture,
   createFurnitureWoodNormalTexture,
   createCobwebTexture,
-  createPeelingWallpaperTexture
+  createPeelingWallpaperTexture,
+  createDampStainTexture
 } from '../world/textures.js';
 import { addBaseboard } from '../world/trim.js';
 import { createRainGlassMaterial } from '../world/RainGlassMaterial.js';
@@ -27,6 +24,10 @@ import bedModelUrl from '../assets/models/bed.glb?url';
 import dresserModelUrl from '../assets/models/dresser.glb?url';
 import doorModelUrl from '../assets/models/door.glb?url';
 import flashlightModelUrl from '../assets/models/flashlight.glb?url';
+import wallpaperBaseUrl from '../assets/textures/bedroom/wallpaper_base_taupe.png?url';
+import wallpaperGrimeUrl from '../assets/textures/bedroom/wallpaper_grime_overlay.png?url';
+import wallPlasterUrl from '../assets/textures/bedroom/wall_underlay_plaster.png?url';
+import clawRipUrl from '../assets/textures/bedroom/claw_rip_decal.png?url';
 
 /**
  * How much larger than life the paperclip is drawn.
@@ -40,6 +41,68 @@ import flashlightModelUrl from '../assets/models/flashlight.glb?url';
  * enough presence to catch a flashlight edge near a duvet fold.
  */
 const PAPERCLIP_SCALE = 1.75;
+
+// A larger shared repeat avoids the supplied square bitmap reading as a grid
+// while retaining its faded wallpaper pattern and grime detail.
+const WALL_TEXTURE_TILE_METRES = 2.75;
+const WALL_GRIME_OPACITY = 0.16;
+const WALL_OVERLAY_OFFSET_METRES = 0.004;
+const CLAW_DAMAGE_WIDTH_METRES = 1.85;
+const CLAW_DAMAGE_HEIGHT_METRES = 1.85;
+const CLAW_DAMAGE_DOOR_OFFSET_X_METRES = 1.40;
+const CLAW_DAMAGE_HEIGHT_ABOVE_FLOOR_METRES = 1.80;
+const CLAW_DAMAGE_DECAL_OPACITY = 0.44;
+const CLAW_DAMAGE_PLASTER_COLOUR = 0x30221c;
+const CLAW_DAMAGE_INTERIOR_COLOUR = 0x0b0807;
+
+/**
+ * Loads a bedroom texture with the same repeat setup used by every wall face.
+ * Repetition is driven by geometry UVs, not per-wall texture transforms, so
+ * window and pinboard cut-out slabs cannot drift from the room's base pattern.
+ */
+function loadBedroomWallTexture(url, shouldRepeat) {
+  const texture = new THREE.TextureLoader().load(url);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = shouldRepeat ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+  texture.wrapT = shouldRepeat ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+/**
+ * Renders the supplied rip alpha as a dark, unlit carved interior. Using the
+ * texture's true alpha avoids the colour-channel masking that was allowing the
+ * four slashes to dissolve into the similarly dark wallpaper under low light.
+ */
+function createClawDamageInteriorMaterial(maskTexture) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      maskTexture: { value: maskTexture },
+      interiorColour: { value: new THREE.Color(CLAW_DAMAGE_INTERIOR_COLOUR) },
+      interiorOpacity: { value: CLAW_DAMAGE_DECAL_OPACITY }
+    },
+    vertexShader: `
+      varying vec2 textureUv;
+      void main() {
+        textureUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform sampler2D maskTexture;
+      uniform vec3 interiorColour;
+      uniform float interiorOpacity;
+      varying vec2 textureUv;
+
+      void main() {
+        float maskAlpha = texture2D(maskTexture, textureUv).a;
+        gl_FragColor = vec4(interiorColour, maskAlpha * interiorOpacity);
+      }
+    `,
+    transparent: true,
+    depthWrite: false
+  });
+}
 
 /**
  * Wire gauge, in metres, before PAPERCLIP_SCALE multiplies it.
@@ -160,13 +223,14 @@ export function createBedroomLevel({
     polaroidRead: false
   };
 
-  // Darker stained wood + ornate damask wallpaper (both normal-mapped, not
-  // just bump-mapped) in place of plain plaster -- the flat tinted-plaster
-  // look read as too bare/generic for a lived-in, decades-old house.
+  // Bedroom-specific photographic wallpaper replaces the generic procedural
+  // pattern. Every wall face and cut-out slab shares this exact texture family.
   const floorTex = createWoodFloorTexture({ stain: 0.72 });
   const floorNormal = createWoodFloorNormalTexture();
-  const wallTex = createDamaskWallpaperTexture();
-  const wallNormal = createWallpaperNormalTexture();
+  const wallTex = loadBedroomWallTexture(wallpaperBaseUrl, true);
+  const wallGrimeTex = loadBedroomWallTexture(wallpaperGrimeUrl, true);
+  const wallPlasterTex = loadBedroomWallTexture(wallPlasterUrl, false);
+  const clawRipTex = loadBedroomWallTexture(clawRipUrl, false);
 
   // Shared wood-grain texture for the Blender-authored furniture (bed
   // frame, dresser, door) -- those .glb exports only ever carried a flat
@@ -221,7 +285,17 @@ export function createBedroomLevel({
   ceiling.receiveShadow = true;
   structure.add(ceiling);
 
-  const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, normalMap: wallNormal, normalScale: new THREE.Vector2(0.55, 0.55), roughness: 0.88 });
+  const wallMat = new THREE.MeshStandardMaterial({
+    map: wallTex,
+    roughness: 0.92
+  });
+  const wallGrimeMat = new THREE.MeshStandardMaterial({
+    map: wallGrimeTex,
+    transparent: true,
+    opacity: WALL_GRIME_OPACITY,
+    depthWrite: false,
+    roughness: 1
+  });
 
   /**
    * WALLS CAST AND RECEIVE NOW, and they did neither.
@@ -252,14 +326,33 @@ export function createBedroomLevel({
    * or a second texture: one repeat of the pattern is now TILE metres
    * everywhere, whatever it is drawn on.
    */
-  const WALL_TILE = 1.7;
-  function tileUVs(geometry, w, h, tile = WALL_TILE) {
+  function tileUVs(geometry, w, h, tile = WALL_TEXTURE_TILE_METRES) {
     const uv = geometry.attributes.uv;
     for (let i = 0; i < uv.count; i++) {
       uv.setXY(i, uv.getX(i) * (w / tile), uv.getY(i) * (h / tile));
     }
     uv.needsUpdate = true;
     return geometry;
+  }
+
+  /** Places the same subtle grime pass just in front of a room-facing wall. */
+  function addWallGrimeOverlay(w, h, x, y, z, rotationY) {
+    const grime = new THREE.Mesh(
+      tileUVs(new THREE.PlaneGeometry(w, h), w, h),
+      wallGrimeMat
+    );
+    const inwardNormal = new THREE.Vector3(0, 0, 1).applyAxisAngle(
+      new THREE.Vector3(0, 1, 0),
+      rotationY
+    );
+    grime.position.set(
+      x + inwardNormal.x * WALL_OVERLAY_OFFSET_METRES,
+      y,
+      z + inwardNormal.z * WALL_OVERLAY_OFFSET_METRES
+    );
+    grime.rotation.y = rotationY;
+    grime.renderOrder = 1;
+    structure.add(grime);
   }
 
   function addWall(w, h, x, y, z, ry) {
@@ -269,6 +362,7 @@ export function createBedroomLevel({
     wall.castShadow = true;
     wall.receiveShadow = true;
     structure.add(wall);
+    addWallGrimeOverlay(w, h, x, y, z, ry);
     return wall;
   }
 
@@ -298,6 +392,7 @@ export function createBedroomLevel({
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       structure.add(mesh);
+      addWallGrimeOverlay(sw, sh, sx, sy, wallZ + depth / 2, 0);
     };
 
     slab(gapX0 - (-w / 2), h, (-w / 2 + gapX0) / 2, h / 2); // left of gap
@@ -310,6 +405,26 @@ export function createBedroomLevel({
   addWallWithGap(ROOM_W, ROOM_H, -ROOM_D / 2, WINDOW_POSITION_X, 1.5, 1.3, 1.5);
   addWall(ROOM_D, ROOM_H, ROOM_W / 2, ROOM_H / 2, 0, -Math.PI / 2);
   addWall(ROOM_W, ROOM_H, 0, ROOM_H / 2, ROOM_D / 2, Math.PI);
+
+  // Unique moisture decals live near the leaking window/radiator rather than
+  // inside the tiled wallpaper, avoiding an obvious repeating damp pattern.
+  function addBedroomWallDamp(x, y, z, rotationY, width, height, seed) {
+    const damp = new THREE.Mesh(
+      new THREE.PlaneGeometry(width, height),
+      new THREE.MeshStandardMaterial({
+        map: createDampStainTexture(seed, { damp: [55, 49, 42], tide: [88, 74, 62] }),
+        transparent: true,
+        depthWrite: false,
+        roughness: 1
+      })
+    );
+    damp.position.set(x, y, z);
+    damp.rotation.y = rotationY;
+    structure.add(damp);
+  }
+  addBedroomWallDamp(WINDOW_POSITION_X - 1.08, 0.62, -ROOM_D / 2 + 0.035, 0, 0.82, 1.18, 11);
+  addBedroomWallDamp(WINDOW_POSITION_X + 1.02, 0.46, -ROOM_D / 2 + 0.035, 0, 0.68, 0.92, 17);
+  addBedroomWallDamp(ROOM_W / 2 - 0.035, 0.40, -0.72, -Math.PI / 2, 0.58, 0.82, 23);
 
   // Left wall has a gap behind the pinboard (see the photo-arrangement
   // puzzle below) opening onto an actual recessed cavity -- built with the
@@ -328,9 +443,13 @@ export function createBedroomLevel({
     const gapY1 = pinRecess.y + pinRecess.h / 2;
 
     const slab = (sw, sh, sy, sz) => {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(wallThickness, sh, sw), wallMat);
+      // The pinboard-wall slabs use the same world-sized UV repeat as every
+      // other wall; without it, this wall showed one stretched motif per slab.
+      const geometry = tileUVs(new THREE.BoxGeometry(wallThickness, sh, sw), sw, sh);
+      const mesh = new THREE.Mesh(geometry, wallMat);
       mesh.position.set(slabCenterX, sy, sz);
       structure.add(mesh);
+      addWallGrimeOverlay(sw, sh, wallX + wallThickness, sy, sz, Math.PI / 2);
     };
     slab(gapZ0 - (-ROOM_D / 2), ROOM_H, ROOM_H / 2, (-ROOM_D / 2 + gapZ0) / 2); // before gap
     slab(ROOM_D / 2 - gapZ1, ROOM_H, ROOM_H / 2, (ROOM_D / 2 + gapZ1) / 2); // after gap
@@ -1004,7 +1123,6 @@ export function createBedroomLevel({
       const part = doorModel.getObjectByName(name);
       if (part) doorHinge.attach(part);
     });
-    doorHinge.attach(doorClawMarks);
   }).catch((err) => {
     console.error('Failed to load door.glb, door will be missing:', err);
   });
@@ -1015,26 +1133,6 @@ export function createBedroomLevel({
   );
   doorSlab.position.set(0, 1.0, 0);
   doorFrame.add(doorSlab);
-
-  // claw marks raked into the lower door panel itself, not just the wall
-  // beside it -- something was clawing at the one way out
-  const doorClawTex = createClawMarksTexture();
-  const doorClawNormal = createClawMarksNormalTexture();
-  const doorClawMarks = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.45, 0.45),
-    new THREE.MeshStandardMaterial({
-      map: doorClawTex,
-      normalMap: doorClawNormal,
-      normalScale: new THREE.Vector2(1.2, 1.2),
-      transparent: true,
-      roughness: 0.95
-    })
-  );
-  // z=0.13 (was 0.045) -- same bug as the planks below: the door's raised
-  // panels extend to z=0.105 at their front-most point, so this was
-  // sitting behind/inside the panel surface at that x/y, fully hidden.
-  doorClawMarks.position.set(-0.15, 0.65, 0.13);
-  doorFrame.add(doorClawMarks);
 
   // Boarded planks nailed across the door -- weathered pale grey-tan (not
   // the door's own dark stain, so they read as a clearly separate, cruder
@@ -1108,28 +1206,48 @@ export function createBedroomLevel({
     minZ: doorFrame.position.z - 0.1, maxZ: doorFrame.position.z + 0.15
   });
 
-  // ---------- claw marks beside the door (storyline: "signs that something
-  // violent may have happened", same marks reappear in Level 2's basement) ----------
-  const clawTex = createClawMarksTexture();
-  const clawNormal = createClawMarksNormalTexture();
-  const clawMarks = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.6, 0.6),
+  // ---------- hero wallpaper tear beside the door ----------
+  // The supplied photographic decal already contains four torn-paper slashes.
+  // Its alpha is used strictly as a dark damage mask. No source decal colour
+  // or edge-feather is rendered, so pale tracing cannot appear around a rip.
+  const heroWallDamage = new THREE.Group();
+  heroWallDamage.name = 'Level1_HeroWallpaperTear';
+  heroWallDamage.position.set(
+    doorFrame.position.x + CLAW_DAMAGE_DOOR_OFFSET_X_METRES,
+    CLAW_DAMAGE_HEIGHT_ABOVE_FLOOR_METRES,
+    ROOM_D / 2 - 0.02
+  );
+  heroWallDamage.rotation.y = Math.PI;
+  group.add(heroWallDamage);
+
+  const plasterUnderlay = new THREE.Mesh(
+    new THREE.PlaneGeometry(CLAW_DAMAGE_WIDTH_METRES, CLAW_DAMAGE_HEIGHT_METRES),
     new THREE.MeshStandardMaterial({
-      map: clawTex,
-      normalMap: clawNormal,
-      normalScale: new THREE.Vector2(1.2, 1.2),
+      alphaMap: clawRipTex,
+      roughnessMap: wallPlasterTex,
       transparent: true,
-      roughness: 0.95
+      alphaTest: 0.03,
+      color: CLAW_DAMAGE_PLASTER_COLOUR,
+      roughness: 1
     })
   );
-  clawMarks.position.set(doorFrame.position.x + 0.85, 1.35, ROOM_D / 2 - 0.03);
-  clawMarks.rotation.y = Math.PI;
+  plasterUnderlay.position.z = 0.006;
+  heroWallDamage.add(plasterUnderlay);
+
+  // The visible mask doubles as the unchanged examination target. It uses the
+  // source alpha directly, keeping the carved silhouette readable in low light
+  // without bringing back any pale decal pixels or an edge outline.
+  const clawMarks = new THREE.Mesh(
+    new THREE.PlaneGeometry(CLAW_DAMAGE_WIDTH_METRES, CLAW_DAMAGE_HEIGHT_METRES),
+    createClawDamageInteriorMaterial(clawRipTex)
+  );
+  clawMarks.position.z = 0.014;
   clawMarks.userData.interact = {
     label: 'Examine the wall',
     onInteract: () => showCaption('Four deep gouges raked into the wallpaper, at roughly shoulder height. Whatever made them was clawing to get OUT.')
   };
   interactables.push(clawMarks);
-  group.add(clawMarks);
+  heroWallDamage.add(clawMarks);
 
   // Small canvas post-processing shared by the three puzzle photos below --
   // draws directly onto the already-generated family-photo canvas rather
@@ -1793,30 +1911,6 @@ export function createBedroomLevel({
     binPapers.push(paper);
     binPaperRestPositions.push(paper.position.clone());
   });
-
-  // ---------- more claw-mark decals scattered around the room -- the
-  // storyline's "signs something violent happened" reads as a pattern of
-  // desperation throughout the room, not one isolated mark by the door ----------
-  function addClawMarks(x, y, z, rotY, scale = 1) {
-    const marks = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.5 * scale, 0.5 * scale),
-      new THREE.MeshStandardMaterial({
-        map: createClawMarksTexture(),
-        normalMap: createClawMarksNormalTexture(),
-        normalScale: new THREE.Vector2(1.2, 1.2),
-        transparent: true,
-        roughness: 0.95
-      })
-    );
-    marks.position.set(x, y, z);
-    marks.rotation.y = rotY;
-    group.add(marks);
-  }
-  addClawMarks(-ROOM_W / 2 + 0.03, 1.15, -0.4, Math.PI / 2);
-  addClawMarks(ROOM_W / 2 - 0.03, 1.4, 1.1, -Math.PI / 2, 0.8);
-  addClawMarks(-0.75, 1.75, -ROOM_D / 2 + 0.03, 0, 1.1);
-  addClawMarks(1.35, 1.9, -ROOM_D / 2 + 0.03, 0, 0.85);
-  addClawMarks(-2.5, 0.5, ROOM_D / 2 - 0.03, Math.PI, 0.7);
 
   // ---------- cobwebs in neglected ceiling corners -- nobody's cleaned
   // this house in a long time, and it's a cheap detail no normal-mapped

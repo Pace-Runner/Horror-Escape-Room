@@ -507,14 +507,15 @@ function buildWallpaperHeightCanvas() {
   return canvas;
 }
 
-// Ornate damask wallpaper: a repeating embossed floral motif over a dark
-// tinted ground, aged with the same kind of water-damage streaking as the
-// plain plaster texture above. Colour is derived from the shared height
-// canvas (raised = motif colour, recessed = base colour) so the visible
-// pattern and its normal map (below) can never drift out of sync.
+// Bedroom wallpaper: a small embossed vintage motif over dark, muted mushroom
+// paper. The warm grey-brown ground keeps the room domestic rather than
+// institutional while leaving the motif deliberately low contrast.
+// Colour is derived from the shared height canvas (raised = motif
+// colour, recessed = base colour) so the visible pattern and its normal map
+// cannot drift out of sync.
 export function createDamaskWallpaperTexture({
-  base = [20, 26, 21],
-  motif = [58, 68, 46]
+  base = [82, 75, 67],
+  motif = [98, 89, 79]
 } = {}) {
   const height = buildWallpaperHeightCanvas();
   const hData = height.getContext('2d').getImageData(0, 0, height.width, height.height).data;
@@ -531,17 +532,32 @@ export function createDamaskWallpaperTexture({
   }
   ctx.putImageData(out, 0, 0);
 
-  // age/water-damage streaks over the finished pattern, sparser than bare
-  // plaster since this is wallpaper left up for years, not an open wall
-  ctx.strokeStyle = 'rgba(4, 4, 4, 0.18)';
-  for (let i = 0; i < 6; i++) {
+  // Roll seams are quieter than the motif, but their tiny dark/light pair
+  // breaks the clean tiled surface into actual wallpaper drops.
+  for (let x = 0; x < canvas.width; x += 170) {
+    ctx.fillStyle = 'rgba(34, 29, 26, 0.18)';
+    ctx.fillRect(x, 0, 2, canvas.height);
+    ctx.fillStyle = 'rgba(154, 141, 124, 0.06)';
+    ctx.fillRect(x + 2, 0, 1, canvas.height);
+  }
+
+  // Faded vertical streaks belong to the paper itself. Larger, unique damp
+  // patches are placed as bedroom-local decals so they never repeat by tile.
+  ctx.strokeStyle = 'rgba(42, 35, 31, 0.18)';
+  for (let i = 0; i < 5; i++) {
     ctx.beginPath();
     const x = Math.random() * canvas.width;
     ctx.moveTo(x, 0);
     ctx.lineTo(x + (Math.random() - 0.5) * 40, canvas.height);
-    ctx.lineWidth = 6 + Math.random() * 10;
+    ctx.lineWidth = 3 + Math.random() * 7;
     ctx.stroke();
   }
+
+  const lowerGrime = ctx.createLinearGradient(0, canvas.height * 0.62, 0, canvas.height);
+  lowerGrime.addColorStop(0, 'rgba(45, 36, 30, 0)');
+  lowerGrime.addColorStop(1, 'rgba(35, 29, 26, 0.28)');
+  ctx.fillStyle = lowerGrime;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   return finish(canvas, 2, 2);
 }
@@ -1229,7 +1245,7 @@ export function createCobwebTexture() {
 // grey plaster showing through beneath it -- meant to sit slightly
 // proud of/tilted off the wall it's placed on (see bedroomLevel.js) so it
 // reads as peeling away rather than a flat sticker.
-export function createPeelingWallpaperTexture({ paperColor = [20, 26, 21] } = {}) {
+export function createPeelingWallpaperTexture({ paperColor = [82, 75, 67] } = {}) {
   const canvas = makeCanvas(256, 256);
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
