@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { DOOR_PANEL_ROWS, getPanelSpans } from './doorPanels.js';
 
 /**
  * The five camera feeds, painted onto canvases.
@@ -224,6 +225,44 @@ function grain(ctx, seconds, amount) {
  * canvases with per-pixel grain every frame would cost more than the entire
  * rest of this game's frame.
  */
+/**
+ * Which part of the building each camera is pointed at.
+ *
+ * Four look upstairs; camera five looks at the basement the player is
+ * standing in. Both zones end up on the same LIGHTING breaker, but they light
+ * up at different MOMENTS -- the basement as soon as the 30A fuse is in, the
+ * house only once the panel is routed -- so the feeds have to be able to
+ * disagree with each other.
+ *
+ * The cameras themselves are on the CCTV circuit and keep working either way:
+ * an unpowered feed shows a dark ROOM, not a dead camera, which is the
+ * difference the player has to read off the screen.
+ */
+export const FEED_ROOM_ZONE = {
+  kitchen: 'house',
+  hallway: 'house',
+  porch: 'house',
+  study: 'house',
+  basement: 'lab'
+};
+
+/** The breaker that fixes a dark room, named on screen so the player can go find it. */
+const LIGHTING_CIRCUIT_LABEL = 'LIGHTING';
+
+/**
+ * How much of the study door's width is panel field rather than lock stile.
+ * Shared with studyLevel.js by value, not by import, because the 3D door
+ * derives its own from the same intent -- see the note in doorPanels.js about
+ * why the SPANS are shared but the framing is not.
+ */
+const PANEL_FIELD_WIDTH_FRACTION = 0.62;
+
+/** Locks on that door. Level 3 mounts three; the feed just needs the count. */
+const LOCK_COUNT = 3;
+
+/** How much of the image survives when the room it looks at has no power. */
+const UNPOWERED_FEED_VEIL = 'rgba(4, 6, 10, 0.86)';
+
 export function createCctvFeeds() {
   const canvases = {};
   const textures = {};
@@ -249,6 +288,21 @@ export function createCctvFeeds() {
   let hallwayDashAt = null;
   let basementFigure = false;
   let basementLostAt = null;
+
+  /**
+   * Which breaker circuits are currently feeding the rooms on camera.
+   *
+   * The house starts dark, which is the whole point: the player looks at four
+   * black rooms long before they ever see a HOUSE breaker, so when they do
+   * find one they already know what it is for. The basement starts lit
+   * because the 30A fuse is what turned this screen on in the first place.
+   */
+  const roomZoneLit = { house: false, lab: true };
+
+  /** @returns {boolean} whether the room this camera looks at has its lights on. */
+  function isFeedRoomLit(id) {
+    return roomZoneLit[FEED_ROOM_ZONE[id]] === true;
+  }
 
   const DRAWERS = {
     kitchen(ctx) {
@@ -311,21 +365,81 @@ export function createCctvFeeds() {
       ctx.fill();
     },
 
+    /**
+     * Camera four. The most important frame in the set: it is how the player
+     * learns there is a way out, and -- since the claw tally went onto that
+     * door -- it is the only place the basement's security code can be read.
+     *
+     * THE DOOR USED TO BE UNREADABLE. It was 45px wide with the three locks
+     * drawn as 5px bars at 26px spacing, so the thin dark bars left four fat
+     * light gaps and the eye read the GAPS as the objects: a stack of pale
+     * blocks, no door, no locks. Widened to 96px and the bars thickened to
+     * 11px, which inverts it back -- the door reads as a door, and the locks
+     * read as hardware bolted across it.
+     *
+     * That was cosmetic while the feed was scenery. It is load-bearing now:
+     * gouges cannot be counted on a 45px door.
+     */
     study(ctx) {
       const hy = room(ctx, { horizon: 0.32, spread: 1.5 });
-      // bookshelves both sides, and THE FRONT DOOR, which is the point of
-      // this feed: it is how the player learns there is a way out.
       ctx.fillStyle = INK.dark;
-      ctx.fillRect(W * 0.06, hy - 10, W * 0.16, H * 0.52);
-      ctx.fillRect(W * 0.78, hy - 10, W * 0.16, H * 0.52);
+      ctx.fillRect(W * 0.02, hy - 10, W * 0.13, H * 0.52);
+      ctx.fillRect(W * 0.85, hy - 10, W * 0.13, H * 0.52);
+
+      const doorX = W * 0.35;
+      const doorW = W * 0.30;
+      const doorY = hy - 8;
+      const doorH = H * 0.52;
       ctx.fillStyle = INK.lightest;
-      ctx.fillRect(W * 0.43, hy - 4, W * 0.14, H * 0.40);
-      ctx.fillStyle = INK.black;
-      // the three locks, as three dark bars across it
-      for (let i = 0; i < 3; i++) {
-        ctx.fillRect(W * 0.43, hy + 14 + i * 26, W * 0.14, 5);
+      ctx.fillRect(doorX, doorY, doorW, doorH);
+
+      /**
+       * The panel field on the left, the lock stile on the right.
+       *
+       * Splitting the door that way is what real joinery does -- locks go
+       * through the stile, never through a panel -- and it is also what keeps
+       * the puzzle readable: a lock bar crossing a panel would break the
+       * rectangle the player is trying to count, and an uncountable row is
+       * worse than no row at all.
+       */
+      const fieldX = doorX + doorW * 0.06;
+      const fieldW = doorW * PANEL_FIELD_WIDTH_FRACTION;
+      const rowPitch = doorH / DOOR_PANEL_ROWS.length;
+      const rowH = rowPitch * 0.62;
+
+      DOOR_PANEL_ROWS.forEach((count, row) => {
+        const rowY = doorY + rowPitch * row + (rowPitch - rowH) / 2;
+        for (const span of getPanelSpans(count)) {
+          const px = fieldX + span.x * fieldW;
+          const pw = span.width * fieldW;
+          // Raised panel: a slightly darker face with one lit top-left edge.
+          // Two tones is all it takes for a rectangle to read as proud of the
+          // surface rather than painted on it, and edges survive the grain
+          // far better than any shading gradient would.
+          ctx.fillStyle = INK.light;
+          ctx.fillRect(px, rowY, pw, rowH);
+          ctx.fillStyle = INK.lightest;
+          ctx.fillRect(px, rowY, pw, 2);
+          ctx.fillRect(px, rowY, 2, rowH);
+        }
+      });
+
+      /**
+       * The three locks, on the stile.
+       *
+       * Deliberately slimmer and softer than they were: at 11px of INK.black
+       * they were the loudest thing in the frame and pulled the eye off the
+       * panels, which are what the player actually has to read now. Hardware
+       * should register as hardware and then get out of the way.
+       */
+      const lockPitch = doorH / (LOCK_COUNT + 1);
+      for (let i = 0; i < LOCK_COUNT; i++) {
+        const lockY = doorY + lockPitch * (i + 1);
+        ctx.fillStyle = INK.dark;
+        ctx.fillRect(doorX + doorW * 0.72, lockY - 3, doorW * 0.22, 6);
       }
-      box(ctx, W * 0.5, H * 0.9, 110, 30, INK.mid);
+
+      box(ctx, W * 0.5, H * 0.94, 110, 26, INK.mid);
     },
 
     basement(ctx) {
@@ -365,6 +479,33 @@ export function createCctvFeeds() {
       figure(ctx, W * 0.74, H * 0.80, 1.5, 0);
     }
 
+    /**
+     * A dark room, drawn over the render but UNDER the camera's own OSD.
+     *
+     * That ordering is the whole trick: the label and timestamp stay bright
+     * because the camera has power, while the room behind them does not. A
+     * feed that dimmed everything would read as a failing camera instead of
+     * an unlit room, and the player would go looking for the wrong fix.
+     *
+     * The circuit is named on screen on purpose. It is the most direct
+     * pointer the game can give toward the HOUSE breaker without a caption
+     * telling the player what to do -- they read the word here, then find it
+     * printed on a switch two puzzles later.
+     */
+    if (!isFeedRoomLit(id)) {
+      ctx.fillStyle = UNPOWERED_FEED_VEIL;
+      ctx.fillRect(0, 0, W, H);
+      ctx.textAlign = 'center';
+      ctx.font = '13px monospace';
+      ctx.fillStyle = INK.light;
+      ctx.fillText('-- NO POWER --', W / 2, H / 2 - 6);
+      ctx.font = '11px monospace';
+      ctx.fillStyle = INK.mid;
+      ctx.fillText(`CIRCUIT: ${LIGHTING_CIRCUIT_LABEL}`, W / 2, H / 2 + 12);
+      // overlay() draws left-aligned and inherits this, so put it back.
+      ctx.textAlign = 'left';
+    }
+
     overlay(ctx, FEED_LABELS[id], 3600 * 2 + elapsed);
 
     // Camera five loses signal after the figure has been seen.
@@ -391,6 +532,33 @@ export function createCctvFeeds() {
       active = id;
       draw(id);
       return true;
+    },
+
+    /**
+     * Says which parts of the building currently have their lights on.
+     *
+     * @param {{house?: boolean, lab?: boolean}} zones - only the keys given
+     *   are changed, so a caller can flip one without restating the other.
+     *
+     * Redraws every feed rather than just the visible one: the player switches
+     * cameras with the remote and each one has to be correct the instant it
+     * appears, and this runs on a breaker flick rather than per frame.
+     */
+    setRoomPower(zones = {}) {
+      for (const [zone, isLit] of Object.entries(zones)) {
+        if (zone in roomZoneLit) roomZoneLit[zone] = isLit === true;
+      }
+      for (const id of FEED_IDS) draw(id);
+    },
+
+    /** @returns {boolean} whether the upstairs rooms are lit on camera. */
+    get houseLit() {
+      return roomZoneLit.house;
+    },
+
+    /** @returns {boolean} whether the basement is lit on camera five. */
+    get labLit() {
+      return roomZoneLit.lab;
     },
 
     /** Arm the hallway dash to happen `delay` seconds from now. */
@@ -421,6 +589,8 @@ export function createCctvFeeds() {
       hallwayDashAt = null;
       basementFigure = false;
       basementLostAt = null;
+      roomZoneLit.house = false;
+      roomZoneLit.lab = true;
       for (const id of FEED_IDS) draw(id);
     },
 

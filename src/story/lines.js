@@ -118,9 +118,39 @@ export const BEATS = {
     'Whatever was strapped into this chair did not need a key.'
   ],
 
+  /**
+   * The 30A fuse goes in. This used to say "the generator catches", which now
+   * belongs to a later beat -- the fuse only ever fed this one section, and the
+   * line has to stop promising the player a way out that it does not open.
+   */
   powerRestored: [
-    { text: 'The generator catches. Lights come up in stages down the room.', duration: 4.2 },
-    'The cameras are live.'
+    { text: 'Lights come up in stages down the room. The monitor wakes with them.', duration: 4.2 },
+    'The cameras are live. The door at the far end is not.'
+  ],
+
+  /** The main is thrown by hand, at the wall, the moment the player goes for the door. */
+  blackout: [
+    { text: 'A lever is thrown somewhere in the dark, and the lab dies all at once.', duration: 4.2 },
+    { text: 'The lights. The cameras. All of it.', duration: 3.2 },
+    'That was not a fault. Something reached the panel before you did.'
+  ],
+
+  /** The generator restart sequence completes. */
+  generatorRunning: [
+    { text: 'The engine catches and holds.', duration: 3.0 },
+    'There is current at the breaker panel now. Nothing else has any.'
+  ],
+
+  /** The main goes in and the whole house comes up with it. */
+  powerRouted: [
+    { text: 'The panel takes the load and holds it.', duration: 3.2 },
+    { text: 'Light comes back the length of the room, and bolts move in the far wall.', duration: 4.2 },
+    'On the monitor, the rooms upstairs come up one by one.'
+  ],
+
+  /** Too much asked of the panel at once. */
+  breakerOverload: [
+    'Every light in the room blows out white, and the panel drops itself.'
   ],
 
   /** Camera 2. It crosses the hallway you were standing in a minute ago. */

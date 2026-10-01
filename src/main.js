@@ -36,6 +36,7 @@ import flashlightModelUrl from './assets/models/flashlight.glb?url';
 
 // ---------- DOM ----------
 const canvas = document.getElementById('scene');
+const glareOverlay = document.getElementById('glare-overlay');
 const loadingScreen = document.getElementById('loading-screen');
 const loadingBarFill = document.getElementById('loading-bar-fill');
 const startScreen = document.getElementById('start-screen');
@@ -888,6 +889,28 @@ const bedroom = createBedroomLevel({
 });
 sceneManager.register('bedroom', bedroom);
 
+// Screen-space half of the basement's overload glare. The level drives the
+// 0..1 amount; here it becomes a cool-white wash plus a backdrop blur, which
+// is what actually takes the player's sight away -- bright lights on their
+// own still leave the room legible. The overlay is taken out of the layout
+// entirely at 0 so its backdrop filter costs nothing the rest of the time.
+const GLARE_MAX_BLUR_IN_PIXELS = 2;
+let currentGlareAmount = 0;
+
+/**
+ * Updates the full-screen glare wash.
+ *
+ * @param {number} amount - 0 for a normal room, 1 for a full whiteout.
+ *   Values in between fade the tint and shrink the blur proportionally.
+ */
+function setGlare(amount) {
+  if (amount === currentGlareAmount) return;
+  currentGlareAmount = amount;
+  glareOverlay.style.display = amount > 0 ? 'block' : 'none';
+  glareOverlay.style.opacity = String(amount);
+  glareOverlay.style.setProperty('--glare-blur', `${(amount * GLARE_MAX_BLUR_IN_PIXELS).toFixed(2)}px`);
+}
+
 /**
  * Which CCTV sightings have already played this run. Local rather than in
  * GameState because they do not cross a level boundary -- and a restart rebuilds
@@ -906,11 +929,59 @@ let creatureStanding = false;
 const hallwayBasement = createHallwayBasementLevel({
   showCaption,
   onExit: () => exitLevel('hallwayBasement'),
+  onSpark: () => audio.spark(),
+  onGlare: setGlare,
 
   onPowerRestored: () => {
     script.run(async (s) => {
       if (!await s.play(BEATS.powerRestored)) return;
     });
+  },
+
+  /**
+   * The main goes as the player reaches the metal door.
+   *
+   * The creature is NOT shown here, and that is the point of the beat: the
+   * player only hears the lever and the room dying, and has to sit with the
+   * fact that somebody was standing at that panel. On a second playthrough it
+   * reads the other way round -- this is Annabelle cutting the power to keep
+   * her brother away from the front door.
+   */
+  onBlackout: () => {
+    script.run(async (s) => {
+      s.do(() => {
+        audio.creak();
+        audio.spark();
+        // It is close. The breathing says so without showing anything.
+        audio.setBreathing(0.9);
+      });
+      if (!await s.play(BEATS.blackout)) return;
+      s.do(() => audio.setBreathing(0.7));
+    });
+  },
+
+  onGeneratorRunning: () => {
+    script.run(async (s) => {
+      if (!await s.play(BEATS.generatorRunning)) return;
+    });
+  },
+
+  onOverload: () => captions.play(BEATS.breakerOverload),
+
+  onPowerRouted: () => {
+    script.run(async (s) => {
+      if (!await s.play(BEATS.powerRouted)) return;
+    });
+  },
+
+  /**
+   * The metal door's security lockout. Same contract as the study's
+   * combination lock: unlock the player, hand the shared keypad the code the
+   * level owns, and let PinPadUI's own onClose re-lock on the way out.
+   */
+  onEnterSecurityCode: ({ code, onSolved }) => {
+    player.unlock();
+    pinPadUI.open({ length: code.length, code, onSolved });
   },
 
   /**
@@ -1628,6 +1699,7 @@ function activateLevel(key, { lockMovement = false } = {}) {
   // Was a TypeError on an unregistered key -- a routing typo should cost a
   // wrong room, never a crash mid-transition.
   if (!level) return null;
+  setGlare(0); // the basement's overload wash must not follow the player into another level
   const isBedroomRestraintActive = key === 'bedroom' && !level.refs.puzzleState.chainsEscaped;
   player.setLookBounds(isBedroomRestraintActive ? BEDROOM_RESTRAINED_LOOK_BOUNDS : null);
   interaction.setTargets(level.interactables);
@@ -2397,7 +2469,9 @@ function tick() {
   // out of the tucked pose with the camera's drop rather than snapping.
   hands.setLayerWeight('crouch-shift', player.crouch);
   hands.update(dt, elapsed, handMotion);
-  sceneManager.update(dt);
+  // The camera IS the player's position; the basement reads it to know when
+  // they have walked up to the metal door.
+  sceneManager.update(dt, camera.position);
 
   if (player.isLocked) {
     interaction.update();

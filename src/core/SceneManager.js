@@ -47,8 +47,16 @@ export class SceneManager {
     return level;
   }
 
-  update(dt) {
-    this.active?.update?.(dt);
+  /**
+   * Ticks whichever level is active.
+   *
+   * @param {number} dt - frame time in seconds.
+   * @param {THREE.Vector3} [playerPosition] - the player's world position,
+   *   forwarded so a level can run proximity triggers of its own. Levels that
+   *   do not take a second parameter are unaffected.
+   */
+  update(dt, playerPosition) {
+    this.active?.update?.(dt, playerPosition);
   }
 
   /**

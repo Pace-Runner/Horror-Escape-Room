@@ -37,6 +37,10 @@ endings. It delivers:
   need attribution -- it is in the `CREDITS` array in `main.js`, and it
   must stay there for as long as the asset does.
 
+**Level 2's power-restore puzzle is built in full** -- fuse,
+blackout, generator restart and breaker panel, documented separately in
+`docs/LEVEL2_POWER_CHAIN.md`.
+
 Levels 1 and 2's creature appearances (CCTV sightings, the hallway flash, the
 corner reveal) stay scripted set-pieces on purpose -- the player is placed to
 be shown the thing, and a script guarantees they see it. `src/systems/CreatureAI.js`'s
@@ -126,6 +130,17 @@ whenever it arrives.
   separate from the rest of the lab so the whole light strip's
   material or position can be changed in one place without touching
   unrelated basement geometry.
+- **Generator controls and breaker toggles**: added to the `lab` group
+  directly and pushed into `interactables` *individually*, deliberately
+  **not** parented under their generator / panel mesh. This is the one
+  place the "child of the thing it sits on" rule is broken on purpose:
+  `Interaction` raycasts non-recursively
+  (`intersectObjects(this.targets, false)`), so a parent group with
+  children would never register a hit. Same constraint as the CCTV
+  remote's five buttons.
+
+The level's power puzzle -- fuse, blackout, generator, breaker panel --
+has its own reference: `docs/LEVEL2_POWER_CHAIN.md`.
 
 ### The backrooms corridor (`src/levels/backroomsLevel.js`)
 
@@ -256,11 +271,24 @@ table decides that this means "through the corridor, then to Level 2".
 
 ### Level 3 -- Study (`src/levels/studyLevel.js`)
 
-- **Three door locks**: children of the front door group itself (the
-  slab), not the frame. Each lock is mounted directly to the door and
-  needs to move with it if the door is ever animated swinging open --
-  unlike Level 1's planks/polaroid, which deliberately stay with the
-  frame instead.
+- **Three door locks**: children of the `frontDoor` group, so they stay
+  seated in the frame while the slab swings on its hinge -- unlike
+  Level 1's planks/polaroid, which deliberately stay with the frame for
+  the same reason.
+
+  They sit at local **z = -0.05**, on the study side. They used to be at
+  +0.05, the porch side, which broke them twice for a player standing in
+  the room: the slab (z -0.035..+0.035) hid them completely, and
+  `frontDoorSlabHit` -- an invisible 0.2 m deep box reaching forward to
+  z = -0.05 -- was always the nearer raycast hit, so aiming at a lock
+  gave the prompt "The front door". The three locks the level is built
+  around were neither visible nor clickable from inside the study.
+- **The door panels**: children of the door SLAB rather than of
+  `frontDoor`, the one place these two part company. The panels are the
+  door and swing with it; the locks are bolts in the frame and do not.
+  Their counts come from `src/world/doorPanels.js`, shared with the
+  Level 2 camera feed the player reads the security code off -- see
+  `docs/LEVEL2_POWER_CHAIN.md`.
 
 ## Lighting & atmosphere notes
 

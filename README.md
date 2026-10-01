@@ -28,11 +28,17 @@ reasoning behind the scenegraph hierarchy.
   a pickable flashlight. The opening beat (chained → free the cuff
   with the paperclip → stand → bulb blows) is scripted.
 - **Level 2 -- hallway + basement lab**: navigable and dressed (pipes,
-  generators, fuse box, shelves, flickering fluorescents, a retro CCTV
-  monitor running a custom static shader). The power-restore puzzle
-  (fuse box → lit/unlit lab states) and the CCTV camera feeds (five
-  cameras, with scripted creature sightings) are wired up and gate the
-  locked basement door.
+  generator, fuse box, breaker panel, shelves, flickering fluorescents,
+  a retro CCTV monitor running a custom static shader), and the
+  **power chain is fully playable**: find the 30A fuse among four to
+  light the lab and wake the cameras, go for the metal door and have
+  someone throw the main on you, restart the generator in the right
+  order, then route the breaker panel's 60A across the circuits that
+  actually matter. Lights, CCTV and the door bolts all come back
+  together. The cameras are then load-bearing rather than a cutscene:
+  the metal door holds behind a security code hidden in the panelling of
+  the study's front door, countable only through camera four. See
+  `docs/LEVEL2_POWER_CHAIN.md` for the full breakdown.
 - **Level 3 -- study**: navigable and dressed (desk, bookshelves, the
   family portrait, the one uncracked mirror, the three-lock front
   door). The three-lock sequence (keyed deadbolt, combination pin-pad,
