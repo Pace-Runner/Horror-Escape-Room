@@ -1,9 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import {
-  createWoodFloorTexture,
-  createWoodFloorNormalTexture,
-  createWoodFloorRoughnessTexture,
   createPlasterRoughnessTexture,
   createScratchedMessageTexture,
   createScratchedMessageNormalTexture,
@@ -24,10 +21,20 @@ import bedModelUrl from '../assets/models/bed.glb?url';
 import dresserModelUrl from '../assets/models/dresser.glb?url';
 import doorModelUrl from '../assets/models/door.glb?url';
 import flashlightModelUrl from '../assets/models/flashlight.glb?url';
+import doorPlankAlbedoUrl from '../assets/textures/door/door_plank_albedo.png?url';
+import doorPlankRoughnessUrl from '../assets/textures/door/door_plank_roughness.png?url';
+import doorPlankNormalUrl from '../assets/textures/door/door_wood_normal_1k.png?url';
 import wallpaperBaseUrl from '../assets/textures/bedroom/wallpaper_base_taupe.png?url';
 import wallpaperGrimeUrl from '../assets/textures/bedroom/wallpaper_grime_overlay.png?url';
 import wallPlasterUrl from '../assets/textures/bedroom/wall_underlay_plaster.png?url';
 import clawRipUrl from '../assets/textures/bedroom/claw_rip_decal.png?url';
+import bedroomFloorUrl from '../assets/textures/bedroom/weathered_dark_wooden_floorboards.png?url';
+
+// The GLB's authored detail faces local +Z, while the bedroom camera approaches
+// the doorway from local -Z. Mirroring only depth presents the detailed face to
+// the room without changing its height, width, hinge side, or knob side.
+const DOOR_MODEL_DEPTH_SCALE = -1;
+const DOOR_BOARD_FRONT_OFFSET_METRES = -0.20;
 
 /**
  * How much larger than life the paperclip is drawn.
@@ -47,13 +54,17 @@ const PAPERCLIP_SCALE = 1.75;
 const WALL_TEXTURE_TILE_METRES = 2.75;
 const WALL_GRIME_OPACITY = 0.16;
 const WALL_OVERLAY_OFFSET_METRES = 0.004;
-const CLAW_DAMAGE_WIDTH_METRES = 1.85;
-const CLAW_DAMAGE_HEIGHT_METRES = 1.85;
-const CLAW_DAMAGE_DOOR_OFFSET_X_METRES = 1.40;
+const CLAW_DAMAGE_WIDTH_METRES = 2.00;
+const CLAW_DAMAGE_HEIGHT_METRES = 2.00;
+const CLAW_DAMAGE_DOOR_OFFSET_X_METRES = 1.52;
 const CLAW_DAMAGE_HEIGHT_ABOVE_FLOOR_METRES = 1.80;
-const CLAW_DAMAGE_DECAL_OPACITY = 0.44;
+const CLAW_DAMAGE_DECAL_OPACITY = 0.24;
+const CLAW_DAMAGE_PLASTER_OPACITY = 0.28;
 const CLAW_DAMAGE_PLASTER_COLOUR = 0x30221c;
-const CLAW_DAMAGE_INTERIOR_COLOUR = 0x0b0807;
+const CLAW_DAMAGE_INTERIOR_COLOUR = 0x070504;
+const CLAW_GROOVE_OPACITY = 0.96;
+const BEDROOM_FLOOR_TEXTURE_REPEAT_X = 1.8;
+const BEDROOM_FLOOR_TEXTURE_REPEAT_Y = 2.0;
 
 /**
  * Loads a bedroom texture with the same repeat setup used by every wall face.
@@ -67,6 +78,33 @@ function loadBedroomWallTexture(url, shouldRepeat) {
   texture.wrapT = shouldRepeat ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
   texture.anisotropy = 4;
   return texture;
+}
+
+/**
+ * Loads the supplied bedroom floorboard image with a world-scale repeat.
+ * The image's boards run along the plane's X axis, giving the room continuous
+ * long boards instead of stretched pixels or dense square tiling.
+ */
+function loadBedroomFloorTexture(url) {
+  const texture = new THREE.TextureLoader().load(url);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(BEDROOM_FLOOR_TEXTURE_REPEAT_X, BEDROOM_FLOOR_TEXTURE_REPEAT_Y);
+  texture.anisotropy = 4;
+  return texture;
+}
+
+/**
+ * Creates one skirting material from the bedroom floorboard image.
+ * Each run gets its own UV repeat so the grain follows that run's length
+ * instead of compressing the square floor texture into a narrow wall trim.
+ */
+function createBedroomSkirtingMaterial(floorTexture, skirtingLengthMetres) {
+  const skirtingTexture = floorTexture.clone();
+  skirtingTexture.repeat.set(Math.max(1, skirtingLengthMetres / 4), 0.12);
+  skirtingTexture.needsUpdate = true;
+  return new THREE.MeshStandardMaterial({ map: skirtingTexture, roughness: 0.78 });
 }
 
 /**
@@ -97,6 +135,51 @@ function createClawDamageInteriorMaterial(maskTexture) {
       void main() {
         float maskAlpha = texture2D(maskTexture, textureUv).a;
         gl_FragColor = vec4(interiorColour, maskAlpha * interiorOpacity);
+      }
+    `,
+    transparent: true,
+    depthWrite: false
+  });
+}
+
+/**
+ * Accents four tapered diagonal gouges over the subdued torn-wall backing.
+ * The grooves stay continuous so the player reads four creature claws instead
+ * of broken, stain-like fragments from the photographic rip texture.
+ */
+function createClawDamageGrooveMaterial() {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      grooveOpacity: { value: CLAW_GROOVE_OPACITY }
+    },
+    vertexShader: `
+      varying vec2 textureUv;
+      void main() {
+        textureUv = uv;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform float grooveOpacity;
+      varying vec2 textureUv;
+
+      float createGouge(vec2 point, float offset, float halfLength) {
+        float diagonalLength = dot(point, vec2(0.707, 0.707));
+        float edgeVariation = sin(diagonalLength * 47.0 + offset * 31.0) * 0.012;
+        edgeVariation += sin(diagonalLength * 131.0 - offset * 19.0) * 0.006;
+        float diagonalDistance = abs(dot(point, vec2(-0.707, 0.707)) - offset + edgeVariation);
+        float edgeSoftness = 1.0 - smoothstep(0.044, 0.052, diagonalDistance);
+        float tipFade = 1.0 - smoothstep(halfLength - 0.028, halfLength, abs(diagonalLength));
+        return edgeSoftness * tipFade;
+      }
+
+      void main() {
+        vec2 centeredUv = textureUv - 0.5;
+        float gouges = createGouge(centeredUv, -0.20, 0.40);
+        gouges = max(gouges, createGouge(centeredUv, -0.07, 0.53));
+        gouges = max(gouges, createGouge(centeredUv, 0.07, 0.51));
+        gouges = max(gouges, createGouge(centeredUv, 0.20, 0.42));
+        gl_FragColor = vec4(0.008, 0.004, 0.003, gouges * grooveOpacity);
       }
     `,
     transparent: true,
@@ -225,8 +308,7 @@ export function createBedroomLevel({
 
   // Bedroom-specific photographic wallpaper replaces the generic procedural
   // pattern. Every wall face and cut-out slab shares this exact texture family.
-  const floorTex = createWoodFloorTexture({ stain: 0.72 });
-  const floorNormal = createWoodFloorNormalTexture();
+  const floorTex = loadBedroomFloorTexture(bedroomFloorUrl);
   const wallTex = loadBedroomWallTexture(wallpaperBaseUrl, true);
   const wallGrimeTex = loadBedroomWallTexture(wallpaperGrimeUrl, true);
   const wallPlasterTex = loadBedroomWallTexture(wallPlasterUrl, false);
@@ -247,7 +329,7 @@ export function createBedroomLevel({
 
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(ROOM_W, ROOM_D),
-    new THREE.MeshStandardMaterial({ map: floorTex, normalMap: floorNormal, normalScale: new THREE.Vector2(0.9, 0.9), roughness: 0.75 })
+    new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.78 })
   );
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
@@ -482,7 +564,11 @@ export function createBedroomLevel({
     { minX: -ROOM_W / 2, maxX: ROOM_W / 2, minZ: ROOM_D / 2 - 0.15, maxZ: ROOM_D / 2 + 0.1 }
   );
 
-  addBaseboard(structure, { width: ROOM_W, depth: ROOM_D, color: 0x1a140e });
+  addBaseboard(structure, {
+    width: ROOM_W,
+    depth: ROOM_D,
+    materialFactory: (skirtingLengthMetres) => createBedroomSkirtingMaterial(floorTex, skirtingLengthMetres)
+  });
 
   // ---------- ceiling light fixture ----------
   // A bare bulb (per the storyline's "dim yellow light") but with the
@@ -1098,12 +1184,17 @@ export function createBedroomLevel({
    */
   const doorPass = { active: false, phase: 0, duration: 5.4 };
 
-  // Blender-authored, see blender/build_door.py: a beveled frame around a
-  // two-panel raised door (real stile-and-rail relief with a mid-rail gap,
-  // not a flat slab) plus a turned knob. doorSlab stays a plain invisible
+  // Blender-authored: a detailed wood leaf, barred frosted-glass window and
+  // lock hardware. doorSlab stays a plain invisible
   // hitbox sized to the old slab's bounds -- same reasoning as the
   // flashlight/paperclip hitboxes -- so "examine boarded door" is
   // clickable immediately rather than waiting on the async model load.
+  // Keep the imported GLB distinct from the invisible interaction slab and
+  // replace its contents if this loader ever resolves again. This guarantees
+  // no earlier imported door clone can remain visible alongside the remodel.
+  const doorVisualRoot = new THREE.Group();
+  doorVisualRoot.name = 'BedroomDoorRemodelVisual';
+  doorFrame.add(doorVisualRoot);
   loadModel(doorModelUrl).then((doorModel) => {
     doorModel.traverse((child) => {
       if (child.isMesh) {
@@ -1111,18 +1202,24 @@ export function createBedroomLevel({
         child.receiveShadow = true;
       }
     });
-    applyTextureByMaterialName(doorModel, 'DoorWood', furnitureWoodTex, furnitureWoodNormal);
-    applyTextureByMaterialName(doorModel, 'DoorFrameWood', furnitureWoodTex, furnitureWoodNormal);
-    applyTextureByMaterialName(doorModel, 'DoorPanelWood', furnitureWoodTex, furnitureWoodNormal);
-    doorFrame.add(doorModel);
+    doorModel.scale.z = DOOR_MODEL_DEPTH_SCALE;
+    doorVisualRoot.clear();
+    doorVisualRoot.add(doorModel);
 
-    // Named nodes from the Blender export -- attach() keeps each part's
-    // current world transform while moving it under the hinge, so nothing
-    // jumps when this (async) resolves.
-    ['doorPanel', 'knobHandle', 'knobPlate'].forEach((name) => {
-      const part = doorModel.getObjectByName(name);
-      if (part) doorHinge.attach(part);
-    });
+    // The rebuilt asset exports one named hierarchy for every moving leaf part
+    // (panel, window, bars and lock furniture). attach() keeps its world pose
+    // while moving the entire visual leaf under the pre-existing hinge.
+    const doorLeaf = doorModel.getObjectByName('doorLeaf');
+    if (doorLeaf) {
+      doorHinge.attach(doorLeaf);
+    } else {
+      // Compatibility with the old lightweight GLB if an asset replacement is
+      // interrupted: preserve the established panel/knob-only attachment.
+      ['doorPanel', 'knobHandle', 'knobPlate'].forEach((name) => {
+        const part = doorModel.getObjectByName(name);
+        if (part) doorHinge.attach(part);
+      });
+    }
   }).catch((err) => {
     console.error('Failed to load door.glb, door will be missing:', err);
   });
@@ -1140,45 +1237,77 @@ export function createBedroomLevel({
   // extending past the door's edges onto the surrounding frame the way
   // an actual "boarded shut in a hurry" plank would, plus dark nail heads
   // punched through each end.
-  const plankTex = createFurnitureWoodTexture({ tint: [150, 138, 110] });
-  const plankNormal = createFurnitureWoodNormalTexture();
+  const plankTextureLoader = new THREE.TextureLoader();
+  const plankTex = plankTextureLoader.load(doorPlankAlbedoUrl);
+  plankTex.colorSpace = THREE.SRGBColorSpace;
+  plankTex.wrapS = THREE.RepeatWrapping;
+  plankTex.wrapT = THREE.RepeatWrapping;
+  plankTex.repeat.set(2.2, 1);
+  const plankRoughness = plankTextureLoader.load(doorPlankRoughnessUrl);
+  plankRoughness.wrapS = THREE.RepeatWrapping;
+  plankRoughness.wrapT = THREE.RepeatWrapping;
+  plankRoughness.repeat.set(2.2, 1);
+  const plankNormal = plankTextureLoader.load(doorPlankNormalUrl);
+  plankNormal.wrapS = THREE.RepeatWrapping;
+  plankNormal.wrapT = THREE.RepeatWrapping;
+  plankNormal.repeat.set(2.2, 1);
   const plankMat = new THREE.MeshStandardMaterial({
     map: plankTex,
+    roughnessMap: plankRoughness,
     normalMap: plankNormal,
-    normalScale: new THREE.Vector2(1, 1),
-    roughness: 0.95
+    normalScale: new THREE.Vector2(0.55, 0.55),
+    roughness: 0.88
   });
   const nailMat = new THREE.MeshStandardMaterial({ color: 0x2a2420, metalness: 0.6, roughness: 0.5 });
 
-  // Collected so the crowbar can hide every plank + nail in one go once
-  // the door is pried open, rather than tracking them individually.
+  // One group per board lets the crowbar play a small deterministic pry/fall
+  // motion, while the puzzle state continues to own when they are removable.
   const boardedPlankParts = [];
+  const boardedPlankGroups = [];
+  const plankPryDurationSeconds = 0.36;
+  let plankPryElapsedSeconds = -1;
 
-  // Z=0.14 (was 0.08) -- measured the actual exported door.glb's raised
-  // panels and they now extend to Z=0.105 at their most-proud point (the
-  // relief got pushed deeper in an earlier pass to fix a separate "door
-  // looks flat" complaint). At 0.08 the planks were sitting entirely
-  // behind/inside the panel surface -- not dim, not clipping, just fully
-  // hidden -- which is exactly why they weren't visible at all.
-  function addBoardedPlank(rotZ) {
+  // The door depth is mirrored to present its authored front to the room, so
+  // locked-state planks sit on local -Z: visibly in front of the door rather
+  // than buried on its rear side.
+  function addBoardedPlank(rotationZ, heightMetres, pryDirection) {
+    const plankGroup = new THREE.Group();
+    plankGroup.position.set(0, heightMetres, DOOR_BOARD_FRONT_OFFSET_METRES);
+    plankGroup.rotation.z = rotationZ;
+    plankGroup.userData.restPosition = plankGroup.position.clone();
+    plankGroup.userData.restRotationZ = rotationZ;
+    plankGroup.userData.pryDirection = pryDirection;
+    doorFrame.add(plankGroup);
+
     const plank = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.2, 0.055), plankMat);
-    plank.position.set(0, 1.05, 0.14);
-    plank.rotation.z = rotZ;
     plank.castShadow = true;
-    doorFrame.add(plank);
-    boardedPlankParts.push(plank);
+    plankGroup.add(plank);
+    boardedPlankParts.push(plankGroup);
+    boardedPlankGroups.push(plankGroup);
 
     [-0.68, 0.68].forEach((along) => {
       const nail = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 8), nailMat);
-      const x = Math.cos(rotZ) * along;
-      const y = 1.05 + Math.sin(rotZ) * along;
-      nail.position.set(x, y, 0.17);
-      doorFrame.add(nail);
-      boardedPlankParts.push(nail);
+      nail.position.set(along, 0, -0.04);
+      plankGroup.add(nail);
     });
   }
-  addBoardedPlank(Math.PI / 5);
-  addBoardedPlank(-Math.PI / 5);
+  addBoardedPlank(-0.14, 1.27, -1);
+  addBoardedPlank(0.10, 0.63, 1);
+
+  /** Starts the crowbar's short scripted plank pry without involving physics. */
+  function startDoorPlankPryAnimation() {
+    plankPryElapsedSeconds = 0;
+  }
+
+  /** Restores board transforms for the level reset path. */
+  function resetDoorPlankPresentation() {
+    plankPryElapsedSeconds = -1;
+    for (const plankGroup of boardedPlankGroups) {
+      plankGroup.visible = true;
+      plankGroup.position.copy(plankGroup.userData.restPosition);
+      plankGroup.rotation.set(0, 0, plankGroup.userData.restRotationZ);
+    }
+  }
 
   const polaroidTex = createPolaroidTexture({ caption: 'PROJECT HOLLOW', date: 'JUNE 1987' });
   const polaroid = new THREE.Mesh(
@@ -1226,6 +1355,7 @@ export function createBedroomLevel({
       alphaMap: clawRipTex,
       roughnessMap: wallPlasterTex,
       transparent: true,
+      opacity: CLAW_DAMAGE_PLASTER_OPACITY,
       alphaTest: 0.03,
       color: CLAW_DAMAGE_PLASTER_COLOUR,
       roughness: 1
@@ -1248,6 +1378,13 @@ export function createBedroomLevel({
   };
   interactables.push(clawMarks);
   heroWallDamage.add(clawMarks);
+
+  const clawGrooves = new THREE.Mesh(
+    new THREE.PlaneGeometry(CLAW_DAMAGE_WIDTH_METRES, CLAW_DAMAGE_HEIGHT_METRES),
+    createClawDamageGrooveMaterial()
+  );
+  clawGrooves.position.z = 0.016;
+  heroWallDamage.add(clawGrooves);
 
   // Small canvas post-processing shared by the three puzzle photos below --
   // draws directly onto the already-generated family-photo canvas rather
@@ -2074,7 +2211,7 @@ export function createBedroomLevel({
           }
           puzzleState.planksRemoved = true;
           onCrowbarUsed();
-          boardedPlankParts.forEach((part) => { part.visible = false; });
+          startDoorPlankPryAnimation();
           onDoorPlankRemoved();
           showCaption('You wedge the crowbar behind the planks and pry them off the door.');
         } else {
@@ -2571,7 +2708,7 @@ export function createBedroomLevel({
       const bedroomKeyIndex = interactables.indexOf(bedroomKeyHitbox);
       if (bedroomKeyIndex >= 0) interactables.splice(bedroomKeyIndex, 1);
 
-      boardedPlankParts.forEach((part) => { part.visible = true; });
+      resetDoorPlankPresentation();
       doorHinge.rotation.y = 0;
       doorRattleRemainingSeconds = 0;
 
@@ -2640,6 +2777,33 @@ export function createBedroomLevel({
       doorRattleRemainingSeconds = Math.max(0, doorRattleRemainingSeconds - dt);
       const targetDoorRotY = (puzzleState.doorUnlocked ? doorOpenSwing : 0) + doorRattleOffset;
       doorHinge.rotation.y += (targetDoorRotY - doorHinge.rotation.y) * Math.min(1, dt * 3);
+
+      // The planks remain puzzle-state-driven: this is presentation only. A
+      // short deterministic pull and drop plays once, then the same meshes are
+      // hidden exactly as they were before the visual upgrade.
+      if (plankPryElapsedSeconds >= 0) {
+        plankPryElapsedSeconds += dt;
+        const pryProgress = Math.min(1, plankPryElapsedSeconds / plankPryDurationSeconds);
+        const easedProgress = 1 - (1 - pryProgress) * (1 - pryProgress);
+        for (const plankGroup of boardedPlankGroups) {
+          const restPosition = plankGroup.userData.restPosition;
+          const direction = plankGroup.userData.pryDirection;
+          plankGroup.position.set(
+            restPosition.x + direction * 0.14 * easedProgress,
+            restPosition.y - 0.32 * easedProgress,
+            restPosition.z + 0.08 * easedProgress
+          );
+          plankGroup.rotation.set(
+            direction * 0.24 * easedProgress,
+            0,
+            plankGroup.userData.restRotationZ + direction * 0.30 * easedProgress
+          );
+        }
+        if (pryProgress >= 1) {
+          plankPryElapsedSeconds = -1;
+          boardedPlankParts.forEach((part) => { part.visible = false; });
+        }
+      }
 
       // "Something moves past the door." See the note where these were built.
       if (doorPass.active) {

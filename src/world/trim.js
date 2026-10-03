@@ -3,8 +3,15 @@ import * as THREE from 'three';
 // A thin skirting board run around a rectangular room's perimeter. Small
 // detail, but a bare wall-to-floor seam is one of the fastest visual
 // tells that a room is a blockout rather than a dressed space.
-export function addBaseboard(parent, { width, depth, height = 0.11, color = 0x1c1712, thickness = 0.02 } = {}) {
-  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
+export function addBaseboard(parent, {
+  width,
+  depth,
+  height = 0.11,
+  color = 0x1c1712,
+  thickness = 0.02,
+  materialFactory = null
+} = {}) {
+  const defaultMaterial = new THREE.MeshStandardMaterial({ color, roughness: 0.7 });
   const y = height / 2;
   const sides = [
     { w: width, x: 0, z: -depth / 2 + thickness / 2, ry: 0 },
@@ -13,7 +20,8 @@ export function addBaseboard(parent, { width, depth, height = 0.11, color = 0x1c
     { w: depth, x: width / 2 - thickness / 2, z: 0, ry: Math.PI / 2 }
   ];
   sides.forEach(({ w, x, z, ry }) => {
-    const board = new THREE.Mesh(new THREE.BoxGeometry(w, height, thickness), mat);
+    const material = materialFactory ? materialFactory(w) : defaultMaterial;
+    const board = new THREE.Mesh(new THREE.BoxGeometry(w, height, thickness), material);
     board.position.set(x, y, z);
     board.rotation.y = ry;
     parent.add(board);
