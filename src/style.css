@@ -575,17 +575,19 @@ html, body {
 
 #board-panel {
   position: relative;
-  width: min(720px, 88vw);
-  padding: 34px 34px 24px;
+  width: min(1000px, 94vw);
+  padding: 30px 36px 24px;
   background: #2c1c10;
   border: 10px solid #1c1108;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
+  max-height: 90vh;
+  overflow-y: auto;
 }
 
 #board-slots {
   display: grid;
-  grid-template-columns: repeat(2, 150px);
-  gap: 22px;
+  grid-template-columns: repeat(2, minmax(0, clamp(112px, 24vh, 208px)));
+  gap: 28px;
   justify-content: center;
   padding: 22px;
   background: #b99364;
@@ -594,11 +596,17 @@ html, body {
 }
 
 .board-slot {
-  width: 150px;
-  height: 118px;
+  /* Portrait drop targets with clearance around the complete Polaroid. */
+  width: 100%;
+  height: auto;
+  aspect-ratio: 208 / 260;
+  padding: 8px;
   border: 2px dashed rgba(40, 28, 16, 0.45);
   background: rgba(0, 0, 0, 0.06);
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .board-slot.drag-over {
@@ -607,22 +615,26 @@ html, body {
 }
 
 #board-tray {
-  min-height: 140px;
-  margin-top: 22px;
-  padding: 16px;
+  min-height: 0;
+  margin-top: 28px;
+  padding: 20px;
   background: rgba(0, 0, 0, 0.25);
   border: 1px solid #4a3624;
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 24px;
   align-items: flex-start;
   justify-content: center;
 }
 
 .board-photo {
-  width: 150px;
-  height: 118px;
-  background-size: cover;
+  /* Full portrait print, including its dated border; no landscape crop. */
+  width: clamp(96px, min(18vw, 21vh), 188px);
+  height: auto;
+  aspect-ratio: 1122 / 1402;
+  flex-shrink: 0;
+  background-size: contain;
+  background-repeat: no-repeat;
   background-position: center;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.6);
   cursor: grab;
@@ -633,21 +645,9 @@ html, body {
   position: relative;
 }
 
-/* The puzzle is chronological, so the clue needs to survive a normal-size
-   150px tile. The label sits on the print's lower border rather than covering
-   the family image and does not receive pointer events during drag. */
-.board-photo::after {
-  content: attr(data-date);
-  position: absolute;
-  right: 6px;
-  bottom: 5px;
-  padding: 1px 5px 2px;
-  color: #f6edcf;
-  background: rgba(35, 26, 17, 0.88);
-  border: 1px solid rgba(246, 237, 207, 0.75);
-  font: 700 1.05rem/1 Georgia, 'Times New Roman', serif;
-  letter-spacing: 0.04em;
-  pointer-events: none;
+.board-slot .board-photo {
+  max-width: 100%;
+  max-height: 100%;
 }
 
 .board-photo:hover {
@@ -666,9 +666,12 @@ html, body {
 
 #board-close {
   display: block;
-  margin: 22px auto 0;
-  padding: 8px 22px;
-  background: transparent;
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin: 24px auto 0;
+  padding: 10px 28px;
+  background: #2c1c10;
   border: 1px solid #6b6459;
   color: #d8d2c4;
   cursor: pointer;

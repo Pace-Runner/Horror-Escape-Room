@@ -678,6 +678,8 @@ const visor = createVisor({
   getLevel: () => sceneManager.active
 });
 
+const BULB_BLOW_DELAY_AFTER_CUFF_UNLOCK_SECONDS = 3;
+
 const bedroom = createBedroomLevel({
   showCaption,
   // The paperclip's own 900ms delay before onFreed IS the time the player
@@ -705,8 +707,11 @@ const bedroom = createBedroomLevel({
     // several seconds later with no way to work out why. Now a script: every
     // await returns false once a restart has bumped the generation.
     script.run(async (s) => {
-      if (!await s.play(BEATS.freed)) return;
-      if (!await s.wait(1.4)) return;
+      // The cuff caption stays on screen, but must not lengthen the measured
+      // unlock-to-blow delay: `BEATS.freed` has two lines and used to push the
+      // bulb event several seconds later than its intended beat.
+      s.do(() => { captions.play(BEATS.freed); });
+      if (!await s.wait(BULB_BLOW_DELAY_AFTER_CUFF_UNLOCK_SECONDS)) return;
       s.do(() => {
         bedroomStorm.blowBulb();
         audio.setBreathing(LEVEL_ONE_BREATHING_BASE);
@@ -1542,7 +1547,11 @@ const bedroomStorm = new Storm({
       });
     }
   },
-  onBlow: () => audio.bulbPop()
+  onBlow: () => {
+    bedroom.refs.pendantIntact.visible = false;
+    bedroom.refs.pendantBroken.visible = true;
+    audio.bulbPop();
+  }
 });
 
 /** Hides the window-flash figure and tears down its dedicated light -- see the note above. */
@@ -1871,6 +1880,8 @@ function resetGame() {
   // One call, and it puts the mesh back too -- setting bulbBlown by hand from
   // out here left the glass dark on the second run.
   bedroomStorm.relight();
+  bedroom.refs.pendantIntact.visible = true;
+  bedroom.refs.pendantBroken.visible = false;
   bedroom.refs.ambient.intensity = AMBIENT_LIT;
   // A fresh run gets to see the window glimpse again. hideWindowReveal() also
   // covers a restart landing mid-flash, which would otherwise leave its

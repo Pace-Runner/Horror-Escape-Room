@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import {
-  createPlasterRoughnessTexture,
   createScratchedMessageTexture,
   createScratchedMessageNormalTexture,
   createPolaroidTexture,
@@ -10,9 +9,7 @@ import {
   createRugNormalTexture,
   createFurnitureWoodTexture,
   createFurnitureWoodNormalTexture,
-  createCobwebTexture,
-  createPeelingWallpaperTexture,
-  createDampStainTexture
+  createCobwebTexture
 } from '../world/textures.js';
 import { addBaseboard } from '../world/trim.js';
 import { createRainGlassMaterial } from '../world/RainGlassMaterial.js';
@@ -21,14 +18,33 @@ import bedModelUrl from '../assets/models/bed.glb?url';
 import dresserModelUrl from '../assets/models/dresser.glb?url';
 import doorModelUrl from '../assets/models/door.glb?url';
 import flashlightModelUrl from '../assets/models/flashlight.glb?url';
+import pendantLightModelUrl from '../assets/models/ceiling_pendant.glb?url';
+import wallHollowModelUrl from '../assets/models/wall_hollow.glb?url';
+import antiqueLockboxModelUrl from '../assets/models/antique_lockbox.glb?url';
 import doorPlankAlbedoUrl from '../assets/textures/door/door_plank_albedo.png?url';
 import doorPlankRoughnessUrl from '../assets/textures/door/door_plank_roughness.png?url';
 import doorPlankNormalUrl from '../assets/textures/door/door_wood_normal_1k.png?url';
-import wallpaperBaseUrl from '../assets/textures/bedroom/wallpaper_base_taupe.png?url';
-import wallpaperGrimeUrl from '../assets/textures/bedroom/wallpaper_grime_overlay.png?url';
-import wallPlasterUrl from '../assets/textures/bedroom/wall_underlay_plaster.png?url';
-import clawRipUrl from '../assets/textures/bedroom/claw_rip_decal.png?url';
+import wallpaperBaseUrl from '../assets/textures/bedroom/distressed_victorian_damask_wallpaper.png?url';
+import clawRipUrl from '../assets/textures/bedroom/ripped_victorian_wallpaper_claw_marks.png?url';
 import bedroomFloorUrl from '../assets/textures/bedroom/weathered_dark_wooden_floorboards.png?url';
+import bedroomCeilingUrl from '../assets/textures/bedroom/grimy_cracked_plaster_texture.png?url';
+import photo1984Url from '../assets/textures/bedroom/level_1_1984_pic.png?url';
+import photo1985Url from '../assets/textures/bedroom/level_1_1985_pic.png?url';
+import photo1986Url from '../assets/textures/bedroom/level_1_1986_pic.png?url';
+import photo1987Url from '../assets/textures/bedroom/level_1_1987_pic.png?url';
+
+// One image per year, shared by pickups, board thumbnails, and the board UI.
+const PUZZLE_PHOTO_URLS = {
+  1984: photo1984Url,
+  1985: photo1985Url,
+  1986: photo1986Url,
+  1987: photo1987Url
+};
+// Preserve photo centers/heights and hitboxes; only correct the printed aspect.
+const PUZZLE_PHOTO_ASPECT_RATIO = 1122 / 1402;
+const PUZZLE_PHOTO_HEIGHT_METRES = 0.17;
+const LOCKBOX_OPEN_DURATION_SECONDS = 0.7;
+const LOCKBOX_OPEN_ANGLE_RADIANS = -Math.PI / 2;
 
 // The GLB's authored detail faces local +Z, while the bedroom camera approaches
 // the doorway from local -Z. Mirroring only depth presents the detailed face to
@@ -49,20 +65,17 @@ const DOOR_BOARD_FRONT_OFFSET_METRES = -0.20;
  */
 const PAPERCLIP_SCALE = 1.75;
 
-// A larger shared repeat avoids the supplied square bitmap reading as a grid
-// while retaining its faded wallpaper pattern and grime detail.
-const WALL_TEXTURE_TILE_METRES = 2.75;
-const WALL_GRIME_OPACITY = 0.16;
-const WALL_OVERLAY_OFFSET_METRES = 0.004;
+// An even number of mirrored spans closes the pattern at the room's final
+// corner. Each image covers the full wall height, eliminating square tile rows.
+const WALL_TEXTURE_PERIMETER_SPANS = 10;
 const CLAW_DAMAGE_WIDTH_METRES = 2.00;
 const CLAW_DAMAGE_HEIGHT_METRES = 2.00;
 const CLAW_DAMAGE_DOOR_OFFSET_X_METRES = 1.52;
 const CLAW_DAMAGE_HEIGHT_ABOVE_FLOOR_METRES = 1.80;
-const CLAW_DAMAGE_DECAL_OPACITY = 0.24;
-const CLAW_DAMAGE_PLASTER_OPACITY = 0.28;
-const CLAW_DAMAGE_PLASTER_COLOUR = 0x30221c;
-const CLAW_DAMAGE_INTERIOR_COLOUR = 0x070504;
-const CLAW_GROOVE_OPACITY = 0.96;
+const CLAW_DAMAGE_VISIBLE_WIDTH_METRES = 1.70;
+const CLAW_DAMAGE_VISIBLE_HEIGHT_METRES = 1.90;
+const CLAW_DAMAGE_DECAL_OPACITY = 0.95;
+const CLAW_DAMAGE_TINT = 0xb9afa3;
 const BEDROOM_FLOOR_TEXTURE_REPEAT_X = 1.8;
 const BEDROOM_FLOOR_TEXTURE_REPEAT_Y = 2.0;
 
@@ -74,9 +87,9 @@ const BEDROOM_FLOOR_TEXTURE_REPEAT_Y = 2.0;
 function loadBedroomWallTexture(url, shouldRepeat) {
   const texture = new THREE.TextureLoader().load(url);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.wrapS = shouldRepeat ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
-  texture.wrapT = shouldRepeat ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
-  texture.anisotropy = 4;
+  texture.wrapS = shouldRepeat ? THREE.MirroredRepeatWrapping : THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.anisotropy = 8;
   return texture;
 }
 
@@ -96,6 +109,20 @@ function loadBedroomFloorTexture(url) {
 }
 
 /**
+ * Loads one continuous cracked-plaster image across the bedroom ceiling.
+ * Clamp wrapping removes the repeated square/seam pattern from the broad
+ * ceiling surface while preserving the texture's subtle aged detail.
+ */
+function loadBedroomCeilingTexture(url) {
+  const texture = new THREE.TextureLoader().load(url);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.anisotropy = 4;
+  return texture;
+}
+
+/**
  * Creates one skirting material from the bedroom floorboard image.
  * Each run gets its own UV repeat so the grain follows that run's length
  * instead of compressing the square floor texture into a narrow wall trim.
@@ -103,87 +130,16 @@ function loadBedroomFloorTexture(url) {
 function createBedroomSkirtingMaterial(floorTexture, skirtingLengthMetres) {
   const skirtingTexture = floorTexture.clone();
   skirtingTexture.repeat.set(Math.max(1, skirtingLengthMetres / 4), 0.12);
+  // Use the mid-board strip of the same floor image: this keeps the skirting
+  // visibly wood-toned rather than sampling the texture's near-black seam.
+  skirtingTexture.offset.y = 0.37;
   skirtingTexture.needsUpdate = true;
-  return new THREE.MeshStandardMaterial({ map: skirtingTexture, roughness: 0.78 });
-}
-
-/**
- * Renders the supplied rip alpha as a dark, unlit carved interior. Using the
- * texture's true alpha avoids the colour-channel masking that was allowing the
- * four slashes to dissolve into the similarly dark wallpaper under low light.
- */
-function createClawDamageInteriorMaterial(maskTexture) {
-  return new THREE.ShaderMaterial({
-    uniforms: {
-      maskTexture: { value: maskTexture },
-      interiorColour: { value: new THREE.Color(CLAW_DAMAGE_INTERIOR_COLOUR) },
-      interiorOpacity: { value: CLAW_DAMAGE_DECAL_OPACITY }
-    },
-    vertexShader: `
-      varying vec2 textureUv;
-      void main() {
-        textureUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform sampler2D maskTexture;
-      uniform vec3 interiorColour;
-      uniform float interiorOpacity;
-      varying vec2 textureUv;
-
-      void main() {
-        float maskAlpha = texture2D(maskTexture, textureUv).a;
-        gl_FragColor = vec4(interiorColour, maskAlpha * interiorOpacity);
-      }
-    `,
-    transparent: true,
-    depthWrite: false
-  });
-}
-
-/**
- * Accents four tapered diagonal gouges over the subdued torn-wall backing.
- * The grooves stay continuous so the player reads four creature claws instead
- * of broken, stain-like fragments from the photographic rip texture.
- */
-function createClawDamageGrooveMaterial() {
-  return new THREE.ShaderMaterial({
-    uniforms: {
-      grooveOpacity: { value: CLAW_GROOVE_OPACITY }
-    },
-    vertexShader: `
-      varying vec2 textureUv;
-      void main() {
-        textureUv = uv;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }
-    `,
-    fragmentShader: `
-      uniform float grooveOpacity;
-      varying vec2 textureUv;
-
-      float createGouge(vec2 point, float offset, float halfLength) {
-        float diagonalLength = dot(point, vec2(0.707, 0.707));
-        float edgeVariation = sin(diagonalLength * 47.0 + offset * 31.0) * 0.012;
-        edgeVariation += sin(diagonalLength * 131.0 - offset * 19.0) * 0.006;
-        float diagonalDistance = abs(dot(point, vec2(-0.707, 0.707)) - offset + edgeVariation);
-        float edgeSoftness = 1.0 - smoothstep(0.044, 0.052, diagonalDistance);
-        float tipFade = 1.0 - smoothstep(halfLength - 0.028, halfLength, abs(diagonalLength));
-        return edgeSoftness * tipFade;
-      }
-
-      void main() {
-        vec2 centeredUv = textureUv - 0.5;
-        float gouges = createGouge(centeredUv, -0.20, 0.40);
-        gouges = max(gouges, createGouge(centeredUv, -0.07, 0.53));
-        gouges = max(gouges, createGouge(centeredUv, 0.07, 0.51));
-        gouges = max(gouges, createGouge(centeredUv, 0.20, 0.42));
-        gl_FragColor = vec4(0.008, 0.004, 0.003, gouges * grooveOpacity);
-      }
-    `,
-    transparent: true,
-    depthWrite: false
+  return new THREE.MeshStandardMaterial({
+    map: skirtingTexture,
+    color: 0xc79b76,
+    emissive: 0x120805,
+    emissiveIntensity: 0.22,
+    roughness: 0.72
   });
 }
 
@@ -228,6 +184,9 @@ const SEARCH_NIGHTSTAND_POSITION_Z = -2.2;
 const DRESSER_POSITION_X = 3.0;
 const DRESSER_POSITION_Z = 1.35;
 const DOOR_POSITION_X = 1.2;
+const DOOR_SKIRTING_OPENING_WIDTH_METRES = 1.40;
+const RADIATOR_SKIRTING_OPENING_WIDTH_METRES = 0.70;
+const BED_SKIRTING_OPENING_WIDTH_METRES = 1.60;
 const CHAIR_POSITION_X = -3.15;
 const CHAIR_POSITION_Z = 2.2;
 const BIN_POSITION_X = 3.3;
@@ -309,10 +268,16 @@ export function createBedroomLevel({
   // Bedroom-specific photographic wallpaper replaces the generic procedural
   // pattern. Every wall face and cut-out slab shares this exact texture family.
   const floorTex = loadBedroomFloorTexture(bedroomFloorUrl);
+  const ceilingTex = loadBedroomCeilingTexture(bedroomCeilingUrl);
   const wallTex = loadBedroomWallTexture(wallpaperBaseUrl, true);
-  const wallGrimeTex = loadBedroomWallTexture(wallpaperGrimeUrl, true);
-  const wallPlasterTex = loadBedroomWallTexture(wallPlasterUrl, false);
   const clawRipTex = loadBedroomWallTexture(clawRipUrl, false);
+  // Fit the supplied alpha inside the existing examination plane so the torn
+  // pixels stay clear of the door and corner without moving its interaction.
+  clawRipTex.repeat.set(
+    CLAW_DAMAGE_WIDTH_METRES / CLAW_DAMAGE_VISIBLE_WIDTH_METRES,
+    CLAW_DAMAGE_HEIGHT_METRES / CLAW_DAMAGE_VISIBLE_HEIGHT_METRES
+  );
+  clawRipTex.offset.set((1 - clawRipTex.repeat.x) / 2, (1 - clawRipTex.repeat.y) / 2);
 
   // Shared wood-grain texture for the Blender-authored furniture (bed
   // frame, dresser, door) -- those .glb exports only ever carried a flat
@@ -335,48 +300,27 @@ export function createBedroomLevel({
   floor.receiveShadow = true;
   structure.add(floor);
 
-  /**
-   * The ceiling was 33 square metres of one flat colour -- and it is the single
-   * biggest surface the bulb lights directly, so it was also the biggest
-   * uninterrupted nothing in the room. It carries the plaster relief the walls
-   * use, tinted right down, so the swinging bulb and a lightning flash both
-   * find something up there to rake across instead of a dead grey field.
-   */
+  /** Dark, cracked plaster gives flashlight and lightning a subtle ceiling response. */
   const ceiling = new THREE.Mesh(
     new THREE.PlaneGeometry(ROOM_W, ROOM_D),
     new THREE.MeshStandardMaterial({
-      // RELIEF WITHOUT ALBEDO. The first attempt gave it the plaster colour map
-      // as well, and a lightning flash turned the ceiling into a bright
-      // speckled field -- louder than the flat grey it replaced, and it pulled
-      // the eye straight up to the least interesting surface in the room.
-      // Keeping the normal and roughness maps and dropping the colour map gives
-      // it something for raking light to find while it stays as dark as it was.
-      // ROUGHNESS ONLY, no normal map. The plaster height field is per-pixel
-      // random noise, which is fine on a wall two metres away and reads as
-      // salt-and-pepper GRAIN across 33 square metres of ceiling half a metre
-      // from a bare bulb. Roughness varies the sheen without pushing the
-      // surface normal around, so the ceiling gains material without gaining
-      // static.
-      color: 0x1c1a17,
-      roughnessMap: createPlasterRoughnessTexture(),
-      roughness: 1
+      map: ceilingTex,
+      color: 0x7a6b58,
+      roughness: 0.96
     })
   );
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.y = ROOM_H;
-  ceiling.receiveShadow = true;
+  // The nearby hanging fixture's point-light shadow map produced a hard
+  // triangular block across this single ceiling plane. Keep normal lighting
+  // and the plaster texture, but disable only that broken shadow receiver.
+  ceiling.receiveShadow = false;
   structure.add(ceiling);
 
   const wallMat = new THREE.MeshStandardMaterial({
+    name: 'Level1_DistressedVictorianWallpaper',
     map: wallTex,
     roughness: 0.92
-  });
-  const wallGrimeMat = new THREE.MeshStandardMaterial({
-    map: wallGrimeTex,
-    transparent: true,
-    opacity: WALL_GRIME_OPACITY,
-    depthWrite: false,
-    roughness: 1
   });
 
   /**
@@ -395,56 +339,37 @@ export function createBedroomLevel({
    * were glass.
    */
   /**
-   * WORLD-SPACE TEXTURE DENSITY.
-   *
-   * Every wall shares one material and one texture at UV 0..1, and the walls
-   * are different sizes -- 6.4 m across the back, 5.2 m down the sides, and
-   * four slabs around the window between 0.6 m and 2.5 m. The same damask
-   * therefore stretched to fit each one, so the motif was a different size on
-   * every surface and wildly different on the pieces framing the window, which
-   * meet each other at visible seams.
-   *
-   * Scaling the UVs by the mesh's real size fixes it without a second material
-   * or a second texture: one repeat of the pattern is now TILE metres
-   * everywhere, whatever it is drawn on.
+   * Unwraps the room perimeter as one continuous strip, with floor-to-ceiling
+   * V coordinates shared by every slab. Window/pinboard pieces sample their
+   * actual room positions rather than restarting the image at each edge.
    */
-  function tileUVs(geometry, w, h, tile = WALL_TEXTURE_TILE_METRES) {
-    const uv = geometry.attributes.uv;
+  function alignBedroomWallUVs(mesh, side) {
+    const perimeterMetres = 2 * (ROOM_W + ROOM_D);
+    const spanWidthMetres = perimeterMetres / WALL_TEXTURE_PERIMETER_SPANS;
+    const coordinates = mesh.geometry.attributes.position;
+    const uv = mesh.geometry.attributes.uv;
+    const point = new THREE.Vector3();
+    mesh.updateMatrix();
     for (let i = 0; i < uv.count; i++) {
-      uv.setXY(i, uv.getX(i) * (w / tile), uv.getY(i) * (h / tile));
+      point.fromBufferAttribute(coordinates, i).applyMatrix4(mesh.matrix);
+      let perimeterDistanceMetres;
+      if (side === 'back') perimeterDistanceMetres = point.x + ROOM_W / 2;
+      else if (side === 'right') perimeterDistanceMetres = ROOM_W + point.z + ROOM_D / 2;
+      else if (side === 'front') perimeterDistanceMetres = ROOM_W + ROOM_D + ROOM_W / 2 - point.x;
+      else perimeterDistanceMetres = 2 * ROOM_W + ROOM_D + ROOM_D / 2 - point.z;
+      uv.setXY(i, perimeterDistanceMetres / spanWidthMetres, point.y / ROOM_H);
     }
     uv.needsUpdate = true;
-    return geometry;
   }
 
-  /** Places the same subtle grime pass just in front of a room-facing wall. */
-  function addWallGrimeOverlay(w, h, x, y, z, rotationY) {
-    const grime = new THREE.Mesh(
-      tileUVs(new THREE.PlaneGeometry(w, h), w, h),
-      wallGrimeMat
-    );
-    const inwardNormal = new THREE.Vector3(0, 0, 1).applyAxisAngle(
-      new THREE.Vector3(0, 1, 0),
-      rotationY
-    );
-    grime.position.set(
-      x + inwardNormal.x * WALL_OVERLAY_OFFSET_METRES,
-      y,
-      z + inwardNormal.z * WALL_OVERLAY_OFFSET_METRES
-    );
-    grime.rotation.y = rotationY;
-    grime.renderOrder = 1;
-    structure.add(grime);
-  }
-
-  function addWall(w, h, x, y, z, ry) {
-    const wall = new THREE.Mesh(tileUVs(new THREE.PlaneGeometry(w, h), w, h), wallMat);
+  function addWall(w, h, x, y, z, ry, side) {
+    const wall = new THREE.Mesh(new THREE.PlaneGeometry(w, h), wallMat);
     wall.position.set(x, y, z);
     wall.rotation.y = ry;
+    alignBedroomWallUVs(wall, side);
     wall.castShadow = true;
     wall.receiveShadow = true;
     structure.add(wall);
-    addWallGrimeOverlay(w, h, x, y, z, ry);
     return wall;
   }
 
@@ -466,15 +391,15 @@ export function createBedroomLevel({
       // are the ones that meet the plain walls, and they were the worst
       // offenders -- the strip above the window is 1.3 m wide by 0.75 m tall and
       // was showing a whole damask repeat squeezed into it.
-      const mesh = new THREE.Mesh(tileUVs(new THREE.BoxGeometry(sw, sh, depth), sw, sh), wallMat);
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(sw, sh, depth), wallMat);
       mesh.position.set(sx, sy, wallZ);
+      alignBedroomWallUVs(mesh, 'back');
       // The four slabs around the window are what actually CUT the window
       // shape out of the lightning. Without castShadow the flash pours through
       // the wall as if it were not there, and the aperture means nothing.
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       structure.add(mesh);
-      addWallGrimeOverlay(sw, sh, sx, sy, wallZ + depth / 2, 0);
     };
 
     slab(gapX0 - (-w / 2), h, (-w / 2 + gapX0) / 2, h / 2); // left of gap
@@ -485,28 +410,8 @@ export function createBedroomLevel({
 
   // back wall (has the window), front wall (has the door), right wall
   addWallWithGap(ROOM_W, ROOM_H, -ROOM_D / 2, WINDOW_POSITION_X, 1.5, 1.3, 1.5);
-  addWall(ROOM_D, ROOM_H, ROOM_W / 2, ROOM_H / 2, 0, -Math.PI / 2);
-  addWall(ROOM_W, ROOM_H, 0, ROOM_H / 2, ROOM_D / 2, Math.PI);
-
-  // Unique moisture decals live near the leaking window/radiator rather than
-  // inside the tiled wallpaper, avoiding an obvious repeating damp pattern.
-  function addBedroomWallDamp(x, y, z, rotationY, width, height, seed) {
-    const damp = new THREE.Mesh(
-      new THREE.PlaneGeometry(width, height),
-      new THREE.MeshStandardMaterial({
-        map: createDampStainTexture(seed, { damp: [55, 49, 42], tide: [88, 74, 62] }),
-        transparent: true,
-        depthWrite: false,
-        roughness: 1
-      })
-    );
-    damp.position.set(x, y, z);
-    damp.rotation.y = rotationY;
-    structure.add(damp);
-  }
-  addBedroomWallDamp(WINDOW_POSITION_X - 1.08, 0.62, -ROOM_D / 2 + 0.035, 0, 0.82, 1.18, 11);
-  addBedroomWallDamp(WINDOW_POSITION_X + 1.02, 0.46, -ROOM_D / 2 + 0.035, 0, 0.68, 0.92, 17);
-  addBedroomWallDamp(ROOM_W / 2 - 0.035, 0.40, -0.72, -Math.PI / 2, 0.58, 0.82, 23);
+  addWall(ROOM_D, ROOM_H, ROOM_W / 2, ROOM_H / 2, 0, -Math.PI / 2, 'right');
+  addWall(ROOM_W, ROOM_H, 0, ROOM_H / 2, ROOM_D / 2, Math.PI, 'front');
 
   // Left wall has a gap behind the pinboard (see the photo-arrangement
   // puzzle below) opening onto an actual recessed cavity -- built with the
@@ -527,11 +432,11 @@ export function createBedroomLevel({
     const slab = (sw, sh, sy, sz) => {
       // The pinboard-wall slabs use the same world-sized UV repeat as every
       // other wall; without it, this wall showed one stretched motif per slab.
-      const geometry = tileUVs(new THREE.BoxGeometry(wallThickness, sh, sw), sw, sh);
+      const geometry = new THREE.BoxGeometry(wallThickness, sh, sw);
       const mesh = new THREE.Mesh(geometry, wallMat);
       mesh.position.set(slabCenterX, sy, sz);
+      alignBedroomWallUVs(mesh, 'left');
       structure.add(mesh);
-      addWallGrimeOverlay(sw, sh, wallX + wallThickness, sy, sz, Math.PI / 2);
     };
     slab(gapZ0 - (-ROOM_D / 2), ROOM_H, ROOM_H / 2, (-ROOM_D / 2 + gapZ0) / 2); // before gap
     slab(ROOM_D / 2 - gapZ1, ROOM_H, ROOM_H / 2, (ROOM_D / 2 + gapZ1) / 2); // after gap
@@ -539,22 +444,43 @@ export function createBedroomLevel({
     slab(pinRecess.w, ROOM_H - gapY1, (gapY1 + ROOM_H) / 2, pinRecess.z); // above gap
 
     const cavityMat = new THREE.MeshStandardMaterial({ color: 0x0c0906, roughness: 1 });
+    // Retain the original liners until the Blender visual has loaded safely.
+    const cavityFallback = new THREE.Group();
+    cavityFallback.name = 'Level1_HollowFallback';
+    structure.add(cavityFallback);
     const backX = wallX - pinRecess.depth;
     const back = new THREE.Mesh(new THREE.PlaneGeometry(pinRecess.w, pinRecess.h), cavityMat);
     back.position.set(backX, pinRecess.y, pinRecess.z);
     back.rotation.y = Math.PI / 2;
-    structure.add(back);
+    cavityFallback.add(back);
 
     const sideCenterX = (wallX + backX) / 2;
     const side = (sy, sz, sh, sw) => {
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(pinRecess.depth, sh, sw), cavityMat);
       mesh.position.set(sideCenterX, sy, sz);
-      structure.add(mesh);
+      cavityFallback.add(mesh);
     };
     side(gapY1, pinRecess.z, 0.02, pinRecess.w); // top
     side(gapY0, pinRecess.z, 0.02, pinRecess.w); // bottom
     side(pinRecess.y, gapZ0, pinRecess.h, 0.02); // near side
     side(pinRecess.y, gapZ1, pinRecess.h, 0.02); // far side
+
+    // Visual-only insert: exact existing opening, depth, and wall orientation.
+    // No interactables, colliders, or compartment state belong to this asset.
+    loadModel(wallHollowModelUrl).then((hollowVisual) => {
+      hollowVisual.name = 'Level1_HollowInterior';
+      hollowVisual.position.set(wallX, pinRecess.y, pinRecess.z);
+      hollowVisual.rotation.y = Math.PI / 2;
+      hollowVisual.traverse((child) => {
+        if (!child.isMesh) return;
+        child.castShadow = false;
+        child.receiveShadow = true;
+        if (child.material.transparent) child.material.depthWrite = false;
+        if (child.material.map) child.material.map.anisotropy = 4;
+      });
+      structure.add(hollowVisual);
+      cavityFallback.visible = false;
+    }).catch((error) => console.warn('Bedroom hollow visual could not load:', error));
   }
 
   colliders.push(
@@ -567,7 +493,21 @@ export function createBedroomLevel({
   addBaseboard(structure, {
     width: ROOM_W,
     depth: ROOM_D,
-    materialFactory: (skirtingLengthMetres) => createBedroomSkirtingMaterial(floorTex, skirtingLengthMetres)
+    materialFactory: (skirtingLengthMetres) => createBedroomSkirtingMaterial(floorTex, skirtingLengthMetres),
+    frontOpenings: [{ center: DOOR_POSITION_X, width: DOOR_SKIRTING_OPENING_WIDTH_METRES }],
+    // The cold radiator and the bed headboard occupy the lower back wall.
+    // Skirting resumes between and beyond them rather than clipping through either.
+    backOpenings: [
+      { center: WINDOW_POSITION_X, width: RADIATOR_SKIRTING_OPENING_WIDTH_METRES },
+      { center: BED_POSITION_X, width: BED_SKIRTING_OPENING_WIDTH_METRES }
+    ],
+    // The left wall uses recessed, thicker pinboard-wall geometry, so it
+    // needs a deeper room-facing offset than the three plane-wall sides.
+    // The back wall is a 12cm thick window slab, unlike the right/front planes.
+    // Its trim needs the larger inset to sit in front of the interior wall face.
+    wallInsets: { front: 0.04, back: 0.12, left: 0.15, right: 0.04 },
+    height: 0.16,
+    thickness: 0.045
   });
 
   // ---------- ceiling light fixture ----------
@@ -614,10 +554,42 @@ export function createBedroomLevel({
   bulbMesh.position.y = -0.565;
   ceilingAnchor.add(bulbMesh);
 
+  // Blender-authored pendant replaces only the legacy visual dressing; the
+  // original bulb material/light remain the authoritative gameplay objects.
+  const pendantVisual = new THREE.Group();
+  const pendantIntact = new THREE.Group();
+  const pendantBroken = new THREE.Group();
+  pendantBroken.visible = false;
+  pendantVisual.add(pendantIntact, pendantBroken);
+  // The authored canopy extends 2.25 cm above the asset origin. Seat its top
+  // flush against the ceiling rather than placing the origin on the plaster.
+  pendantVisual.position.y = -0.0225;
+  ceilingAnchor.add(pendantVisual);
+  [canopy, cord, socket, bulbBase, bulbMesh].forEach((mesh) => { mesh.visible = false; });
+  loadModel(pendantLightModelUrl).then((pendantModel) => {
+    const intactModel = pendantModel.getObjectByName('PendantIntact');
+    const brokenModel = pendantModel.getObjectByName('PendantBroken');
+    pendantModel.traverse((child) => {
+      if (!child.isMesh) return;
+      // Frosted glass diffuses the bulb; an opaque shadow here trapped all
+      // its light inside the shade. Keep metal shadows but let glass and the
+      // bulb pass light through to the bedroom.
+      const isGlassOrBulb = /Glass|Bulb/.test(child.material?.name ?? '');
+      child.castShadow = !isGlassOrBulb;
+      child.receiveShadow = !isGlassOrBulb;
+    });
+    if (intactModel) pendantIntact.add(intactModel);
+    if (brokenModel) pendantBroken.add(brokenModel);
+    // The canopy and hanging chain are shared siblings of the two states.
+    // Retain this root after moving the states into their visibility wrappers.
+    pendantVisual.add(pendantModel);
+  }).catch((error) => console.error('Failed to load ceiling pendant:', error));
+
   // small pull-chain beside the socket, same torus-link technique as the
   // handcuff chain
   const chainLinkMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, metalness: 0.7, roughness: 0.4 });
   const pullChain = new THREE.Group();
+  pullChain.visible = false; // Replaced by the GLB's complete hanging chain.
   pullChain.position.set(0.035, -0.44, 0);
   ceilingAnchor.add(pullChain);
   for (let i = 0; i < 5; i++) {
@@ -634,7 +606,9 @@ export function createBedroomLevel({
   // is measured/calibrated (see main.js), so this is a reach tweak, not a
   // brightness overhaul -- near-bulb areas barely change.
   const bulbLight = new THREE.PointLight(0xffb347, 1.23, 11, 1.5);
-  bulbLight.position.y = -0.565;
+  // Place the existing point light at the authored bulb, below the opaque
+  // holder, so the metal socket no longer confines illumination to a spot.
+  bulbLight.position.y = pendantVisual.position.y - 0.501;
   bulbLight.castShadow = true;
   bulbLight.shadow.mapSize.set(512, 512);
   /**
@@ -1336,9 +1310,9 @@ export function createBedroomLevel({
   });
 
   // ---------- hero wallpaper tear beside the door ----------
-  // The supplied photographic decal already contains four torn-paper slashes.
-  // Its alpha is used strictly as a dark damage mask. No source decal colour
-  // or edge-feather is rendered, so pale tracing cannot appear around a rip.
+  // Use the supplied tears' real colour, dark interior and irregular alpha.
+  // One lit surface replaces the old plaster and synthetic groove overlays,
+  // retaining the source's upper-right-to-lower-left slash direction.
   const heroWallDamage = new THREE.Group();
   heroWallDamage.name = 'Level1_HeroWallpaperTear';
   heroWallDamage.position.set(
@@ -1349,27 +1323,25 @@ export function createBedroomLevel({
   heroWallDamage.rotation.y = Math.PI;
   group.add(heroWallDamage);
 
-  const plasterUnderlay = new THREE.Mesh(
-    new THREE.PlaneGeometry(CLAW_DAMAGE_WIDTH_METRES, CLAW_DAMAGE_HEIGHT_METRES),
-    new THREE.MeshStandardMaterial({
-      alphaMap: clawRipTex,
-      roughnessMap: wallPlasterTex,
-      transparent: true,
-      opacity: CLAW_DAMAGE_PLASTER_OPACITY,
-      alphaTest: 0.03,
-      color: CLAW_DAMAGE_PLASTER_COLOUR,
-      roughness: 1
-    })
-  );
-  plasterUnderlay.position.z = 0.006;
-  heroWallDamage.add(plasterUnderlay);
-
-  // The visible mask doubles as the unchanged examination target. It uses the
-  // source alpha directly, keeping the carved silhouette readable in low light
-  // without bringing back any pale decal pixels or an edge outline.
+  // Keep the existing examination target, dimensions and callback. Only its
+  // material changes; transparent margins expose the intact wallpaper beneath.
   const clawMarks = new THREE.Mesh(
     new THREE.PlaneGeometry(CLAW_DAMAGE_WIDTH_METRES, CLAW_DAMAGE_HEIGHT_METRES),
-    createClawDamageInteriorMaterial(clawRipTex)
+    new THREE.MeshStandardMaterial({
+      name: 'Level1_RippedVictorianWallpaper',
+      map: clawRipTex,
+      bumpMap: clawRipTex,
+      bumpScale: 0.006,
+      color: CLAW_DAMAGE_TINT,
+      roughness: 1,
+      transparent: true,
+      opacity: CLAW_DAMAGE_DECAL_OPACITY,
+      alphaTest: 0.015,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1
+    })
   );
   clawMarks.position.z = 0.014;
   clawMarks.userData.interact = {
@@ -1379,47 +1351,15 @@ export function createBedroomLevel({
   interactables.push(clawMarks);
   heroWallDamage.add(clawMarks);
 
-  const clawGrooves = new THREE.Mesh(
-    new THREE.PlaneGeometry(CLAW_DAMAGE_WIDTH_METRES, CLAW_DAMAGE_HEIGHT_METRES),
-    createClawDamageGrooveMaterial()
+  // The supplied photos already include their borders, wear, and year labels.
+  const puzzlePhotoTextures = Object.fromEntries(
+    Object.entries(PUZZLE_PHOTO_URLS).map(([year, url]) => {
+      const texture = new THREE.TextureLoader().load(url);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = 4;
+      return [year, texture];
+    })
   );
-  clawGrooves.position.z = 0.016;
-  heroWallDamage.add(clawGrooves);
-
-  // Small canvas post-processing shared by the three puzzle photos below --
-  // draws directly onto the already-generated family-photo canvas rather
-  // than adding whole new texture-generator functions, since a date stamp
-  // and a torn corner are each just a couple of extra canvas calls.
-  function stampPhotoDate(tex, date) {
-    const ctx = tex.image.getContext('2d');
-    ctx.fillStyle = '#2a2118';
-    ctx.font = 'italic 15px Georgia';
-    ctx.textAlign = 'right';
-    ctx.fillText(date, tex.image.width - 8, tex.image.height - 6);
-    tex.needsUpdate = true;
-    return tex;
-  }
-  function tearPhotoCorner(tex) {
-    const w = tex.image.width;
-    const h = tex.image.height;
-    const ctx = tex.image.getContext('2d');
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(w * 0.62, 0);
-    ctx.lineTo(w * 0.8, h * 0.24);
-    ctx.lineTo(w * 0.68, h * 0.42);
-    ctx.lineTo(w, h * 0.52);
-    ctx.lineTo(w, 0);
-    ctx.closePath();
-    ctx.fillStyle = '#b99364'; // torn-away area shows bare cork, not empty black
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(20,15,10,0.6)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.restore();
-    tex.needsUpdate = true;
-    return tex;
-  }
 
   // ---------- scattered photographs + scratched floor message ----------
   // The third puzzle photo (used to live in a second nightstand drawer
@@ -1427,9 +1367,9 @@ export function createBedroomLevel({
   // drawer system below) lies as one clear, loose photograph beside the
   // board. Keeping decorative duplicates out of this spot means nothing
   // visually or in the flat interaction target list can obscure this pickup.
-  const tornPhotoTex = tearPhotoCorner(stampPhotoDate(createFamilyPhotoTexture(), '1986'));
+  const tornPhotoTex = puzzlePhotoTextures[1986];
   const floorPhoto = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.22, 0.17),
+    new THREE.PlaneGeometry(PUZZLE_PHOTO_HEIGHT_METRES * PUZZLE_PHOTO_ASPECT_RATIO, PUZZLE_PHOTO_HEIGHT_METRES),
     new THREE.MeshStandardMaterial({ map: tornPhotoTex, roughness: 1, side: THREE.DoubleSide })
   );
   floorPhoto.name = 'Level1_1986FloorPhoto';
@@ -1464,9 +1404,9 @@ export function createBedroomLevel({
   // The fourth dated photograph lives beside the window/radiator. It pulls the
   // collection into a separate exploration zone without adding another puzzle
   // type; its 1984 stamp makes it the first photo in the board sequence.
-  const windowPhotoTex = stampPhotoDate(createFamilyPhotoTexture(), '1984');
+  const windowPhotoTex = puzzlePhotoTextures[1984];
   const windowPhoto = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.22, 0.17),
+    new THREE.PlaneGeometry(PUZZLE_PHOTO_HEIGHT_METRES * PUZZLE_PHOTO_ASPECT_RATIO, PUZZLE_PHOTO_HEIGHT_METRES),
     new THREE.MeshStandardMaterial({ map: windowPhotoTex, roughness: 1, side: THREE.DoubleSide })
   );
   windowPhoto.name = 'Level1_1984RadiatorPhoto';
@@ -2069,25 +2009,6 @@ export function createBedroomLevel({
   // floor level in undisturbed corners just as much as up at the ceiling
   addCobweb(ROOM_W / 2 - 0.06, 0.12, ROOM_D / 2 - 0.06, Math.PI / 4 + Math.PI, 0.3, -0.3);
 
-  // ---------- peeling wallpaper -- transparent everywhere but the flap
-  // itself, so the real wall (and its actual damask pattern) shows
-  // through around it instead of a fake opaque "plaster" rectangle ----------
-  function addPeelingWallpaper(x, y, z, rotY, scale = 1) {
-    const flap = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.5 * scale, 0.5 * scale),
-      new THREE.MeshStandardMaterial({ map: createPeelingWallpaperTexture(), transparent: true, roughness: 0.95 })
-    );
-    // pulled a few cm off the wall and tilted slightly so it actually
-    // reads as lifting away, not pasted flush against the surface
-    flap.position.set(x + Math.sin(rotY) * 0.02, y, z + Math.cos(rotY) * 0.02);
-    flap.rotation.y = rotY;
-    flap.rotation.x = (Math.random() - 0.5) * 0.15;
-    flap.rotation.z = (Math.random() - 0.5) * 0.08;
-    group.add(flap);
-  }
-  addPeelingWallpaper(1.9, 1.85, -ROOM_D / 2 + 0.035, 0, 1.1);
-  addPeelingWallpaper(-ROOM_W / 2 + 0.035, 0.9, 1.6, Math.PI / 2, 0.9);
-
   // Ornate Persian-style rug (filled border band, nested medallion, corner
   // motifs -- see textures.js) with a matching normal map for pile detail,
   // plus a fringe of small tassels along the two short ends. Bigger than
@@ -2311,7 +2232,7 @@ export function createBedroomLevel({
   // between the window and the bed, with clearance to walk up to it.
   function createDrawerPhotoPickup({ key, texture, position }) {
     const photo = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.22, 0.17),
+      new THREE.PlaneGeometry(PUZZLE_PHOTO_HEIGHT_METRES * PUZZLE_PHOTO_ASPECT_RATIO, PUZZLE_PHOTO_HEIGHT_METRES),
       new THREE.MeshStandardMaterial({ map: texture, roughness: 1 })
     );
     photo.position.copy(position);
@@ -2357,7 +2278,7 @@ export function createBedroomLevel({
 
   const nightstandPhotoPickup = createDrawerPhotoPickup({
     key: 'nightstandLeft',
-    texture: stampPhotoDate(createFamilyPhotoTexture(), '1985'),
+    texture: puzzlePhotoTextures[1985],
     position: new THREE.Vector3(SEARCH_NIGHTSTAND_POSITION_X, 0.46, SEARCH_NIGHTSTAND_POSITION_Z)
   });
   const nightstandLeft = addNightstand(SEARCH_NIGHTSTAND_POSITION_X, SEARCH_NIGHTSTAND_POSITION_Z);
@@ -2403,7 +2324,7 @@ export function createBedroomLevel({
   // Dresser top drawer (freely searchable)
   const dresserPhotoPickup = createDrawerPhotoPickup({
     key: 'dresserTop',
-    texture: stampPhotoDate(createFamilyPhotoTexture(), '1987'),
+    texture: puzzlePhotoTextures[1987],
     position: new THREE.Vector3(DRESSER_POSITION_X, 0.915, DRESSER_POSITION_Z)
   });
   const dresserTop = new THREE.Mesh(
@@ -2476,9 +2397,9 @@ export function createBedroomLevel({
   const pinGeo = new THREE.SphereGeometry(0.015, 8, 6);
   const photoSlots = {
     windowPhoto: { pin: [-0.2, 0.3], pinColor: 0x477a96, photo: [-0.2, 0.18, -0.04], tex: windowPhotoTex, date: 1984, w: 0.19, h: 0.15 },
-    nightstandLeft: { pin: [0.2, 0.3], pinColor: 0xa02020, photo: [0.2, 0.18, 0.05], tex: stampPhotoDate(createFamilyPhotoTexture(), '1985'), date: 1985, w: 0.19, h: 0.15 },
+    nightstandLeft: { pin: [0.2, 0.3], pinColor: 0xa02020, photo: [0.2, 0.18, 0.05], tex: puzzlePhotoTextures[1985], date: 1985, w: 0.19, h: 0.15 },
     floorPhoto: { pin: [-0.2, -0.1], pinColor: 0x1f4f8f, photo: [-0.2, -0.22, -0.06], tex: tornPhotoTex, date: 1986, w: 0.19, h: 0.15 },
-    dresserTop: { pin: [0.2, -0.1], pinColor: 0xc9a227, photo: [0.2, -0.22, 0.03], tex: stampPhotoDate(createFamilyPhotoTexture(), '1987'), date: 1987, w: 0.19, h: 0.15 }
+    dresserTop: { pin: [0.2, -0.1], pinColor: 0xc9a227, photo: [0.2, -0.22, 0.03], tex: puzzlePhotoTextures[1987], date: 1987, w: 0.19, h: 0.15 }
   };
   const photoThumbMeshes = {};
   Object.entries(photoSlots).forEach(([key, slot]) => {
@@ -2487,7 +2408,7 @@ export function createBedroomLevel({
     photoHolderGroup.add(pin);
 
     const thumb = new THREE.Mesh(
-      new THREE.PlaneGeometry(slot.w, slot.h),
+      new THREE.PlaneGeometry(slot.h * PUZZLE_PHOTO_ASPECT_RATIO, slot.h),
       new THREE.MeshStandardMaterial({ map: slot.tex, roughness: 1 })
     );
     thumb.position.set(slot.photo[0], slot.photo[1], 0.033);
@@ -2516,14 +2437,12 @@ export function createBedroomLevel({
           photos: Object.entries(photoSlots).map(([key, slot]) => ({
             key,
             date: slot.date,
-            dataUrl: slot.tex.image.toDataURL('image/png')
+            dataUrl: PUZZLE_PHOTO_URLS[slot.date]
           })),
           onSolved: () => {
             showCaption('Something clicks nearby... The corkboard swings open on a hidden hinge, revealing a hollow in the wall.');
             puzzleState.photosArranged = true;
-            boxBody.visible = true;
-            boxLid.visible = true;
-            lockPlate.visible = true;
+            updateLockedBoxPresentation(0);
             onPhotoPuzzleSolved();
           }
         });
@@ -2537,22 +2456,37 @@ export function createBedroomLevel({
   const lockedBoxGroup = new THREE.Group();
   lockedBoxGroup.position.set(-ROOM_W / 2 - pinRecess.depth * 0.55, pinRecess.y - pinRecess.h / 2 + 0.16, pinRecess.z);
   lockedBoxGroup.rotation.y = Math.PI / 2; // face the lock plate out toward the room
+  lockedBoxGroup.name = 'Level1_LockedBox';
   group.add(lockedBoxGroup);
+
+  // Presentation state only; the existing photo/key gates and inventory
+  // callbacks below remain authoritative. No reward pickup mesh is exposed.
+  let boxOpened = false;
+  let boxOpenElapsedSeconds = 0;
+  let importedBoxHinge = null;
+  const boxVisual = new THREE.Group();
+  boxVisual.name = 'Level1_LockboxVisual';
+  boxVisual.visible = false;
+  lockedBoxGroup.add(boxVisual);
+  const boxFallback = new THREE.Group();
+  boxFallback.position.z = 0.03; // same rear-wall clearance as the GLB
+  boxVisual.add(boxFallback);
+  const fallbackBoxHinge = new THREE.Group();
+  fallbackBoxHinge.position.set(0, 0.15, -0.15);
+  boxFallback.add(fallbackBoxHinge);
 
   const boxBody = new THREE.Mesh(
     new THREE.BoxGeometry(0.4, 0.3, 0.3),
     new THREE.MeshStandardMaterial({ color: 0x2a1a0a, roughness: 0.9, metalness: 0.2 })
   );
-  boxBody.visible = false; // Hidden until photo puzzle is solved
-  lockedBoxGroup.add(boxBody);
+  boxFallback.add(boxBody);
 
   const boxLid = new THREE.Mesh(
     new THREE.BoxGeometry(0.4, 0.08, 0.3),
     new THREE.MeshStandardMaterial({ color: 0x1a0a00, roughness: 0.8 })
   );
-  boxLid.position.y = 0.19;
-  boxLid.visible = false; // Hidden until photo puzzle is solved
-  lockedBoxGroup.add(boxLid);
+  boxLid.position.set(0, 0.04, 0.15);
+  fallbackBoxHinge.add(boxLid);
 
   // Lock indicator (small cylinder)
   const lockPlate = new THREE.Mesh(
@@ -2561,8 +2495,34 @@ export function createBedroomLevel({
   );
   lockPlate.rotation.x = Math.PI / 2;
   lockPlate.position.set(0, 0.08, 0.15);
-  lockPlate.visible = false; // Hidden until photo puzzle is solved
-  lockedBoxGroup.add(lockPlate);
+  boxFallback.add(lockPlate);
+
+  /** Synchronizes both fallback and imported lids, including late asset loads. */
+  function updateLockedBoxPresentation(dt) {
+    boxVisual.visible = puzzleState.photosArranged;
+    if (boxOpened) boxOpenElapsedSeconds = Math.min(LOCKBOX_OPEN_DURATION_SECONDS, boxOpenElapsedSeconds + dt);
+    const progress = boxOpened ? boxOpenElapsedSeconds / LOCKBOX_OPEN_DURATION_SECONDS : 0;
+    const angle = LOCKBOX_OPEN_ANGLE_RADIANS * (1 - (1 - progress) ** 3);
+    fallbackBoxHinge.rotation.x = angle;
+    if (importedBoxHinge) importedBoxHinge.rotation.x = angle;
+  }
+
+  loadModel(antiqueLockboxModelUrl).then((chestModel) => {
+    const hinge = chestModel.getObjectByName('ChestLidHinge');
+    if (!hinge || !chestModel.getObjectByName('ChestBase') || !chestModel.getObjectByName('ChestLid')) {
+      throw new Error('Lockbox asset is missing its named base/lid/hinge');
+    }
+    chestModel.traverse((child) => {
+      if (!child.isMesh) return;
+      child.castShadow = false;
+      child.receiveShadow = true;
+      if (child.material.map) child.material.map.anisotropy = 4;
+    });
+    boxVisual.add(chestModel);
+    importedBoxHinge = hinge;
+    boxFallback.visible = false;
+    updateLockedBoxPresentation(0);
+  }).catch((error) => console.warn('Bedroom lockbox visual could not load:', error));
 
   const boxHitbox = new THREE.Mesh(
     new THREE.BoxGeometry(0.45, 0.35, 0.35),
@@ -2571,12 +2531,12 @@ export function createBedroomLevel({
   boxHitbox.userData.interact = {
     label: 'Open box',
     onInteract: () => {
+      if (boxOpened) return; // Never replay the inventory grant during animation.
       if (puzzleState.photosArranged && puzzleState.hasBrassKey) {
         showCaption('The brass key fits. Inside is a crowbar and a Project HOLLOW evidence tag.');
         boxHitbox.visible = false;
-        boxBody.visible = false;
-        boxLid.visible = false;
-        lockPlate.visible = false;
+        boxOpened = true;
+        boxOpenElapsedSeconds = 0;
         puzzleState.hasBrassKey = false;
         onBrassKeyUsed();
         puzzleState.hasCrowbar = true;
@@ -2622,6 +2582,8 @@ export function createBedroomLevel({
       rattleDoor,
       bulbLight,
       bulbMaterial,
+      pendantIntact,
+      pendantBroken,
       lightning,
       windowGroup,
       flashlight,
@@ -2696,9 +2658,10 @@ export function createBedroomLevel({
       pinboardHinge.rotation.y = pinboardClosedRotY;
 
       boxHitbox.visible = true;
-      boxBody.visible = false;
-      boxLid.visible = false;
-      lockPlate.visible = false;
+      boxOpened = false;
+      boxOpenElapsedSeconds = 0;
+      updateLockedBoxPresentation(0);
+      boxVisual.visible = false;
 
       looseFloorboard.visible = true;
       looseFloorboardHitbox.visible = true;
@@ -2767,6 +2730,7 @@ export function createBedroomLevel({
       const targetSwing = puzzleState.photosArranged ? pinboardOpenSwing : 0;
       const targetRotY = pinboardClosedRotY + targetSwing;
       pinboardHinge.rotation.y += (targetRotY - pinboardHinge.rotation.y) * Math.min(1, dt * 3);
+      updateLockedBoxPresentation(dt);
 
       // Same easing treatment for the front door once the planks are
       // pried off and it's actually been opened.
