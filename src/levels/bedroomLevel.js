@@ -15,7 +15,13 @@ import { addBaseboard } from '../world/trim.js';
 import { createRainGlassMaterial } from '../world/RainGlassMaterial.js';
 import { loadModel, applyTextureByMaterialName } from '../world/modelLoader.js';
 import bedModelUrl from '../assets/models/bed.glb?url';
-import dresserModelUrl from '../assets/models/dresser.glb?url';
+import bedsideTableModelUrl from '../assets/models/bedside_table.glb?url';
+import vanityBaseUrl from '../assets/models/vanity/vanity_base.glb?url';
+import vanityMirrorUrl from '../assets/models/vanity/vanity_mirror.glb?url';
+import vanityCandlestickUrl from '../assets/models/vanity/vanity_candlestick.glb?url';
+import vanityPerfumeUrl from '../assets/models/vanity/vanity_perfume.glb?url';
+import vanityTrayUrl from '../assets/models/vanity/vanity_tray.glb?url';
+import vanityStoolUrl from '../assets/models/vanity/vanity_stool.glb?url';
 import doorModelUrl from '../assets/models/door.glb?url';
 import flashlightModelUrl from '../assets/models/flashlight.glb?url';
 import pendantLightModelUrl from '../assets/models/ceiling_pendant.glb?url';
@@ -179,18 +185,21 @@ const BED_EXIT_POSITION_Z = BED_POSITION_Z + 1.42;
 const BEDSIDE_TABLE_POSITION_X = 3.3;
 const BEDSIDE_TABLE_POSITION_Z = -1.72;
 const BEDSIDE_TABLE_FOOTPRINT_METRES = 0.42;
-const SEARCH_NIGHTSTAND_POSITION_X = 0.65;
+const SEARCH_NIGHTSTAND_POSITION_X = 0.60;
 const SEARCH_NIGHTSTAND_POSITION_Z = -2.2;
-const DRESSER_POSITION_X = 3.0;
+const VANITY_SCALE = 1.18;
+const DRESSER_POSITION_X = ROOM_W / 2 - 0.275 * VANITY_SCALE;
 const DRESSER_POSITION_Z = 1.35;
+const VANITY_STOOL_SCALE = 1.03;
+const VANITY_STOOL_POSITION_X = 2.80;
 const DOOR_POSITION_X = 1.2;
 const DOOR_SKIRTING_OPENING_WIDTH_METRES = 1.40;
 const RADIATOR_SKIRTING_OPENING_WIDTH_METRES = 0.70;
 const BED_SKIRTING_OPENING_WIDTH_METRES = 1.60;
 const CHAIR_POSITION_X = -3.15;
 const CHAIR_POSITION_Z = 2.2;
-const BIN_POSITION_X = 3.3;
-const BIN_POSITION_Z = 1.9;
+const BIN_POSITION_X = -1.6;
+const BIN_POSITION_Z = -2.25;
 
 /**
  * Builds Level 1: the bedroom the player wakes up in.
@@ -828,14 +837,8 @@ export function createBedroomLevel({
       }
     });
     applyTextureByMaterialName(bedFrame, 'BedWood', furnitureWoodTex, furnitureWoodNormal);
-    // Keep the approved mesh intact while carrying the duvet 6 cm farther over
-    // the foot end. This hides the exposed lower mattress edge in the wake-up
-    // framing without changing the bed asset or its collision footprint.
-    const duvetMesh = bedFrame.getObjectByName('Duvet_Uneven_Overhang');
-    if (duvetMesh) {
-      duvetMesh.scale.z = 1.04;
-      duvetMesh.position.z += 0.025;
-    }
+    // The duvet's side and foot drape is authored in bed.glb; keep its UVs and
+    // measured alignment intact rather than stretching it again at runtime.
     bedGroup.add(bedFrame);
 
     // A shallow ledge gives the tiny headboard props a real support surface.
@@ -1041,35 +1044,109 @@ export function createBedroomLevel({
   ];
   addInterlockedChainPath(restraintRemnant, slackChainPoints);
 
-  // ---------- dresser (Blender-authored, see blender/build_dresser.py) ----------
-  // Beveled body, small feet, and raised-panel drawer fronts pulled out at
-  // different depths -- the middle one furthest -- generated the same way
-  // as the bed frame, in place of a plain box with three flat rectangles
-  // glued to its face. No gameplay hooks depend on its internal structure
-  // (unlike the bed's restraint visuals), so it's just loaded and added
-  // directly, no placeholder anchor needed.
+  // ---------- vanity and its existing 1987 photo drawer ----------
   const dresser = new THREE.Group();
   dresser.position.set(DRESSER_POSITION_X, 0, DRESSER_POSITION_Z);
   dresser.rotation.y = -Math.PI / 2;
+  dresser.scale.setScalar(VANITY_SCALE);
   group.add(dresser);
+  const vanityDrawerTravelMetres = 0.26;
+  const vanityDrawerOpenSeconds = 0.65;
+  let vanityDrawer = null;
+  let vanityDrawerClosedPosition = null;
+  let vanityDrawerElapsedSeconds = 0;
+  let vanityPhotoRevealed = false;
+  const vanityPhotoAnchor = new THREE.Group();
+  dresser.add(vanityPhotoAnchor);
 
-  loadModel(dresserModelUrl).then((dresserModel) => {
-    dresserModel.traverse((child) => {
+  /** Loads an authored vanity part at its measured tabletop position. */
+  function addVanityPart(url, position, { isBase = false, isCandlestick = false } = {}) {
+    loadModel(url).then((model) => {
+      model.position.set(...position);
+      model.traverse((child) => {
+        if (child.isMesh) {
+          child.castShadow = child.name !== 'VanityMirror_CloudedGlass';
+          child.receiveShadow = true;
+          if (child.name === 'VanityMirror_CloudedGlass') {
+            // The supplied cloudy glass texture remains visible without a live
+            // reflection pass or a shiny environment response.
+            child.material = child.material.clone();
+            child.material.metalness = 0;
+            child.material.roughness = 0.88;
+            child.material.envMapIntensity = 0;
+          }
+        }
+      });
+      if (isBase) {
+        const middleDrawer = model.getObjectByName('VanityDrawer_Middle');
+        if (!middleDrawer) throw new Error('Vanity base is missing VanityDrawer_Middle');
+        vanityDrawer = middleDrawer;
+        vanityDrawerClosedPosition = middleDrawer.position.clone();
+        dresserTop.visible = true;
+      }
+      if (isCandlestick) {
+        // Two crossed tapered faces keep the small flame legible from either
+        // side of the vanity without a particle system or shadow map.
+        const flameGeometry = new THREE.BufferGeometry();
+        flameGeometry.setAttribute('position', new THREE.Float32BufferAttribute([
+          -0.014, 0, 0, 0.014, 0, 0, 0, 0.067, 0
+        ], 3));
+        flameGeometry.computeVertexNormals();
+        const flameMaterial = new THREE.MeshBasicMaterial({
+          color: 0xffb45e, side: THREE.DoubleSide, transparent: true,
+          opacity: 0.88, depthWrite: false
+        });
+        const flame = new THREE.Group();
+        flame.position.y = 0.395;
+        const flameFront = new THREE.Mesh(flameGeometry, flameMaterial);
+        const flameSide = new THREE.Mesh(flameGeometry, flameMaterial);
+        flameSide.rotation.y = Math.PI / 2;
+        flame.add(flameFront, flameSide);
+        model.add(flame);
+        const candleGlow = new THREE.PointLight(0xffa65a, 0.18, 0.9, 2);
+        candleGlow.position.y = 0.43;
+        model.add(candleGlow);
+      }
+      dresser.add(model);
+    }).catch((err) => {
+      console.error('Failed to load vanity part:', url, err);
+    });
+  }
+
+  addVanityPart(vanityBaseUrl, [0, 0, 0], { isBase: true });
+  addVanityPart(vanityMirrorUrl, [0, 0.807, -0.105]);
+  addVanityPart(vanityCandlestickUrl, [-0.46, 0.807, 0.13], { isCandlestick: true });
+  addVanityPart(vanityPerfumeUrl, [0.46, 0.807, 0.15]);
+  addVanityPart(vanityTrayUrl, [0.20, 0.807, 0.13]);
+
+  colliders.push({
+    minX: dresser.position.x - 0.307 * VANITY_SCALE,
+    maxX: dresser.position.x + 0.275 * VANITY_SCALE,
+    minZ: dresser.position.z - 0.65 * VANITY_SCALE,
+    maxZ: dresser.position.z + 0.65 * VANITY_SCALE
+  });
+
+  // A separate low-cost stool collider leaves the vanity's animated drawer
+  // and its photograph unobstructed; the GLB remains a visual-only asset.
+  loadModel(vanityStoolUrl).then((stool) => {
+    stool.position.set(VANITY_STOOL_POSITION_X, 0, DRESSER_POSITION_Z);
+    stool.rotation.y = -Math.PI / 2;
+    stool.scale.setScalar(VANITY_STOOL_SCALE);
+    stool.traverse((child) => {
       if (child.isMesh) {
         child.castShadow = true;
         child.receiveShadow = true;
       }
     });
-    applyTextureByMaterialName(dresserModel, 'DresserWood', furnitureWoodTex, furnitureWoodNormal);
-    applyTextureByMaterialName(dresserModel, 'DrawerWood', furnitureWoodTex, furnitureWoodNormal);
-    dresser.add(dresserModel);
+    group.add(stool);
   }).catch((err) => {
-    console.error('Failed to load dresser.glb, dresser will be missing:', err);
+    console.error('Failed to load vanity stool:', err);
   });
-
   colliders.push({
-    minX: dresser.position.x - 0.3, maxX: dresser.position.x + 0.3,
-    minZ: dresser.position.z - 0.6, maxZ: dresser.position.z + 0.6
+    minX: VANITY_STOOL_POSITION_X - 0.25 * VANITY_STOOL_SCALE,
+    maxX: VANITY_STOOL_POSITION_X + 0.25 * VANITY_STOOL_SCALE,
+    minZ: DRESSER_POSITION_Z - 0.30 * VANITY_STOOL_SCALE,
+    maxZ: DRESSER_POSITION_Z + 0.30 * VANITY_STOOL_SCALE
   });
 
   // ---------- door with boarded planks + polaroid (children of the frame) ----------
@@ -1979,9 +2056,9 @@ export function createBedroomLevel({
 
   // a few crumpled balls of paper spilled out across the floor
   const paperMat = new THREE.MeshStandardMaterial({ color: 0xd8d0b8, roughness: 1 });
-  [[3.05, 0.025, 1.7], [3.32, 0.025, 1.58], [3.12, 0.025, 2.05], [2.85, 0.025, 1.95]].forEach(([x, y, z]) => {
+  [[-0.25, 0.025, -0.20], [0.02, 0.025, -0.32], [-0.18, 0.025, 0.15], [-0.45, 0.025, 0.05]].forEach(([dx, y, dz]) => {
     const paper = new THREE.Mesh(new THREE.IcosahedronGeometry(0.032, 0), paperMat);
-    paper.position.set(x, y, z);
+    paper.position.set(BIN_POSITION_X + dx, y, BIN_POSITION_Z + dz);
     paper.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
     paper.scale.set(1, 0.7, 1);
     group.add(paper);
@@ -2180,76 +2257,78 @@ export function createBedroomLevel({
     lampDrawer: { isOpen: false, contents: ['key'] }
   };
 
-  // The nightstand used to be a bare invisible hitbox with no furniture
-  // marking it at all. It's now an actual small table (legs + top + a
-  // drawer front you can see) standing in open floor, so there's
-  // something to spot and something to aim at. (There used to be a
-  // second one flanking the bed's other side, wedged into the tight
-  // headboard/wall corner -- removed as redundant clutter; its photo now
-  // just lies on the floor with the other scattered photographs below.)
+  // The custom Blender table beside the bed carries the searchable 1985
+  // photo drawer. Its cabinet and drawer are separate parts in the GLB.
+  const NIGHTSTAND_DRAWER_TRAVEL_METRES = 0.246;
+  const NIGHTSTAND_DRAWER_OPEN_SECONDS = 0.65;
+  let nightstandDrawer = null;
+  let nightstandDrawerClosedPosition = null;
+  let nightstandDrawerElapsedSeconds = 0;
+  let nightstandPhotoRevealed = false;
+  const nightstandPhotoAnchor = new THREE.Group();
+
   function addNightstand(x, z, rotY = 0) {
     const ns = new THREE.Group();
     ns.position.set(x, 0, z);
     ns.rotation.y = rotY;
     group.add(ns);
 
-    const legGeo = new THREE.BoxGeometry(0.035, 0.42, 0.035);
-    [[-0.16, -0.13], [0.16, -0.13], [-0.16, 0.13], [0.16, 0.13]].forEach(([lx, lz]) => {
-      const leg = new THREE.Mesh(legGeo, frameMatWood);
-      leg.position.set(lx, 0.21, lz);
-      ns.add(leg);
+    ns.name = 'CustomBedsideTable';
+    ns.add(nightstandPhotoAnchor);
+    // Solid, stationary cabinet footprint; the decorative drawer never blocks
+    // the player. Bounds match the enlarged custom Blender model.
+    colliders.push({
+      minX: x - 0.26964, maxX: x + 0.26964,
+      minZ: z - 0.23968, maxZ: z + 0.2722
     });
 
-    const top = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.03, 0.32), frameMatWood);
-    top.position.y = 0.435;
-    top.castShadow = true;
-    ns.add(top);
-
-    const drawerFront = new THREE.Mesh(
-      new THREE.BoxGeometry(0.36, 0.16, 0.02),
-      new THREE.MeshStandardMaterial({ color: 0x2c1c10, roughness: 0.7 })
-    );
-    drawerFront.position.set(0, 0.32, 0.16);
-    ns.add(drawerFront);
-
-    const knob = new THREE.Mesh(
-      new THREE.SphereGeometry(0.014, 8, 8),
-      new THREE.MeshStandardMaterial({ color: 0x8a7a50, metalness: 0.6, roughness: 0.4 })
-    );
-    knob.position.set(0, 0.32, 0.175);
-    ns.add(knob);
-
     const hitbox = new THREE.Mesh(
-      new THREE.BoxGeometry(0.42, 0.26, 0.34),
+      new THREE.BoxGeometry(0.415, 0.168, 0.062),
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
     );
-    hitbox.position.set(0, 0.32, 0.1);
+    hitbox.name = 'BedsideDrawerInteraction';
+    hitbox.position.set(0, 0.386, 0.252);
+    hitbox.visible = false;
     ns.add(hitbox);
+    loadModel(bedsideTableModelUrl).then((tableModel) => {
+      const drawer = tableModel.getObjectByName('BedsideDrawer');
+      if (!drawer) throw new Error('Custom bedside table is missing BedsideDrawer');
+      nightstandDrawer = drawer;
+      nightstandDrawerClosedPosition = drawer.position.clone();
+      tableModel.traverse((child) => {
+        if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; }
+      });
+      ns.add(tableModel);
+      hitbox.visible = true;
+    }).catch((error) => console.error('Could not load custom bedside table:', error));
     return hitbox;
   }
 
   // Nightstand left drawer (freely searchable) -- against the back wall
   // between the window and the bed, with clearance to walk up to it.
-  function createDrawerPhotoPickup({ key, texture, position }) {
+  function createDrawerPhotoPickup({ key, texture, position, parent = group, height = PUZZLE_PHOTO_HEIGHT_METRES, canCollect = () => true }) {
     const photo = new THREE.Mesh(
-      new THREE.PlaneGeometry(PUZZLE_PHOTO_HEIGHT_METRES * PUZZLE_PHOTO_ASPECT_RATIO, PUZZLE_PHOTO_HEIGHT_METRES),
+      new THREE.PlaneGeometry(height * PUZZLE_PHOTO_ASPECT_RATIO, height),
       new THREE.MeshStandardMaterial({ map: texture, roughness: 1 })
     );
     photo.position.copy(position);
     photo.rotation.x = -Math.PI / 2;
     photo.visible = false;
-    group.add(photo);
+    parent.add(photo);
 
     const hitbox = new THREE.Mesh(
-      new THREE.BoxGeometry(0.32, 0.12, 0.27),
+      key === 'nightstandLeft' || key === 'dresserTop'
+        ? new THREE.BoxGeometry(height * PUZZLE_PHOTO_ASPECT_RATIO, 0.04, height)
+        : new THREE.BoxGeometry(0.32, 0.12, 0.27),
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
     );
     hitbox.position.copy(position);
-    hitbox.position.y += 0.06;
+    hitbox.position.y += key === 'nightstandLeft' || key === 'dresserTop' ? 0.02 : 0.06;
     hitbox.visible = false;
     hitbox.userData.interact = {
       label: 'Pick up photograph',
       onInteract: () => {
+        if (!canCollect() || puzzleState.foundPhotos.has(key)) return;
         puzzleState.foundPhotos.add(key);
         onPhotoCollected(puzzleState.foundPhotos.size);
         photoThumbMeshes[key].visible = true;
@@ -2259,7 +2338,7 @@ export function createBedroomLevel({
         if (index >= 0) interactables.splice(index, 1);
       }
     };
-    group.add(hitbox);
+    parent.add(hitbox);
 
     return {
       reveal() {
@@ -2279,15 +2358,19 @@ export function createBedroomLevel({
   const nightstandPhotoPickup = createDrawerPhotoPickup({
     key: 'nightstandLeft',
     texture: puzzlePhotoTextures[1985],
-    position: new THREE.Vector3(SEARCH_NIGHTSTAND_POSITION_X, 0.46, SEARCH_NIGHTSTAND_POSITION_Z)
+    position: new THREE.Vector3(0, 0.338, 0.112),
+    parent: nightstandPhotoAnchor,
+    height: 0.18,
+    canCollect: () => drawerStates.nightstandLeft.isOpen && nightstandPhotoRevealed
   });
   const nightstandLeft = addNightstand(SEARCH_NIGHTSTAND_POSITION_X, SEARCH_NIGHTSTAND_POSITION_Z);
   nightstandLeft.userData.interact = {
     label: 'Search drawer',
     onInteract: () => {
+      if (!nightstandDrawer) return;
       if (!drawerStates.nightstandLeft.isOpen) {
         drawerStates.nightstandLeft.isOpen = true;
-        nightstandPhotoPickup.reveal();
+        nightstandDrawerElapsedSeconds = 0;
         const nightstandIndex = interactables.indexOf(nightstandLeft);
         if (nightstandIndex >= 0) interactables.splice(nightstandIndex, 1);
         showCaption('Inside the drawer is a faded family photograph, dated 1985, and an old battery.');
@@ -2321,27 +2404,34 @@ export function createBedroomLevel({
   };
   interactables.push(binHitbox);
 
-  // Dresser top drawer (freely searchable)
+  // The portrait stays attached to the moving middle drawer. Opening the
+  // drawer reveals it; its existing pickup callback still owns progression.
   const dresserPhotoPickup = createDrawerPhotoPickup({
     key: 'dresserTop',
     texture: puzzlePhotoTextures[1987],
-    position: new THREE.Vector3(DRESSER_POSITION_X, 0.915, DRESSER_POSITION_Z)
+    position: new THREE.Vector3(0, 0.625, 0.14),
+    parent: vanityPhotoAnchor,
+    height: 0.16,
+    canCollect: () => drawerStates.dresserTop.isOpen && vanityPhotoRevealed
   });
   const dresserTop = new THREE.Mesh(
-    new THREE.BoxGeometry(0.8, 0.2, 0.6),
+    new THREE.BoxGeometry(0.52, 0.17, 0.10),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
-  dresserTop.position.set(DRESSER_POSITION_X, 1.1, DRESSER_POSITION_Z);
-  group.add(dresserTop);
+  dresserTop.name = 'VanityMiddleDrawerInteraction';
+  dresserTop.position.set(0, 0.675, 0.33);
+  dresserTop.visible = false;
+  dresser.add(dresserTop);
   dresserTop.userData.interact = {
-    label: 'Search dresser',
+    label: 'Open middle drawer',
     onInteract: () => {
+      if (!vanityDrawer) return;
       if (!drawerStates.dresserTop.isOpen) {
         drawerStates.dresserTop.isOpen = true;
-        dresserPhotoPickup.reveal();
+        vanityDrawerElapsedSeconds = 0;
         const dresserIndex = interactables.indexOf(dresserTop);
         if (dresserIndex >= 0) interactables.splice(dresserIndex, 1);
-        showCaption('Under the trinkets is another photograph, dated 1987. The same three faces. The same empty space beside them.');
+        showCaption('The middle drawer slides open. A faded photograph lies inside, dated 1987.');
       } else {
         showCaption('You already searched this dresser.');
       }
@@ -2634,7 +2724,15 @@ export function createBedroomLevel({
       setFlashlightPickupEnabled(false);
 
       drawerStates.nightstandLeft.isOpen = false;
+      nightstandDrawerElapsedSeconds = 0;
+      nightstandPhotoRevealed = false;
+      nightstandPhotoAnchor.position.z = 0;
+      if (nightstandDrawer) nightstandDrawer.position.copy(nightstandDrawerClosedPosition);
       drawerStates.dresserTop.isOpen = false;
+      vanityDrawerElapsedSeconds = 0;
+      vanityPhotoRevealed = false;
+      vanityPhotoAnchor.position.z = 0;
+      if (vanityDrawer) vanityDrawer.position.copy(vanityDrawerClosedPosition);
       drawerStates.bin.isOpen = false;
       drawerStates.lampDrawer.isOpen = false;
       chairGroup.position.copy(chairRestPosition);
@@ -2694,6 +2792,29 @@ export function createBedroomLevel({
       puzzleState.polaroidRead = false;
     },
     update(dt) {
+      if (vanityDrawer && drawerStates.dresserTop.isOpen) {
+        vanityDrawerElapsedSeconds = Math.min(vanityDrawerOpenSeconds, vanityDrawerElapsedSeconds + dt);
+        const progress = vanityDrawerElapsedSeconds / vanityDrawerOpenSeconds;
+        const travel = vanityDrawerTravelMetres * progress * progress * (3 - 2 * progress);
+        vanityDrawer.position.z = vanityDrawerClosedPosition.z + travel;
+        vanityPhotoAnchor.position.z = travel;
+        if (progress === 1 && !vanityPhotoRevealed) {
+          vanityPhotoRevealed = true;
+          dresserPhotoPickup.reveal();
+        }
+      }
+      // A reset-safe scripted slide, with pickup enabled only after it finishes.
+      if (nightstandDrawer && drawerStates.nightstandLeft.isOpen) {
+        nightstandDrawerElapsedSeconds = Math.min(NIGHTSTAND_DRAWER_OPEN_SECONDS, nightstandDrawerElapsedSeconds + dt);
+        const progress = nightstandDrawerElapsedSeconds / NIGHTSTAND_DRAWER_OPEN_SECONDS;
+        const travel = NIGHTSTAND_DRAWER_TRAVEL_METRES * progress * progress * (3 - 2 * progress);
+        nightstandDrawer.position.z = nightstandDrawerClosedPosition.z + travel;
+        nightstandPhotoAnchor.position.z = travel;
+        if (progress === 1 && !nightstandPhotoRevealed) {
+          nightstandPhotoRevealed = true;
+          nightstandPhotoPickup.reveal();
+        }
+      }
       this._t = (this._t ?? 0) + dt;
       glassMaterial.uniforms.uTime.value = this._t;
 
