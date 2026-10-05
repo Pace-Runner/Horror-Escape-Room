@@ -779,6 +779,277 @@ export function createPaperNoteTexture(lines = []) {
 }
 
 /**
+ * The rating stamped into a glass fuse's nickel end cap, plus a bump map
+ * from the same lettering so it reads as pressed into the metal rather than
+ * printed on it.
+ *
+ * Laid out for the caps' own cylindrical UVs (blender/glass_fuse.py): canvas
+ * x runs once round the cap and y along it, and 512 x 80 is the cap's own
+ * proportions (circumference 15 cm, length 2.2 cm). The rating is stamped
+ * twice, a half-turn apart, so one is always facing out. The middle of the
+ * canvas is left bare because the cap's flat end samples it.
+ *
+ * Every loose fuse is the same model, so this stamp is the only thing on it
+ * that says what it is.
+ */
+export function createFuseCapStampTexture(amps) {
+  const W = 512;
+  const H = 80;
+  const lettering = makeCanvas(W, H);
+  const lctx = lettering.getContext('2d');
+  lctx.fillStyle = '#000';
+  lctx.fillRect(0, 0, W, H);
+  lctx.fillStyle = '#fff';
+  lctx.textAlign = 'center';
+  lctx.textBaseline = 'middle';
+  lctx.font = 'bold 50px Arial, sans-serif';
+  for (const x of [W * 0.25, W * 0.75]) lctx.fillText(`${amps} ☆`, x, H / 2 + 2);
+
+  const canvas = makeCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#b4b6b8';
+  ctx.fillRect(0, 0, W, H);
+  // Fine lines round the cap, from it being spun when it was pressed.
+  for (let y = 0; y < H; y++) {
+    ctx.fillStyle = `rgba(${Math.random() < 0.5 ? '255,255,255' : '40,40,40'}, ${Math.random() * 0.08})`;
+    ctx.fillRect(0, y, W, 1);
+  }
+  // The stamp itself sits darker, where grime has settled into it.
+  const lData = lctx.getImageData(0, 0, W, H).data;
+  const img = ctx.getImageData(0, 0, W, H);
+  for (let i = 0; i < img.data.length; i += 4) {
+    const darken = (lData[i] / 255) * 70;
+    img.data[i] -= darken; img.data[i + 1] -= darken; img.data[i + 2] -= darken;
+  }
+  ctx.putImageData(img, 0, 0);
+
+  return {
+    map: finish(canvas, 1, 1),
+    // Inverted: the lettering is pressed IN, so it is the low ground.
+    bumpMap: finishBump((() => {
+      const bump = makeCanvas(W, H);
+      const bctx = bump.getContext('2d');
+      bctx.filter = 'invert(1) blur(1px)';
+      bctx.drawImage(lettering, 0, 0);
+      return bump;
+    })(), 1, 1)
+  };
+}
+
+/**
+ * The vent holes down the sides of the CRT, after a close photo of one: a
+ * crescent of round holes in rows that follow arcs centred past the back
+ * bottom corner, between a pressed crease that sweeps from the top of the
+ * back down to the front of the underside, and a plain skirt along the
+ * bottom. Returns a colour map and a bump map from the same holes and crease,
+ * so they read as pressed into the plastic when light rakes across them.
+ *
+ * Laid out for the casing's side faces (blender/build_crt_monitor.py), which
+ * run 0..1 from the bezel (u = 0) to the back (u = 1) and from the underside
+ * (v = 0) to the top. `base` is the plastic's own colour, read back off the
+ * model, so the vent panels match the rest of the casing exactly.
+ *
+ * Holes are about 3 mm across and 7 mm apart at the casing's real size --
+ * big and dark enough to read in a dim room, which the first, finer version
+ * of this was not.
+ */
+export function createCrtVentTexture(base = '#cfc9b6') {
+  const S = 1024;
+  const colour = makeCanvas(S, S);
+  const cctx = colour.getContext('2d');
+  cctx.fillStyle = base;
+  cctx.fillRect(0, 0, S, S);
+  const height = makeCanvas(S, S);
+  const hctx = height.getContext('2d');
+  hctx.fillStyle = '#c0c0c0';
+  hctx.fillRect(0, 0, S, S);
+
+  // Canvas x is front (0) to back (S); canvas y is top (0) to bottom (S).
+  const cx = S * 1.06;
+  const cy = S * 1.12;
+  const innerR = S * 0.5;    // inside this, the plain skirt
+  const outerR = S * 1.02;   // the crease
+  const spacing = 22;
+  const holeR = 4.5;
+
+  // The crease and the skirt's edge: a ridge with a shadowed side, in both maps.
+  for (const r of [outerR + 12, innerR - 14]) {
+    cctx.strokeStyle = 'rgba(70, 62, 46, 0.35)';
+    cctx.lineWidth = 3;
+    cctx.beginPath(); cctx.arc(cx, cy, r, Math.PI, Math.PI * 1.5); cctx.stroke();
+    cctx.strokeStyle = 'rgba(255, 252, 240, 0.35)';
+    cctx.lineWidth = 2;
+    cctx.beginPath(); cctx.arc(cx, cy, r - 3, Math.PI, Math.PI * 1.5); cctx.stroke();
+    hctx.strokeStyle = '#ffffff';
+    hctx.lineWidth = 5;
+    hctx.beginPath(); hctx.arc(cx, cy, r, Math.PI, Math.PI * 1.5); hctx.stroke();
+  }
+  // Outside the crease the panel sits a touch proud, as on the photo.
+  hctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
+  hctx.beginPath();
+  hctx.rect(0, 0, S, S);
+  hctx.arc(cx, cy, outerR + 12, 0, Math.PI * 2, true);
+  hctx.fill('evenodd');
+
+  for (let r = innerR; r <= outerR - spacing * 0.5; r += spacing) {
+    const steps = Math.floor((Math.PI / 2) * r / spacing);
+    for (let i = 0; i <= steps; i++) {
+      const a = Math.PI + (i / steps) * (Math.PI / 2);
+      const x = cx + Math.cos(a) * r;
+      const y = cy + Math.sin(a) * r;
+      if (x < 10 || x > S - 10 || y < 10 || y > S - 10) continue;
+      // A dark hole with a lit lower lip, which is what makes a dot read as
+      // a hole rather than a spot of dirt.
+      cctx.fillStyle = 'rgba(255, 250, 235, 0.5)';
+      cctx.beginPath(); cctx.arc(x, y + 1.5, holeR, 0, Math.PI * 2); cctx.fill();
+      cctx.fillStyle = 'rgba(22, 19, 14, 0.95)';
+      cctx.beginPath(); cctx.arc(x, y, holeR, 0, Math.PI * 2); cctx.fill();
+      hctx.fillStyle = '#000';
+      hctx.beginPath(); hctx.arc(x, y, holeR, 0, Math.PI * 2); hctx.fill();
+    }
+  }
+
+  // Grime, settled into the lower edge where the casing meets the desk.
+  const g = cctx.createLinearGradient(0, S, 0, S * 0.6);
+  g.addColorStop(0, 'rgba(90, 78, 56, 0.25)');
+  g.addColorStop(1, 'rgba(90, 78, 56, 0)');
+  cctx.fillStyle = g;
+  cctx.fillRect(0, 0, S, S);
+
+  const map = finish(colour, 1, 1);
+  map.wrapS = map.wrapT = THREE.ClampToEdgeWrapping;
+  const bumpMap = finishBump(height, 1, 1);
+  bumpMap.wrapS = bumpMap.wrapT = THREE.ClampToEdgeWrapping;
+  return { map, bumpMap };
+}
+
+/**
+ * The cooling slots on top of the CRT's casing: rows of short slots across
+ * the top of its middle step, where the heat off the tube rises. Same pair of
+ * maps as the side vents. Laid out 0..1 across that one panel -- u side to
+ * side, v front to back.
+ */
+export function createCrtTopVentTexture(base = '#cfc9b6') {
+  const W = 512;
+  const H = 256;
+  const colour = makeCanvas(W, H);
+  const cctx = colour.getContext('2d');
+  cctx.fillStyle = base;
+  cctx.fillRect(0, 0, W, H);
+  const height = makeCanvas(W, H);
+  const hctx = height.getContext('2d');
+  hctx.fillStyle = '#c0c0c0';
+  hctx.fillRect(0, 0, W, H);
+
+  const cols = 14;
+  const rows = 5;
+  const slotW = 20;
+  const slotH = 7;
+  const x0 = W * 0.12;
+  const x1 = W * 0.88;
+  const y0 = H * 0.22;
+  const y1 = H * 0.8;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const x = x0 + (c + 0.5) * (x1 - x0) / cols - slotW / 2;
+      const y = y0 + (r + 0.5) * (y1 - y0) / rows - slotH / 2;
+      cctx.fillStyle = 'rgba(255, 250, 235, 0.45)';
+      cctx.fillRect(x, y + 1.5, slotW, slotH);
+      cctx.fillStyle = 'rgba(20, 17, 12, 0.95)';
+      cctx.fillRect(x, y, slotW, slotH);
+      hctx.fillStyle = '#000';
+      hctx.fillRect(x, y, slotW, slotH);
+    }
+  }
+  // Dust settles on a flat top, and darkens round the slots most of all.
+  cctx.fillStyle = 'rgba(110, 100, 80, 0.12)';
+  cctx.fillRect(x0 - 10, y0 - 10, x1 - x0 + 20, y1 - y0 + 20);
+
+  const map = finish(colour, 1, 1);
+  map.wrapS = map.wrapT = THREE.ClampToEdgeWrapping;
+  const bumpMap = finishBump(height, 1, 1);
+  bumpMap.wrapS = bumpMap.wrapT = THREE.ClampToEdgeWrapping;
+  return { map, bumpMap };
+}
+
+/**
+ * The power symbol on the CRT's button, white on black, for an emissive map:
+ * the symbol is what lights up green when the monitor is on. Laid out for a
+ * CylinderGeometry's end cap, which maps the cap's disc onto the canvas.
+ */
+export function createPowerSymbolTexture() {
+  const S = 128;
+  const canvas = makeCanvas(S, S);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, S, S);
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 11;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.arc(S / 2, S / 2, S * 0.27, -Math.PI / 2 + 0.75, -Math.PI / 2 - 0.75 + Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(S / 2, S * 0.18);
+  ctx.lineTo(S / 2, S * 0.5);
+  ctx.stroke();
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/**
+ * One breaker's label: a black plate with the circuit's name in white
+ * capitals and its rating under it, after the labels on a marine switch
+ * panel -- one plate per switch rather than a shared strip, so each reads on
+ * its own from across the room.
+ *
+ * Drawn from the level's circuit table rather than baked anywhere, so a label
+ * can never disagree with the load chart or the puzzle.
+ */
+export function createSwitchLabelTexture(name, amps) {
+  const W = 256;
+  const H = 176;
+  const canvas = makeCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#0d0d0e';
+  ctx.fillRect(0, 0, W, H);
+  // A faint bevelled edge, as on a moulded plate.
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(5, 5, W - 10, H - 10);
+
+  ctx.fillStyle = '#f2f2ee';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  // Shrinks a long name (LIGHTING) to fit rather than running off the plate.
+  let size = 52;
+  ctx.font = `bold ${size}px Arial, Helvetica, sans-serif`;
+  while (ctx.measureText(name).width > W - 36 && size > 24) {
+    size -= 2;
+    ctx.font = `bold ${size}px Arial, Helvetica, sans-serif`;
+  }
+  ctx.fillText(name, W / 2, H * 0.4);
+  ctx.font = `${Math.round(size * 0.7)}px Arial, Helvetica, sans-serif`;
+  ctx.fillStyle = '#c8c8c2';
+  ctx.fillText(`${amps}A`, W / 2, H * 0.72);
+
+  // Worn: the white rubs off first at the edges of the lettering.
+  const img = ctx.getImageData(0, 0, W, H);
+  for (let i = 0; i < img.data.length; i += 4) {
+    if (img.data[i] > 120 && Math.random() < 0.08) {
+      img.data[i] *= 0.6; img.data[i + 1] *= 0.6; img.data[i + 2] *= 0.6;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+/**
  * The family photograph, and the reveal the whole ending turns on.
  *
  * `figures` is 3 or 4, and the LAYOUT IS ALWAYS FOUR SLOTS. That is the entire
