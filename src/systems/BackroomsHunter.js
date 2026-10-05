@@ -93,6 +93,42 @@ const SEARCH_SPEED = WALK_SPEED * 0.72;
 
 /** Unobstructed distance at which it sees you. Corridors run much longer than this. */
 const SIGHT_RANGE = 13.0;
+
+/**
+ * How far to the side to look for a sightline the creature has not got, in
+ * metres.
+ *
+ * NOT THE LEAN DISTANCE, and the difference is worth stating because the
+ * honest version of this did not work. OkabeCreature.setPeek(1) moves the head
+ * 217 mm, and testing the sightline at exactly 217 mm is the geometrically
+ * pure condition -- lean only when leaning genuinely earns the view. Measured
+ * over 90 simulated seconds it fired for 0.0 of them: a 217 mm offset only
+ * clears a corner within 217 mm of its edge, and nothing ever stands there.
+ *
+ * So this asks a looser question -- "is the player just round this corner?" --
+ * at about a shoulder's width and a half. The lean is still 217 mm; it is a
+ * body craning toward a view it cannot quite get, which is what peering round
+ * a corner actually is.
+ */
+const PEEK_PROBE = 0.85;
+
+/**
+ * When it stops to look round a corner, and for how long.
+ *
+ * PEEK_RANGE is deliberately much shorter than SIGHT_RANGE's 13 m. The whole
+ * value of this is the near miss -- a thing leaning out at you from two rooms
+ * away is scenery, one leaning out from the next corner is a problem -- and
+ * keeping it close also means the player can actually see the lean through
+ * the fog, which at 13 m they cannot.
+ *
+ * The hold is long enough to read as deliberate and short enough that it is
+ * not standing there while you walk away. The cooldown stops it peering round
+ * every corner of the same wall on the way past.
+ */
+const PEEK_RANGE = 7.5;
+const PEEK_HOLD_MIN = 1.4;
+const PEEK_HOLD_MAX = 2.6;
+const PEEK_COOLDOWN = 9.0;
 /** Once it has seen you it keeps coming for this long after losing sight. */
 const SIGHT_MEMORY = 2.5;
 
@@ -259,6 +295,12 @@ export function createBackroomsHunter({
   /** Seconds left of standing still and looking around. Search state only. */
   let scan = 0;
   let scanDir = 1;
+  let ready = false;            // the creature's GLB is in and its shaders built
+  let startWanted = false;      // a start() that arrived before it was
+  let startArgs = {};
+  let peekFor = 0;              // seconds left holding a lean round a corner
+  let peekDir = 0;              // which way it is leaning, -1 or +1
+  let peekCool = 0;             // so it does not do it at every corner of one wall
   let stallFor = 0;
   const stallFrom = { x: 0, z: 0 };
 
@@ -292,6 +334,51 @@ export function createBackroomsHunter({
    * the difference only shows within a body radius of a corner, where the third
    * clause below (the waypoint tolerance) already covers it.
    */
+  /**
+   * Which way it would have to lean to see the player, or 0 for no reason to.
+   *
+   * THE CONDITION IS THE WHOLE IDEA: lean out when the straight line to the
+   * player is blocked but a line from PEEK_PROBE to one side is not. That is
+   * what being just behind a corner with the player beyond it MEANS, so the
+   * creature leans when there is something round the corner to lean at, and
+   * never in open corridor, where both lines are clear and the answer is 0.
+   *
+   * Only while SEARCHING. A thing that has already seen you does not peer
+   * round the corner at you, it comes round it.
+   *
+   * See PEEK_PROBE for why the probe is wider than the lean itself.
+   */
+  function peekSide(px, pz) {
+    const d = Math.hypot(px - pos.x, pz - pos.z);
+    if (d > SIGHT_RANGE || d < 1e-6) return 0;
+    if (!segmentBlocked(pos.x, pos.z, px, pz, colliders)) return 0;
+    // PERPENDICULAR TO THE LINE TO THE PLAYER, not to the creature's facing.
+    // Facing was the first attempt and it never fired: the creature can be
+    // pointed anywhere while it searches, so the probe went off at an angle
+    // to the corner it was meant to look round, and in a corridor barely two
+    // metres wide an 0.85 m offset usually landed INSIDE the wall -- where it
+    // is blocked from everything and the answer is always no.
+    const nx = -(pz - pos.z) / d;
+    const nz = (px - pos.x) / d;
+    // The creature's own right, in world terms, so the sign that comes back
+    // means what setPeek means by it. forward at yaw 0 is -Z, so right is
+    // (cos yaw, -sin yaw).
+    const rx = Math.cos(yaw);
+    const rz = -Math.sin(yaw);
+    for (const s of [1, -1]) {
+      const ox = pos.x + nx * s * PEEK_PROBE;
+      const oz = pos.z + nz * s * PEEK_PROBE;
+      // Somewhere a body could actually lean TO. Without this the probe can
+      // sit inside the wall it is supposed to be looking past, and a point
+      // inside a wall has a clear line to everything on its far side.
+      if (segmentBlocked(pos.x, pos.z, ox, oz, colliders)) continue;
+      if (!segmentBlocked(ox, oz, px, pz, colliders)) {
+        return (nx * s * rx + nz * s * rz) >= 0 ? 1 : -1;
+      }
+    }
+    return 0;
+  }
+
   function clearTo(p) {
     const dx = p.x - pos.x;
     const dz = p.z - pos.z;
@@ -372,7 +459,32 @@ export function createBackroomsHunter({
      * `minFromPlayer` keeps it from materialising on top of you at the mouth of
      * the maze, which would read as a bug rather than as bad luck.
      */
+    /**
+     * Arm or disarm the hunter, independently of whether anything wants it.
+     *
+     * The loading screen calls this once the creature's GLB is in AND its
+     * shaders are built. Until then a start() is REMEMBERED rather than
+     * refused, because the thing asking is a scripted beat that fires once and
+     * has no way to ask again -- a plain refusal would mean the maze simply
+     * never spawns a monster on a slow connection.
+     */
+    setReady(v) {
+      ready = !!v;
+      if (ready && startWanted) {
+        startWanted = false;
+        this.start(startArgs);
+      }
+    },
+
     start({ minFromPlayer = 18 } = {}) {
+      // The one stall a fade cannot hide: the first frame the creature is
+      // drawn compiles its shaders, and that lands exactly when it steps into
+      // the corridor. Hold it until the loading screen says it is built.
+      if (!ready) {
+        startWanted = true;
+        startArgs = { minFromPlayer };
+        return;
+      }
       const player = getPlayer();
       const names = Object.keys(LEGS);
       let best = null;
@@ -423,6 +535,10 @@ export function createBackroomsHunter({
       heard = null;
       speedNow = 0;
       scan = 0;
+      // A start() that was waiting on the loading screen is cancelled by a
+      // stop, not banked. Otherwise leaving the maze before the creature
+      // finished loading spawns it into a level the player is no longer in.
+      startWanted = false;
       if (creature) {
         creature.visible = false;
         creature.setSpeed(0);
@@ -436,6 +552,9 @@ export function createBackroomsHunter({
       pos.z = 0;
       cooldown = 0;
       sawFor = 0;
+      peekFor = 0;
+      peekDir = 0;
+      peekCool = 0;
     },
 
     update(dt) {
@@ -468,8 +587,45 @@ export function createBackroomsHunter({
       }
 
       if (state !== 'search') scan = 0;      // being found ends the standing about
+      if (state !== 'search') { peekFor = 0; peekDir = 0; }
 
-      if (state === 'chase') {
+      // --- peering round the corner ----------------------------------------
+      // THE PEEK HAS TO CAUSE THE PAUSE, not wait for one. The first version
+      // only leaned while the creature happened to be standing still to scan,
+      // and measured over 120 simulated seconds that never once coincided with
+      // the player being in range: it scans 3% of the time and is within sight
+      // range 14% of the time, and the overlap was 0.0%. When it is near you
+      // it is chasing, and when it scans it is somewhere else.
+      //
+      // So this is its own small behaviour. If the player is close and just
+      // the other side of something, it stops, leans out and looks, then goes
+      // back to searching. The cooldown stops it doing this at every corner of
+      // the same wall.
+      if (peekCool > 0) peekCool -= dt;
+      if (state === 'search') {
+        if (peekFor > 0) {
+          peekFor -= dt;
+          if (peekFor <= 0) {
+            peekDir = 0;
+            peekCool = PEEK_COOLDOWN;
+          }
+        } else if (peekCool <= 0 && dist <= PEEK_RANGE) {
+          const s = peekSide(player.x, player.z);
+          if (s) {
+            peekDir = s;
+            peekFor = PEEK_HOLD_MIN + Math.random() * (PEEK_HOLD_MAX - PEEK_HOLD_MIN);
+            waypoints = [];           // stop walking; it has something to look at
+            scan = 0;                 // and stop turning on the spot
+          }
+        }
+      }
+
+      if (peekFor > 0 && state === 'search') {
+        // Holding still and leaning. Deliberately does NOT turn to face you --
+        // a body that swings round to point at you has found you, and this one
+        // is still only looking.
+        speedNow = Math.max(0, speedNow - DECEL * dt);
+      } else if (state === 'chase') {
         // Re-path every frame while it can see you: you are moving, and in a
         // corridor the straight line to you IS the route.
         setPath({ x: player.x, z: player.z });
@@ -525,6 +681,13 @@ export function createBackroomsHunter({
         // The ACTUAL speed, not the one it is aiming for. Feeding the gait a
         // constant while the body accelerates is what foot-sliding is.
         creature.setSpeed(speedNow);
+        // Lean out from behind a corner, but only while standing still to
+        // scan: peeking is something a body does INSTEAD of walking, and a
+        // figure leaning 22 degrees out of true while striding down a corridor
+        // reads as a limp rather than as a look.
+        // setPeek smooths the lean itself -- slowly out, quickly back -- so
+        // this just states the target and lets the rig carry the timing.
+        if (creature.setPeek) creature.setPeek(peekDir);
         creature.update(dt);
       }
 

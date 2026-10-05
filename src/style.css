@@ -216,6 +216,32 @@ html, body {
   color: #6b6459;
 }
 
+/* Sits just above the flashlight readout and matches it, so the corner stays
+   one block. pointer-events is the load-bearing line: #hud sets none on the
+   whole overlay so the game can be clicked through it, and a button inside an
+   overlay that ignores the mouse is a button that does nothing. */
+#third-person-toggle {
+  position: absolute;
+  bottom: 48px;
+  right: 24px;
+  pointer-events: auto;
+  padding: 5px 12px;
+  font-family: inherit;
+  font-size: 0.7rem;
+  letter-spacing: 0.1rem;
+  text-transform: uppercase;
+  background: rgba(4, 3, 2, 0.55);
+  border: 1px solid #3a332b;
+  color: #6b6459;
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+#third-person-toggle:hover {
+  color: #d8d2c4;
+  border-color: #6b6459;
+}
+
 #flashlight-state.on {
   color: #d8b34a;
 }

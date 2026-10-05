@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { PointerLockPlayer, SENSITIVITY_MIN, SENSITIVITY_MAX } from './core/PointerLockPlayer.js';
 import { WALK_SPEED } from './core/MoveSpeeds.js';
 import { SceneManager } from './core/SceneManager.js';
+import { segmentBlocked } from './core/collision.js';
 import { Interaction } from './core/Interaction.js';
 import { createPhotoBoardUI } from './core/PhotoBoardUI.js';
 import { createPinPadUI } from './core/PinPadUI.js';
@@ -23,6 +24,7 @@ import { createPostFX } from './world/Postprocessing.js';
 import { createCutsceneRunner } from './core/Cutscene.js';
 import { createScriptRunner } from './core/Script.js';
 import { createCreature } from './systems/Creature.js';
+import { createOkabeCreature } from './systems/OkabeCreature.js';
 import { createCreatureAI } from './systems/CreatureAI.js';
 import { createBackroomsHunter } from './systems/BackroomsHunter.js';
 import { createVisor } from './core/Visor.js';
@@ -38,6 +40,8 @@ import flashlightModelUrl from './assets/models/flashlight.glb?url';
 const canvas = document.getElementById('scene');
 const loadingScreen = document.getElementById('loading-screen');
 const loadingBarFill = document.getElementById('loading-bar-fill');
+const loadingHintEl = document.getElementById('loading-hint');
+const thirdPersonBtn = document.getElementById('third-person-toggle');
 const startScreen = document.getElementById('start-screen');
 const startButton = document.getElementById('start-button');
 const restartButton = document.getElementById('restart-button');
@@ -180,9 +184,21 @@ const SPRINT_FOV_KICK = 8;
 
 const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.05, 100);
 
+/**
+ * The third-person eye. See postFX.setCamera for why this is a second camera
+ * rather than the first one moved backwards.
+ *
+ * Deliberately NOT added to the scene: it has no children, and adding it would
+ * put a second camera in front of the hands and the torch, which are parented
+ * to the real one.
+ */
+const thirdCam = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.05, 100);
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
+  thirdCam.aspect = camera.aspect;
+  thirdCam.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   // The composer keeps its own render targets, so resizing the renderer alone
   // leaves the whole game rendering at the old resolution and stretched.
@@ -581,6 +597,151 @@ const script = createScriptRunner({ captions });
 const creature = createCreature();
 creature.visible = false;
 worldRoot.add(creature.group);
+
+/**
+ * A SECOND figure, for the backrooms only, built on the imported Okabe model.
+ *
+ * WHY TWO CREATURES RATHER THAN ONE SWAPPED OUT. The procedural creature still
+ * owns the two beats where the FACE and the correction dial have to be read up
+ * close -- the Level 1 window glimpse and the Level 3 reveal -- and those are
+ * tuned against its proportions. The backrooms figure is the opposite problem:
+ * seen at 5-15 m through fog with setSilhouette on, where only outline and
+ * timing survive, and that is exactly where a 20k-triangle character with a
+ * rigged lab coat pays for itself.
+ *
+ * Both expose the same contract, so this is an assignment and not a port --
+ * see OkabeCreature.js's header. Nothing above this line changes.
+ */
+const okabe = createOkabeCreature();
+okabe.visible = false;
+worldRoot.add(okabe.group);
+
+/**
+ * The player's own body, for the third-person view.
+ *
+ * THE SAME MODEL AS THE MONSTER, held at correction 1. That is the whole point
+ * of the twist and it costs nothing to honour here: the thing in the corridor
+ * and the person you are playing are one mesh with one shape key between them,
+ * so seeing yourself from behind is seeing the body the Hollow is a distortion
+ * of. setCorrection(1) is the man.
+ *
+ * A SECOND INSTANCE RATHER THAN A CLONE OF THE FIRST. Object3D.clone() on a
+ * SkinnedMesh shares the skeleton with the original, so the player's body would
+ * be posed by the monster's gait and walk on the monster's legs. SkeletonUtils
+ * could deep-clone it, but a second createOkabeCreature() re-parses a file the
+ * browser already has cached and keeps every bone, rest pose and measured axis
+ * owned by one object -- which is also what makes the third-person body get the
+ * gait work for free.
+ */
+const playerBody = createOkabeCreature({ clean: true });
+playerBody.visible = false;
+playerBody.setCorrection(1);
+worldRoot.add(playerBody.group);
+
+// ---------- third person ----------
+/**
+ * Over the left shoulder, in metres, measured from the player's eye.
+ *
+ * Left rather than right only because the torch is held right: from behind the
+ * right shoulder the player's own arm sits in the middle of the beam.
+ */
+const TP_BACK = 2.45;
+const TP_UP = 0.28;
+const TP_SIDE = -0.42;
+/** Never let the camera inside the body: at this it is still behind the head. */
+const TP_MIN_BACK = 0.55;
+/** How quickly the view swings between the two. Snapping is nauseating. */
+const TP_BLEND_TAU = 0.14;
+
+let thirdPerson = false;
+/** 0 = first person, 1 = third. Eased, so the toggle is a move not a cut. */
+let thirdAmount = 0;
+const _tpFwd = new THREE.Vector3();
+const _tpRight = new THREE.Vector3();
+const _tpWant = new THREE.Vector3();
+const _tpPrev = new THREE.Vector3();
+let bodySpeed = 0;
+
+function setThirdPerson(on) {
+  thirdPerson = !!on;
+  // The hands are a VIEW MODEL parented to the camera -- from behind they are
+  // two forearms hanging in the air where the head is. The dust motes are
+  // parented there too and read as a swarm around the player's own skull.
+  hands.root.visible = !thirdPerson;
+  dustMotes.points.visible = !thirdPerson;
+  playerBody.visible = thirdPerson;
+  if (thirdPersonBtn) {
+    thirdPersonBtn.textContent = thirdPerson ? 'View: 3rd' : 'View: 1st';
+  }
+}
+
+thirdPersonBtn?.addEventListener('click', (e) => {
+  setThirdPerson(!thirdPerson);
+  // Or the click leaves focus on the button and the next SPACE or ENTER
+  // presses it again instead of reaching the game.
+  e.currentTarget.blur();
+});
+
+/**
+ * Put the third-person camera behind the player, and the player's body under it.
+ *
+ * Runs after player.update(), because both are read off where the player
+ * actually ended this frame rather than where it started.
+ */
+function updateThirdPerson(dt) {
+  thirdAmount += ((thirdPerson ? 1 : 0) - thirdAmount) * (1 - Math.exp(-dt / TP_BLEND_TAU));
+
+  // The body tracks the player whether or not it is being drawn, so toggling
+  // in never shows it catching up from wherever it was last seen.
+  const moved = Math.hypot(camera.position.x - _tpPrev.x, camera.position.z - _tpPrev.z);
+  _tpPrev.copy(camera.position);
+  // Measured from the move, not read off player.speed: that is the speed being
+  // asked for, and the gait wants the one actually achieved -- a player walking
+  // into a wall is not striding.
+  bodySpeed += ((dt > 0 ? moved / dt : 0) - bodySpeed) * (1 - Math.exp(-dt / 0.08));
+  playerBody.setPosition(camera.position.x, camera.position.z);
+  playerBody.setYaw(player.yaw);
+  playerBody.setSpeed(bodySpeed);
+  playerBody.update(dt);
+
+  if (thirdAmount < 0.001) return;
+
+  camera.getWorldDirection(_tpFwd);
+  _tpRight.set(-_tpFwd.z, 0, _tpFwd.x).normalize();
+  // Straight back along the look vector, so looking down tilts the camera up
+  // over the shoulder the way every third-person game does.
+  _tpWant.copy(camera.position)
+    .addScaledVector(_tpFwd, -TP_BACK * thirdAmount)
+    .addScaledVector(_tpRight, TP_SIDE * thirdAmount);
+  _tpWant.y += TP_UP * thirdAmount;
+
+  // Pull in rather than clip through. The colliders are 2D boxes and the walls
+  // are full height, so the flat test is exact here rather than an approximation
+  // -- the same reasoning BackroomsHunter.canSee uses.
+  const boxes = sceneManager.active?.colliders ?? [];
+  if (segmentBlocked(camera.position.x, camera.position.z, _tpWant.x, _tpWant.z, boxes)) {
+    // Walk back toward the head until it is clear. Sixteen steps over 2.45 m is
+    // 15 cm, which is finer than the camera's own near plane matters at.
+    let t = 1;
+    for (let i = 0; i < 16; i++) {
+      t -= 1 / 16;
+      const x = camera.position.x + (_tpWant.x - camera.position.x) * t;
+      const z = camera.position.z + (_tpWant.z - camera.position.z) * t;
+      if (!segmentBlocked(camera.position.x, camera.position.z, x, z, boxes)) {
+        _tpWant.set(x, camera.position.y + (_tpWant.y - camera.position.y) * t, z);
+        break;
+      }
+      if (t <= TP_MIN_BACK / TP_BACK) {
+        _tpWant.copy(camera.position).addScaledVector(_tpFwd, -TP_MIN_BACK);
+        break;
+      }
+    }
+  }
+  thirdCam.position.copy(_tpWant);
+  thirdCam.quaternion.copy(camera.quaternion);
+  thirdCam.fov = camera.fov;
+  thirdCam.updateProjectionMatrix();
+}
 
 /**
  * Being caught is being STOPPED, not killed -- see CreatureAI.js's header. The
@@ -1029,7 +1190,9 @@ sceneManager.register('backrooms', backrooms);
  * from, so nothing new has to be tracked to know which crossing this is.
  */
 const backroomsHunter = createBackroomsHunter({
-  creature,
+  // The imported figure, not the procedural one -- see the note at okabe's
+  // construction for why the backrooms is the right place for it.
+  creature: okabe,
   getPlayer: () => ({
     x: camera.position.x,
     z: camera.position.z,
@@ -1169,13 +1332,13 @@ function resetBackroomsShadow() {
   // would silently be GRACE + COOLDOWN.
   backroomsShadowHidAt = -Infinity;
   if (backroomsShadowVisible) {
-    creature.visible = false;
+    okabe.visible = false;
     // Back to the default layer mask, or the AI chase / scripted placements
     // elsewhere would inherit this system's minimap-hiding trick.
-    creature.group.layers.set(0);
+    okabe.setLayer(0);
     // And back to a normally-lit figure, or the same leak happens with the
     // silhouette colour multiplier instead.
-    creature.setSilhouette(false);
+    okabe.setSilhouette(false);
     backroomsShadowVisible = false;
   }
 }
@@ -1213,15 +1376,15 @@ function updateBackroomsShadow(dt) {
       // sudden jump in the trail (e.g. just having appeared) never reads as
       // a lunge.
       const speed = Math.min(WALK_SPEED, Math.hypot(found.x - backroomsShadowPos.x, found.z - backroomsShadowPos.z) / dt);
-      creature.setSpeed(speed);
+      okabe.setSpeed(speed);
     }
     backroomsShadowPos = found;
   }
 
   if (!shouldShow) {
     if (backroomsShadowVisible) {
-      creature.visible = false;
-      creature.group.layers.set(0);
+      okabe.visible = false;
+      okabe.setLayer(0);
       backroomsShadowVisible = false;
       // Stamped on the way OUT, so the cooldown measures the gap between
       // sightings rather than the time since some arbitrary frame.
@@ -1231,24 +1394,24 @@ function updateBackroomsShadow(dt) {
   }
 
   if (!backroomsShadowVisible) {
-    creature.reset();
-    creature.setCorrection(BACKROOMS_SHADOW_CORRECTION);
+    okabe.reset();
+    okabe.setCorrection(BACKROOMS_SHADOW_CORRECTION);
     // A lit, textured rig at corridor range reads as exactly what it is --
     // boxes and capsules. Silhouette mode multiplies the correction colour
     // down near-black regardless of nearby fixture light, so what shows is a
     // dark shape, not a small mannequin under a ceiling lamp.
-    creature.setSilhouette(true);
+    okabe.setSilhouette(true);
     // MAIN_ONLY: visible to the player, never to the minimap's own camera --
     // this is a glimpse, not something to confirm by checking the radar.
-    creature.group.layers.set(MAIN_ONLY);
+    okabe.setLayer(MAIN_ONLY);
     backroomsShadowVisible = true;
   }
-  creature.setPosition(found.x, found.z);
+  okabe.setPosition(found.x, found.z);
   // Faces the player, the same convention every other placement in this file
   // uses -- being looked back at is the entire point of it existing.
-  creature.setYaw(Math.atan2(-(px - found.x), -(pz - found.z)));
-  creature.visible = true;
-  creature.update(dt);
+  okabe.setYaw(Math.atan2(-(px - found.x), -(pz - found.z)));
+  okabe.visible = true;
+  okabe.update(dt);
 }
 
 /**
@@ -1743,6 +1906,7 @@ window.addEventListener('keydown', (e) => {
     }
   }
   if (e.code === 'KeyF') setFlashlight(!flashlightOn);
+  if (e.code === 'KeyT') setThirdPerson(!thirdPerson);
   if (e.code === 'KeyV') {
     const result = visor.toggle();
     if (result === 'none') {
@@ -2103,8 +2267,17 @@ if (import.meta.env.DEV) {
     cutscene,
     script,
     creature,
+    // The backrooms figure is a DIFFERENT creature from `creature` now -- a
+    // harness asserting on the thing in the corridor has to reach this one, and
+    // reaching the wrong one would pass against a figure nobody can see.
+    okabe,
     creatureAI,
     backroomsHunter,
+    playerBody,
+    thirdCam,
+    setThirdPerson,
+    get thirdPerson() { return thirdPerson; },
+    updateThirdPerson,
     visor,
     // Test-only access to the backrooms trailing shadow and the bedroom
     // window flash, neither of which has a keyboard trigger of its own to
@@ -2140,16 +2313,218 @@ if (import.meta.env.DEV) {
   };
 }
 
-// ---------- loading screen (procedural world, so this is a short polish beat) ----------
-let progress = 0;
-const loadTimer = setInterval(() => {
-  progress = Math.min(100, progress + 12 + Math.random() * 18);
-  loadingBarFill.style.width = `${progress}%`;
-  if (progress >= 100) {
-    clearInterval(loadTimer);
-    setTimeout(() => loadingScreen.classList.add('hidden'), 250);
+// ---------- loading screen ----------
+/**
+ * REAL WORK NOW, and the measurement is why.
+ *
+ * This bar used to be a setInterval adding 12-30% every 110 ms -- it filled in
+ * about seven hundred milliseconds, hid itself, and had done nothing at all.
+ * Meanwhile the actual cost was still sitting there waiting for the player:
+ *
+ *   level              activate()   FIRST render   second render
+ *   bedroom               1.3 ms       3024.7 ms        2.1 ms
+ *   hallwayBasement       0.5 ms       1580.9 ms        1.0 ms
+ *   study                 0.3 ms       1982.0 ms        1.4 ms
+ *   backrooms             0.2 ms       1912.0 ms        6.7 ms
+ *
+ * SceneManager builds every level up front and activate() is only a visibility
+ * swap, so switching rooms is genuinely free -- 0.2 to 1.3 ms. What froze the
+ * game was the FIRST FRAME a level was ever drawn in, where three.js compiles
+ * every shader program that room needs and uploads its textures. About eight
+ * and a half seconds of it, paid in whole-second lumps at whichever door the
+ * player happened to open first.
+ *
+ * So the bar now pays it, once, here. renderer.compileAsync() builds the
+ * programs without drawing anything, and on a driver with
+ * KHR_parallel_shader_compile it does most of that off the main thread, which
+ * is what lets this bar actually animate while it happens.
+ *
+ * Hiding the freeze behind a longer fade would have been the other option. It
+ * is worse: the fade is 1.74 s and the bedroom alone needs 3.0, so the stall
+ * would still show, and it would show every run instead of once.
+ */
+/**
+ * Yield long enough for the browser to paint the bar, WITHOUT depending on it.
+ *
+ * requestAnimationFrame alone deadlocks the loading screen. A background or
+ * minimised tab does not animate, so rAF simply never fires and the warm-up
+ * stops forever on whichever step it had reached -- measured, stuck at 17%
+ * with document.hidden true. Anyone who opened the game in a second tab and
+ * went to look at something else would come back to a progress bar that had
+ * given up.
+ *
+ * Racing it against a timer keeps the fast path (paint, then continue) and
+ * makes the hidden-tab path merely slow instead of broken: setTimeout is
+ * throttled in a background tab but it does still fire.
+ */
+/** Flavour, keyed by level, so the longest steps say what they are waiting on. */
+const LOAD_HINTS = {
+  bedroom: 'entering the house...',
+  hallwayBasement: 'feeling along the wall...',
+  study: 'finding the study...',
+  backrooms: 'the walls do not end...'
+};
+
+const nextFrame = () => new Promise((resolve) => {
+  let done = false;
+  const finish = () => { if (!done) { done = true; resolve(); } };
+  requestAnimationFrame(finish);
+  setTimeout(finish, 50);
+});
+
+function setLoadProgress(fraction, hint) {
+  loadingBarFill.style.width = `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`;
+  if (hint && loadingHintEl) loadingHintEl.textContent = hint;
+}
+
+async function warmUp() {
+  const keys = [...sceneManager.levels.keys()];
+  // The creature counts as a step of its own: it is a network fetch rather
+  // than a compile, and it is the one the maze cannot open without.
+  const steps = keys.length + 2;
+  let done = 0;
+  const advance = async (hint) => {
+    done++;
+    setLoadProgress(done / steps, hint);
+    // Yield, or the bar's width change never reaches the screen -- the browser
+    // cannot paint between two synchronous compiles.
+    await nextFrame();
+  };
+
+  // Everything off, so each room is warmed on its own and nothing is paid
+  // twice. Restored at the end from what it actually was.
+  const wasVisible = new Map();
+  for (const key of keys) {
+    const level = sceneManager.get(key);
+    if (level) { wasVisible.set(key, level.group.visible); level.group.visible = false; }
   }
-}, 110);
+  const wasFog = scene.fog;
+  const camPos = camera.position.clone();
+  const camQuat = camera.quaternion.clone();
+
+  for (const key of keys) {
+    const level = sceneManager.get(key);
+    if (!level) { await advance('entering the house...'); continue; }
+    // The hint changes BEFORE the work, not after. The maze takes about three
+    // seconds on its own, and a bar that sits still under a stale caption for
+    // that long reads as a hang rather than as loading.
+    setLoadProgress(done / steps, LOAD_HINTS[key] ?? 'entering the house...');
+    await nextFrame();
+    level.group.visible = true;
+    // Fog is part of the program key, so a room warmed under the wrong fog is
+    // warmed for nothing.
+    scene.fog = LEVEL_FOG[key] ?? null;
+    // Stand where the player will stand, so the room is in front of the camera
+    // rather than behind it.
+    if (level.spawn) camera.position.set(level.spawn[0], 1.6, level.spawn[1]);
+    // AND THEN ACTUALLY DRAW IT, which is the only thing that provably pays
+    // the cost. compileAsync alone got bedroom 3025 -> 871 ms and left the
+    // backrooms at 2272, because it builds the base material programs and not
+    // whatever else the first real frame does -- the shadow depth variants for
+    // a casting spotlight among them. Rather than keep guessing at what it
+    // misses, draw the frame. Whatever the first frame costs, it costs it
+    // here, behind the bar, once.
+    const unculled = [];
+    level.group.traverse((o) => {
+      if (o.isMesh || o.isSkinnedMesh) { unculled.push(o); o.frustumCulled = false; }
+    });
+    try {
+      await renderer.compileAsync(level.group, camera, scene);
+      // frustumCulled off for exactly this draw: a wall behind the camera is
+      // clipped away but its draw call still issues, so its programs are built.
+      // Without it, half of a room warms and the other half stalls on arrival.
+      postFX.render();
+    } catch (err) {
+      console.warn(`warmUp: could not warm "${key}"`, err);
+    }
+    for (const o of unculled) o.frustumCulled = true;
+    level.group.visible = false;
+    await advance('entering the house...');
+  }
+
+  for (const [key, v] of wasVisible) {
+    const level = sceneManager.get(key);
+    if (level) level.group.visible = v;
+  }
+  scene.fog = wasFog;
+  camera.position.copy(camPos);
+  camera.quaternion.copy(camQuat);
+
+  // Both bodies: the monster, and the player's own, which is the same mesh at
+  // the other end of the dial. Waiting on each is a 1.8 MB fetch the browser
+  // serves the second one from cache, then its own pile of programs.
+  setLoadProgress(done / steps, 'something is already inside...');
+  await nextFrame();
+  await Promise.all([okabe.ready, playerBody.ready]);
+  await advance('something is already inside...');
+  const creatureWasVisible = okabe.visible;
+  const fogBefore = scene.fog;
+  const posBefore = camera.position.clone();
+  const maze = sceneManager.get('backrooms');
+  const mazeWasVisible = maze ? maze.group.visible : false;
+  okabe.visible = true;
+  // In the maze, under the maze's fog, lit by the maze's lights and with the
+  // creature in front of the camera -- the exact conditions of the frame it
+  // walks into view on. Warmed anywhere else and it compiles again on arrival.
+  if (maze) maze.group.visible = true;
+  scene.fog = LEVEL_FOG.backrooms ?? null;
+  if (maze?.spawn) {
+    camera.position.set(maze.spawn[0], 1.6, maze.spawn[1]);
+    okabe.setPosition(maze.spawn[0], maze.spawn[1] - 4);
+  }
+  okabe.setCorrection(0);
+  okabe.setSilhouette(true);
+  okabe.update(1 / 60);
+  okabe.setLayer(0);
+  const unculled = [];
+  okabe.group.traverse((o) => {
+    if (o.isMesh || o.isSkinnedMesh) { unculled.push(o); o.frustumCulled = false; }
+  });
+  try {
+    await renderer.compileAsync(okabe.group, camera, scene);
+    postFX.render();
+  } catch (err) {
+    console.warn('warmUp: could not warm the creature', err);
+  }
+  // And the player's body, in the bedroom where the view is first switched,
+  // so the first press of T is not its own half-second stall.
+  const bodyWasVisible = playerBody.visible;
+  playerBody.visible = true;
+  playerBody.setPosition(camera.position.x, camera.position.z);
+  playerBody.update(1 / 60);
+  playerBody.group.traverse((o) => {
+    if (o.isMesh || o.isSkinnedMesh) { unculled.push(o); o.frustumCulled = false; }
+  });
+  try {
+    await renderer.compileAsync(playerBody.group, camera, scene);
+    postFX.render();
+  } catch (err) {
+    console.warn('warmUp: could not warm the player body', err);
+  }
+  playerBody.visible = bodyWasVisible;
+
+  for (const o of unculled) o.frustumCulled = true;
+  okabe.visible = creatureWasVisible;
+  okabe.setSilhouette(false);
+  if (maze) maze.group.visible = mazeWasVisible;
+  scene.fog = fogBefore;
+  camera.position.copy(posBefore);
+  // IT MAY HUNT NOW, and not before. Starting the hunter on a creature whose
+  // shaders have never been built is the one stall a fade cannot cover,
+  // because it lands the moment the thing becomes visible in the corridor.
+  backroomsHunter.setReady(true);
+  await advance('something is already inside...');
+}
+
+warmUp()
+  .catch((err) => console.error('warmUp failed; starting anyway', err))
+  .finally(() => {
+    setLoadProgress(1);
+    // The world is ready either way: a warm-up that failed costs stutter, not
+    // a game nobody can start.
+    backroomsHunter.setReady(true);
+    setTimeout(() => loadingScreen.classList.add('hidden'), 250);
+  });
 
 // ---------- render loop ----------
 const clock = new THREE.Clock();
@@ -2268,6 +2643,13 @@ function tick() {
     lvl?.revealAt?.(camera.position.x, camera.position.z);
     minimap.update();
   }
+
+  // AFTER everything that moves the player and BEFORE the draw, because the
+  // third-person camera is derived from where the player ended this frame.
+  updateThirdPerson(dt);
+  // Switched on the blend rather than the flag, so the swap happens once the
+  // camera has actually left the head instead of on the frame the key is hit.
+  postFX.setCamera(thirdAmount > 0.001 ? thirdCam : camera);
 
   postFX.update(dt);
   postFX.render();
