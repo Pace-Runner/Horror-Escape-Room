@@ -10,6 +10,10 @@ import {
   createFuseCapStampTexture,
   createFixtureSteelTexture,
   createFixtureSteelNormalTexture,
+  createPaintedSteelTexture,
+  createGaugeFaceTexture,
+  createRibbedHoseTexture,
+  createDataPlateTexture,
   createCrtVentTexture,
   createCrtTopVentTexture,
   createPowerSymbolTexture,
@@ -20,6 +24,7 @@ import fuseBoxModelUrl from '../assets/models/fuse_box.glb?url';
 import fuseModelUrl from '../assets/models/fuse.glb?url';
 import crtMonitorModelUrl from '../assets/models/crt_monitor.glb?url';
 import breakerPanelModelUrl from '../assets/models/breaker_panel.glb?url';
+import generatorModelUrl from '../assets/models/generator.glb?url';
 import { createStaticScreenMaterial } from '../world/StaticScreenMaterial.js';
 import { createCctvFeeds, FEED_IDS, FEED_LABELS } from '../world/CctvFeeds.js';
 import { SECURITY_CODE } from '../world/doorPanels.js';
@@ -123,6 +128,32 @@ const BREAKER_TOGGLE_TILT = 0.6;
 const MAIN_LEVER_UP_ANGLE = 0.3;
 const MAIN_LEVER_DOWN_ANGLE = Math.PI - 0.3;
 const MAIN_LEVER_HIT = { size: [0.075, 0.3, 0.2], centre: [0.258, -0.01, 0.1] };
+
+/**
+ * The generator (generator.glb), in the model's own space, which is also how
+ * it stands in the lab: length along x with the control panel on the +X end,
+ * door side to +Z, standing on y = 0. Mirrors build_generator.py.
+ */
+const GENERATOR_BODY = { length: 1.0, depth: 0.7, top: 0.85 };
+/** The face of the control panel, and the rows on it. */
+const GENERATOR_PANEL_X = 0.504;
+const GENERATOR_ROW_Y = { gauge: 0.70, lamp: 0.60, control: 0.50 };
+/** Across the panel: fuel valve on the room side, primer, then the pull-start toward the wall. */
+const GENERATOR_CONTROL_Z = { valve: 0.18, primer: 0.0, starter: -0.18 };
+const GENERATOR_EXHAUST_TOP = [-0.2, 0.925, -0.2];
+const GENERATOR_CABLE_GLAND = [-0.524, 0.35, 0.27];
+/** The three gauges over the controls, and what each reads. */
+const GENERATOR_GAUGES = [
+  { slot: 'valve', label: 'VOLTS', max: 300, step: 50, reads: 'volts' },
+  { slot: 'primer', label: 'Hz', max: 70, step: 10, reads: 'hertz' },
+  { slot: 'starter', label: 'AMPS', max: 80, step: 20, reads: 'amps' }
+];
+/**
+ * How many pulls the starter takes to catch once it has been primed. The
+ * first two cough and roar and die, each louder than the last, which is the
+ * real price of restarting a diesel in a house you are hiding in.
+ */
+const STARTER_PULLS_TO_CATCH = 3;
 
 /** How far the cover swings, and how long it takes. Past square, so it hangs open. */
 const FUSE_COVER_OPEN_ANGLE_IN_RADIANS = 1.83;
@@ -542,19 +573,119 @@ export function createHallwayBasementLevel({
     }
   }
 
-  // generators / fuse box against the side wall
-  const boxMat = new THREE.MeshStandardMaterial({ color: 0x33362f, roughness: 0.7, metalness: 0.3 });
-  const generator = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.2, 0.7), boxMat);
+  /**
+   * The generator: generator.glb (blender/build_generator.py), an enclosed
+   * 1980s diesel standby set, long side to the room with its control panel on
+   * the end that faces into the lab. The model is built standing the way it
+   * stands here, so it is placed without being turned.
+   *
+   * `generator` is its frame. Inside it, `generatorShake` carries everything
+   * that vibrates while the engine runs -- the cabinet and every control on
+   * it. The exhaust hose stays outside it: it is fixed to the wall at its far
+   * end.
+   */
+  const generator = new THREE.Group();
   // Pushed into the corner beside the doorway rather than standing mid-wall.
   // Its front edge stops at z = -2.5, which keeps it clear of the black pool's
   // footprint (nearest edge about -2.46) and of the corner the creature is
   // shown standing in after camera five.
-  generator.position.set(-LAB_W / 2 + 0.55, 0.6, -LAB_D / 2 + 0.4);
+  generator.position.set(-LAB_W / 2 + 0.55, 0, -LAB_D / 2 + 0.4);
   lab.add(generator);
+  const generatorShake = new THREE.Group();
+  generator.add(generatorShake);
   colliders.push({
     minX: generator.position.x - 0.55, maxX: generator.position.x + 0.55,
     minZ: LAB_Z + generator.position.z - 0.4, maxZ: LAB_Z + generator.position.z + 0.4
   });
+
+  loadModel(generatorModelUrl).then((model) => {
+    const paintMap = createPaintedSteelTexture({ base: [62, 112, 106], rust: 0.7 });
+    const paintNormal = createFixtureSteelNormalTexture();
+    model.traverse((child) => {
+      if (!child.isMesh || child.material.name !== 'GenPaint') return;
+      // White, so the texture's own paint colour is not tinted twice.
+      child.material.color.set(0xffffff);
+      child.material.map = paintMap;
+      child.material.normalMap = paintNormal;
+      child.material.needsUpdate = true;
+    });
+    generatorShake.add(model);
+  }).catch((err) => console.error('[lab] generator.glb failed to load', err));
+
+  /**
+   * The exhaust: a ribbed flexible hose from the outlet on the roof up to a
+   * vent high on the wall behind -- a diesel run indoors has to breathe
+   * somewhere, and the hose says someone set this machine up to run down here.
+   */
+  {
+    const wallZ = -LAB_D / 2 - generator.position.z;   // the entrance wall, in the generator's frame
+    const [ex, ey, ez] = GENERATOR_EXHAUST_TOP;
+    // Up under the ceiling, where flue outlets go: a square wall plate with a
+    // round spigot standing off it, and the hose clamped over the spigot. The
+    // hose rises up the wall and only turns in at the very top.
+    const VENT = { x: ex - 0.05, size: 0.2, spigotRadius: 0.045, spigotLength: 0.05 };
+    VENT.y = LAB_H - VENT.size / 2 - 0.04;
+    const spigotEndZ = wallZ + 0.012 + VENT.spigotLength;
+    const hoseCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(ex, ey - 0.01, ez),
+      new THREE.Vector3(ex, ey + 0.25, ez - 0.01),
+      new THREE.Vector3(ex - 0.03, 1.9, ez - 0.05),
+      new THREE.Vector3(VENT.x, 2.7, wallZ + 0.16),
+      new THREE.Vector3(VENT.x, VENT.y - 0.08, wallZ + 0.17),
+      new THREE.Vector3(VENT.x, VENT.y, spigotEndZ + 0.06),
+      new THREE.Vector3(VENT.x, VENT.y, spigotEndZ - 0.01)
+    ]);
+    const ribs = createRibbedHoseTexture();
+    const ribCount = Math.round(hoseCurve.getLength() / 0.022);
+    ribs.map.repeat.set(ribCount, 1);
+    ribs.bumpMap.repeat.set(ribCount, 1);
+    const hose = new THREE.Mesh(
+      new THREE.TubeGeometry(hoseCurve, 110, 0.038, 12, false),
+      new THREE.MeshStandardMaterial({
+        color: 0xffffff, map: ribs.map, bumpMap: ribs.bumpMap, bumpScale: 2,
+        metalness: 0.7, roughness: 0.45
+      })
+    );
+    generator.add(hose);
+
+    const ventMat = new THREE.MeshStandardMaterial({ color: 0x3b3d3c, metalness: 0.6, roughness: 0.55 });
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(VENT.size, VENT.size, 0.012), ventMat);
+    plate.position.set(VENT.x, VENT.y, wallZ + 0.006);
+    generator.add(plate);
+    const spigot = new THREE.Mesh(
+      new THREE.CylinderGeometry(VENT.spigotRadius, VENT.spigotRadius, VENT.spigotLength, 18, 1, true),
+      ventMat
+    );
+    spigot.rotation.x = Math.PI / 2;
+    spigot.position.set(VENT.x, VENT.y, wallZ + 0.012 + VENT.spigotLength / 2);
+    generator.add(spigot);
+    // The clamp band round the end of the hose, over the spigot.
+    const clamp = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.043, 0.043, 0.014, 18),
+      new THREE.MeshStandardMaterial({ color: 0x9a9c98, metalness: 0.85, roughness: 0.3 })
+    );
+    clamp.rotation.x = Math.PI / 2;
+    clamp.position.set(VENT.x, VENT.y, spigotEndZ - 0.012);
+    generator.add(clamp);
+    for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const screw = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.004, 8), clamp.material);
+      screw.rotation.x = Math.PI / 2;
+      screw.position.set(VENT.x + dx * (VENT.size / 2 - 0.018), VENT.y + dy * (VENT.size / 2 - 0.018), wallZ + 0.013);
+      generator.add(screw);
+    }
+  }
+
+  /** The maker's plate on the door: the date that puts the machine in its decade. */
+  const dataPlate = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.16, 0.09),
+    new THREE.MeshStandardMaterial({
+      map: createDataPlateTexture(['DIESEL GENERATING SET', 'MODEL DG-15  15 kVA', '230 V  50 Hz  1500 RPM', 'SERIAL 0471  1983']),
+      metalness: 0.6,
+      roughness: 0.5
+    })
+  );
+  dataPlate.position.set(0.185, 0.72, GENERATOR_BODY.depth / 2 + 0.0065);
+  generatorShake.add(dataPlate);
 
   // ---------- power / fuse puzzle / locked-door objective ----------
 
@@ -1096,7 +1227,7 @@ export function createHallwayBasementLevel({
   // On the WALL above the generator, not hovering behind it. It used to sit at
   // x = -3.29, which is 0.7 m out from the wall and 0.15 m above the
   // generator's top face -- bolted to nothing, in the middle of the air.
-  hazardSign.position.set(-LAB_W / 2 + 0.03, 1.62, generator.position.z);
+  hazardSign.position.set(-LAB_W / 2 + 0.03, GENERATOR_BODY.top + 0.35, generator.position.z);
   hazardSign.rotation.y = Math.PI / 2;
   lab.add(hazardSign);
 
@@ -1115,11 +1246,7 @@ export function createHallwayBasementLevel({
   const CABLE_SAG_IN_METRES = 0.55;
   const CABLE_SAMPLE_COUNT = 9;
   const cableMat = new THREE.MeshStandardMaterial({ color: 0x14120f, roughness: 0.6 });
-  const cableStart = new THREE.Vector3(
-    generator.position.x - 0.35,
-    0.95,
-    generator.position.z + 0.35
-  );
+  const cableStart = new THREE.Vector3(...GENERATOR_CABLE_GLAND).add(generator.position);
   // Into the grommet in the fuse box's underside, where its incoming wires go.
   const cableEnd = fuseBoxPointInLab(0, -FUSE_BOX_HEIGHT / 2 - 0.012, FUSE_BOX_GROMMET_DEPTH);
   const cablePoints = [];
@@ -1182,19 +1309,31 @@ export function createHallwayBasementLevel({
 
   /** How many steps of the sequence are currently satisfied, 0..3. */
   let generatorStepsCompleted = 0;
+  /** Pull-start attempts since the engine was primed; it catches on STARTER_PULLS_TO_CATCH. */
+  let starterPulls = 0;
+  /** control id -> its pilot lamp. */
   const generatorControlMeshes = {};
 
   /**
-   * Repaints the three controls so the player can see how far into the
+   * Whether the engine is turning. It is in every stage but the blackout:
+   * before it, it runs on its own; the blackout kills it; the restart is what
+   * brings it back.
+   */
+  function isGeneratorRunning() {
+    return powerStage !== POWER_STAGE.BLACKOUT;
+  }
+
+  /**
+   * Repaints the three pilot lamps so the player can see how far into the
    * sequence they are without having to remember. Green for a step already
-   * taken, dark for one still outstanding.
+   * taken, dark for one still outstanding -- and all three green while the
+   * engine runs.
    */
   function updateGeneratorControlLights() {
+    const lit = isGeneratorRunning() ? GENERATOR_RESTART_SEQUENCE.length : generatorStepsCompleted;
     GENERATOR_RESTART_SEQUENCE.forEach((controlId, stepIndex) => {
       generatorControlMeshes[controlId].material.emissive.setHex(
-        stepIndex < generatorStepsCompleted
-          ? GENERATOR_CONTROL_COLOR_DONE
-          : GENERATOR_CONTROL_COLOR_IDLE
+        stepIndex < lit ? GENERATOR_CONTROL_COLOR_DONE : GENERATOR_CONTROL_COLOR_IDLE
       );
     });
   }
@@ -1231,12 +1370,29 @@ export function createHallwayBasementLevel({
       return;
     }
 
+    // Whatever the puzzle makes of it, the control moves.
+    animateGeneratorControl(controlId);
+
     if (controlId !== GENERATOR_RESTART_SEQUENCE[generatorStepsCompleted]) {
       generatorStepsCompleted = 0;
+      starterPulls = 0;
       updateGeneratorControlLights();
       onSpark();
       showCaption('It coughs, floods and dies. Wrong order -- and the noise carried anyway.');
       return;
+    }
+
+    // Primed and pulled, it still takes more than one go. Each failed pull
+    // shakes the cabinet harder and is louder than the last.
+    if (controlId === 'starter') {
+      starterPulls += 1;
+      if (starterPulls < STARTER_PULLS_TO_CATCH) {
+        generatorSputterSeconds = 0.4 + starterPulls * 0.5;
+        showCaption(starterPulls === 1
+          ? 'The cord rips out and snaps back. The engine coughs once, and dies.'
+          : 'It catches -- roars for one second -- and dies. The sound goes up through the whole house.');
+        return;
+      }
     }
 
     generatorStepsCompleted += 1;
@@ -1250,48 +1406,200 @@ export function createHallwayBasementLevel({
   }
 
   /**
-   * The three controls, mounted in a row across the generator's front face.
+   * The control panel on the generator's room-facing end, built for 1980s
+   * hardware: three analogue gauges, a pilot lamp over each control, and the
+   * three controls in the order the plate gives them -- fuel valve, primer,
+   * pull-start. The model supplies their mountings; the moving parts are built
+   * here so the puzzle can move them.
    *
-   * Each is pushed into `interactables` in its own right rather than under a
-   * parent group, because Interaction raycasts NON-recursively -- see the note
-   * on the CCTV remote further down for the full reasoning.
+   * Each control's click target is an invisible box round it rather than the
+   * part itself: the parts are small, they move, and Interaction raycasts
+   * non-recursively, so a part with children would never register a hit.
    */
-  const GENERATOR_FACE_X = generator.position.x + 0.51;
-  GENERATOR_RESTART_SEQUENCE.forEach((controlId, i) => {
-    const control = new THREE.Mesh(
-      new THREE.BoxGeometry(0.05, 0.09, 0.07),
-      new THREE.MeshStandardMaterial({
-        color: 0x6a6257,
-        emissive: GENERATOR_CONTROL_COLOR_IDLE,
-        roughness: 0.5,
-        metalness: 0.4
-      })
+  const panelX = GENERATOR_PANEL_X;
+  const rowY = GENERATOR_ROW_Y;
+
+  // The gauges. A needle sweeps the same 270 degrees its face is printed for.
+  const GAUGE_SWEEP_RADIANS = (135 * Math.PI) / 180;
+  const gaugeNeedleGeometry = new THREE.BoxGeometry(0.002, 0.036, 0.0025);
+  gaugeNeedleGeometry.translate(0, 0.016, 0);
+  const gaugeNeedleMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.5 });
+  const gauges = GENERATOR_GAUGES.map((def) => {
+    const z = GENERATOR_CONTROL_Z[def.slot];
+    const faceGeometry = new THREE.CircleGeometry(0.042, 32);
+    faceGeometry.rotateY(Math.PI / 2);
+    const face = new THREE.Mesh(
+      faceGeometry,
+      new THREE.MeshStandardMaterial({ map: createGaugeFaceTexture(def), roughness: 0.4 })
     );
-    control.position.set(GENERATOR_FACE_X, 0.82, generator.position.z - 0.2 + i * 0.2);
-    control.userData.interact = {
+    face.position.set(panelX + 0.0125, rowY.gauge, z);
+    const needle = new THREE.Mesh(gaugeNeedleGeometry, gaugeNeedleMat);
+    needle.position.set(panelX + 0.0145, rowY.gauge, z);
+    generatorShake.add(face, needle);
+    return { def, needle, value: 0 };
+  });
+
+  /** What each gauge should read right now, from the power stage. */
+  function gaugeTarget(def) {
+    if (!isGeneratorRunning()) return 0;
+    if (def.reads === 'volts') return 230;
+    if (def.reads === 'hertz') return 50;
+    if (powerStage === POWER_STAGE.ROUTED) return getTotalBreakerLoadInAmps();
+    if (powerStage === POWER_STAGE.LIT) return 35;   // the lab's lights and cameras, off the fuse
+    return 0;
+  }
+
+  // The fuel valve: a red lever on its boss, pointing up when shut and turned
+  // a quarter toward the room when open.
+  const valveLever = new THREE.Group();
+  valveLever.position.set(panelX + 0.016, rowY.control, GENERATOR_CONTROL_Z.valve);
+  {
+    const red = new THREE.MeshStandardMaterial({ color: 0xa8261c, roughness: 0.45 });
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.012, 16), red);
+    hub.rotation.z = Math.PI / 2;
+    const armGeometry = new THREE.BoxGeometry(0.01, 0.075, 0.018);
+    armGeometry.translate(0, 0.032, 0);
+    valveLever.add(hub, new THREE.Mesh(armGeometry, red));
+  }
+  generatorShake.add(valveLever);
+  let valveAngle = 0;
+
+  // The primer: a black plunger that goes in when pressed and springs back.
+  const primerKnob = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.02, 0.02, 0.03, 20),
+    new THREE.MeshStandardMaterial({ color: 0x181818, roughness: 0.6 })
+  );
+  primerKnob.rotation.z = Math.PI / 2;
+  const PRIMER_REST_X = panelX + 0.035;
+  primerKnob.position.set(PRIMER_REST_X, rowY.control, GENERATOR_CONTROL_Z.primer);
+  generatorShake.add(primerKnob);
+  let primerPressSeconds = 0;
+
+  // The pull-start: a T-handle resting in its cup, on a rope that comes out
+  // of the grommet behind it. A pull rips it out along the rope and lets it
+  // snap back.
+  const ROPE_EXIT = new THREE.Vector3(panelX + 0.012, rowY.control, GENERATOR_CONTROL_Z.starter);
+  const pullHandle = new THREE.Group();
+  {
+    const black = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.55 });
+    const stem = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.014, 0.014), black);
+    stem.position.x = 0.015;
+    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.1, 14), black);
+    grip.rotation.x = Math.PI / 2;
+    grip.position.x = 0.036;
+    pullHandle.add(stem, grip);
+  }
+  pullHandle.position.copy(ROPE_EXIT);
+  generatorShake.add(pullHandle);
+  const rope = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.003, 0.003, 1, 6),
+    new THREE.MeshStandardMaterial({ color: 0xc9bfa0, roughness: 0.9 })
+  );
+  rope.rotation.z = Math.PI / 2;
+  rope.visible = false;
+  generatorShake.add(rope);
+  /** Seconds into the current pull, or -1 when the handle is at rest. */
+  let pullSeconds = -1;
+  const PULL_OUT_SECONDS = 0.22;
+  const PULL_BACK_SECONDS = 0.35;
+  const PULL_LENGTH = 0.38;
+
+  /** Seconds of rough shuddering left after a pull that failed to catch. */
+  let generatorSputterSeconds = 0;
+
+  /** Sets one of the three moving controls going, whatever the puzzle makes of it. */
+  function animateGeneratorControl(controlId) {
+    if (controlId === 'primer') primerPressSeconds = 0.25;
+    if (controlId === 'starter') pullSeconds = 0;
+  }
+
+  // The pilot lamps, one over each control, lit green for a step taken.
+  // updateGeneratorControlLights repaints them through generatorControlMeshes.
+  GENERATOR_RESTART_SEQUENCE.forEach((controlId) => {
+    const lamp = new THREE.Mesh(
+      new THREE.SphereGeometry(0.011, 14, 10),
+      new THREE.MeshStandardMaterial({ color: 0x2f3a2c, roughness: 0.3, emissive: GENERATOR_CONTROL_COLOR_IDLE })
+    );
+    lamp.position.set(panelX + 0.008, rowY.lamp, GENERATOR_CONTROL_Z[controlId]);
+    generatorShake.add(lamp);
+    generatorControlMeshes[controlId] = lamp;
+
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 0.11), new THREE.MeshBasicMaterial({ visible: false }));
+    hit.position.set(panelX + 0.035, rowY.control, GENERATOR_CONTROL_Z[controlId]);
+    hit.userData.interact = {
       label: GENERATOR_CONTROLS[controlId].label,
       onInteract: () => pressGeneratorControl(controlId)
     };
-    interactables.push(control);
-    lab.add(control);
-    generatorControlMeshes[controlId] = control;
+    generatorShake.add(hit);
+    interactables.push(hit);
   });
+  updateGeneratorControlLights();
 
   const restartPlate = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.3, 0.24),
+    new THREE.PlaneGeometry(0.26, 0.16),
     new THREE.MeshStandardMaterial({
       map: createPaperNoteTexture(['RESTART ORDER', '1. FUEL VALVE', '2. PRIME', '3. STARTER']),
       roughness: 1
     })
   );
-  restartPlate.position.set(GENERATOR_FACE_X + 0.005, 1.05, generator.position.z);
+  restartPlate.position.set(panelX + 0.0015, 0.32, 0);
   restartPlate.rotation.y = Math.PI / 2;
   restartPlate.userData.interact = {
     label: 'Read the restart plate',
     onInteract: () => showCaption('"RESTART ORDER: 1. FUEL VALVE. 2. PRIME. 3. STARTER."')
   };
   interactables.push(restartPlate);
-  lab.add(restartPlate);
+  generatorShake.add(restartPlate);
+
+  dynamics.push({
+    update(dt, elapsed) {
+      // Running, it hums through the floor; a failed pull shakes it hard.
+      if (generatorSputterSeconds > 0) generatorSputterSeconds = Math.max(0, generatorSputterSeconds - dt);
+      const shake = (isGeneratorRunning() ? 1 : 0) + Math.min(1, generatorSputterSeconds) * 3;
+      generatorShake.position.x = Math.sin(elapsed * 97) * 0.0006 * shake;
+      generatorShake.position.z = Math.sin(elapsed * 83 + 1.3) * 0.0006 * shake;
+      generatorShake.rotation.z = Math.sin(elapsed * 71 + 0.4) * 0.0012 * shake;
+
+      gauges.forEach((gauge) => {
+        const target = gaugeTarget(gauge.def);
+        gauge.value += (target - gauge.value) * Math.min(1, dt * 2.5);
+        // A running engine never holds a needle perfectly still.
+        const jitter = isGeneratorRunning() ? Math.sin(elapsed * 23 + gauge.def.max) * gauge.def.max * 0.004 : 0;
+        const frac = THREE.MathUtils.clamp((gauge.value + jitter) / gauge.def.max, 0, 1);
+        gauge.needle.rotation.x = GAUGE_SWEEP_RADIANS * (1 - 2 * frac);
+      });
+
+      const valveOpen = isGeneratorRunning() || generatorStepsCompleted >= 1;
+      const valveTarget = valveOpen ? Math.PI / 2 : 0;
+      valveAngle += (valveTarget - valveAngle) * Math.min(1, dt * 12);
+      valveLever.rotation.x = valveAngle;
+
+      if (primerPressSeconds > 0) primerPressSeconds = Math.max(0, primerPressSeconds - dt);
+      primerKnob.position.x = PRIMER_REST_X - (primerPressSeconds > 0 ? 0.014 : 0);
+
+      let pulled = 0;
+      if (pullSeconds >= 0) {
+        pullSeconds += dt;
+        if (pullSeconds < PULL_OUT_SECONDS) {
+          const t = pullSeconds / PULL_OUT_SECONDS;
+          pulled = 1 - (1 - t) * (1 - t);
+        } else if (pullSeconds < PULL_OUT_SECONDS + PULL_BACK_SECONDS) {
+          const t = (pullSeconds - PULL_OUT_SECONDS) / PULL_BACK_SECONDS;
+          pulled = 1 - t * t;
+        } else {
+          pullSeconds = -1;
+        }
+      }
+      const reach = pulled * PULL_LENGTH;
+      pullHandle.position.set(ROPE_EXIT.x + reach, ROPE_EXIT.y - pulled * 0.03, ROPE_EXIT.z);
+      rope.visible = reach > 0.004;
+      if (rope.visible) {
+        rope.scale.y = reach;
+        rope.position.set(ROPE_EXIT.x + reach / 2, ROPE_EXIT.y - pulled * 0.015, ROPE_EXIT.z);
+        rope.rotation.z = Math.PI / 2 - Math.atan2(pulled * 0.03, reach);
+      }
+    }
+  });
 
   // ---------- puzzle 2b: the breaker panel ----------
 
@@ -2530,6 +2838,11 @@ export function createHallwayBasementLevel({
     // finds the panel this way, having seen it all up on the way in.
     setAllBreakers(false);
     setMainLever(false);
+    // And the engine dies with it: its lamps go out, its needles fall, and
+    // its fuel valve is found shut -- someone was at that too.
+    generatorStepsCompleted = 0;
+    starterPulls = 0;
+    updateGeneratorControlLights();
 
     screenMaterial.uniforms.uNoiseStrength.value = 1.0;
     screenMaterial.uniforms.uStaticMix.value = 1;
@@ -2891,6 +3204,8 @@ export function createHallwayBasementLevel({
       // after a solved panel would restart the level with the generator's
       // sequence half-entered and every breaker still showing green.
       generatorStepsCompleted = 0;
+      starterPulls = 0;
+      generatorSputterSeconds = 0;
       updateGeneratorControlLights();
       breakerTripTimeRemainingInSeconds = 0;
       setAllBreakers(true);

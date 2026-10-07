@@ -3265,6 +3265,202 @@ export function createFixtureSteelNormalTexture() {
 }
 
 /**
+ * Worn paint on sheet steel, in any colour: the shared finish for painted
+ * machinery. Built off the same height field as the fixture steel (orange
+ * peel, dents, scratches), so createFixtureSteelNormalTexture is its normal
+ * map too. The scratches go through to bare grey metal, rust blooms out of a
+ * few of them and runs down, and grime gathers toward the bottom, where a
+ * machine standing on a floor collects it.
+ *
+ * `base` is the paint as [r, g, b] in sRGB.
+ */
+export function createPaintedSteelTexture({ base = [52, 104, 98], rust = 0.6 } = {}) {
+  const height = fixtureSteelHeight();
+  const hData = height.getContext('2d').getImageData(0, 0, height.width, height.height).data;
+  const S = height.width;
+  const canvas = makeCanvas(S, S);
+  const ctx = canvas.getContext('2d');
+  const out = ctx.createImageData(S, S);
+  for (let i = 0; i < hData.length; i += 4) {
+    // The height field only shades the paint -- its orange peel is far too
+    // busy to stand in for scratches, which read as camouflage when it did.
+    const shade = 0.9 + (hData[i] / 255) * 0.16;
+    out.data[i] = base[0] * shade;
+    out.data[i + 1] = base[1] * shade;
+    out.data[i + 2] = base[2] * shade;
+    out.data[i + 3] = 255;
+  }
+  ctx.putImageData(out, 0, 0);
+
+  // Scratches through to bare steel, and a few chips knocked out of the edges
+  // of panels -- drawn on purpose, sparse, the way wear actually lands.
+  ctx.strokeStyle = 'rgba(150, 150, 146, 0.55)';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 14; i++) {
+    const x = Math.random() * S;
+    const y = Math.random() * S;
+    const a = Math.random() * Math.PI * 2;
+    const len = 8 + Math.random() * 30;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + Math.cos(a) * len, y + Math.sin(a) * len);
+    ctx.stroke();
+  }
+  for (let i = 0; i < 5; i++) {
+    ctx.fillStyle = 'rgba(132, 132, 128, 0.8)';
+    blobPath(ctx, Math.random() * S, Math.random() * S, 2 + Math.random() * 4, 1.5 + Math.random() * 3);
+    ctx.fill();
+  }
+
+  for (let i = 0; i < 6; i++) {
+    const x = Math.random() * S;
+    const y = Math.random() * S * 0.8;
+    const r = 6 + Math.random() * 16;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(112, 60, 26, ${0.35 + rust * 0.4})`);
+    g.addColorStop(1, 'rgba(112, 60, 26, 0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    // The run below it.
+    const run = ctx.createLinearGradient(0, y, 0, y + 40 + Math.random() * 60);
+    run.addColorStop(0, `rgba(104, 58, 28, ${0.25 * rust})`);
+    run.addColorStop(1, 'rgba(104, 58, 28, 0)');
+    ctx.fillStyle = run;
+    ctx.fillRect(x - 1.5, y, 3, 100);
+  }
+  const grime = ctx.createLinearGradient(0, S, 0, S * 0.55);
+  grime.addColorStop(0, 'rgba(40, 34, 24, 0.35)');
+  grime.addColorStop(1, 'rgba(40, 34, 24, 0)');
+  ctx.fillStyle = grime;
+  ctx.fillRect(0, 0, S, S);
+
+  return finish(canvas, 1, 1);
+}
+
+/**
+ * An analogue panel gauge's face: cream, with a black scale sweeping 270
+ * degrees from bottom-left to bottom-right, numbers every `step`, a red band
+ * at the top of the range, and its unit printed under the pivot. Laid out for
+ * a CircleGeometry, which maps the disc onto the whole canvas.
+ *
+ * The level turns its needle with the same 270-degree sweep, so a value on
+ * the needle reads against the same number here.
+ */
+export function createGaugeFaceTexture({ label, max, step }) {
+  const S = 256;
+  const c = S / 2;
+  const canvas = makeCanvas(S, S);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#e8e0c8';
+  ctx.beginPath(); ctx.arc(c, c, c, 0, Math.PI * 2); ctx.fill();
+  // Yellowed toward the rim, under forty years of a dirty glass.
+  const age = ctx.createRadialGradient(c, c, c * 0.4, c, c, c);
+  age.addColorStop(0, 'rgba(150, 120, 60, 0)');
+  age.addColorStop(1, 'rgba(150, 120, 60, 0.35)');
+  ctx.fillStyle = age;
+  ctx.beginPath(); ctx.arc(c, c, c, 0, Math.PI * 2); ctx.fill();
+
+  // Angle 0 is straight up; the scale runs -135 to +135 degrees, clockwise.
+  const toCanvas = (deg, r) => {
+    const a = (deg - 90) * Math.PI / 180;
+    return [c + Math.cos(a) * r, c + Math.sin(a) * r];
+  };
+  const SWEEP = 135;
+  ctx.strokeStyle = '#a11d16';
+  ctx.lineWidth = 10;
+  ctx.beginPath();
+  ctx.arc(c, c, c * 0.78, (SWEEP * 0.72 - 90) * Math.PI / 180, (SWEEP - 90) * Math.PI / 180);
+  ctx.stroke();
+
+  ctx.strokeStyle = '#1a1712';
+  ctx.fillStyle = '#1a1712';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold 22px Arial, sans-serif';
+  const minorEvery = step / 5;
+  for (let v = 0; v <= max + 1e-6; v += minorEvery) {
+    const deg = -SWEEP + (v / max) * 2 * SWEEP;
+    const major = Math.abs(v / step - Math.round(v / step)) < 1e-6;
+    const [x0, y0] = toCanvas(deg, c * (major ? 0.68 : 0.74));
+    const [x1, y1] = toCanvas(deg, c * 0.84);
+    ctx.lineWidth = major ? 4 : 2;
+    ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+    if (major) {
+      const [tx, ty] = toCanvas(deg, c * 0.52);
+      ctx.fillText(String(Math.round(v)), tx, ty);
+    }
+  }
+  ctx.font = 'bold 26px Arial, sans-serif';
+  ctx.fillText(label, c, c * 1.45);
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = '#111';
+  ctx.beginPath(); ctx.arc(c, c, c - 4, 0, Math.PI * 2); ctx.stroke();
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+/**
+ * Ribbed flexible exhaust hose: bands of bright and shadowed metal running
+ * round it. For a TubeGeometry, whose u runs along the hose -- set
+ * `map.repeat.x` to the number of ribs along its length. Returns a colour map
+ * and a bump map from the same bands.
+ */
+export function createRibbedHoseTexture() {
+  const W = 64;
+  const H = 16;
+  const colour = makeCanvas(W, H);
+  const cctx = colour.getContext('2d');
+  const height = makeCanvas(W, H);
+  const hctx = height.getContext('2d');
+  for (let x = 0; x < W; x++) {
+    const ridge = 0.5 + 0.5 * Math.cos((x / W) * Math.PI * 2);
+    const v = Math.round(70 + ridge * 110);
+    cctx.fillStyle = `rgb(${v}, ${v}, ${Math.round(v * 0.97)})`;
+    cctx.fillRect(x, 0, 1, H);
+    const hv = Math.round(ridge * 255);
+    hctx.fillStyle = `rgb(${hv}, ${hv}, ${hv})`;
+    hctx.fillRect(x, 0, 1, H);
+  }
+  return { map: finish(colour, 1, 1), bumpMap: finishBump(height, 1, 1) };
+}
+
+/**
+ * The maker's plate riveted to the generator's door: stamped brushed
+ * aluminium, with the date that puts the machine squarely in its decade.
+ */
+export function createDataPlateTexture(lines) {
+  const W = 320;
+  const H = 180;
+  const canvas = makeCanvas(W, H);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#a9aba8';
+  ctx.fillRect(0, 0, W, H);
+  // Brushed: fine horizontal streaks.
+  for (let y = 0; y < H; y++) {
+    ctx.fillStyle = `rgba(${Math.random() < 0.5 ? '255,255,255' : '0,0,0'}, ${Math.random() * 0.08})`;
+    ctx.fillRect(0, y, W, 1);
+  }
+  ctx.strokeStyle = '#2a2a28';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(10, 10, W - 20, H - 20);
+  ctx.fillStyle = '#5a5c58';
+  for (const [x, y] of [[20, 20], [W - 20, 20], [20, H - 20], [W - 20, H - 20]]) {
+    ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.fillStyle = '#1e1e1c';
+  ctx.textAlign = 'center';
+  lines.forEach((line, i) => {
+    ctx.font = i === 0 ? 'bold 24px Arial, sans-serif' : '19px "Courier New", monospace';
+    ctx.fillText(line, W / 2, 48 + i * 30);
+  });
+  return finish(canvas, 1, 1);
+}
+
+
+/**
  * The glare around a lit fixture -- a sprite, not geometry.
  *
  * There is no bloom in this game (world/Postprocessing.js is RenderPass, the

@@ -260,14 +260,31 @@ The player keeps their flashlight, so the dark lab stays navigable.
 
 ## Puzzle 3 -- the generator
 
-Three controls in a row across the generator's front face, worked in the
-order given by a plate bolted above them:
+The generator is `generator.glb` (`blender/build_generator.py`): an
+**enclosed diesel standby set, right for the 1980s**. That means a sheet-steel
+cabinet in worn teal paint (`createPaintedSteelTexture`, the shared finish for
+painted machinery), a latched access door, louvres, and a steel skid with
+forklift pockets rather than modern casters. Its control panel faces the room
+and is laid out for period hardware: three analogue gauges (volts, Hz, amps),
+a pilot lamp over each control, and a maker's plate dated 1983. A ribbed
+exhaust hose runs from the roof outlet to a vent high on the wall behind.
+
+Three controls in a row across the control panel, worked in the order given
+by the plate under them:
 
 ```
 GENERATOR_RESTART_SEQUENCE = ['valve', 'primer', 'starter']
 ```
 
-- **Correct step** -> that control lights green, caption acknowledges it.
+- **Each control moves when worked**: the fuel valve's red lever turns a
+  quarter, the primer plunger goes in and springs back, and the pull-start's
+  T-handle rips out on its rope and snaps back.
+- **Correct step** -> that control's pilot lamp lights green, and a caption
+  acknowledges it.
+- **The pull-start takes `STARTER_PULLS_TO_CATCH = 3` pulls** once primed.
+  The first coughs, the second roars for a second and dies, each shaking the
+  cabinet harder; the third catches. That's the real price of restarting a
+  diesel in a house you are hiding in.
 - **Wrong step** -> `generatorStepsCompleted` resets to `0`, every light
   goes dark, a spark fires: *"It coughs, floods and dies."*
 - **Third correct step** -> `startGenerator()` moves the stage to
@@ -275,6 +292,13 @@ GENERATOR_RESTART_SEQUENCE = ['valve', 'primer', 'starter']
 
 The green lights exist so the player can see how far into the sequence
 they are without having to remember, which matters when the room is dark.
+
+**Running vs dead.** `isGeneratorRunning()` is true in every stage but the
+blackout. While running, the cabinet vibrates, all three lamps are green, the
+fuel valve is open, and the needles sit at 230 V and 50 Hz; the ammeter reads
+the real load (35A off the fuse, the routed breakers' total after the panel).
+The blackout kills it: the needles fall, the lamps go out, and **the fuel
+valve is found shut**, another sign that a hand, not a fault, did this.
 
 Outside `BLACKOUT` the controls only talk: before the main is thrown the
 generator is already turning over, and afterwards it is running. Neither
