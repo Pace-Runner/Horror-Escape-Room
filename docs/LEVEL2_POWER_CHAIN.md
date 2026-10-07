@@ -108,9 +108,14 @@ the ceiling), and a **hinged, transparent cover**.
 - **Four slots, one empty.** Three glass fuses are part of the box model
   itself and never move. The third slot is empty, and it is the only one the
   player ever fills.
-- **The cover is its own click.** The first E opens it (`openFuseCover`);
-  only then does the slot take a fuse. The dirty pane lets the player see
-  the empty clips before touching anything.
+- **The cover is its own click.** The first E opens it; only then does the
+  slot take a fuse. The dirty pane lets the player see the empty clips
+  before touching anything. **It closes again** from a click on the open
+  cover itself (`setFuseCoverOpen`), and reopening restores whatever the
+  slot was offering.
+- **An open cover is solid.** While it stands out into the room it has a
+  collider (`setSwingCollider`), added on opening and removed on closing.
+  The player used to walk straight through it.
 - **Every fuse is the same glass cartridge** (`blender/glass_fuse.py`):
   nickel caps, a glass tube, blue end sleeves and an S-shaped element, about
   the size of a toilet-roll tube (4.8 cm by 10 cm). The four loose ones are
@@ -327,7 +332,10 @@ capitals** after a marine switch panel (`createSwitchLabelTexture`), drawn
 from `BREAKER_CIRCUITS` so it always matches the load chart.
 
 - **A smoked cover, hinged along the top, lifts up to reach the breakers.**
-  The first press opens it (`openBreakerCover`) and it stays up.
+  The first press lifts it; a press on the raised cover lowers it again
+  (`setBreakerCoverOpen`). Its click target rides on a stand-in for the
+  hinge, so it is always wherever the cover is. While raised it sticks out
+  at head height, so it gets a collider just like the fuse box cover.
 - **The main is a lever on the right-hand side**, a steel arm on a screwed
   plate with a green-over-red handle, after a photo of an old one. Up is on.
 - **Every breaker and the lever start UP**, because until the blackout this

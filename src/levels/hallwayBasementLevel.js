@@ -71,6 +71,8 @@ const FUSE_BOX_DEPTH = 0.13;
 const FUSE_BOX_SLOT_X = [-0.15, -0.05, 0.05, 0.15];
 const FUSE_BOX_FUSE_DEPTH = 0.062;
 const FUSE_BOX_GROMMET_DEPTH = 0.07;
+/** The cover's hinge line: its right-hand edge, just proud of the box's face. */
+const FUSE_COVER_HINGE = { x: 0.274, z: 0.136 };
 
 /**
  * The one slot the player ever fills -- third from the left, as in the
@@ -931,6 +933,28 @@ export function createHallwayBasementLevel({
   );
 
   /**
+   * A collider that only exists while something is swung out into the room --
+   * an open cover. `holder.box` is the live entry in `colliders`, which the
+   * player reads every frame, so adding or removing it takes effect at once.
+   */
+  function setSwingCollider(holder, pointsInLab) {
+    if (holder.box) {
+      const i = colliders.indexOf(holder.box);
+      if (i >= 0) colliders.splice(i, 1);
+      holder.box = null;
+    }
+    if (!pointsInLab) return;
+    const PAD = 0.02;
+    const xs = pointsInLab.map((p) => p.x);
+    const zs = pointsInLab.map((p) => p.z);
+    holder.box = {
+      minX: Math.min(...xs) - PAD, maxX: Math.max(...xs) + PAD,
+      minZ: LAB_Z + Math.min(...zs) - PAD, maxZ: LAB_Z + Math.max(...zs) + PAD
+    };
+    colliders.push(holder.box);
+  }
+
+  /**
    * The fuse box, after a four-way cartridge board: see
    * blender/build_fuse_box.py. Its back sits on the west wall and it faces
    * into the room -- the model faces its own +Z, and a quarter turn takes that
@@ -975,13 +999,68 @@ export function createHallwayBasementLevel({
    * loaded. The open/closed state does not wait for it; the cover simply
    * appears in whichever state the player has already put it in.
    */
-  const fuseCover = { open: false, pivot: null, closedRotationY: 0, angle: 0 };
+  const fuseCover = { open: false, pivot: null, closedRotationY: 0, angle: 0, everOpened: false };
   const FUSE_COVER_CLOSED_LABEL = 'Open the fuse box cover';
+  const fuseCoverCollider = { box: null };
 
-  function openFuseCover() {
-    fuseCover.open = true;
-    fuseBox.userData.interact.label = 'Empty fuse slot';
-    showCaption('The cover sticks, then swings out on stiff hinges. Three fuses, and one pair of empty clips.');
+  /**
+   * A stand-in for the cover's hinge, built here so it exists before the model
+   * does, turned in step with the real one. The open cover's click target
+   * rides on it -- so it is wherever the cover is -- and is only in the target
+   * list while the cover is open: closed, the box's front target opens it.
+   */
+  const fuseCoverHinge = new THREE.Group();
+  fuseCoverHinge.position.set(FUSE_COVER_HINGE.x, 0, FUSE_COVER_HINGE.z);
+  fuseBoxModel.add(fuseCoverHinge);
+  const fuseCoverHit = new THREE.Mesh(
+    new THREE.BoxGeometry(FUSE_BOX_WIDTH, FUSE_BOX_HEIGHT, 0.02),
+    new THREE.MeshBasicMaterial({ visible: false })
+  );
+  fuseCoverHit.position.x = -FUSE_BOX_WIDTH / 2;
+  fuseCoverHinge.add(fuseCoverHit);
+  fuseCoverHit.userData.interact = {
+    label: 'Close the fuse box cover',
+    onInteract: () => setFuseCoverOpen(false)
+  };
+
+  /** What the slot offers once the cover is out of the way, from what is in it. */
+  function fuseSlotLabel() {
+    if (puzzleState.slotFuse === CORRECT_FUSE_AMPS) return 'Fuse seated (30A)';
+    if (puzzleState.slotFuse) return 'Remove fuse';
+    return 'Empty fuse slot';
+  }
+
+  /**
+   * Opens or shuts the cover. Open, it swings out into the room, so it gets a
+   * collider for as long as it stands there -- the player used to walk
+   * straight through it. `quiet` skips the caption, for a restart.
+   */
+  function setFuseCoverOpen(open, { quiet = false } = {}) {
+    fuseCover.open = open;
+    const i = interactables.indexOf(fuseCoverHit);
+    if (open && i < 0) interactables.push(fuseCoverHit);
+    if (!open && i >= 0) interactables.splice(i, 1);
+    fuseBox.userData.interact.label = open ? fuseSlotLabel() : FUSE_COVER_CLOSED_LABEL;
+
+    if (open) {
+      // The swung-out cover, hinge to free edge, in lab space.
+      const reach = FUSE_BOX_WIDTH;
+      const a = FUSE_COVER_OPEN_ANGLE_IN_RADIANS;
+      setSwingCollider(fuseCoverCollider, [
+        fuseBoxPointInLab(FUSE_COVER_HINGE.x, 0, FUSE_COVER_HINGE.z),
+        fuseBoxPointInLab(FUSE_COVER_HINGE.x - reach * Math.cos(a), 0, FUSE_COVER_HINGE.z + reach * Math.sin(a))
+      ]);
+    } else {
+      setSwingCollider(fuseCoverCollider, null);
+    }
+
+    if (quiet) return;
+    if (open && !fuseCover.everOpened) {
+      showCaption('The cover sticks, then swings out on stiff hinges. Three fuses, and one pair of empty clips.');
+    } else {
+      showCaption(open ? 'You swing the cover open.' : 'You swing the cover shut.');
+    }
+    if (open) fuseCover.everOpened = true;
   }
 
   dynamics.push({
@@ -993,6 +1072,7 @@ export function createHallwayBasementLevel({
         ? Math.min(target, fuseCover.angle + step)
         : Math.max(target, fuseCover.angle - step);
       if (fuseCover.pivot) fuseCover.pivot.rotation.y = fuseCover.closedRotationY + fuseCover.angle;
+      fuseCoverHinge.rotation.y = fuseCover.angle;
     }
   });
 
@@ -1050,7 +1130,7 @@ export function createHallwayBasementLevel({
     label: FUSE_COVER_CLOSED_LABEL,
     onInteract: () => {
       if (!fuseCover.open) {
-        openFuseCover();
+        setFuseCoverOpen(true);
         return;
       }
 
@@ -1871,6 +1951,7 @@ export function createHallwayBasementLevel({
   const breakerPanelModel = new THREE.Group();
   breakerPanelModel.position.set(-LAB_W / 2, 1.4, 1.7);
   breakerPanelModel.rotation.y = Math.PI / 2;
+  breakerPanelModel.updateMatrix();
   lab.add(breakerPanelModel);
 
   const hiddenHitMat = new THREE.MeshBasicMaterial({ visible: false });
@@ -1943,26 +2024,55 @@ export function createHallwayBasementLevel({
   interactables.push(breakerPanel);
 
   /**
-   * The cover's click target: in front of the closed cover, so the first
-   * press anywhere over the breakers lifts it. Taken out of the target list
-   * once the cover is up, so the toggles behind it can be reached.
+   * The cover's click target rides on a stand-in for its hinge, turned in step
+   * with the real one, so it is always wherever the cover is: down in front of
+   * the levers to lift it, up above them to close it. Closed, it sits in front
+   * of the levers, so the first press anywhere over them lifts the cover.
    */
-  const breakerCoverHit = hitBox(
-    [BREAKER_COVER.width, BREAKER_COVER.height, 0.01],
-    [0, BREAKER_COVER.hingeY - BREAKER_COVER.height / 2, BREAKER_COVER.hingeZ + 0.01]
+  const breakerCoverHinge = new THREE.Group();
+  breakerCoverHinge.position.set(0, BREAKER_COVER.hingeY, BREAKER_COVER.hingeZ);
+  breakerPanelModel.add(breakerCoverHinge);
+  const breakerCoverHit = new THREE.Mesh(
+    new THREE.BoxGeometry(BREAKER_COVER.width, BREAKER_COVER.height, 0.012),
+    hiddenHitMat
   );
+  breakerCoverHit.position.set(0, -BREAKER_COVER.height / 2, 0.006);
+  breakerCoverHinge.add(breakerCoverHit);
   breakerCoverHit.userData.interact = {
     label: 'Lift the breaker cover',
-    onInteract: () => openBreakerCover()
+    onInteract: () => setBreakerCoverOpen(!breakerCover.open)
   };
   interactables.push(breakerCoverHit);
+  const breakerCoverCollider = { box: null };
+
+  /**
+   * Lifts or lowers the cover. Up, it stands out into the room at head
+   * height, so it gets a collider for as long as it is up. `quiet` skips the
+   * caption, for a restart.
+   */
+  function setBreakerCoverOpen(open, { quiet = false } = {}) {
+    breakerCover.open = open;
+    breakerCoverHit.userData.interact.label = open ? 'Close the breaker cover' : 'Lift the breaker cover';
+    if (open) {
+      // The raised cover, hinge line to free edge, across its whole width.
+      const a = BREAKER_COVER_OPEN_ANGLE;
+      const tipY = BREAKER_COVER.hingeY - BREAKER_COVER.height * Math.cos(a);
+      const tipZ = BREAKER_COVER.hingeZ - BREAKER_COVER.height * Math.sin(a);
+      const half = BREAKER_COVER.width / 2;
+      setSwingCollider(breakerCoverCollider, [
+        [-half, BREAKER_COVER.hingeY, BREAKER_COVER.hingeZ], [half, BREAKER_COVER.hingeY, BREAKER_COVER.hingeZ],
+        [-half, tipY, tipZ], [half, tipY, tipZ]
+      ].map((p) => new THREE.Vector3(...p).applyMatrix4(breakerPanelModel.matrix)));
+    } else {
+      setSwingCollider(breakerCoverCollider, null);
+    }
+    if (!quiet) {
+      showCaption(open ? 'The smoked cover lifts on a stiff hinge and stays up.' : 'You lower the cover over the breakers.');
+    }
+  }
 
   function openBreakerCover() {
-    if (breakerCover.open) return;
-    breakerCover.open = true;
-    const i = interactables.indexOf(breakerCoverHit);
-    if (i >= 0) interactables.splice(i, 1);
-    showCaption('The smoked cover lifts on a stiff hinge and stays up.');
+    if (!breakerCover.open) setBreakerCoverOpen(true);
   }
 
   /**
@@ -2053,12 +2163,12 @@ export function createHallwayBasementLevel({
     mainSwitch.userData.interact.label = up ? 'Main lever (up)' : 'Push the main lever up';
   }
 
-  /** Puts the cover back down, for a restart. */
+  /** Puts the cover back down at once, for a restart. */
   function closeBreakerCover() {
-    breakerCover.open = false;
+    setBreakerCoverOpen(false, { quiet: true });
     breakerCover.angle = 0;
+    breakerCoverHinge.rotation.x = 0;
     if (breakerCover.pivot) breakerCover.pivot.rotation.x = 0;
-    if (!interactables.includes(breakerCoverHit)) interactables.push(breakerCoverHit);
   }
 
   dynamics.push({
@@ -2070,6 +2180,7 @@ export function createHallwayBasementLevel({
           ? Math.max(coverTarget, breakerCover.angle - step)
           : Math.min(coverTarget, breakerCover.angle + step);
         if (breakerCover.pivot) breakerCover.pivot.rotation.x = breakerCover.angle;
+        breakerCoverHinge.rotation.x = breakerCover.angle;
       }
 
       // A lever the panel would not take, falling back.
@@ -3239,10 +3350,11 @@ export function createHallwayBasementLevel({
       screenMaterial.uniforms.uPower.value = 0;
       syncMonitor();
 
-      fuseCover.open = false;
+      setFuseCoverOpen(false, { quiet: true });
+      fuseCover.everOpened = false;
       fuseCover.angle = 0;
+      fuseCoverHinge.rotation.y = 0;
       if (fuseCover.pivot) fuseCover.pivot.rotation.y = fuseCover.closedRotationY;
-      fuseBox.userData.interact.label = FUSE_COVER_CLOSED_LABEL;
       metalDoor.userData.interact.label = DOOR_LABELS[POWER_STAGE.DEAD];
 
       fuseData.forEach((data, i) => {
