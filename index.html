@@ -25,6 +25,11 @@
     <div id="objective"></div>
     <div id="interact-prompt"></div>
     <div id="flashlight-status">FLASHLIGHT: <span id="flashlight-state">not found</span></div>
+    <!-- Clickable, and bound to T as well. The button is the one that works
+         when the pointer is NOT locked (the start screen, the pause menu); the
+         key is the one that works while playing, because clicking anything
+         during play drops pointer lock. -->
+    <button id="third-person-toggle" type="button" title="Switch view (T)">View: 1st</button>
 
     <div id="minimap-wrap">
       <canvas id="minimap"></canvas>
@@ -110,7 +115,7 @@
     <button id="settings-button">Settings</button>
     <button id="restart-button" class="hidden">Restart</button>
     <div id="start-controls">
-      WASD move &middot; SHIFT sprint &middot; CTRL crouch &middot; mouse look &middot; E interact &middot; F flashlight &middot; V visor &middot; 1/2/3/4 preview rooms &middot; G skip to exit &middot; R restart &middot; C credits
+      WASD move &middot; SHIFT sprint &middot; CTRL crouch &middot; mouse look &middot; E interact &middot; F flashlight &middot; V visor &middot; T 1st/3rd person &middot; 1/2/3/4 preview rooms &middot; G skip to exit &middot; R restart &middot; C credits
     </div>
   </div>
 

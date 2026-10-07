@@ -49,7 +49,8 @@ export function createPostFX(renderer, scene, camera) {
   composer.setPixelRatio(renderer.getPixelRatio());
   composer.setSize(size.width, size.height);
 
-  composer.addPass(new RenderPass(scene, camera));
+  const renderPass = new RenderPass(scene, camera);
+  composer.addPass(renderPass);
   const visorPass = new VisorPass();
   composer.addPass(visorPass);
   // Last, always. See note 1.
@@ -80,6 +81,21 @@ export function createPostFX(renderer, scene, camera) {
   return {
     composer,
     visorPass,
+
+    /**
+     * Draw from a different camera, for the third-person view.
+     *
+     * The alternative was moving the player's camera back, and it is worse in
+     * a way that is easy to miss: that camera IS the player. Its position is
+     * read as the player's position by the hunter's sightlines, the breathing
+     * distance, the minimap and the level reveal, and the torch, the hands and
+     * the dust are all parented to it. Pulling it two metres backwards would
+     * quietly move the player two metres backwards as well. Swapping only what
+     * the RenderPass draws from leaves every one of those alone.
+     */
+    setCamera(cam) {
+      renderPass.camera = cam;
+    },
 
     /** @param on {boolean} — ramps toward worn / not worn. */
     setVisor(on) {

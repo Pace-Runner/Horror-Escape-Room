@@ -82,6 +82,53 @@ ARM_A_POSE = math.radians(15)
 TORSO_SEGMENTS = 16
 LIMB_SEGMENTS = 12
 
+# 20%, applied to every limb radius and to the sleeve that covers one.
+#
+# The arms, hands and legs read as too thin to be a person -- which matters
+# specifically because the twist depends on the Hollow being a DISTORTION of a
+# human body rather than a different species. The human reading has to be
+# convincingly human for the Hollow to be a corruption of it.
+#
+# THE SLEEVE SCALES WITH THE ARM, and it has to. The sleeve's inner wall sits at
+# (outer radius - SLEEVE_T), and at the elbow that cleared the skin by 6 mm.
+# Scaling the arm alone would have closed that to -1.4 mm and pushed bare
+# forearm through the coat -- the same failure the deltoid comment below
+# records, where 8 mm of skin showed over the shoulder. Scaling both keeps the
+# clearance proportional and in fact widens it, because SLEEVE_T is a fixed wall
+# thickness rather than a ratio: the gap goes from (R - r) - T to
+# 1.2*(R - r) - T. scratchpad/girthcheck.py measures it rather than trusting
+# that argument.
+#
+# The Hollow is unchanged in ABSOLUTE terms, deliberately -- see LIMB_THIN,
+# which is expressed against the thickened human radius so the emaciated
+# reading stays exactly as thin as it was while the human reading grows. The
+# contrast between the two readings is what the dial is for, and this widens it.
+LIMB_GIRTH = 1.20
+
+# ARMS ARE ON THEIR OWN DIAL, because the two readings want opposite things
+# from them and a single number cannot deliver both. Seen side by side, the
+# human arms came out tubular at 1.20 while the Hollow's stayed pencil-thin --
+# so this pulls the human arm IN and ARM_THIN below pushes the Hollow's OUT.
+# The legs keep LIMB_GIRTH.
+#
+# 0.95, i.e. slightly under the ORIGINAL radius and about 21% down on what 1.20
+# produced. Annabelle is written as underweight (BMI 18.8), so a thin arm is on
+# brief for her; it was only ever the Hollow that needed mass.
+ARM_GIRTH = 0.95
+
+
+def girth(sections, k=None):
+    """
+    Scale a limb's RADII by a girth dial, leaving the distances alone.
+
+    A fourth column, if present, is the ring's rearward offset and passes
+    through UNSCALED: it places the ring rather than sizing it, and a calf
+    that drifts backwards every time the girth dial moves is not a calf.
+    """
+    k = LIMB_GIRTH if k is None else k
+    return [(sec[0], sec[1] * k, sec[2] * k) + tuple(sec[3:]) for sec in sections]
+
+
 # ---------------------------------------------------------------------------
 # Lofting
 # ---------------------------------------------------------------------------
@@ -161,11 +208,17 @@ def limb(bm, origin, direction, sections, n=LIMB_SEGMENTS,
     """
     Loft rings PERPENDICULAR to an arbitrary axis.
 
-    sections is [(distance_along_axis, radius_x, radius_z), ...]. A negative
-    distance puts the ring behind the origin, which is how a limb is buried
-    inside the torso: overlapping shells, not a welded junction. That is
+    sections is [(distance_along_axis, radius_x, radius_z[, back]), ...]. A
+    negative distance puts the ring behind the origin, which is how a limb is
+    buried inside the torso: overlapping shells, not a welded junction. That is
     standard for a low-poly character and it is what stops an arm reading as
     detached from the shoulder.
+
+    `back`, optional, shifts the whole ring REARWARD off the limb's axis. Both
+    limbs here run with local +y pointing at world -y, so one sign means the
+    same thing on an arm and on a leg. It exists because a calf is not a
+    swelling: it is mass hung BEHIND the bone, and a ring that only grows makes
+    the shin bulge forward as much as back -- which reads as an injury.
     """
     d = Vector(direction).normalized()
     up = Vector((0, 1, 0)) if abs(d.y) < 0.9 else Vector((1, 0, 0))
@@ -174,10 +227,12 @@ def limb(bm, origin, direction, sections, n=LIMB_SEGMENTS,
     basis = Matrix((x, y, d)).transposed()
 
     rings = []
-    for along, rx, rz in sections:
+    for sec in sections:
+        along, rx, rz = sec[0], sec[1], sec[2]
+        back = sec[3] if len(sec) > 3 else 0.0
         rings.append([bm.verts.new(Vector(origin) + basis @ Vector(
             (rx * math.cos(2 * math.pi * i / n),
-             rz * math.sin(2 * math.pi * i / n), along))) for i in range(n)])
+             rz * math.sin(2 * math.pi * i / n) + back, along))) for i in range(n)])
     for a, b in zip(rings, rings[1:]):
         bridge(bm, a, b)
     if cap_start:
@@ -322,6 +377,28 @@ HAIR_TOP = 1.10
 HAIR_QUIFF = 0.13      # extra skull-t of lift on the front upper bands
 HAIR_APEX = 0.010      # metres the outer cap rises above its last ring
 
+# THREE RAGGED POINTS ON THE UPPER-BACK EDGE, which the art brief asked for
+# from the start ("a single solid wedge, tallest just behind the forehead,
+# sweeping back, two or three ragged points on the upper-back edge") and which
+# nothing here had ever built. Without them the cap is a smooth shell at a
+# near-constant 25 mm off the skull, so head and hair share one outline and the
+# whole thing reads as a swimming cap.
+#
+# (signed angle from the brow, strength). SIGNED, therefore NOT MIRRORED, for
+# the same reason the forelock is parted off-centre: perfect bilateral symmetry
+# is what makes procedural hair read as moulded plastic. Mirroring these would
+# also have put two points either side of the nape and a third merged pair at
+# dead centre -- five bumps in a neat row, which is a crown, not a haircut.
+HAIR_SPIKES = ((+2.10, 1.00), (-2.48, 0.85), (+3.00, 0.70))
+HAIR_SPIKE_WIDTH = 0.34   # radians; HAIR_SEGMENTS gives 0.196 rad, so ~2 wide
+HAIR_SPIKE_MASS = 0.036   # extra metres of shell at the point
+# The lift is windowed to almost nothing by u = 1 ON PURPOSE. The top ring
+# closes with a fan, and the file already records what happens when that ring
+# stops being level: the cap came out as an overhang and rendered as a spike
+# with a flat facet beside it. These points are mass on the BACK, which is
+# where the outline is, not height at the apex.
+HAIR_SPIKE_LIFT = 0.105   # extra skull-t on the mid bands
+
 HAIR_PART = 0.38        # radians off the midline -- where the forelock sits
 HAIR_FORELOCK = 0.013   # extra metres of mass on the brow
 HAIR_NAPE = 0.008       # extra metres of flick over the nape
@@ -377,6 +454,20 @@ def _falloff(x, width):
     if abs(x) >= width:
         return 0.0
     return 0.5 + 0.5 * math.cos(math.pi * x / width)
+
+
+def _arc_falloff(angle, centre, width):
+    """
+    _falloff on a CIRCLE, so it works across the seam at +/- pi.
+
+    The hair's angles run -pi..pi with the nape at both ends, and a feature
+    placed near the nape has half its falloff on the other side of that seam.
+    Subtracting raw would make the near half of the bump simply not exist,
+    which is the sort of defect that renders as a flat spot and gets blamed on
+    the band spacing.
+    """
+    d = (angle - centre + math.pi) % (2.0 * math.pi) - math.pi
+    return _falloff(d, width)
 
 
 def face_features(t, angle):
@@ -463,8 +554,23 @@ def skull_point(t, angle, grow=0.0, y_shift=0.0):
     # lives under t = 0.20) but relying on that would be relying on two
     # unrelated tables staying out of each other's way.
     forward, radial = face_features(t, angle) if grow == 0.0 else (0.0, 0.0)
-    return (( HR * rw * 0.92 + grow + radial) * math.cos(angle),
-            fy + y_shift + forward + (HR * rd * 1.04 + grow + radial) * math.sin(angle),
+    # THE THREE AXIS MULTIPLIERS ARE NOT DECORATION -- they are the head's
+    # proportions, and the first two were wrong by about a third.
+    #
+    # scratchpad/headcheck.py measures the skull's bounding box directly, and
+    # at 0.92 / 1.04 / 1.08 it came out 211 wide, 265 deep and 248 tall: a
+    # height-to-width of 1.18 where a real adult head is about 155 / 195 / 240,
+    # i.e. 1.55. A head as wide as it is tall is why this figure kept reading
+    # as a toy no matter what the hair did, and it is why the "7.3 heads tall"
+    # figure in the plan never matched the model -- at 248 mm the human reading
+    # is 6.8 heads, not 7.3.
+    #
+    # 0.72 and 0.82 put it at roughly 165 / 210 / 248. On the Hollow, which
+    # stretches the skull 1.34x and narrows it again, the same change takes the
+    # height-to-width from 1.85 to about 2.4 -- a long narrow skull, which is
+    # what "a head at the wrong angle" in the basement sketch wants.
+    return (( HR * rw * 0.72 + grow + radial) * math.cos(angle),
+            fy + y_shift + forward + (HR * rd * 0.82 + grow + radial) * math.sin(angle),
             CY + HR * t * 1.08)
 
 
@@ -492,21 +598,37 @@ KNUCKLE_ALONG = 0.606
 FINGER_SEGMENTS = 6
 
 
-def _digit(bm, origin, basis, root, direction, lengths, radii):
-    """One finger: a short tapered tube from `root`, in the limb's own frame."""
-    d = Vector(direction).normalized()
-    perp1 = Vector((-d.y, d.x, 0.0))
-    if perp1.length < 1e-6:
-        perp1 = Vector((1.0, 0.0, 0.0))
-    perp1.normalize()
-    perp2 = d.cross(perp1).normalized()
+def _digit(bm, origin, basis, root, direction, lengths, radii, curl=0.0):
+    """
+    One finger: a short tapered tube from `root`, in the limb's own frame.
 
+    `curl` is radians of bend added at EVERY joint, about the palm's wide axis,
+    so the digit arcs instead of pointing. A relaxed hand does not hold its
+    fingers straight -- they fall into a loose hook under their own weight, and
+    four parallel rods are most of why the old hand read as a garden fork. It
+    is applied per segment rather than as a single bend so the curvature is
+    distributed, which is what a chain of three phalanges actually does.
+    """
+    d = Vector(direction).normalized()
     pts = [Vector(root)]
     for ln in lengths:
         pts.append(pts[-1] + d * ln)
+        if curl:
+            # About local Y, the palm's wide axis: the finger falls toward the
+            # palm rather than sideways across its neighbours.
+            d = Matrix.Rotation(curl, 3, 'Y') @ d
 
     rings = []
-    for pt, r in zip(pts, radii):
+    for k, (pt, r) in enumerate(zip(pts, radii)):
+        seg = (pts[min(k + 1, len(pts) - 1)] - pts[max(k - 1, 0)])
+        if seg.length < 1e-6:
+            seg = Vector(direction)
+        seg.normalize()
+        perp1 = Vector((-seg.y, seg.x, 0.0))
+        if perp1.length < 1e-6:
+            perp1 = Vector((1.0, 0.0, 0.0))
+        perp1.normalize()
+        perp2 = seg.cross(perp1).normalized()
         rings.append([bm.verts.new(Vector(origin) + basis @ (
             pt + perp1 * (r * math.cos(2 * math.pi * i / FINGER_SEGMENTS))
                + perp2 * (r * math.sin(2 * math.pi * i / FINGER_SEGMENTS))))
@@ -523,24 +645,34 @@ def build_hand(bm, origin, direction, side):
 
     Deliberately crude per digit -- six sides, three segments, no knuckle
     creases. There are NO finger bones in the armature, so every digit moves as
-    one with the hand bone regardless; adding twenty joints would quadruple the
-    skeleton to articulate something that is never seen closer than about two
-    metres, and then only in a lightning flash. What has to read is the COUNT
-    and the LENGTH, and those are free.
+    one with the hand bone regardless (pin_hands_to_hand_bone makes that true
+    rather than hoped for); adding twenty joints would quadruple the skeleton
+    to articulate something that is never seen closer than about two metres,
+    and then only in a lightning flash. What has to read is the COUNT and the
+    LENGTH, and those are free.
     """
     basis = limb_basis(direction)
     palm_len = KNUCKLE_ALONG - WRIST_ALONG
 
-    # Thin across the back of the hand, wide front-to-back -- the palm plane of
-    # a hanging arm faces the thigh.
-    # The first ring starts BEFORE the wrist and slightly WIDER than the
-    # forearm is there, so it sleeves over the forearm's end cap. Starting it
-    # flush and narrower left the cap's rim standing proud of the palm as a
-    # hard ledge right where a wrist should be.
+    # THE PALM TAPERS INTO THE KNUCKLES NOW, and that is the fix for fingers
+    # that looked stuck on rather than grown out. It used to hold 0.030 across
+    # the wide axis all the way to a flat end cap, and the fingers -- 0.0076
+    # tubes -- came out of the middle of that disc. The result was a paddle
+    # with sticks in it: a hard ledge all the way round the knuckle line, with
+    # the palm standing proud of every digit by about 8 mm.
+    #
+    # A real hand is THINNEST at the knuckles and the fingers continue its
+    # profile rather than interrupting it. So the last ring is close to a
+    # finger's own thickness, and the fingers start inside it.
     palm = []
-    for along, rx, ry in ((WRIST_ALONG - 0.014, 0.027, 0.029),
-                          (WRIST_ALONG + palm_len * 0.40, 0.019, 0.030),
-                          (KNUCKLE_ALONG, 0.015, 0.030)):
+    # WIDER ACROSS THE KNUCKLES than it was (0.031 -> 0.036), because the palm
+    # has to be a mass the fingers come OUT of rather than the same width as
+    # the fan they make. It stays thin in the other axis: see below, the
+    # knuckles are the thinnest part of a real hand front-to-back.
+    for along, rx, ry in girth(((WRIST_ALONG - 0.014, 0.027, 0.031),
+                                (WRIST_ALONG + palm_len * 0.35, 0.022, 0.036),
+                                (WRIST_ALONG + palm_len * 0.75, 0.017, 0.035),
+                                (KNUCKLE_ALONG, 0.013, 0.032)), ARM_GIRTH):
         palm.append([bm.verts.new(Vector(origin) + basis @ Vector(
             (rx * math.cos(2 * math.pi * i / (FINGER_SEGMENTS * 2)),
              ry * math.sin(2 * math.pi * i / (FINGER_SEGMENTS * 2)), along)))
@@ -550,22 +682,258 @@ def build_hand(bm, origin, direction, side):
     bm.faces.new(tuple(reversed(palm[0])))
     bm.faces.new(tuple(palm[-1]))
 
-    # Four fingers across the palm's wide axis, splayed slightly so they do not
-    # read as one slab, and with the middle pair longest.
-    for k, spread in enumerate((-0.0215, -0.0072, 0.0072, 0.0215)):
-        taper = 1.0 - abs(k - 1.5) * 0.12
+    # Four fingers across the palm's wide axis.
+    #
+    # LENGTHS ARE NOT SYMMETRIC ABOUT THE MIDDLE. The old taper was
+    # 1 - abs(k - 1.5) * 0.12, which gives 0.82 / 0.94 / 0.94 / 0.82 -- a
+    # mirror-image pair, and a hand whose index and ring finger are identical
+    # is a rake. Real proportions run roughly index 0.88, middle 1.00, ring
+    # 0.94, little 0.76 of the longest, and the little finger's knuckle also
+    # sits further back down the palm.
+    # SPLAY HALVED AND CURL NEARLY DOUBLED, and the reason is the HOLLOW.
+    #
+    # The Hollow stretches the hand bone 2.0x along its own axis and does
+    # nothing to its width, so the monster's hand is 200 mm long on a 62 mm
+    # palm -- a ratio of 0.31 against a real hand's 0.45. At those proportions
+    # four straight fingers held apart by a splay are a garden fork, and that
+    # is exactly what the wrist shot showed: five parallel spikes coming out of
+    # the end of the forearm with no palm visible at all.
+    #
+    # Length is not negotiable -- the fingertips landing at 0.419 m while the
+    # hem rides up to 0.709 is the measurement the whole design rests on. So the
+    # hand has to read as a CLAW instead: fingers that hook rather than point,
+    # and a fan that is closed rather than open. _digit turns the direction by
+    # `curl` at every joint, so the bend between the first segment and the last
+    # is 2 x curl -- 0.90 rad, about 52 degrees, where it used to be 23.
+    FINGERS = (
+        # (spread across the palm, length scale, knuckle set-back, splay)
+        (-0.0215, 0.88, 0.004, -0.09),
+        (-0.0072, 1.00, 0.000, -0.03),
+        (0.0072, 0.94, 0.002, 0.03),
+        (0.0215, 0.76, 0.008, 0.10),
+    )
+    for spread, scale, setback, splay in FINGERS:
+        s = spread * ARM_GIRTH
         _digit(bm, origin, basis,
-               root=(0.0, spread, KNUCKLE_ALONG - 0.006),
-               direction=(0.0, spread * 0.22, 1.0),
-               lengths=[0.026 * taper, 0.022 * taper, 0.018 * taper],
-               radii=[0.0076, 0.0068, 0.0055, 0.0034])
+               root=(0.0, s, KNUCKLE_ALONG - 0.006 - setback),
+               # Splay opens the fan slightly so the four are not parallel, and
+               # the sign follows the finger's own side of the palm.
+               direction=(0.0, splay, 1.0),
+               lengths=[0.028 * scale, 0.023 * scale, 0.018 * scale],
+               radii=[r * ARM_GIRTH for r in (0.0082, 0.0072, 0.0058, 0.0036)],
+               # The little finger curls hardest, which is what it does.
+               curl=0.45 + (0.12 if scale < 0.80 else 0.0))
 
-    # Thumb: off the front edge of the palm, swung well away from the fingers.
+    # Thumb: off the side of the palm and well BELOW the knuckles, swung away
+    # from the fingers and forward. It used to sit at 0.28 of the palm's length
+    # -- barely past the wrist -- which put it on the forearm rather than on
+    # the hand, reading as a spur rather than as a thumb.
     _digit(bm, origin, basis,
-           root=(0.0, 0.026 * side, WRIST_ALONG + palm_len * 0.28),
-           direction=(0.0, 0.68 * side, 0.73),
-           lengths=[0.021, 0.017],
-           radii=[0.0082, 0.0068, 0.0044])
+           root=(0.004 * side, 0.026 * side * ARM_GIRTH, WRIST_ALONG + palm_len * 0.55),
+           direction=(0.18 * side, 0.74 * side, 0.65),
+           lengths=[0.023, 0.018],
+           radii=[r * ARM_GIRTH for r in (0.0088, 0.0074, 0.0048)],
+           curl=0.34)
+
+# The sleeve, hoisted beside the arm it covers because the two are a PAIR: the
+# clearance between them is the thing that matters and it is invisible if they
+# live in different scopes. girth() scales both, so the margin scales with them.
+SLEEVE_OUTER = [# A CLOSED SLEEVE HEAD, not an open-mouthed tube. Until this ring the
+                # sleeve stopped at -0.050 in a bare rim, and the comment below
+                # excused it as "hidden under the coat" -- which it was, while
+                # the coat's own neckline ring still passed through the sleeve.
+                # Once the coat was widened to clear the deltoid, the sleeve's
+                # mouth was left looking up at the coat's front opening, and
+                # through it you could see straight down the throat of the
+                # sleeve onto the arm's end cap: a wedge of bare skin at the
+                # top of each shoulder, plainly visible at the player's own eye
+                # height. The arm's topmost geometry is at -0.040, so a ring at
+                # -0.060 and the lid on it clear the arm by 20 mm.
+                (-0.060, 0.044, 0.044),
+                (-0.050, 0.068, 0.068),
+                (0.040, 0.072, 0.073),
+                (0.180, 0.062, 0.064),
+                (0.310, 0.055, 0.057),    # just past the ELBOW
+                (0.330, 0.052, 0.054)]
+# NOT scaled by girth(). A fixed wall thickness is what a garment has, and
+# leaving it fixed is what makes the arm-to-sleeve clearance GROW rather than
+# merely keep up: 1.2*(R - r) - T against the old (R - r) - T.
+SLEEVE_T = 0.009
+
+ARM_SECTIONS = [
+    # Narrower and shorter than they were. These rings exist only
+    # to overlap the shoulder YOKE, and at 0.066 they out-reached
+    # the sleeve above them and left up to 8 mm of bare deltoid
+    # showing over the coat -- which rendered as a brown patch on
+    # each shoulder and looked like a hole in the coat.
+    # 0.060/0.062 UNTIL girthcheck STARTED MEASURING THE RIGHT ARM. That check
+    # had been scaling both tables by LIMB_GIRTH (1.20) while the model builds
+    # them at ARM_GIRTH (0.95), so its reported 0.5 mm of clearance here was
+    # really -1.5 mm: the deltoid was sitting inside the sleeve's inner wall.
+    # Nothing showed, because skincheck's ray cast only asks whether skin comes
+    # out through the OUTER wall and it does not -- but 1.5 mm inside the lining
+    # is 1.5 mm from the failure this table's own comment already records.
+    (-0.040, 0.056, 0.056),   # buried in the yoke
+    (-0.008, 0.058, 0.058),   # deltoid, the widest point
+    # Two rings removed here. The sleeve covers -0.050 to 0.330,
+    # so everything between the deltoid and the elbow bracket was
+    # shaping a surface inside a garment. The elbow rings stay:
+    # they are structural, not decorative.
+    (0.110, 0.049, 0.052),    # upper-arm mass
+    (0.270, 0.037, 0.039),
+    (0.300, 0.036, 0.038),    # ELBOW, the narrowest point above it
+    (0.330, 0.037, 0.039),
+    # The forearm is WIDER just below the elbow than the elbow
+    # itself -- that is where the flexor mass sits, and a straight
+    # elbow-to-wrist taper is the single thing that makes a
+    # low-poly arm read as a broom handle.
+    #
+    # AND THE MASS IS ON ONE SIDE, which is the fourth column. The
+    # bulge above was symmetric, so it pushed the front edge out and
+    # the back edge back by the same 3.8 mm and the profile barely
+    # moved -- the same failure the calf had before LEG_VISIBLE got
+    # its offsets. A forearm is straight along the back, where the
+    # ulna is, and carries its bulk at the front.
+    #
+    # NOTHING ABOVE THE CUFF GETS AN OFFSET. The sleeve ends at
+    # along 0.330, so the elbow at 0.300 is inside it and an offset
+    # there would buy no outline at all while eating the arm's
+    # clearance inside the sleeve -- which girthcheck puts at 9.5 mm
+    # at the elbow and 0.5 mm at the deltoid. Offsets start at the
+    # cuff, on the bare forearm, which is the part that is seen.
+    (0.385, 0.041, 0.043, -0.011),   # flexor mass, carried forward
+    (0.470, 0.033, 0.035, -0.006),
+    (0.540, 0.027, 0.029, -0.002),
+    (WRIST_ALONG, 0.024, 0.026),   # WRIST, narrowest
+]
+
+# THE BURIED RINGS DO NOT SCALE, and finding that out cost a render. They sit
+# at z = 0.94 and 1.00, INSIDE the coat, and their job is to overlap the pelvis
+# rather than to be seen. Scaling them by 1.2 stepped the thigh from 0.190 to
+# 0.206 against a coat whose inner wall at that height is 0.177, and the dark
+# trouser geometry came through the pale coat as a ragged patch on each hip.
+LEG_BURIED = [
+    (-0.075, 0.074, 0.078),   # buried in the pelvis, kept INSIDE its
+    (-0.020, 0.080, 0.084),   # radius so the thigh does not step out
+]
+# Everything at or below the coat hem (z = 0.70, i.e. along = 0.22) is seen, so
+# this is what gets the girth. The hem ring is explicit rather than left to the
+# loft: without it the taper from an unscaled buried ring to a scaled knee put
+# the widest VISIBLE part of the thigh at +10% instead of +20%.
+LEG_VISIBLE = [
+    (0.220, 0.0674, 0.0714),  # at the hem -- interpolated from the old table
+    (0.400, 0.058, 0.062, -0.004),
+    # THE CALF, which this leg did not have. The old table ran 0.055 at the
+    # knee down to 0.034 at the ankle without a single increase anywhere in it
+    # -- a monotonic taper, i.e. a cone, and in a backlit profile the whole leg
+    # read as a stilt. The arm's own table records this exact lesson one limb
+    # over: "the forearm is WIDER just below the elbow than the elbow itself --
+    # that is where the flexor mass sits, and a straight elbow-to-wrist taper
+    # is the single thing that makes a low-poly arm read as a broom handle".
+    # A leg is the same problem with a bigger muscle: narrowest AT the knee,
+    # widest about 100 mm below it, then a long taper to a thin ankle.
+    #
+    # Worth four extra rings because the leg is the longest unbroken stretch of
+    # outline the figure has, and outline is the only channel that survives fog
+    # and setSilhouette.
+    #
+    # AND THE MASS SITS BEHIND THE BONE. The fourth column is a rearward shift
+    # of the whole ring, and without it the calf added above was a symmetric
+    # swelling -- the shin bulged forward exactly as much as it bulged back,
+    # which reads as a swollen leg rather than as a calf. In a backlit profile,
+    # which is the view that matters, a symmetric bulge is nearly invisible
+    # anyway: it moves the front edge and the back edge apart by the same
+    # amount and the eye reads the midline, not the width.
+    #
+    # Offsets are NOT scaled by girth (see girth()), but they ARE scaled by
+    # LIMB_THIN in the Hollow like everything else, so these are sized for what
+    # survives that: knee-to-calf moves the back edge 35 mm on the human and
+    # 19 mm on the monster, against 6.0 and 3.3 for the symmetric version.
+    (0.440, 0.053, 0.056, -0.010),   # KNEE, narrowest, and the forward-most point
+    (0.490, 0.056, 0.059, +0.004),
+    (0.545, 0.059, 0.062, +0.018),   # CALF, the widest point below the knee
+    (0.620, 0.051, 0.054, +0.014),
+    (0.760, 0.038, 0.040, +0.004),
+    (0.860, 0.031, 0.033, -0.002),   # ankle, narrower now the calf carries the mass
+]
+LEG_SECTIONS = LEG_BURIED + LEG_VISIBLE
+
+
+# A shoe, as flat-bottomed cross-sections along the forward axis.
+#
+# It was FOUR VERTICES: a truncated box from the ankle to the toe, which in a
+# backlit profile -- the view the corridor actually gives you -- read as a
+# flipper. It is the crudest geometry left on the figure and it is in the
+# OUTLINE, which is the only channel that survives fog and setSilhouette, so
+# it was worth more than its 150 triangles.
+#
+# (y along the foot, half width, sole height, top height). The sole stays flat
+# because a rounded one puts the figure on tiptoe: at this scale the whole shoe
+# is 20 mm tall and any curvature under it reads as hovering.
+FOOT_SECTIONS = [
+    (-0.062, 0.028, 0.000, 0.074),   # back of the heel
+    # A BLUNT TOE AND A ROUNDED HEEL, both of them because of what the HOLLOW
+    # does to this shape rather than because of how it looked on the human.
+    #
+    # The foot stretches 1.2x along its own axis and thins across it, and at
+    # LIMB_THIN the monster's shoe came out 240 mm long and 50 mm wide -- 4.8:1
+    # where a real shoe is about 3:1 -- with the old last ring (48 mm across)
+    # capped straight off. Backlit that is not a shoe, it is a dagger, and
+    # both feet are in frame the whole time against a lit floor where nothing
+    # is in shadow. The heel had the matching problem at the other end: one
+    # ring at -0.034 capped flat, which read as a square block bolted on.
+    # THE SOLE IS FLAT AND THE INSTEP IS THE TALLEST POINT. Both were wrong
+    # and both showed. The sole used to wander -- 0.000, 0.003, 0.000, 0.000 --
+    # which put a shallow V under the heel and made the shoe look like it was
+    # rocking on a point. And the highest part of the shoe was the HEEL, 30 mm
+    # behind the ankle, so the leg came down in front of a hump and the two
+    # silhouettes crossed in a V notch at the back of the ankle.
+    #
+    # A shoe is flat from heel to ball, tallest where the ankle enters it, and
+    # lifts only at the very back and the very front.
+    (-0.048, 0.024, 0.006, 0.048),   # back of the heel, rounded off
+    (-0.030, 0.037, 0.000, 0.074),   # heel
+    (0.004, 0.042, 0.000, 0.086),    # instep, TALLEST -- the ankle enters here
+    (0.050, 0.046, 0.000, 0.060),    # ball of the foot, the widest point
+    (0.100, 0.044, 0.000, 0.036),    # toe box
+    (0.134, 0.033, 0.008, 0.024),    # toe, blunt and lifted off the floor
+]
+
+
+# DEGREES EACH SHOE IS TURNED OUT, (left, right). Nobody stands with their
+# feet parallel, and two parallel shoes are the last place on this figure
+# where bilateral symmetry was still shouting mannequin -- both feet are in
+# frame the whole time, at the bottom of the outline, against a lit floor.
+#
+# The two angles differ on purpose, for the same reason the hair is parted
+# off-centre and the hem now hangs unevenly: a symmetric splay is still a
+# symmetry. Measured in scratchpad/footcheck.py, which un-rotates by these
+# before reporting the shoe's proportions -- otherwise turning the foot out
+# would have shown up there as the shoe getting wider, which is exactly the
+# kind of drift that makes a check worse than useless.
+FOOT_SPLAY = (5.0, 8.0)
+
+
+def build_foot(bm, side):
+    """One shoe. See FOOT_SECTIONS and FOOT_SPLAY."""
+    x0 = side * P['hipWidth']
+    out = math.radians(-side * FOOT_SPLAY[1 if side > 0 else 0])
+    ca, sa = math.cos(out), math.sin(out)
+    rings = []
+    for y, hw, zlo, zhi in FOOT_SECTIONS:
+        zm = zlo + (zhi - zlo) * 0.55
+        # Flat-bottomed hexagon: two sole corners, two waist points, and a
+        # narrowed top so the upper rolls over instead of ending in a box edge.
+        # Rotated about the ankle by `out`; the sole stays flat because the
+        # rotation is about z and never touches the heights.
+        rings.append([bm.verts.new((x0 + px * ca - y * sa, px * sa + y * ca, pz))
+                      for px, pz in (
+            (-hw, zlo), (hw, zlo), (hw, zm),
+            (hw * 0.74, zhi), (-hw * 0.74, zhi), (-hw, zm))])
+    for a, b in zip(rings, rings[1:]):
+        bridge(bm, a, b)
+    bm.faces.new(tuple(reversed(rings[0])))
+    bm.faces.new(tuple(rings[-1]))
 
 
 def build_body(bm, marks=None):
@@ -598,8 +966,26 @@ def build_body(bm, marks=None):
     # arm's buried rings emerging into open air above it. Holding the width out
     # to 1.39 gives the trapezius a slope and gives the deltoid something to
     # overlap.
+    # THREE RINGS BELOW THE OLD CROTCH, and a material split at the hip.
+    #
+    # The torso used to stop dead at z 0.79 in a flat cap, and the legs only
+    # ever come within 29 mm of the centre line, so between the shirt's bottom
+    # edge and the thighs there was a 58 mm slot running the whole width of the
+    # figure. Through it you saw the coat's PALE INNER WALL -- and at the
+    # player's own eye line, which is a few degrees above horizontal at 5-15 m,
+    # that rendered as a bright grey block slung between the legs. It was not
+    # the downward-facing cap: that is only visible from below, and nothing in
+    # this game ever looks at the monster from below.
+    #
+    # These taper to a narrow crotch at z 0.700, which is the coat's own hem,
+    # so the slot is closed everywhere the coat is not already closing it. They
+    # overlap the thighs by about 19 mm at the bottom and more above, which is
+    # the same overlapping-shells approach the whole model uses.
     torso = [
-        zring(bm, 0.79, 0.115, 0.088, cy=-0.004),          # crotch, narrow
+        zring(bm, 0.700, 0.048, 0.064, cy=+0.004),         # CROTCH, at the hem
+        zring(bm, 0.730, 0.082, 0.076, cy=+0.001),
+        zring(bm, 0.760, 0.104, 0.084, cy=-0.002),
+        zring(bm, 0.79, 0.115, 0.088, cy=-0.004),          # old crotch ring
         zring(bm, Y_HIP - 0.05, 0.160, 0.101, cy=-0.012),  # pelvis, seat back
         zring(bm, Y_HIP + 0.03, 0.155, 0.093, cy=-0.006),  # hip crest
         zring(bm, Y_HIP + 0.14, 0.120, 0.080, cy=+0.006),  # waist, narrowest
@@ -610,9 +996,21 @@ def build_body(bm, marks=None):
         zring(bm, Y_NECK + 0.05, 0.100, 0.076, cy=-0.004),  # trapezius slope
         zring(bm, Y_HEAD, 0.050, 0.048, cy=+0.010),        # neck, craned
     ]
-    for a, b in zip(torso, torso[1:]):
+    # SPLIT AT THE HIP CREST. Everything below is trousers, everything above is
+    # shirt. Until now the entire torso was one shirt-coloured tube from the
+    # neck to the crotch and the trousers began at the thigh, so the figure was
+    # wearing a garment no one wears. The boundary is a real garment line -- an
+    # untucked tee over the waistband -- and it is the only horizontal edge in
+    # the outfit that is SUPPOSED to be horizontal.
+    HIP_RING = 5            # zring at Y_HIP + 0.03; see the table above
+    for a, b in zip(torso[:HIP_RING], torso[1:HIP_RING + 1]):
         bridge(bm, a, b)
     bm.faces.new(tuple(reversed(torso[0])))
+    mark('CreatureTrousers', _f0)
+
+    _f0 = len(bm.faces)
+    for a, b in zip(torso[HIP_RING:], torso[HIP_RING + 1:]):
+        bridge(bm, a, b)
     bm.faces.new(tuple(torso[-1]))
     mark('CreatureShirt', _f0)
 
@@ -622,31 +1020,7 @@ def build_body(bm, marks=None):
     # the elbow so the crease has something to fold into.
     for side in (-1, 1):
         limb(bm, (side * P['shoulderWidth'], 0.0, Y_SHOULDER),
-             (math.sin(ARM_A_POSE) * side, 0.0, -math.cos(ARM_A_POSE)), [
-                 # Narrower and shorter than they were. These rings exist only
-                 # to overlap the shoulder YOKE, and at 0.066 they out-reached
-                 # the sleeve above them and left up to 8 mm of bare deltoid
-                 # showing over the coat -- which rendered as a brown patch on
-                 # each shoulder and looked like a hole in the coat.
-                 (-0.040, 0.060, 0.060),   # buried in the yoke
-                 (-0.008, 0.062, 0.062),   # deltoid, the widest point
-                 # Two rings removed here. The sleeve covers -0.050 to 0.330,
-                 # so everything between the deltoid and the elbow bracket was
-                 # shaping a surface inside a garment. The elbow rings stay:
-                 # they are structural, not decorative.
-                 (0.110, 0.049, 0.052),    # upper-arm mass
-                 (0.270, 0.037, 0.039),
-                 (0.300, 0.036, 0.038),    # ELBOW, the narrowest point above it
-                 (0.330, 0.037, 0.039),
-                 # The forearm is WIDER just below the elbow than the elbow
-                 # itself -- that is where the flexor mass sits, and a straight
-                 # elbow-to-wrist taper is the single thing that makes a
-                 # low-poly arm read as a broom handle.
-                 (0.385, 0.041, 0.043),
-                 (0.470, 0.033, 0.035),
-                 (0.540, 0.027, 0.029),
-                 (WRIST_ALONG, 0.024, 0.026),   # WRIST, narrowest
-             ])
+             (math.sin(ARM_A_POSE) * side, 0.0, -math.cos(ARM_A_POSE)), girth(ARM_SECTIONS, ARM_GIRTH))
         build_hand(bm, (side * P['shoulderWidth'], 0.0, Y_SHOULDER),
                    (math.sin(ARM_A_POSE) * side, 0.0, -math.cos(ARM_A_POSE)), side)
     # The whole arm is bare skin: the sleeve is a separate shell that covers
@@ -656,28 +1030,11 @@ def build_body(bm, marks=None):
     # --- legs ---------------------------------------------------------------
     _f0 = len(bm.faces)
     for side in (-1, 1):
-        limb(bm, (side * P['hipWidth'], 0.0, Y_HIP), (0, 0, -1), [
-            (-0.075, 0.074, 0.078),   # buried in the pelvis, kept INSIDE its
-            (-0.020, 0.080, 0.084),   # radius so the thigh does not step out
-            # (0.060) removed: it carried the SAME radius as the ring above it,
-            # so it shaped nothing, and it sits at z = 0.86 -- 160 mm up inside
-            # the coat, whose hem is at 0.70.
-            (0.400, 0.058, 0.062),
-            (0.440, 0.055, 0.058),    # KNEE
-            (0.480, 0.054, 0.057),
-            (0.620, 0.048, 0.050),
-            (0.860, 0.034, 0.036),    # ankle
-        ])  # capped: an open ankle ring left 16 boundary edges you could see into
+        # capped: an open ankle ring left 16 boundary edges you could see into
+        limb(bm, (side * P['hipWidth'], 0.0, Y_HIP), (0, 0, -1),
+             LEG_BURIED + girth(LEG_VISIBLE))
 
-        # Foot: a wedge from the ankle forward along +Y, the facing direction.
-        fr = []
-        for z, y0, y1, hw in ((Y_ANKLE + 0.02, -0.055, 0.045, 0.040),
-                              (0.0, -0.062, P['footLength'] - 0.062, 0.046)):
-            fr.append([bm.verts.new((side * P['hipWidth'] + v[0], v[1], v[2]))
-                       for v in [(-hw, y0, z), (hw, y0, z), (hw, y1, z), (-hw, y1, z)]])
-        bridge(bm, fr[0], fr[1])
-        bm.faces.new(tuple(reversed(fr[0])))
-        bm.faces.new(tuple(fr[1]))
+        build_foot(bm, side)
     mark('CreatureTrousers', _f0)
 
     # --- head ---------------------------------------------------------------
@@ -706,13 +1063,21 @@ def build_body(bm, marks=None):
 # disappear into one clean column.
 #
 # In the HOLLOW reading the arms grow to 1.09 while the coat is carried by the
-# torso, so the hem rises to ~0.83 and the fingertips fall to ~0.42 -- the hands
-# end up hanging 40 cm clear of a coat that has become a short jacket. The coat
+# torso, so the hem rises to 0.709-0.769 and the fingertips fall to 0.419 --
+# the hands end up hanging 29 cm clear of the hem's lowest point, 35 cm clear
+# of its highest, on a coat that has become a short jacket. (0.83 and 40 cm
+# were a design estimate that anchored the hem to the shoulder; the coat is
+# weighted to the hips, so it only partly follows the torso as that lengthens.
+# scratchpad/reading.py measures both readings on the posed rig.) The coat
 # is a ruler the viewer measures the distortion against, which is a far stronger
 # effect than long arms on a bare body. A knee-length coat would cover the
 # fingertip/knee relationship and destroy it.
 COAT_HEM = 0.70
-COAT_TOP = Y_NECK + 0.02
+# The top of the SHOULDER YOKE, not the top of the coat -- the collar rings
+# sit above it. Raised from Y_NECK + 0.02 to + 0.035 because the arm's topmost
+# geometry reaches z 1.410 and the yoke has to clear it; scratchpad/channel.py
+# measures that directly against the arm's surface.
+COAT_TOP = Y_NECK + 0.035
 # Wall thickness. The coat is modelled double-walled rather than solidified,
 # because export_apply=False (mandatory for shape keys) means no modifier is
 # ever applied and a Solidify would simply not be in the GLB.
@@ -720,19 +1085,95 @@ COAT_T = 0.011
 COAT_SEGMENTS = 20
 
 
-def arc_ring(bm, z, rx, ry, cy, gap_deg, n=COAT_SEGMENTS):
+# HOW FAR THE HEM HANGS BELOW COAT_HEM, along the arc.
+#
+# The hem was one flat ellipse, so in profile the coat ended in a horizontal
+# line with a right angle at each end -- a cardboard cut-out, and the loudest
+# thing left on the monster's outline once the shoulders were fixed. Real
+# cloth hung on an open coat does not do that: the front panels have nothing
+# holding them and drop, the back drops a little, and the side seams -- which
+# are the only part actually sitting on the body -- stay where they are.
+#
+# Keyed by the ARC PARAMETER rather than by angle, so the outer and inner
+# walls agree at the corners even though their gap angles differ by 1.2
+# degrees. u = 0 and u = 1 are the two front corners, u = 0.5 is centre back.
+#
+# Everything is zero or NEGATIVE on purpose. COAT_HEM stays the highest point
+# of the hem, because the hem-versus-fingertip inversion is the measurement
+# the whole design rests on and raising the hem anywhere would start eating
+# it; the sides, where the hands hang, are exactly unchanged.
+# The flat run at each end is the corner of the front panel, and it is there
+# on purpose: with a single straight rise from the corner the panel ended in a
+# POINT, which reads as a tailcoat or as damage rather than as a lab coat. At
+# 20 segments the first two vertices fall inside that run, so the corner comes
+# out square and the rise starts after it.
+# NOT SYMMETRIC ANY MORE. Everything on this figure except the hair is a
+# mirror image, and a perfectly bilateral figure reads as a mannequin no
+# matter how good its parts are -- the hair's own comment already records the
+# cure ("perfect bilateral symmetry is what makes procedural hair read as a
+# helmet, and an off-centre parting is the cheapest possible cure"). The same
+# argument applies to the largest pale shape on the model.
+#
+# So one front corner hangs 52 mm below COAT_HEM and the other 31, and the
+# back's lowest point sits at u = 0.56 rather than dead centre. The 21 mm
+# difference between the two corners is about 8 px at the preview scale --
+# not a detail, a silhouette.
+HEM_SWEEP = [(0.00, -0.052), (0.07, -0.047), (0.17, -0.018), (0.26, 0.000),
+             (0.36, -0.006), (0.46, -0.019), (0.56, -0.026), (0.68, -0.011),
+             (0.78, 0.000), (0.86, -0.011), (0.94, -0.028), (1.00, -0.031)]
+
+
+def hem_sweep(u, scale=1.0):
+    """Vertical offset at arc parameter u. See HEM_SWEEP."""
+    for (u0, d0), (u1, d1) in zip(HEM_SWEEP, HEM_SWEEP[1:]):
+        if u0 <= u <= u1:
+            return (d0 + (d1 - d0) * (u - u0) / (u1 - u0)) * scale
+    return HEM_SWEEP[-1][1] * scale
+
+
+# DEGREES THE FRONT OPENING IS ROTATED OFF THE CENTRE LINE, by height. An
+# unbuttoned coat hanging on a body that is walking does not keep its opening
+# on the midline; it swings. Zero at the collar, which sits on the neck and
+# cannot move, growing to 9 degrees at the hem.
+#
+# This rotates WHICH PART of the ellipse is missing, not the ellipse, so most
+# of it is a lit-view change -- but not all: the two front edges end up at 73
+# and 125 degrees instead of 64 and 116, and the first of those reaches about
+# 8 mm further forward at the hem than the symmetric version did.
+COAT_SWING = [(COAT_HEM, 9.0), (0.92, 7.0), (1.16, 4.5), (1.34, 2.0),
+              (1.415, 1.0), (1.470, 0.0)]
+
+
+def coat_swing(z):
+    """Degrees of off-centre swing at height z. See COAT_SWING."""
+    if z <= COAT_SWING[0][0]:
+        return COAT_SWING[0][1]
+    if z >= COAT_SWING[-1][0]:
+        return COAT_SWING[-1][1]
+    for (z0, a0), (z1, a1) in zip(COAT_SWING, COAT_SWING[1:]):
+        if z0 <= z <= z1:
+            return a0 + (a1 - a0) * (z - z0) / (z1 - z0)
+    return COAT_SWING[-1][1]
+
+
+def arc_ring(bm, z, rx, ry, cy, gap_deg, n=COAT_SEGMENTS, sweep=0.0, swing=0.0):
     """
     A partial ellipse, open across the front.
+
+    `sweep` scales HEM_SWEEP, which drops the ring below z by an amount that
+    varies along the arc. 0 leaves the ring flat, which is what every ring
+    except the bottom two wants.
 
     The coat is WORN OPEN -- two sources say unbuttoned explicitly, and it is
     the whole silhouette. A closed coat would hide the narrowed torso and the
     arms and turn the figure into a featureless cone. The figure faces +Y, so
     the gap is centred on +Y, i.e. on 90 degrees.
     """
-    a0 = math.radians(90 + gap_deg)
-    a1 = math.radians(450 - gap_deg)
+    a0 = math.radians(90 + gap_deg + swing)
+    a1 = math.radians(450 - gap_deg + swing)
     return [bm.verts.new((rx * math.cos(a0 + (a1 - a0) * i / (n - 1)),
-                          cy + ry * math.sin(a0 + (a1 - a0) * i / (n - 1)), z))
+                          cy + ry * math.sin(a0 + (a1 - a0) * i / (n - 1)),
+                          z + (hem_sweep(i / (n - 1.0), sweep) if sweep else 0.0)))
             for i in range(n)]
 
 
@@ -741,6 +1182,202 @@ def open_bridge(bm, a, b, flip=False):
     for i in range(len(a) - 1):
         q = (a[i], a[i + 1], b[i + 1], b[i])
         bm.faces.new(tuple(reversed(q)) if flip else q)
+
+
+# THE GAP IS IN DEGREES BUT THE SILHOUETTE IS IN METRES, and that mismatch is
+# what put a horn on each shoulder. The rings are ellipses roughly twice as
+# wide as they are deep (rx 0.196 against ry 0.101 at the collar), so a gap
+# quoted as an angle cuts away far less WIDTH at the top than the number
+# suggests: the old 62 degrees at the collar left the front corner at
+# |x| = 0.173, which is 91% of the shoulder's own half-width, standing 118 mm
+# ABOVE the shoulder seam. Backlit, that is not a collar. It is a pointed wing
+# on each side of the neck, and outline is the only thing that survives
+# FogExp2 at 5-15 m with setSilhouette on, so it was the loudest thing about
+# the monster.
+#
+# So the fourth column is now chosen by the half-width it PRODUCES rather than
+# by eye: gap = degrees(acos(-w / rx)) - 90 for the w in each comment. The
+# profile runs 52 mm at the collar top -- corners tucked either side of the
+# throat -- out to 98 mm across the chest, pinching to 72 at the waist and
+# flaring again to 92 at the hem. That is a front edge that falls more or less
+# straight, which is what an unbuttoned coat does.
+#
+# The old comment here claimed the widening gap WAS the lapel ("at this budget
+# a lapel is a shape the OPENING makes, not a separately folded panel"). That
+# stopped being true when build_lapels started folding a real flap off this
+# same edge, and the two were then drawing the same feature twice -- the flap
+# rolling back off an edge that had already rolled itself back.
+COAT_SECTIONS = [
+    # A COLLAR ROUND THE NECK, not a bucket round the shoulders. These two
+    # rings used to be 0.196 and 0.224 wide -- 39 and 45 cm across, on a neck
+    # 10 cm across -- so the top of the coat was an open funnel you could see
+    # straight down into, with the neck rising out of the middle of it and the
+    # garment's own inner wall lit inside. Closing the front gap in the last
+    # pass stopped it having horns; it did not stop it being a bucket.
+    #
+    # They now hug the neck (0.115 and 0.150) and the YOKE below carries the
+    # width out to the shoulder instead, which is the order a coat is actually
+    # built in. ry never drops below about 0.088: the head is craned forward,
+    # and scratchpad/channel.py finds the chin -- not the neck -- is what a
+    # collar ring hits when it is drawn too shallow.
+    (1.470,     0.115, 0.095, 0.006, 24.7),    # collar top, w = 0.048
+    (1.445,     0.150, 0.102, 0.006, 22.7),    # collar base, on the trapezius
+    # TWO RINGS TO ROUND THE SHOULDER OVER, because the corner they replace was
+    # a crease and the crease was the outline. The yoke used to run dead
+    # vertical at 0.256 up to 1.415 and then cone straight to the collar, which
+    # is a 65-degree turn in one step -- past the 62-degree smoothing angle
+    # this model uses everywhere, so it shaded as a hard rim across the top of
+    # each shoulder and the silhouette came to a POINT at the outer corner.
+    # Angular epaulettes on a lab coat.
+    #
+    # These sit on a quarter-round from (0.248, 1.415) to (0.150, 1.445). The
+    # worst turn in the chain is now 48 degrees. channel.py's scan puts the
+    # arm's surface inside every one of them: 0.210 already cleared at z 1.425
+    # and 0.130 at 1.445.
+    (1.440,     0.192, 0.110, 0.006, 21.4),    # shoulder round, upper
+    (1.428,     0.228, 0.124, 0.006, 19.7),    # shoulder round, lower
+    # THE YOKE, and it has to be 0.256 rather than 0.246. The arm's topmost
+    # geometry reaches z 1.410 and out to x 0.245, so a neckline ring at 0.234
+    # passed straight THROUGH the deltoid -- which is what the notch at each
+    # shoulder was: the coat's rim sawing across the sleeve cap with a sliver
+    # of bare arm showing in the cut. channel.py scans the ellipse against the
+    # arm's own surface; 0.240 still hits at z 1.380 and 0.252 is the first
+    # width that clears, so this takes 0.256 for margin.
+    (COAT_TOP,  0.248, 0.134, 0.006, 18.8),    # shoulder edge, w = 0.080
+    (Y_SHOULDER, 0.256, 0.134, 0.008, 21.1),  # SHOULDER SEAM, w = 0.092
+    (1.26,      0.212, 0.130, 0.012, 27.5),   # w = 0.098
+    (1.16,      0.190, 0.124, 0.010, 31.1),   # sternum, most open, w = 0.098
+    # WIDENED OVER THE HIP. These two rings used to be 0.180/0.118 and
+    # 0.190/0.128, and the hip came through them: 2.9 mm past the OUTER wall
+    # at z 0.94 and 0.5 mm at z 1.00, on both sides at about 166 degrees --
+    # a thin dark seam down each hip in the human reading, which is the same
+    # defect the thigh produced once already. It was invisible until
+    # girthcheck's body_vs_coat stopped comparing the whole body against the
+    # collar ring (see that file); the number it had been printing was a
+    # different measurement entirely.
+    (1.04,      0.188, 0.124, 0.004, 22.5),   # waist, least open, w = 0.072
+    (0.92,      0.199, 0.134, -0.004, 20.9),  # over the hips, w = 0.071
+    (0.80,      0.200, 0.138, -0.006, 23.9),  # w = 0.081
+    (COAT_HEM,  0.210, 0.144, -0.006, 26.0),  # hem, flared, w = 0.092
+]
+
+
+def coat_at(z):
+    """(rx, ry, cy, gap_deg) of the coat at height z, interpolated."""
+    tbl = COAT_SECTIONS
+    if z >= tbl[0][0]:
+        return tbl[0][1:]
+    if z <= tbl[-1][0]:
+        return tbl[-1][1:]
+    for (z0, rx0, ry0, cy0, g0), (z1, rx1, ry1, cy1, g1) in zip(tbl, tbl[1:]):
+        if z1 <= z <= z0:
+            k = (z - z0) / (z1 - z0)
+            return (rx0 + (rx1 - rx0) * k, ry0 + (ry1 - ry0) * k,
+                    cy0 + (cy1 - cy0) * k, g0 + (g1 - g0) * k)
+    return tbl[-1][1:]
+
+
+# A REAL NOTCHED LAPEL, folded back off the front edge.
+#
+# Until now the lapel was the OPENING's shape and nothing else -- the arc gap
+# widening from 40 degrees at the neckline to 62 at the collar top -- and the
+# comment on those rings said so: "at this budget a lapel is a shape the
+# OPENING makes, not a separately folded panel". That was the right call when
+# the model was 3,000 triangles. It is not any more, and it is the single
+# biggest thing standing between this coat and a lab coat: a notch lapel is the
+# most recognisable feature a coat has, it sits exactly where the Level 1
+# window reveal is pointed, and a gap alone cannot produce the step at the
+# notch or the triangle of cloth lying on the chest.
+#
+# Built as a folded FLAP rather than by widening the coat: the fold line is the
+# coat's own front edge, the panel lies proud of the chest, and its free edge
+# runs out and down. That is what a lapel is, and it gives the notch for free
+# as the step between the flap's top and the collar above it.
+LAPEL_BREAK = 1.130    # where the lapel merges back into the front edge
+LAPEL_TOP = 1.396      # just under the neckline; the step above it is the notch
+LAPEL_WIDE = 0.40      # radians of arc at its widest
+LAPEL_PROUD = 0.014    # metres the flap stands off the coat beneath it
+LAPEL_T = 0.008        # its own cloth thickness
+LAPEL_STEPS = 7
+
+
+def _lapel_width(t):
+    """
+    Arc width of the lapel at height fraction t (0 at the break, 1 at the top).
+
+    Widest just BELOW the top, not at it. That dip over the last stretch is the
+    notch: the collar above steps back out again, and the corner between the
+    two is the thing the eye reads as a lapel rather than as a flap.
+    """
+    if t < 0.62:
+        return LAPEL_WIDE * (t / 0.62) ** 0.75
+    if t < 0.86:
+        return LAPEL_WIDE
+    return LAPEL_WIDE * (1.0 - 0.42 * (t - 0.86) / 0.14)
+
+
+# ACROSS the flap, not just along it: (fraction of the width, metres proud).
+#
+# The lapel was two columns -- the fold line and the free edge -- which makes
+# it a flat ribbon, and flat is exactly how it rendered: two hard-edged plates
+# stuck on the chest with a crease where they met the coat. Cloth folded back
+# on itself ROLLS; it does not hinge. The middle column sits at 45% of the
+# width but 86% of the way out, so the panel is convex rather than a straight
+# ramp, and the roll catches the light along its length instead of presenting
+# one flat face.
+#
+# This is the one part of the garment the Level 1 window reveal is pointed
+# straight at, and it is lit there -- so unlike most of this model it is worth
+# geometry that does nothing for the silhouette.
+LAPEL_COLUMNS = ((0.00, 0.002), (0.45, LAPEL_PROUD * 0.86), (1.00, LAPEL_PROUD))
+
+
+def build_lapels(bm):
+    """Two folded lapel panels, one per front edge. See LAPEL_BREAK."""
+    for side in (-1, 1):
+        # side -1 is the -X edge, which arc_ring emits first (angle 90 + gap).
+        outer, inner = [], []
+        for k in range(LAPEL_STEPS):
+            t = k / (LAPEL_STEPS - 1.0)
+            z = LAPEL_BREAK + (LAPEL_TOP - LAPEL_BREAK) * t
+            rx, ry, cy, gap = coat_at(z)
+            # The same swing the coat's own rings take, or the flap would
+            # fold off an edge that is no longer there.
+            edge = math.radians(90.0 + coat_swing(z)) + side * math.radians(gap)
+            wide = _lapel_width(t)
+
+            def at(ang, proud):
+                return (( rx + proud) * math.cos(ang),
+                        cy + (ry + proud) * math.sin(ang), z)
+
+            # The fold line sits ON the coat; the free edge stands proud of it,
+            # so the flap tilts away from the chest the way folded cloth does
+            # instead of lying flat against it and z-fighting.
+            outer.append([bm.verts.new(at(edge + side * wide * f, pr))
+                          for f, pr in LAPEL_COLUMNS])
+            inner.append([bm.verts.new(at(edge + side * wide * f, pr - LAPEL_T))
+                          for f, pr in LAPEL_COLUMNS])
+
+        # Winding is settled by recalc_face_normals later, so these only have
+        # to be the right LOOPS.
+        cols = len(LAPEL_COLUMNS)
+        for rows in (outer, inner):
+            for a, b in zip(rows, rows[1:]):
+                for c in range(cols - 1):
+                    bm.faces.new((a[c], a[c + 1], b[c + 1], b[c]))
+        # Close the free edge, the fold edge and the two ends, so the flap is a
+        # solid rather than a pair of loose sheets -- an open rim here would
+        # read as a slot at exactly the distance the reveal is lit from.
+        for i in range(len(outer) - 1):
+            bm.faces.new((outer[i][-1], inner[i][-1],
+                          inner[i + 1][-1], outer[i + 1][-1]))
+            bm.faces.new((outer[i][0], outer[i + 1][0],
+                          inner[i + 1][0], inner[i][0]))
+        for c in range(cols - 1):
+            bm.faces.new((outer[0][c], outer[0][c + 1],
+                          inner[0][c + 1], inner[0][c]))
+            bm.faces.new((outer[-1][c], inner[-1][c],
+                          inner[-1][c + 1], outer[-1][c + 1]))
 
 
 def build_coat(bm):
@@ -757,28 +1394,16 @@ def build_coat(bm):
     # over the arm at all -- the sleeve tops poke through it as pointed wings.
     # A coat hangs from the shoulder seam, so that is the widest point and
     # everything below it falls away.
-    sections = [
-        # COLLAR. Two rings above the neckline that rise, tuck in behind the
-        # neck and open wider at the front. The gap widening from 40 to 62
-        # degrees is what reads as a notched lapel rolling back off the
-        # sternum -- at this budget a lapel is a shape the OPENING makes, not
-        # a separately folded panel. Before this the coat simply stopped in a
-        # flat rim at the neckline, which is the one part of the garment the
-        # Level 1 window reveal looks straight at.
-        (1.470,     0.196, 0.101, -0.004, 62.0),   # collar top, behind the neck
-        (1.437,     0.224, 0.113, 0.000, 52.0),    # roll
-        (COAT_TOP,  0.234, 0.120, 0.004, 40.0),    # neckline
-        (1.34,      0.246, 0.128, 0.008, 36.0),   # SHOULDER SEAM, widest
-        (1.26,      0.212, 0.130, 0.012, 30.0),
-        (1.16,      0.190, 0.124, 0.010, 25.0),
-        (1.04,      0.180, 0.118, 0.004, 22.0),   # waist, least open
-        (0.92,      0.190, 0.128, -0.004, 22.0),  # over the hips
-        (0.80,      0.200, 0.138, -0.006, 24.0),
-        (COAT_HEM,  0.210, 0.144, -0.006, 26.0),  # hem, flared
-    ]
-    outer = [arc_ring(bm, z, rx, ry, cy, g) for z, rx, ry, cy, g in sections]
-    inner = [arc_ring(bm, z, rx - COAT_T, ry - COAT_T, cy, g + 1.2)
-             for z, rx, ry, cy, g in sections]
+    sections = COAT_SECTIONS
+    # The bottom ring takes the full sweep and the one above it a quarter of
+    # it, so the drop is a slanted PANEL rather than a kink in the last 100 mm.
+    # See HEM_SWEEP.
+    sweeps = [0.0] * (len(sections) - 2) + [0.25, 1.0]
+    outer = [arc_ring(bm, z, rx, ry, cy, g, sweep=w, swing=coat_swing(z))
+             for (z, rx, ry, cy, g), w in zip(sections, sweeps)]
+    inner = [arc_ring(bm, z, rx - COAT_T, ry - COAT_T, cy, g + 1.2, sweep=w,
+                      swing=coat_swing(z))
+             for (z, rx, ry, cy, g), w in zip(sections, sweeps)]
 
     for a, b in zip(outer, outer[1:]):
         open_bridge(bm, a, b)
@@ -790,6 +1415,8 @@ def build_coat(bm):
     for i in range(len(outer) - 1):
         bm.faces.new((outer[i][0], inner[i][0], inner[i + 1][0], outer[i + 1][0]))
         bm.faces.new((outer[i + 1][-1], inner[i + 1][-1], inner[i][-1], outer[i][-1]))
+
+    build_lapels(bm)
 
 
 def build_sleeves(bm):
@@ -817,12 +1444,8 @@ def build_sleeves(bm):
     # fails to cover reads as a dark slot at the shoulder. Everything
     # BELOW here is supposed to sit outside the coat body: that is the
     # armhole, and it measured 38-144 mm proud, which is correct.
-    OUTER = [(-0.050, 0.068, 0.068),
-             (0.040, 0.072, 0.073),
-             (0.180, 0.062, 0.064),
-             (0.310, 0.055, 0.057),    # just past the ELBOW
-             (0.330, 0.052, 0.054)]
-    T = 0.009
+    OUTER = girth(SLEEVE_OUTER, ARM_GIRTH)
+    T = SLEEVE_T
     for side in (-1, 1):
         origin = (side * P['shoulderWidth'], 0.0, Y_SHOULDER)
         direction = (math.sin(ARM_A_POSE) * side, 0.0, -math.cos(ARM_A_POSE))
@@ -834,7 +1457,12 @@ def build_sleeves(bm):
         for a, b in zip(inner, inner[1:]):
             bridge(bm, b, a)
         bridge(bm, inner[-1], outer[-1])   # cuff rim
-        bridge(bm, outer[0], inner[0])     # shoulder rim, hidden under the coat
+        bridge(bm, outer[0], inner[0])     # shoulder rim, under the coat
+        # THE LID. Without it the rim above is an annulus round a hole, and a
+        # hole at the top of the shoulder is not hidden just because cloth is
+        # nearby -- see SLEEVE_OUTER's first ring. recalc_face_normals settles
+        # the winding, so this only has to be the right LOOP.
+        bm.faces.new(tuple(reversed(inner[0])))
 
 
 def _hair_rim(off):
@@ -863,8 +1491,24 @@ def _hair_height(off, u):
     the cap that closes it stays a clean dome. See HAIR_TOP.
     """
     t0 = _hair_rim(off)
+    lift = 0.0
+    for centre, strength in HAIR_SPIKES:
+        lift += (HAIR_SPIKE_LIFT * strength
+                 * _arc_falloff(off, centre, HAIR_SPIKE_WIDTH)
+                 * _window(u, 0.25, 1.05))
     return (t0 + (HAIR_TOP - t0) * u
-            + HAIR_QUIFF * _falloff(off, 1.30) * _window(u, 0.20, 1.00))
+            + HAIR_QUIFF * _falloff(off, 1.30) * _window(u, 0.20, 1.00)
+            + lift)
+
+
+# THE WALL TRACKS THE SKULL. HAIR_BANDS is in absolute metres, so narrowing
+# the head's width multiplier from 0.92 to 0.72 left a 25 mm shell sitting on
+# a skull 23% narrower and the cap flared out past the temples as a beret --
+# the exact failure the band table's own comment records from the first
+# attempt at this shape ("a MUSHROOM, and the first attempt read as a beret").
+# 0.78 is the same ratio the skull's width moved by, so the hair keeps the
+# proportion it was tuned at rather than being re-tuned by hand.
+HAIR_WALL = 0.78
 
 
 def _hair_thickness(off, k):
@@ -872,12 +1516,18 @@ def _hair_thickness(off, k):
     u, base = HAIR_BANDS[k]
     f = abs(off) / math.pi
     # Swept BACK: more mass behind the crown than on the brow.
-    grow = base * (0.86 + 0.20 * f ** 0.65)
+    grow = base * HAIR_WALL * (0.86 + 0.20 * f ** 0.65)
     # Forelock over the brow, parted off-centre. Dies out by the crown -- it is
     # a mass hanging on the forehead, not a thicker skull.
     grow += HAIR_FORELOCK * _falloff(off - HAIR_PART, 0.90) * _window(u, -0.20, 0.74)
     # Flick over the nape, on the lowest bands only.
     grow += HAIR_NAPE * _falloff(abs(off) - math.pi, 1.00) * _window(u, -0.30, 0.45)
+    # The three points. Upper bands only, so the hairline below stays a clean
+    # cut edge -- a ragged BOTTOM edge would read as damage rather than as hair.
+    for centre, strength in HAIR_SPIKES:
+        grow += (HAIR_SPIKE_MASS * strength
+                 * _arc_falloff(off, centre, HAIR_SPIKE_WIDTH)
+                 * _window(u, 0.25, 1.30))
     return grow
 
 
@@ -1196,6 +1846,15 @@ def build():
 
         obj = bpy.data.objects.new('creature_%s' % name, me)
         bpy.context.collection.objects.link(obj)
+        # TAGGED HERE, because after the join there is no way to tell a sleeve
+        # vertex from a coat-body one. They share a material, they overlap in
+        # space around the shoulder, and their auto-weights overlap too -- a
+        # geometric test at the armhole needs a 6 mm margin to separate them,
+        # which is not a test, it is a coincidence. A vertex group survives the
+        # join with exactly the right members. Removed again before export.
+        if name == 'sleeves':
+            vg = obj.vertex_groups.new(name=SLEEVE_TAG)
+            vg.add(range(len(me.vertices)), 1.0, 'REPLACE')
         for poly in me.polygons:
             poly.use_smooth = True
         # 4.1 removed use_auto_smooth; this is the replacement.
@@ -1203,6 +1862,185 @@ def build():
         parts[name] = obj
 
     return parts
+
+
+def pin_hands_to_hand_bone(obj):
+    """
+    Every vertex past the wrist belongs 100% to its own hand bone.
+
+    THE FINGERS WERE COMING OFF. build_hand already states the intent -- "there
+    are NO finger bones in the armature, so every digit moves as one with the
+    hand bone regardless" -- but ARMATURE_AUTO does not know that. Bone heat
+    solves per vertex, and on five thin separate digits it handed some of them
+    mostly to `hand` and others mostly to `forearm`. That is invisible in the
+    rest pose and invisible in the human reading, because the two bones are
+    barely doing anything different.
+
+    In the HOLLOW reading they are: SEGMENT_STRETCH grows the hand by 2.00 and
+    the forearm by 1.63, each measured along its own bone. A digit on the wrong
+    bone therefore travels a different distance from the one beside it, and at
+    full correction 0 two fingers detach and hang in the air a few centimetres
+    off the hand. It is unmistakable in a close render and completely absent
+    from every numeric check in this file, which is why it survived.
+
+    Pinning is the correct fix rather than a patch: with no finger bones there
+    is no deformation the blend could be buying, so the blend is pure downside.
+    Done AFTER vertex_group_limit_total so nothing re-normalises it away.
+    """
+    axis = Vector(_ARM_DIR).normalized()
+    wrist = WRIST_ALONG - 0.02          # a little behind the wrist, into the cuff
+    groups = {g.name: g for g in obj.vertex_groups}
+    pinned = 0
+    for side, suffix in ((-1, '.R'), (1, '.L')):
+        target = groups.get('hand' + suffix)
+        if target is None:
+            continue
+        origin = Vector((side * P['shoulderWidth'], 0.0, Y_SHOULDER))
+        # The arm's own axis mirrors with the side, like the geometry does.
+        arm = Vector((axis.x * side, axis.y, axis.z))
+        idx = []
+        for v in obj.data.vertices:
+            along = (v.co - origin).dot(arm)
+            if along < wrist:
+                continue
+            # Across the axis too: without this the check would also catch
+            # anything that merely happens to be far out along that direction,
+            # such as the far hip on a wide pose.
+            if (v.co - (origin + arm * along)).length > 0.09:
+                continue
+            idx.append(v.index)
+        for g in obj.vertex_groups:
+            if g.name != target.name:
+                g.remove(idx)
+        target.add(idx, 1.0, 'REPLACE')
+        pinned += len(idx)
+
+    if pinned == 0:
+        print('WARNING: pin_hands_to_hand_bone matched no vertices -- the '
+              'fingers will detach in the Hollow reading. Check WRIST_ALONG '
+              'and the arm axis.')
+    return pinned
+
+
+def blend_sleeve_to_shoulder(obj):
+    """
+    Rebind the sleeves: shoulder at the top, arm everywhere else.
+
+    ARMATURE_AUTO GOT THIS BADLY WRONG and it is the reason the arm looked
+    stiff. Measured off the bound mesh, the sleeve two-thirds of the way to the
+    elbow carried clavicle 0.53 against upper_arm 0.02 -- so the cloth over the
+    bicep was pinned to the collarbone and barely followed the arm at all. Bone
+    heat solves by proximity and visibility, and a sleeve is a shell OUTSIDE
+    the arm with the arm's own mesh between it and the upper_arm bone, so the
+    clavicle wins a line-of-sight test it should lose.
+
+    What a sleeve actually wants is the opposite gradient: sewn into the
+    armhole at the top, hanging off the arm below it. That is what this writes
+    -- clavicle at the cap, easing to pure upper_arm by SLEEVE_ANCHOR_UNTIL,
+    and pure upper_arm for the whole rest of the tube.
+
+    The sleeve is found by its build-time tag rather than by geometry; see
+    SLEEVE_TAG for why a geometric test does not work here.
+    """
+    tag = obj.vertex_groups.get(SLEEVE_TAG)
+    if tag is None:
+        print('WARNING: no %s group -- sleeves keep their auto-weights, which '
+              'bind the bicep to the collarbone.' % SLEEVE_TAG)
+        return 0
+    tag_idx = tag.index
+    sleeve = [v.index for v in obj.data.vertices
+              if any(g.group == tag_idx and g.weight > 0.5 for g in v.groups)]
+
+    groups = {g.name: g for g in obj.vertex_groups}
+    base = Vector(_ARM_DIR).normalized()
+    touched = 0
+    for vi in sleeve:
+        v = obj.data.vertices[vi]
+        # Which arm is it on? The sleeve is mirrored, so the sign of x decides,
+        # and Blender's .L is +X.
+        side = 1 if v.co.x >= 0 else -1
+        suffix = '.L' if side > 0 else '.R'
+        arm_g = groups.get('upper_arm' + suffix)
+        clav_g = groups.get('clavicle' + suffix)
+        if arm_g is None or clav_g is None:
+            continue
+        origin = Vector((side * P['shoulderWidth'], 0.0, Y_SHOULDER))
+        arm = Vector((base.x * side, base.y, base.z))
+        along = (v.co - origin).dot(arm)
+        t = max(0.0, min(1.0, along / SLEEVE_ANCHOR_UNTIL))
+        w = SLEEVE_ANCHOR * (1.0 - t)
+        # Everything that is not the shoulder anchor goes to the arm, and the
+        # OTHER groups are cleared -- leaving the auto-weights in place is what
+        # produced the 0.53 clavicle on the bicep in the first place.
+        for g in obj.vertex_groups:
+            if g.index != tag_idx and g.name not in (arm_g.name, clav_g.name):
+                g.remove([vi])
+        clav_g.add([vi], w, 'REPLACE')
+        arm_g.add([vi], 1.0 - w, 'REPLACE')
+        touched += 1
+
+    # NOT removed here any more -- build_hollow_key needs it too. See the note
+    # on its sleeve test.
+    if touched == 0:
+        print('WARNING: blend_sleeve_to_shoulder matched no vertices.')
+    return touched
+
+
+def weight_orphans(obj, rig):
+    """
+    Give every unweighted vertex to the bone nearest it, and say how many.
+
+    ARMATURE_AUTO's bone heat solves a diffusion problem over the mesh volume,
+    and it silently gives up on geometry it cannot see a bone from. The lapels
+    triggered it the first time they were built: they stand 14 mm proud of the
+    coat, outside the surface heat propagates over, so a batch of their
+    vertices came out with no weights at all.
+
+    THAT FAILS LOUDLY RATHER THAN QUIETLY, which is the only reason it was
+    caught. The glTF exporter invents a joint called neutral_bone to park
+    unweighted vertices on, and check-creature.mjs asserts that joint is
+    absent -- so "some geometry does not deform" turns into a red build instead
+    of a lapel that hangs in the air while the body walks out from under it.
+    Keep that assertion.
+
+    Nearest-bone is the right default here: an orphan is by definition a vertex
+    the solver could not attribute, and the closest bone is what it would have
+    followed had it been inside the surface. It prints the count because a
+    LARGE number means something is structurally wrong rather than a few
+    vertices being awkward.
+    """
+    bones = [(b.name, Vector(b.head_local), Vector(b.tail_local))
+             for b in rig.data.bones]
+
+    def nearest(co):
+        best, bestd = None, 1e9
+        for name, head, tail in bones:
+            seg = tail - head
+            L2 = seg.length_squared
+            t = 0.0 if L2 < 1e-12 else max(0.0, min(1.0, (co - head).dot(seg) / L2))
+            d = (co - (head + seg * t)).length
+            if d < bestd:
+                best, bestd = name, d
+        return best
+
+    groups = {g.name: g for g in obj.vertex_groups}
+    claimed = {}
+    for v in obj.data.vertices:
+        if any(g.weight > 1e-4 for g in v.groups):
+            continue
+        name = nearest(v.co)
+        if name is None or name not in groups:
+            continue
+        claimed.setdefault(name, []).append(v.index)
+
+    total = 0
+    for name, idx in claimed.items():
+        groups[name].add(idx, 1.0, 'REPLACE')
+        total += len(idx)
+    if total:
+        print('weight_orphans: adopted %d unweighted vertices -> %s'
+              % (total, ', '.join('%s x%d' % (k, len(v)) for k, v in sorted(claimed.items()))))
+    return total
 
 
 def build_rigged():
@@ -1247,11 +2085,30 @@ def build_rigged():
     bpy.ops.object.select_all(action='DESELECT')
     obj.select_set(True)
     bpy.context.view_layer.objects.active = obj
+    weight_orphans(obj, rig)
+    pin_hands_to_hand_bone(obj)
+    blend_sleeve_to_shoulder(obj)
+
+    # AFTER the weight edits above, not before. blend_sleeve_to_shoulder adds a
+    # clavicle influence to vertices that already carry four, and limiting
+    # first leaves them at five -- at which point the glTF exporter drops the
+    # smallest itself, renormalises, and says so only in a log line. That is
+    # the exact failure this call exists to prevent, and it is worth being
+    # precise about why: a mesh with five influences still EXPORTS, still
+    # loads, and deforms wrongly only at the multi-bone regions, which is where
+    # it is hardest to see.
     bpy.ops.object.vertex_group_limit_total(limit=4)
     bpy.ops.object.vertex_group_normalize_all(lock_active=False)
 
     unwrap(obj)
     build_hollow_key(obj, rig)
+
+    # The tag has done both its jobs now (rebinding the sleeves, and telling
+    # the shape key a sleeve from a lapel). Dropped before export so it cannot
+    # be mistaken for a joint influence by anything downstream.
+    tag = obj.vertex_groups.get(SLEEVE_TAG)
+    if tag:
+        obj.vertex_groups.remove(tag)
     return obj, rig
 
 
@@ -1292,10 +2149,152 @@ SEGMENT_STRETCH = {
     'foot': 0.24 / 0.20,
 }
 
-LIMB_THIN = 0.034 / 0.052     # limbRadius   0.654
+# LEGS. Against the thickened human radius, so the Hollow's legs stay exactly
+# as emaciated in absolute terms (0.034 m) while the human reading grew.
+LIMB_THIN = 0.034 / (0.052 * LIMB_GIRTH)
+
+# THE SHOES DO NOT WASTE AWAY, and that is the point of giving them their own
+# number rather than letting them ride LIMB_THIN with the rest of the limb.
+# Everything else on this figure thins because it is flesh on a starved frame.
+# A shoe is an object: it keeps the size it was made in, and a wasted leg
+# standing in a shoe that still fits is a far better statement of what happened
+# to this body than a shoe that shrank politely along with the foot inside it.
+#
+# 0.82 rather than a flat 1.0 only so the ankle does not step out into a clown
+# shoe. scratchpad/footcheck.py measures what it buys, against a control that
+# lets the shoe waste with the rest of the limb: 212 x 50 mm and 4.23:1 becomes
+# 214 x 75 mm and about 2.8:1, which is the proportion a real shoe has. 0.92
+# was tried first and came out stubby at 2.54:1.
+FOOT_THIN = 0.82
+
+# ARMS, and this one goes the OTHER WAY on purpose. The Hollow's arms were
+# 0.034 m -- pencils, and the thing the player actually looks at in the
+# backrooms, since the human reading only appears at the Level 1 window and the
+# reveal. 0.043 puts some meat on them.
+#
+# THE CONTRAST IS NOT LOST BY DOING THIS, which is the objection to answer.
+# Against a human arm now at 0.052 * 0.95 = 0.0494 the ratio is 0.87, where it
+# used to be 0.65 -- so thickness is no longer carrying much of the twist. It
+# did not have to: the arms still LENGTHEN by 1.5x (SEGMENT_STRETCH), the coat
+# hem still inverts against the fingertips, and length at a silhouette reads
+# from across a corridor where a 15 mm difference in radius never did.
+ARM_THIN = 0.043 / (0.052 * ARM_GIRTH)
 # Sleeves thin only ~72% of the way the arm inside them does, so the cloth
 # ends up about 10 mm proud of the arm rather than 22 mm. Loose, not hollow.
-SLEEVE_THIN = 1.0 - (1.0 - LIMB_THIN) * 0.72
+SLEEVE_THIN = 1.0 - (1.0 - ARM_THIN) * 0.72
+
+# THE SLEEVE CAP COLLAPSES WITH THE COAT IT SITS UNDER.
+#
+# The sleeve's top ring is an open RIM -- the annulus where its outer and inner
+# walls meet -- and the coat's shoulder is what covers it. Once COAT_COLLAPSE
+# pulled the shoulder seam in to 0.79 the rim stopped being covered and came
+# out as a bright square shelf on each shoulder, which is the same defect the
+# sleeve's own comment records from the other direction ("any part of it the
+# coat fails to cover reads as a dark slot at the shoulder").
+#
+# So the cap thins to roughly what the coat above it does, easing back to
+# SLEEVE_THIN by the elbow, where the coat is no longer over it and the loose
+# cloth is the point. 0.22 m along the arm is just past halfway to the elbow.
+# How much of the sleeve cap belongs to the SHOULDER rather than the arm, and
+# how far down the arm that hand-over finishes. See blend_sleeve_to_shoulder.
+SLEEVE_TAG = '_sleeve_tag'
+SLEEVE_ANCHOR = 0.78
+SLEEVE_ANCHOR_UNTIL = 0.11
+
+SLEEVE_CAP_THIN = 0.80
+SLEEVE_CAP_UNTIL = 0.22
+# ---------------------------------------------------------------------------
+# How the COAT hangs on the Hollow
+# ---------------------------------------------------------------------------
+#
+# The coat body used to be excluded from this key entirely -- it kept its full
+# human measurements while the torso inside went to 0.758 x 0.686 and the arms
+# grew half again as long. The comment called that free horror. Seen rendered
+# beside the human reading it is not: a rigid full-size garment standing off a
+# wasted frame does not read as a coat hanging loose, it reads as a box with a
+# stick in it, and the squared-off shoulders are the worst of it because the
+# shoulder seam is the one part of a coat that is supposed to SIT on the body.
+#
+# What cloth actually does when the body under it wastes: it keeps its own
+# length and hem, because cloth does not shrink -- but it loses the shoulders
+# that were holding it out, so the top collapses toward the frame and the
+# excess falls into slack lower down. So the collapse is strongest at the
+# shoulder seam and eases to nothing at the hem, which is the opposite of
+# scaling the whole garment and is what keeps the silhouette a coat.
+#
+# The hem is left at 1.00 deliberately. It is load-bearing: the hem-versus-
+# fingertip inversion is the single measurement the whole design rests on, and
+# pulling the hem in would start eating it.
+COAT_COLLAPSE = [
+    (COAT_HEM, 1.00),   # hangs free, unchanged -- see above
+    (0.92, 0.96),       # over the hips
+    (1.04, 0.91),       # waist
+    (1.16, 0.88),
+    (1.26, 0.96),       # flaring back out to meet the shoulder
+    # THE SHOULDER BARELY NARROWS, and that is both more accurate and the fix
+    # for a hole. Cloth does not shrink: when the body under a coat wastes, the
+    # shoulder SLUMPS rather than pulling in, and the width stays roughly what
+    # it was. Collapsing it to 0.79 pulled the coat off the sleeve cap it is
+    # sewn to and opened a ragged gap through to the shirt on each shoulder --
+    # visible head-on, which is the angle the corridor gives you. The drape now
+    # lives in the chest and waist, where it belongs.
+    # THE SHOULDER DOES NOT NARROW AT ALL, and this is the second time that
+    # number has had to come up. The coat collapses about the BODY's centre
+    # while the arm stays where it is -- nothing in the Hollow moves the
+    # shoulder joint inward -- so every millimetre the coat pulls in is a
+    # millimetre of arm it stops covering. At 0.90 the seam moved ~25 mm and
+    # the deltoid came through as a patch of bare skin on the shoulder, which
+    # is precisely the failure the arm's own section table already records
+    # ("left up to 8 mm of bare deltoid showing over the coat -- which rendered
+    # as a brown patch on each shoulder and looked like a hole in the coat").
+    #
+    # Nothing is lost by holding it at 1.0. The drape that makes the garment
+    # read as too big lives in the chest and waist, where the body actually
+    # wasted; a coat that is full width at the shoulder and 0.85 at the chest
+    # is exactly what a too-big coat on a thin frame looks like.
+    (1.34, 1.00),       # shoulder seam: holds the arm, must not move
+    # ABOVE the shoulder the collar is free to close in, and it has to. The
+    # Hollow thins the neck to 0.545 and lengthens it 1.72x, so what stands in
+    # the collar is a stalk -- and the collar, left at full width, gaped round
+    # it and showed a dark wedge at the back of the neck in profile. These sit
+    # above z = 1.34 so nothing here can uncover the arm again.
+    # HELD AT FULL WIDTH UNTIL 1.42, which is above the sleeve's top rim. The
+    # sleeve starts at along -0.050, i.e. z = 1.400, and the deltoid inside it
+    # reaches higher still -- so a taper beginning at the neckline pulls cloth
+    # off the shoulder and 16 skin vertices came through with an 8 mm gap.
+    # Measured by scratchpad/skincheck.py, which casts a ray straight out from
+    # the arm bone and asks whether it passes through cloth; by eye this was
+    # three rounds of "looks about right" and it was not.
+    (1.42, 1.00),
+    (1.47, 0.88),       # collar, now clear of the sleeve, free to close in
+    (1.50, 0.80),       # collar top, following the thinned neck
+]
+
+# Radians the front panels swing OPEN. An unbuttoned coat on a body that has
+# lost its chest has nothing keeping the fronts near each other, and a wider
+# opening is also what lets the dark core show through -- the pale-over-dark
+# read the whole garment exists for.
+COAT_GAPE = 0.13
+
+# The coat's rings are offset forward/back per height (the `cy` column in its
+# sections). Collapsing toward y = 0 instead of toward the garment's own centre
+# would drag the whole coat backwards as it narrowed. This is the mean of those
+# offsets, which is within 8 mm of every one of them.
+COAT_CENTRE_Y = 0.0
+
+
+def coat_collapse(z):
+    """Inward scale for a coat vertex at height z. See COAT_COLLAPSE."""
+    if z <= COAT_COLLAPSE[0][0]:
+        return COAT_COLLAPSE[0][1]
+    if z >= COAT_COLLAPSE[-1][0]:
+        return COAT_COLLAPSE[-1][1]
+    for (z0, k0), (z1, k1) in zip(COAT_COLLAPSE, COAT_COLLAPSE[1:]):
+        if z0 <= z <= z1:
+            return k0 + (k1 - k0) * (z - z0) / (z1 - z0)
+    return COAT_COLLAPSE[-1][1]
+
+
 TORSO_THIN_X = 0.125 / 0.165  # torsoWidth   0.758
 TORSO_THIN_Y = 0.072 / 0.105  # torsoDepth   0.686
 HEAD_THIN = 0.098 / 0.115     # headRadius   0.852
@@ -1363,17 +2362,59 @@ def build_hollow_key(obj, rig):
     key.value = 0.0
 
     group_name = {g.index: g.name for g in obj.vertex_groups}
+    _tag = obj.vertex_groups.get(SLEEVE_TAG)
+    sleeve_tag = _tag.index if _tag else None
+    if sleeve_tag is None:
+        print('WARNING: %s missing in build_hollow_key -- sleeves and lapels '
+              'will be transformed alike.' % SLEEVE_TAG)
 
     ARM = {'upper_arm', 'forearm', 'hand'}
 
     for v in obj.data.vertices:
         sleeve = False
         if v.index in coat_verts:
-            # A coat vertex owned by an arm bone is a SLEEVE. The coat body is
-            # never weighted to one, so this needs no geometry test.
-            best = max(v.groups, key=lambda g: g.weight, default=None)
-            sleeve = bool(best and group_name[best.group].split('.')[0] in ARM)
+            # TAGGED, not inferred. This used to be "a coat vertex owned by an
+            # arm bone is a sleeve; the coat body is never weighted to one" --
+            # which was true until weight_orphans started adopting stranded
+            # lapel vertices, and the nearest bone to a lapel lying on the
+            # chest is frequently upper_arm. Eight vertices a side were then
+            # handed the SLEEVE transform, which thins about the ARM's axis, so
+            # cloth sitting on the sternum got dragged toward a bone half a
+            # body away. The lapels came out shredded, with holes punched
+            # through them, in the Hollow reading only.
+            #
+            # The build-time tag says which vertices are actually sleeve, so
+            # there is nothing left to infer.
+            sleeve = bool(sleeve_tag is not None
+                          and any(g.group == sleeve_tag and g.weight > 0.5
+                                  for g in v.groups))
             if not sleeve:
+                # THE COAT BODY DRAPES rather than being skipped. Done here in
+                # the shape key and NOT through bone weights, because this is
+                # not something a bone does: it is the garment losing the
+                # shoulders that were holding it out, which is a change of
+                # shape rather than of pose.
+                q = v.co
+                k = coat_collapse(q.z)
+                cy = COAT_CENTRE_Y
+                x, y = q.x * k, cy + (q.y - cy) * k
+                # Swing the front panels open. The weight is cos of the angle
+                # off the opening, so it is full at the front edges and zero at
+                # the spine -- a coat gapes at the front, it does not rotate.
+                ang = math.atan2(x, y - cy)
+                w = max(0.0, math.cos(ang))
+                # NEGATIVE, and the sign is the whole trick. A positive
+                # rotation takes +X toward +Y, so on the front-RIGHT panel it
+                # swings the edge toward the front centre-line -- it CLOSES the
+                # coat, and the two panels then cross through each other. That
+                # rendered as V-shaped bites out of the chest, which looked
+                # like torn geometry rather than a sign error.
+                a2 = -COAT_GAPE * w * math.copysign(1.0, x if abs(x) > 1e-9 else 1.0)
+                ca, sa = math.cos(a2), math.sin(a2)
+                ox, oy = x, y - cy
+                key.data[v.index].co = Vector((ox * ca - oy * sa,
+                                               cy + ox * sa + oy * ca,
+                                               q.z))
                 continue
         p = v.co
         delta = Vector((0.0, 0.0, 0.0))
@@ -1392,8 +2433,30 @@ def build_hollow_key(obj, rig):
                 if axis.length < 1e-6:
                     continue
                 axis.normalize()
-                on_axis = head + axis * (p - head).dot(axis)
-                delta += ((on_axis + (p - on_axis) * SLEEVE_THIN) - p) * g.weight
+                along = (p - head).dot(axis)
+                on_axis = head + axis * along
+                t = min(1.0, max(0.0, along / SLEEVE_CAP_UNTIL))
+
+                # THE CAP MOVES WITH THE COAT, NOT WITH THE ARM, and getting
+                # that wrong tore the shoulder open. The coat collapses toward
+                # the BODY's centre-line and the sleeve was thinning toward the
+                # ARM's axis -- two different transforms about two different
+                # centres, so however well each was tuned on its own the two
+                # surfaces slid apart at the armhole and left a ragged hole
+                # through to the shirt on each shoulder. Shrinking both by
+                # similar amounts did not help: it moved them apart equally.
+                #
+                # So the cap gets the coat's own transform, exactly, and is
+                # therefore still welded to the shoulder it is sewn into. Only
+                # further down the arm, where there is no coat over it any
+                # more, does it become loose cloth on a thin limb.
+                k = coat_collapse(p.z)
+                coat_target = Vector((p.x * k,
+                                      COAT_CENTRE_Y + (p.y - COAT_CENTRE_Y) * k,
+                                      p.z))
+                arm_target = on_axis + (p - on_axis) * SLEEVE_THIN
+                target = coat_target.lerp(arm_target, t)
+                delta += (target - p) * g.weight
                 continue
 
             if base in LIMB or base == 'neck':
@@ -1408,7 +2471,9 @@ def build_hollow_key(obj, rig):
                 # SEGMENT_STRETCH. Measured from the bone's HEAD, so the joint
                 # itself stays put and only the flesh beyond it moves.
                 grow = (SEGMENT_STRETCH.get(base, 1.0) - 1.0) * along
-                target = on_axis + axis * grow + (p - on_axis) * LIMB_THIN
+                thin = (ARM_THIN if base in ARM
+                        else FOOT_THIN if base == 'foot' else LIMB_THIN)
+                target = on_axis + axis * grow + (p - on_axis) * thin
             elif base in TORSO:
                 # The spine and chest lengthen too, and they run up +Z.
                 head, _ = rest[name]

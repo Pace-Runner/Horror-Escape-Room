@@ -37,6 +37,12 @@ jobs:
       # bind to, or an export lying on its side. A MISSING creature.glb is
       # not a failure -- Creature.js falls back to the procedural rig.
       - run: npm run check:creature
+      # And the imported one, which needs its own rules because it breaks in
+      # its own ways: a material still NAMED for the texture it has lost, a
+      # 0x0 MMD toon ramp exporting as nothing, geometry shipped with three
+      # vertices per triangle, or every surface left doubleSided. All four of
+      # those shipped before this gate existed and all four are valid glTF.
+      - run: npm run check:okabe
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

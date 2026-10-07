@@ -66,13 +66,25 @@ construction rather than asserted across two files. What changed is that a rig
 made of capsules cannot wear a lab coat, and the coat turned out to be the
 design:
 
-- in the **human** reading the hem sits at 0.700 m and the fingertips at 0.717,
-  so the hands are at pocket height and the arms vanish into one clean column;
-- in the **Hollow** reading the torso grows, the hem rides up to 0.771, and the
-  arms grow so the fingertips fall to 0.531.
+- in the **human** reading the hem runs 0.648-0.700 m and the fingertips sit at
+  0.707, so the hands are at pocket height and the arms vanish into one clean
+  column;
+- in the **Hollow** reading the torso grows, the hem rides up to 0.709-0.769,
+  and the arms grow so the fingertips fall to 0.419.
 
-The hands end up hanging 24 cm clear of a coat that has become a short jacket
--- measured in the running game, not estimated.
+The hands end up hanging **29 cm** clear of the hem's lowest point -- 35 cm
+clear of its highest -- on a coat that has become a short jacket.
+
+**The hem is a RANGE now, and the numbers above are not the ones this section
+first carried.** It used to quote a single hem height and a 24 cm gap. Two
+later passes moved both: the hem was a dead-flat horizontal cut in profile
+until `HEM_SWEEP` gave it 52 mm of uneven hang, so there is no one hem height
+to quote; and the fingertips fell another 112 mm once the monster's fingers
+were curled into a claw rather than left pointing, which is the change that
+stopped the hand reading as a garden fork. Both figures are re-measured on the
+posed rig rather than estimated -- the Hollow's hem rides up because the BONES
+lift the hips, not because the shape key touches it, so a measurement taken
+from the key alone reports the two readings as identical.
 
 The coat is a ruler the viewer measures the distortion against, which is a far
 stronger cue than long arms on a bare body -- a bare arm has nothing to be long
@@ -87,7 +99,7 @@ halves are driven from the one `setCorrection` dial and read off the one
 HUMAN/HOLLOW table, so a half-corrected figure is a coherent in-between.
 
 The capsule rig is still in the file as the fallback: `main.js` places the
-creature synchronously during scripted beats, and a 280 KB asset arrives
+creature synchronously during scripted beats, and a 350 KB asset arrives
 whenever it arrives.
 
 ## Why each hierarchy decision was made
