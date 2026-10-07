@@ -3142,11 +3142,23 @@ export function createHallwayBasementLevel({
   ]);
   const tornNotes = new THREE.Mesh(
     new THREE.PlaneGeometry(0.3, 0.38),
-    new THREE.MeshStandardMaterial({ map: tornNoteTex, roughness: 1 })
+    // Pulled toward the camera in the depth test as well as lifted: at the
+    // shallow angle a player looks across the bench from, 3 mm alone can
+    // still lose to the bench top on some depth buffers.
+    new THREE.MeshStandardMaterial({
+      map: tornNoteTex,
+      roughness: 1,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1
+    })
   );
   tornNotes.rotation.x = -Math.PI / 2;
   tornNotes.rotation.z = 0.15;
-  tornNotes.position.set(-0.2, 0.845, 0.15); // local to the workbench, which is its parent
+  // Local to the workbench, which is its parent. Lifted 3 mm off the bench
+  // top (0.845) -- sitting exactly on it, the two faces shared one depth and
+  // z-fought into a jagged staircase across the page.
+  tornNotes.position.set(-0.2, 0.848, 0.15);
   tornNotes.userData.interact = {
     label: 'Read the torn notes',
     onInteract: () => showCaption('"SUBJECT UNSTABLE. CONTAINMENT REQUIRED. MEMORY DETERIORATION OBSERVED. VISUAL DISTORTION INCREASING."')
