@@ -124,8 +124,10 @@ export const BEATS = {
    * line has to stop promising the player a way out that it does not open.
    */
   powerRestored: [
-    { text: 'Lights come up in stages down the room. The monitor wakes with them.', duration: 4.2 },
-    'The cameras are live. The door at the far end is not.'
+    { text: 'Lights come up in stages down the room.', duration: 3.4 },
+    // The monitor starts switched off now -- this points the player at it
+    // rather than telling them it came on by itself.
+    'The monitor on the desk has power now. The door at the far end does not.'
   ],
 
   /** The main is thrown by hand, at the wall, the moment the player goes for the door. */

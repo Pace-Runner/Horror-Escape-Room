@@ -6,8 +6,25 @@ import {
   createConcreteBumpTexture,
   createStickyNoteTexture,
   createHazardSignTexture,
-  createPaperNoteTexture
+  createPaperNoteTexture,
+  createFuseCapStampTexture,
+  createFixtureSteelTexture,
+  createFixtureSteelNormalTexture,
+  createPaintedSteelTexture,
+  createGaugeFaceTexture,
+  createRibbedHoseTexture,
+  createDataPlateTexture,
+  createCrtVentTexture,
+  createCrtTopVentTexture,
+  createPowerSymbolTexture,
+  createSwitchLabelTexture
 } from '../world/textures.js';
+import { loadModel } from '../world/modelLoader.js';
+import fuseBoxModelUrl from '../assets/models/fuse_box.glb?url';
+import fuseModelUrl from '../assets/models/fuse.glb?url';
+import crtMonitorModelUrl from '../assets/models/crt_monitor.glb?url';
+import breakerPanelModelUrl from '../assets/models/breaker_panel.glb?url';
+import generatorModelUrl from '../assets/models/generator.glb?url';
 import { createStaticScreenMaterial } from '../world/StaticScreenMaterial.js';
 import { createCctvFeeds, FEED_IDS, FEED_LABELS } from '../world/CctvFeeds.js';
 import { SECURITY_CODE } from '../world/doorPanels.js';
@@ -30,6 +47,119 @@ const LAB_Z = HALL_LEN + LAB_D / 2 + 0.2;
  */
 const DOOR_WIDTH_IN_METRES = 1.1;
 const DOOR_HEIGHT_IN_METRES = 2.1;
+
+/**
+ * One glass cartridge fuse (fuse.glb). Every fuse in the level is this same
+ * size -- about a toilet-roll tube -- so the rating stamped on its caps is
+ * what tells them apart, not the thickness it used to be. Mirrors
+ * FUSE_LENGTH and CAP_RADIUS in blender/glass_fuse.py.
+ */
+const FUSE_LENGTH = 0.10;
+const FUSE_CAP_RADIUS = 0.024;
+
+/**
+ * The fuse box (fuse_box.glb) and where its four clips are, in the model's own
+ * space: x across the face, y up, z out of the wall. Mirrors BOX_*, SLOT_X and
+ * FUSE_AXIS_Y in blender/build_fuse_box.py. The level needs them before the
+ * model has loaded -- the click target, the seated fuses and the cable run are
+ * all placed synchronously -- which is why they are copied rather than read
+ * off the loaded scene.
+ */
+const FUSE_BOX_WIDTH = 0.54;
+const FUSE_BOX_HEIGHT = 0.50;
+const FUSE_BOX_DEPTH = 0.13;
+const FUSE_BOX_SLOT_X = [-0.15, -0.05, 0.05, 0.15];
+const FUSE_BOX_FUSE_DEPTH = 0.062;
+const FUSE_BOX_GROMMET_DEPTH = 0.07;
+/** The cover's hinge line: its right-hand edge, just proud of the box's face. */
+const FUSE_COVER_HINGE = { x: 0.274, z: 0.136 };
+
+/**
+ * The one slot the player ever fills -- third from the left, as in the
+ * reference. The other three hold fuses that are part of fuse_box.glb itself
+ * and never move. Mirrors EMPTY_SLOT in blender/build_fuse_box.py.
+ */
+const FUSE_BOX_EMPTY_SLOT = 2;
+
+/**
+ * The CRT on the CCTV desk (crt_monitor.glb), in the model's own space: x
+ * across the face, y up from the desk, z out of the screen. Mirrors the
+ * dimensions in blender/build_crt_monitor.py -- the picture, the power button
+ * and the click target are all built here, around the model, and have to land
+ * on the parts of it they belong to.
+ */
+const CRT_BODY = { width: 0.46, bottom: 0.03, top: 0.42, front: 0.18, back: -0.215 };
+const CRT_SCREEN = { width: 0.36, height: 0.27, centreY: 0.244, z: 0.158 };
+/** How far the middle of the glass bows out toward the player. */
+const CRT_SCREEN_BULGE = 0.012;
+const CRT_POWER_BUTTON = { x: 0.17, y: 0.066, radius: 0.0095, depth: 0.006, ringFront: 0.1824 };
+/** The sockets on the CRT's back panel the cables plug into: across, up, and how far they stand out. */
+const CRT_PORTS = {
+  power: { x: 0.06, y: 0.13, depth: 0.006 },
+  video: { x: -0.06, y: 0.15, depth: 0.012 },
+  remote: { x: 0.0, y: 0.12, depth: 0.008 }
+};
+/** Seconds for the picture to open out from a line, and to collapse back to one. */
+const CRT_WARM_UP_SECONDS = 0.7;
+const CRT_SWITCH_OFF_SECONDS = 0.25;
+
+/**
+ * The breaker panel (breaker_panel.glb), in the model's own space: x across
+ * the face, y up, z out of the wall. Mirrors build_breaker_panel.py -- the
+ * toggles, flags, label strip and click targets are built here and have to
+ * land on the modules, window and lever the model provides.
+ */
+const BREAKER_BOX = { width: 0.44, height: 0.32, depth: 0.10 };
+const BREAKER_MODULE_X = [-0.132, -0.066, 0.0, 0.066, 0.132];
+const BREAKER_MODULE_CENTRE_Y = 0.025;
+const BREAKER_MODULE_FACE_Z = 0.108;
+/** Where each lever comes out of its module: the front of the module's collar. */
+const BREAKER_TOGGLE_BASE_Z = 0.114;
+/** One black label plate under each module, between the window and the vent slots. */
+const BREAKER_LABEL = { width: 0.05, height: 0.034, y: -0.056 };
+const BREAKER_COVER = { width: 0.40, height: 0.17, hingeY: 0.10, hingeZ: 0.165 };
+/** The cover swings up past square, so it stays open on its own. */
+const BREAKER_COVER_OPEN_ANGLE = -1.75;
+const BREAKER_COVER_OPEN_SECONDS = 0.5;
+/** A lever tilts this far either way: tip up is ON. Pronounced, so the state reads from across the room. */
+const BREAKER_TOGGLE_TILT = 0.6;
+/**
+ * The main lever's swing about its pivot. Up is ON: the arm leans a little
+ * forward of vertical. Down swings it through the front to hang below.
+ */
+const MAIN_LEVER_UP_ANGLE = 0.3;
+const MAIN_LEVER_DOWN_ANGLE = Math.PI - 0.3;
+const MAIN_LEVER_HIT = { size: [0.075, 0.3, 0.2], centre: [0.258, -0.01, 0.1] };
+
+/**
+ * The generator (generator.glb), in the model's own space, which is also how
+ * it stands in the lab: length along x with the control panel on the +X end,
+ * door side to +Z, standing on y = 0. Mirrors build_generator.py.
+ */
+const GENERATOR_BODY = { length: 1.0, depth: 0.7, top: 0.85 };
+/** The face of the control panel, and the rows on it. */
+const GENERATOR_PANEL_X = 0.504;
+const GENERATOR_ROW_Y = { gauge: 0.70, lamp: 0.60, control: 0.50 };
+/** Across the panel: fuel valve on the room side, primer, then the pull-start toward the wall. */
+const GENERATOR_CONTROL_Z = { valve: 0.18, primer: 0.0, starter: -0.18 };
+const GENERATOR_EXHAUST_TOP = [-0.2, 0.925, -0.2];
+const GENERATOR_CABLE_GLAND = [-0.524, 0.35, 0.27];
+/** The three gauges over the controls, and what each reads. */
+const GENERATOR_GAUGES = [
+  { slot: 'valve', label: 'VOLTS', max: 300, step: 50, reads: 'volts' },
+  { slot: 'primer', label: 'Hz', max: 70, step: 10, reads: 'hertz' },
+  { slot: 'starter', label: 'AMPS', max: 80, step: 20, reads: 'amps' }
+];
+/**
+ * How many pulls the starter takes to catch once it has been primed. The
+ * first two cough and roar and die, each louder than the last, which is the
+ * real price of restarting a diesel in a house you are hiding in.
+ */
+const STARTER_PULLS_TO_CATCH = 3;
+
+/** How far the cover swings, and how long it takes. Past square, so it hangs open. */
+const FUSE_COVER_OPEN_ANGLE_IN_RADIANS = 1.83;
+const FUSE_COVER_OPEN_SECONDS = 0.6;
 
 /**
  * Where the two props that fuses rest on actually stand, in lab space.
@@ -445,19 +575,119 @@ export function createHallwayBasementLevel({
     }
   }
 
-  // generators / fuse box against the side wall
-  const boxMat = new THREE.MeshStandardMaterial({ color: 0x33362f, roughness: 0.7, metalness: 0.3 });
-  const generator = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.2, 0.7), boxMat);
+  /**
+   * The generator: generator.glb (blender/build_generator.py), an enclosed
+   * 1980s diesel standby set, long side to the room with its control panel on
+   * the end that faces into the lab. The model is built standing the way it
+   * stands here, so it is placed without being turned.
+   *
+   * `generator` is its frame. Inside it, `generatorShake` carries everything
+   * that vibrates while the engine runs -- the cabinet and every control on
+   * it. The exhaust hose stays outside it: it is fixed to the wall at its far
+   * end.
+   */
+  const generator = new THREE.Group();
   // Pushed into the corner beside the doorway rather than standing mid-wall.
   // Its front edge stops at z = -2.5, which keeps it clear of the black pool's
   // footprint (nearest edge about -2.46) and of the corner the creature is
   // shown standing in after camera five.
-  generator.position.set(-LAB_W / 2 + 0.55, 0.6, -LAB_D / 2 + 0.4);
+  generator.position.set(-LAB_W / 2 + 0.55, 0, -LAB_D / 2 + 0.4);
   lab.add(generator);
+  const generatorShake = new THREE.Group();
+  generator.add(generatorShake);
   colliders.push({
     minX: generator.position.x - 0.55, maxX: generator.position.x + 0.55,
     minZ: LAB_Z + generator.position.z - 0.4, maxZ: LAB_Z + generator.position.z + 0.4
   });
+
+  loadModel(generatorModelUrl).then((model) => {
+    const paintMap = createPaintedSteelTexture({ base: [62, 112, 106], rust: 0.7 });
+    const paintNormal = createFixtureSteelNormalTexture();
+    model.traverse((child) => {
+      if (!child.isMesh || child.material.name !== 'GenPaint') return;
+      // White, so the texture's own paint colour is not tinted twice.
+      child.material.color.set(0xffffff);
+      child.material.map = paintMap;
+      child.material.normalMap = paintNormal;
+      child.material.needsUpdate = true;
+    });
+    generatorShake.add(model);
+  }).catch((err) => console.error('[lab] generator.glb failed to load', err));
+
+  /**
+   * The exhaust: a ribbed flexible hose from the outlet on the roof up to a
+   * vent high on the wall behind -- a diesel run indoors has to breathe
+   * somewhere, and the hose says someone set this machine up to run down here.
+   */
+  {
+    const wallZ = -LAB_D / 2 - generator.position.z;   // the entrance wall, in the generator's frame
+    const [ex, ey, ez] = GENERATOR_EXHAUST_TOP;
+    // Up under the ceiling, where flue outlets go: a square wall plate with a
+    // round spigot standing off it, and the hose clamped over the spigot. The
+    // hose rises up the wall and only turns in at the very top.
+    const VENT = { x: ex - 0.05, size: 0.2, spigotRadius: 0.045, spigotLength: 0.05 };
+    VENT.y = LAB_H - VENT.size / 2 - 0.04;
+    const spigotEndZ = wallZ + 0.012 + VENT.spigotLength;
+    const hoseCurve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(ex, ey - 0.01, ez),
+      new THREE.Vector3(ex, ey + 0.25, ez - 0.01),
+      new THREE.Vector3(ex - 0.03, 1.9, ez - 0.05),
+      new THREE.Vector3(VENT.x, 2.7, wallZ + 0.16),
+      new THREE.Vector3(VENT.x, VENT.y - 0.08, wallZ + 0.17),
+      new THREE.Vector3(VENT.x, VENT.y, spigotEndZ + 0.06),
+      new THREE.Vector3(VENT.x, VENT.y, spigotEndZ - 0.01)
+    ]);
+    const ribs = createRibbedHoseTexture();
+    const ribCount = Math.round(hoseCurve.getLength() / 0.022);
+    ribs.map.repeat.set(ribCount, 1);
+    ribs.bumpMap.repeat.set(ribCount, 1);
+    const hose = new THREE.Mesh(
+      new THREE.TubeGeometry(hoseCurve, 110, 0.038, 12, false),
+      new THREE.MeshStandardMaterial({
+        color: 0xffffff, map: ribs.map, bumpMap: ribs.bumpMap, bumpScale: 2,
+        metalness: 0.7, roughness: 0.45
+      })
+    );
+    generator.add(hose);
+
+    const ventMat = new THREE.MeshStandardMaterial({ color: 0x3b3d3c, metalness: 0.6, roughness: 0.55 });
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(VENT.size, VENT.size, 0.012), ventMat);
+    plate.position.set(VENT.x, VENT.y, wallZ + 0.006);
+    generator.add(plate);
+    const spigot = new THREE.Mesh(
+      new THREE.CylinderGeometry(VENT.spigotRadius, VENT.spigotRadius, VENT.spigotLength, 18, 1, true),
+      ventMat
+    );
+    spigot.rotation.x = Math.PI / 2;
+    spigot.position.set(VENT.x, VENT.y, wallZ + 0.012 + VENT.spigotLength / 2);
+    generator.add(spigot);
+    // The clamp band round the end of the hose, over the spigot.
+    const clamp = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.043, 0.043, 0.014, 18),
+      new THREE.MeshStandardMaterial({ color: 0x9a9c98, metalness: 0.85, roughness: 0.3 })
+    );
+    clamp.rotation.x = Math.PI / 2;
+    clamp.position.set(VENT.x, VENT.y, spigotEndZ - 0.012);
+    generator.add(clamp);
+    for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const screw = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.004, 8), clamp.material);
+      screw.rotation.x = Math.PI / 2;
+      screw.position.set(VENT.x + dx * (VENT.size / 2 - 0.018), VENT.y + dy * (VENT.size / 2 - 0.018), wallZ + 0.013);
+      generator.add(screw);
+    }
+  }
+
+  /** The maker's plate on the door: the date that puts the machine in its decade. */
+  const dataPlate = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.16, 0.09),
+    new THREE.MeshStandardMaterial({
+      map: createDataPlateTexture(['DIESEL GENERATING SET', 'MODEL DG-15  15 kVA', '230 V  50 Hz  1500 RPM', 'SERIAL 0471  1983']),
+      metalness: 0.6,
+      roughness: 0.5
+    })
+  );
+  dataPlate.position.set(0.185, 0.72, GENERATOR_BODY.depth / 2 + 0.0065);
+  generatorShake.add(dataPlate);
 
   // ---------- power / fuse puzzle / locked-door objective ----------
 
@@ -567,11 +797,94 @@ export function createHallwayBasementLevel({
   const CORRECT_FUSE_AMPS = '30A';
 
   const fuseData = [
-    { id: 'fuse15', amps: '15A', radius: 0.025, color: 0xd8d8d8 },
-    { id: 'fuse20', amps: '20A', radius: 0.03, color: 0xd8d8d8 },
-    { id: 'fuse30', amps: '30A', radius: 0.035, color: 0xd8d8d8 }, // correct
-    { id: 'fuse45', amps: '45A', radius: 0.045, color: 0xd8d8d8 }
+    { id: 'fuse15', amps: '15A' },
+    { id: 'fuse20', amps: '20A' },
+    { id: 'fuse30', amps: '30A' }, // correct
+    { id: 'fuse45', amps: '45A' }
   ];
+
+  /**
+   * The four loose fuses are all clones of fuse.glb. Loaded once, here; each
+   * fuse attaches its own copy when the download lands.
+   */
+  const fuseModelPromise = loadModel(fuseModelUrl);
+  fuseModelPromise.catch((err) => console.error('[lab] fuse.glb failed to load', err));
+
+  /**
+   * A fuse's click target: an invisible cylinder the size of the whole fuse,
+   * with the glass model as its child.
+   *
+   * Interaction raycasts non-recursively, so the thing in `interactables` has
+   * to be a single mesh -- the loaded model is a group of five. The cylinder
+   * is hidden through its MATERIAL, not `visible`: hiding the object would
+   * hide its children too, and the raycaster ignores material visibility, so
+   * it still takes the hit. Moving, hiding or seating this mesh carries the
+   * model with it, which is all the puzzle code ever does to a fuse.
+   */
+  const fuseHitGeometry = new THREE.CylinderGeometry(FUSE_CAP_RADIUS, FUSE_CAP_RADIUS, FUSE_LENGTH, 12);
+  const fuseHitMaterial = new THREE.MeshBasicMaterial({ visible: false });
+
+  /** What the glass becomes once the element has burned out inside it. */
+  const sootedGlassMat = new THREE.MeshStandardMaterial({
+    color: 0x24180f, roughness: 0.6, transparent: true, opacity: 0.78, depthWrite: false
+  });
+
+  function createGlassFuse(amps) {
+    const fuse = new THREE.Mesh(fuseHitGeometry, fuseHitMaterial);
+    fuse.userData.scorched = false;
+    fuse.userData.visual = null;
+    fuseModelPromise.then((model) => {
+      const visual = model.clone();
+      // The stamps face the model's own +/-Z. A quarter turn about the fuse's
+      // axis points one of them up when the fuse lies on its side, and out of
+      // the box when it stands in the clips. The hit cylinder is round, so
+      // turning the model inside it changes nothing else.
+      visual.rotation.y = Math.PI / 2;
+      const stamp = createFuseCapStampTexture(amps);
+      visual.traverse((child) => {
+        if (!child.isMesh) return;
+        if (child.material.name === 'FuseCapMetal') {
+          child.material = child.material.clone();
+          child.material.color.set(0xffffff);
+          child.material.map = stamp.map;
+          child.material.bumpMap = stamp.bumpMap;
+          child.material.bumpScale = 0.6;
+        } else if (child.material.name === 'FuseGlass') {
+          visual.userData.glass = child;
+          visual.userData.cleanGlassMat = child.material;
+        } else if (child.name === 'FuseElementWire') {
+          visual.userData.wire = child;
+        } else if (child.name === 'FuseElementWireBroken') {
+          visual.userData.brokenWire = child;
+        }
+      });
+      fuse.userData.visual = visual;
+      fuse.add(visual);
+      applyFuseScorch(fuse);
+    });
+    return fuse;
+  }
+
+  function applyFuseScorch(fuse) {
+    const visual = fuse.userData.visual;
+    if (!visual) return;
+    const scorched = fuse.userData.scorched;
+    visual.userData.glass.material = scorched ? sootedGlassMat : visual.userData.cleanGlassMat;
+    visual.userData.wire.visible = !scorched;
+    visual.userData.brokenWire.visible = scorched;
+  }
+
+  /**
+   * Blows a fuse that was too weak for the line, or restores it: soot on the
+   * inside of the glass and the element snapped in two, which is how a real
+   * glass fuse shows it has gone. Recorded on the fuse rather than only
+   * applied, so a fuse that blows before its model has loaded still comes in
+   * blown.
+   */
+  function setFuseScorched(fuse, scorched) {
+    fuse.userData.scorched = scorched;
+    applyFuseScorch(fuse);
+  }
 
   // Heights of the surfaces the fuses rest on, taken from the geometry
   // built further down this file rather than eyeballed -- the fuses used
@@ -612,25 +925,195 @@ export function createHallwayBasementLevel({
     }
   ];
 
-  // A fuse cylinder is centred on its own origin, so resting it exactly at
-  // the surface height would sink half of it into that surface -- its own
-  // radius is added on top so it sits on the surface instead of in it.
+  // A fuse is centred on its own origin, so resting it exactly at the surface
+  // height would sink half of it into that surface. Lying on its side it rests
+  // on its caps, the widest part of it, so their radius is what is added.
   const fusePositions = fuseRestingSpots.map(
-    (spot, i) => [spot.x, spot.surfaceY + fuseData[i].radius, spot.z]
+    (spot) => [spot.x, spot.surfaceY + FUSE_CAP_RADIUS, spot.z]
   );
 
+  /**
+   * A collider that only exists while something is swung out into the room --
+   * an open cover. `holder.box` is the live entry in `colliders`, which the
+   * player reads every frame, so adding or removing it takes effect at once.
+   */
+  function setSwingCollider(holder, pointsInLab) {
+    if (holder.box) {
+      const i = colliders.indexOf(holder.box);
+      if (i >= 0) colliders.splice(i, 1);
+      holder.box = null;
+    }
+    if (!pointsInLab) return;
+    const PAD = 0.02;
+    const xs = pointsInLab.map((p) => p.x);
+    const zs = pointsInLab.map((p) => p.z);
+    holder.box = {
+      minX: Math.min(...xs) - PAD, maxX: Math.max(...xs) + PAD,
+      minZ: LAB_Z + Math.min(...zs) - PAD, maxZ: LAB_Z + Math.max(...zs) + PAD
+    };
+    colliders.push(holder.box);
+  }
+
+  /**
+   * The fuse box, after a four-way cartridge board: see
+   * blender/build_fuse_box.py. Its back sits on the west wall and it faces
+   * into the room -- the model faces its own +Z, and a quarter turn takes that
+   * to +X.
+   *
+   * The loaded model is only the look, three permanent fuses included.
+   * Everything the puzzle touches is built here, synchronously, so none of it
+   * waits on a download -- `fuseBox` itself is an invisible click target over
+   * the front of the box. It keeps its old name and stays in
+   * `lab` space because the spark light, the dropped-fuse row and the cable
+   * run all read its position.
+   */
+  const fuseBoxModel = new THREE.Group();
+  fuseBoxModel.position.set(-LAB_W / 2, 1.4, 0);
+  fuseBoxModel.rotation.y = Math.PI / 2;
+  fuseBoxModel.updateMatrix();
+  lab.add(fuseBoxModel);
+
+  /** A point given in the fuse box's own space, in `lab` space. */
+  function fuseBoxPointInLab(x, y, z) {
+    return new THREE.Vector3(x, y, z).applyMatrix4(fuseBoxModel.matrix);
+  }
+
+  /** Where a fuse the player installs ends up: standing in the empty clips. */
+  const emptySlotPosition = fuseBoxPointInLab(FUSE_BOX_SLOT_X[FUSE_BOX_EMPTY_SLOT], 0, FUSE_BOX_FUSE_DEPTH);
+
   const fuseBox = new THREE.Mesh(
-    new THREE.BoxGeometry(0.5, 0.7, 0.15),
-    new THREE.MeshStandardMaterial({ color: 0x3a2e20, roughness: 0.6 })
+    new THREE.BoxGeometry(0.02, FUSE_BOX_HEIGHT, FUSE_BOX_WIDTH),
+    new THREE.MeshBasicMaterial()
   );
-  fuseBox.position.set(-LAB_W / 2 + 0.12, 1.4, 0);
+  // Hidden, not removed: the raycaster tests hidden meshes all the same. Just
+  // proud of the closed cover, so it is what the player's ray meets first.
+  fuseBox.visible = false;
+  fuseBox.position.set(-LAB_W / 2 + FUSE_BOX_DEPTH + 0.02, 1.4, 0);
+
+  /**
+   * The hinged perspex cover. Opening it is its own click, before the slot is
+   * any use -- it gives the player a beat at the box, and the dirty pane lets
+   * them see the empty clip before they have touched anything.
+   *
+   * `pivot` is the model's hinge node, and stays null until the model has
+   * loaded. The open/closed state does not wait for it; the cover simply
+   * appears in whichever state the player has already put it in.
+   */
+  const fuseCover = { open: false, pivot: null, closedRotationY: 0, angle: 0, everOpened: false };
+  const FUSE_COVER_CLOSED_LABEL = 'Open the fuse box cover';
+  const fuseCoverCollider = { box: null };
+
+  /**
+   * A stand-in for the cover's hinge, built here so it exists before the model
+   * does, turned in step with the real one. The open cover's click target
+   * rides on it -- so it is wherever the cover is -- and is only in the target
+   * list while the cover is open: closed, the box's front target opens it.
+   */
+  const fuseCoverHinge = new THREE.Group();
+  fuseCoverHinge.position.set(FUSE_COVER_HINGE.x, 0, FUSE_COVER_HINGE.z);
+  fuseBoxModel.add(fuseCoverHinge);
+  const fuseCoverHit = new THREE.Mesh(
+    new THREE.BoxGeometry(FUSE_BOX_WIDTH, FUSE_BOX_HEIGHT, 0.02),
+    new THREE.MeshBasicMaterial({ visible: false })
+  );
+  fuseCoverHit.position.x = -FUSE_BOX_WIDTH / 2;
+  fuseCoverHinge.add(fuseCoverHit);
+  fuseCoverHit.userData.interact = {
+    label: 'Close the fuse box cover',
+    onInteract: () => setFuseCoverOpen(false)
+  };
+
+  /** What the slot offers once the cover is out of the way, from what is in it. */
+  function fuseSlotLabel() {
+    if (puzzleState.slotFuse === CORRECT_FUSE_AMPS) return 'Fuse seated (30A)';
+    if (puzzleState.slotFuse) return 'Remove fuse';
+    return 'Empty fuse slot';
+  }
+
+  /**
+   * Opens or shuts the cover. Open, it swings out into the room, so it gets a
+   * collider for as long as it stands there -- the player used to walk
+   * straight through it. `quiet` skips the caption, for a restart.
+   */
+  function setFuseCoverOpen(open, { quiet = false } = {}) {
+    fuseCover.open = open;
+    const i = interactables.indexOf(fuseCoverHit);
+    if (open && i < 0) interactables.push(fuseCoverHit);
+    if (!open && i >= 0) interactables.splice(i, 1);
+    fuseBox.userData.interact.label = open ? fuseSlotLabel() : FUSE_COVER_CLOSED_LABEL;
+
+    if (open) {
+      // The swung-out cover, hinge to free edge, in lab space.
+      const reach = FUSE_BOX_WIDTH;
+      const a = FUSE_COVER_OPEN_ANGLE_IN_RADIANS;
+      setSwingCollider(fuseCoverCollider, [
+        fuseBoxPointInLab(FUSE_COVER_HINGE.x, 0, FUSE_COVER_HINGE.z),
+        fuseBoxPointInLab(FUSE_COVER_HINGE.x - reach * Math.cos(a), 0, FUSE_COVER_HINGE.z + reach * Math.sin(a))
+      ]);
+    } else {
+      setSwingCollider(fuseCoverCollider, null);
+    }
+
+    if (quiet) return;
+    if (open && !fuseCover.everOpened) {
+      showCaption('The cover sticks, then swings out on stiff hinges. Three fuses, and one pair of empty clips.');
+    } else {
+      showCaption(open ? 'You swing the cover open.' : 'You swing the cover shut.');
+    }
+    if (open) fuseCover.everOpened = true;
+  }
+
+  dynamics.push({
+    update(dt) {
+      const target = fuseCover.open ? FUSE_COVER_OPEN_ANGLE_IN_RADIANS : 0;
+      if (fuseCover.angle === target) return;
+      const step = (FUSE_COVER_OPEN_ANGLE_IN_RADIANS / FUSE_COVER_OPEN_SECONDS) * dt;
+      fuseCover.angle = target > fuseCover.angle
+        ? Math.min(target, fuseCover.angle + step)
+        : Math.max(target, fuseCover.angle - step);
+      if (fuseCover.pivot) fuseCover.pivot.rotation.y = fuseCover.closedRotationY + fuseCover.angle;
+      fuseCoverHinge.rotation.y = fuseCover.angle;
+    }
+  });
+
+  loadModel(fuseBoxModelUrl).then((model) => {
+    const paintMap = createFixtureSteelTexture({ rust: 0.9 });
+    const paintNormal = createFixtureSteelNormalTexture();
+    model.traverse((child) => {
+      if (!child.isMesh) return;
+      if (child.material.name === 'FuseBoxPaint') {
+        // White, so the texture's own yellowed enamel is not tinted twice.
+        child.material.color.set(0xffffff);
+        child.material.map = paintMap;
+        child.material.normalMap = paintNormal;
+        child.material.needsUpdate = true;
+      } else if (child.material.name === 'FuseBoxPerspex') {
+        child.material.transparent = true;
+        child.material.opacity = 0.16;
+        child.material.roughness = 0.1;
+        // Without this the pane hides the fuses behind it from the depth
+        // test, transparent or not.
+        child.material.depthWrite = false;
+      }
+    });
+
+    fuseCover.pivot = model.getObjectByName('FuseBoxCoverPivot');
+    if (fuseCover.pivot) {
+      fuseCover.closedRotationY = fuseCover.pivot.rotation.y;
+      fuseCover.pivot.rotation.y = fuseCover.closedRotationY + fuseCover.angle;
+    } else {
+      console.warn('[lab] fuse_box.glb has no FuseBoxCoverPivot -- the cover cannot open');
+    }
+    fuseBoxModel.add(model);
+  }).catch((err) => console.error('[lab] fuse_box.glb failed to load', err));
 
   // Wrong fuses pulled back out of the box land in the next free slot of a
   // short row on the floor beside it, so earlier rejects stay visible
   // instead of every drop stacking on one shared coordinate. Only the three
   // wrong fuses (15A / 20A / 45A) can ever be dropped -- the correct 30A one
   // stays seated -- so three slots is exactly enough for a single run.
-  const DROPPED_FUSE_Y = 0.05;
+  // Lying on its side, so it rests on its caps.
+  const DROPPED_FUSE_Y = FUSE_CAP_RADIUS;
   const DROPPED_FUSE_SPACING_IN_METRES = 0.2;
   const droppedFuseSlots = [-1, 0, 1].map((step) => [
     fuseBox.position.x + 0.1,
@@ -644,8 +1127,13 @@ export function createHallwayBasementLevel({
   lab.add(sparkLight);
 
   fuseBox.userData.interact = {
-    label: 'Empty fuse slot',
+    label: FUSE_COVER_CLOSED_LABEL,
     onInteract: () => {
+      if (!fuseCover.open) {
+        setFuseCoverOpen(true);
+        return;
+      }
+
       /**
        * Once the right fuse is seated it STAYS seated, in every later stage.
        *
@@ -673,7 +1161,7 @@ export function createHallwayBasementLevel({
         const slot = droppedFuseSlots[Math.min(droppedFuseCount, droppedFuseSlots.length - 1)];
         droppedFuseCount += 1;
         dropped.position.set(...slot);
-        dropped.rotation.set(0, 0, 0);
+        dropped.rotation.set(0, 0, Math.PI / 2);
         dropped.visible = true;
 
         const reason = fuseFailReason[removed];
@@ -701,10 +1189,17 @@ export function createHallwayBasementLevel({
       const amps = parseInt(installed, 10);
       puzzleState.heldFuse = null;
 
+      // Whatever goes in is seen to go in: the fuse the player carried over
+      // stands in the empty clips, right or wrong, until it is pulled out.
+      const seatedFuse = fuseMeshes[installed];
+      seatedFuse.position.copy(emptySlotPosition);
+      seatedFuse.rotation.set(0, 0, 0);
+      seatedFuse.visible = true;
+
       if (installed === CORRECT_FUSE_AMPS) {
         powerStage = POWER_STAGE.LIT;
         puzzleState.slotFuse = CORRECT_FUSE_AMPS;
-        showCaption('The fuse clicks in. The lights come up the length of the room, and the monitor wakes.');
+        showCaption('The fuse clicks in. The lights come up the length of the room.');
         fuseBox.userData.interact.label = 'Fuse seated (30A)';
         // NOT 'Open the door'. The fuse feeds this section of the lab only --
         // the bolts are on a circuit that has not been fed yet, and the whole
@@ -717,8 +1212,7 @@ export function createHallwayBasementLevel({
         // POWER_RAMP_IN_SECONDS instead of snapping on.
         screenMaterial.uniforms.uNoiseStrength.value = 0.35;
         screenMaterial.uniforms.uStaticMix.value = 0.18;
-        monitorBody.userData.interact.label = 'View camera feeds';
-        feedButtons[0].mesh.material.emissive.setHex(0x2e6b3a);
+        syncMonitor();
         // The lab is lit, the house is not. Four of the five cameras come up
         // showing a dark room and naming the circuit that would fix it --
         // which is where the player first learns HOUSE is a thing to want.
@@ -728,6 +1222,9 @@ export function createHallwayBasementLevel({
         puzzleState.slotFuse = installed;
         fuseFailReason[installed] = 'blown';
         showCaption(`The ${installed} fuse can't take the load -- it flares and burns out.`);
+        // Only a fuse too weak for the line burns. The 45A whites the lab out
+        // but comes back out clean -- nothing in it gave way.
+        setFuseScorched(seatedFuse, true);
         onSpark();
         sparkLight.intensity = 4;
         sparkTimer = 0.15;
@@ -745,10 +1242,7 @@ export function createHallwayBasementLevel({
   lab.add(fuseBox);
 
   fuseData.forEach((data, i) => {
-    const fuse = new THREE.Mesh(
-      new THREE.CylinderGeometry(data.radius, data.radius, 0.12, 12),
-      new THREE.MeshStandardMaterial({ color: data.color, roughness: 0.4, metalness: 0.2 })
-    );
+    const fuse = createGlassFuse(data.amps);
     fuse.rotation.z = Math.PI / 2;
     fuse.position.set(...fusePositions[i]);
     fuse.userData.interact = {
@@ -813,7 +1307,7 @@ export function createHallwayBasementLevel({
   // On the WALL above the generator, not hovering behind it. It used to sit at
   // x = -3.29, which is 0.7 m out from the wall and 0.15 m above the
   // generator's top face -- bolted to nothing, in the middle of the air.
-  hazardSign.position.set(-LAB_W / 2 + 0.03, 1.62, generator.position.z);
+  hazardSign.position.set(-LAB_W / 2 + 0.03, GENERATOR_BODY.top + 0.35, generator.position.z);
   hazardSign.rotation.y = Math.PI / 2;
   lab.add(hazardSign);
 
@@ -832,12 +1326,9 @@ export function createHallwayBasementLevel({
   const CABLE_SAG_IN_METRES = 0.55;
   const CABLE_SAMPLE_COUNT = 9;
   const cableMat = new THREE.MeshStandardMaterial({ color: 0x14120f, roughness: 0.6 });
-  const cableStart = new THREE.Vector3(
-    generator.position.x - 0.35,
-    0.95,
-    generator.position.z + 0.35
-  );
-  const cableEnd = new THREE.Vector3(fuseBox.position.x, 1.1, fuseBox.position.z - 0.1);
+  const cableStart = new THREE.Vector3(...GENERATOR_CABLE_GLAND).add(generator.position);
+  // Into the grommet in the fuse box's underside, where its incoming wires go.
+  const cableEnd = fuseBoxPointInLab(0, -FUSE_BOX_HEIGHT / 2 - 0.012, FUSE_BOX_GROMMET_DEPTH);
   const cablePoints = [];
   for (let i = 0; i < CABLE_SAMPLE_COUNT; i++) {
     const t = i / (CABLE_SAMPLE_COUNT - 1);
@@ -848,6 +1339,14 @@ export function createHallwayBasementLevel({
   const cableCurve = new THREE.CatmullRomCurve3(cablePoints);
   const cable = new THREE.Mesh(new THREE.TubeGeometry(cableCurve, 40, 0.012, 6, false), cableMat);
   lab.add(cable);
+
+  // The box's outgoing wires leave through the top grommet in a conduit up to
+  // the ceiling, so the lab's circuits visibly go somewhere.
+  const conduitBottom = fuseBoxPointInLab(0, FUSE_BOX_HEIGHT / 2, FUSE_BOX_GROMMET_DEPTH);
+  const conduitLength = LAB_H - conduitBottom.y;
+  const conduit = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, conduitLength, 10), pipeMat);
+  conduit.position.set(conduitBottom.x, conduitBottom.y + conduitLength / 2, conduitBottom.z);
+  lab.add(conduit);
 
   // ---------- puzzle 2a: restarting the generator ----------
 
@@ -890,19 +1389,31 @@ export function createHallwayBasementLevel({
 
   /** How many steps of the sequence are currently satisfied, 0..3. */
   let generatorStepsCompleted = 0;
+  /** Pull-start attempts since the engine was primed; it catches on STARTER_PULLS_TO_CATCH. */
+  let starterPulls = 0;
+  /** control id -> its pilot lamp. */
   const generatorControlMeshes = {};
 
   /**
-   * Repaints the three controls so the player can see how far into the
+   * Whether the engine is turning. It is in every stage but the blackout:
+   * before it, it runs on its own; the blackout kills it; the restart is what
+   * brings it back.
+   */
+  function isGeneratorRunning() {
+    return powerStage !== POWER_STAGE.BLACKOUT;
+  }
+
+  /**
+   * Repaints the three pilot lamps so the player can see how far into the
    * sequence they are without having to remember. Green for a step already
-   * taken, dark for one still outstanding.
+   * taken, dark for one still outstanding -- and all three green while the
+   * engine runs.
    */
   function updateGeneratorControlLights() {
+    const lit = isGeneratorRunning() ? GENERATOR_RESTART_SEQUENCE.length : generatorStepsCompleted;
     GENERATOR_RESTART_SEQUENCE.forEach((controlId, stepIndex) => {
       generatorControlMeshes[controlId].material.emissive.setHex(
-        stepIndex < generatorStepsCompleted
-          ? GENERATOR_CONTROL_COLOR_DONE
-          : GENERATOR_CONTROL_COLOR_IDLE
+        stepIndex < lit ? GENERATOR_CONTROL_COLOR_DONE : GENERATOR_CONTROL_COLOR_IDLE
       );
     });
   }
@@ -939,12 +1450,29 @@ export function createHallwayBasementLevel({
       return;
     }
 
+    // Whatever the puzzle makes of it, the control moves.
+    animateGeneratorControl(controlId);
+
     if (controlId !== GENERATOR_RESTART_SEQUENCE[generatorStepsCompleted]) {
       generatorStepsCompleted = 0;
+      starterPulls = 0;
       updateGeneratorControlLights();
       onSpark();
       showCaption('It coughs, floods and dies. Wrong order -- and the noise carried anyway.');
       return;
+    }
+
+    // Primed and pulled, it still takes more than one go. Each failed pull
+    // shakes the cabinet harder and is louder than the last.
+    if (controlId === 'starter') {
+      starterPulls += 1;
+      if (starterPulls < STARTER_PULLS_TO_CATCH) {
+        generatorSputterSeconds = 0.4 + starterPulls * 0.5;
+        showCaption(starterPulls === 1
+          ? 'The cord rips out and snaps back. The engine coughs once, and dies.'
+          : 'It catches -- roars for one second -- and dies. The sound goes up through the whole house.');
+        return;
+      }
     }
 
     generatorStepsCompleted += 1;
@@ -958,48 +1486,200 @@ export function createHallwayBasementLevel({
   }
 
   /**
-   * The three controls, mounted in a row across the generator's front face.
+   * The control panel on the generator's room-facing end, built for 1980s
+   * hardware: three analogue gauges, a pilot lamp over each control, and the
+   * three controls in the order the plate gives them -- fuel valve, primer,
+   * pull-start. The model supplies their mountings; the moving parts are built
+   * here so the puzzle can move them.
    *
-   * Each is pushed into `interactables` in its own right rather than under a
-   * parent group, because Interaction raycasts NON-recursively -- see the note
-   * on the CCTV remote further down for the full reasoning.
+   * Each control's click target is an invisible box round it rather than the
+   * part itself: the parts are small, they move, and Interaction raycasts
+   * non-recursively, so a part with children would never register a hit.
    */
-  const GENERATOR_FACE_X = generator.position.x + 0.51;
-  GENERATOR_RESTART_SEQUENCE.forEach((controlId, i) => {
-    const control = new THREE.Mesh(
-      new THREE.BoxGeometry(0.05, 0.09, 0.07),
-      new THREE.MeshStandardMaterial({
-        color: 0x6a6257,
-        emissive: GENERATOR_CONTROL_COLOR_IDLE,
-        roughness: 0.5,
-        metalness: 0.4
-      })
+  const panelX = GENERATOR_PANEL_X;
+  const rowY = GENERATOR_ROW_Y;
+
+  // The gauges. A needle sweeps the same 270 degrees its face is printed for.
+  const GAUGE_SWEEP_RADIANS = (135 * Math.PI) / 180;
+  const gaugeNeedleGeometry = new THREE.BoxGeometry(0.002, 0.036, 0.0025);
+  gaugeNeedleGeometry.translate(0, 0.016, 0);
+  const gaugeNeedleMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.5 });
+  const gauges = GENERATOR_GAUGES.map((def) => {
+    const z = GENERATOR_CONTROL_Z[def.slot];
+    const faceGeometry = new THREE.CircleGeometry(0.042, 32);
+    faceGeometry.rotateY(Math.PI / 2);
+    const face = new THREE.Mesh(
+      faceGeometry,
+      new THREE.MeshStandardMaterial({ map: createGaugeFaceTexture(def), roughness: 0.4 })
     );
-    control.position.set(GENERATOR_FACE_X, 0.82, generator.position.z - 0.2 + i * 0.2);
-    control.userData.interact = {
+    face.position.set(panelX + 0.0125, rowY.gauge, z);
+    const needle = new THREE.Mesh(gaugeNeedleGeometry, gaugeNeedleMat);
+    needle.position.set(panelX + 0.0145, rowY.gauge, z);
+    generatorShake.add(face, needle);
+    return { def, needle, value: 0 };
+  });
+
+  /** What each gauge should read right now, from the power stage. */
+  function gaugeTarget(def) {
+    if (!isGeneratorRunning()) return 0;
+    if (def.reads === 'volts') return 230;
+    if (def.reads === 'hertz') return 50;
+    if (powerStage === POWER_STAGE.ROUTED) return getTotalBreakerLoadInAmps();
+    if (powerStage === POWER_STAGE.LIT) return 35;   // the lab's lights and cameras, off the fuse
+    return 0;
+  }
+
+  // The fuel valve: a red lever on its boss, pointing up when shut and turned
+  // a quarter toward the room when open.
+  const valveLever = new THREE.Group();
+  valveLever.position.set(panelX + 0.016, rowY.control, GENERATOR_CONTROL_Z.valve);
+  {
+    const red = new THREE.MeshStandardMaterial({ color: 0xa8261c, roughness: 0.45 });
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.012, 16), red);
+    hub.rotation.z = Math.PI / 2;
+    const armGeometry = new THREE.BoxGeometry(0.01, 0.075, 0.018);
+    armGeometry.translate(0, 0.032, 0);
+    valveLever.add(hub, new THREE.Mesh(armGeometry, red));
+  }
+  generatorShake.add(valveLever);
+  let valveAngle = 0;
+
+  // The primer: a black plunger that goes in when pressed and springs back.
+  const primerKnob = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.02, 0.02, 0.03, 20),
+    new THREE.MeshStandardMaterial({ color: 0x181818, roughness: 0.6 })
+  );
+  primerKnob.rotation.z = Math.PI / 2;
+  const PRIMER_REST_X = panelX + 0.035;
+  primerKnob.position.set(PRIMER_REST_X, rowY.control, GENERATOR_CONTROL_Z.primer);
+  generatorShake.add(primerKnob);
+  let primerPressSeconds = 0;
+
+  // The pull-start: a T-handle resting in its cup, on a rope that comes out
+  // of the grommet behind it. A pull rips it out along the rope and lets it
+  // snap back.
+  const ROPE_EXIT = new THREE.Vector3(panelX + 0.012, rowY.control, GENERATOR_CONTROL_Z.starter);
+  const pullHandle = new THREE.Group();
+  {
+    const black = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.55 });
+    const stem = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.014, 0.014), black);
+    stem.position.x = 0.015;
+    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.1, 14), black);
+    grip.rotation.x = Math.PI / 2;
+    grip.position.x = 0.036;
+    pullHandle.add(stem, grip);
+  }
+  pullHandle.position.copy(ROPE_EXIT);
+  generatorShake.add(pullHandle);
+  const rope = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.003, 0.003, 1, 6),
+    new THREE.MeshStandardMaterial({ color: 0xc9bfa0, roughness: 0.9 })
+  );
+  rope.rotation.z = Math.PI / 2;
+  rope.visible = false;
+  generatorShake.add(rope);
+  /** Seconds into the current pull, or -1 when the handle is at rest. */
+  let pullSeconds = -1;
+  const PULL_OUT_SECONDS = 0.22;
+  const PULL_BACK_SECONDS = 0.35;
+  const PULL_LENGTH = 0.38;
+
+  /** Seconds of rough shuddering left after a pull that failed to catch. */
+  let generatorSputterSeconds = 0;
+
+  /** Sets one of the three moving controls going, whatever the puzzle makes of it. */
+  function animateGeneratorControl(controlId) {
+    if (controlId === 'primer') primerPressSeconds = 0.25;
+    if (controlId === 'starter') pullSeconds = 0;
+  }
+
+  // The pilot lamps, one over each control, lit green for a step taken.
+  // updateGeneratorControlLights repaints them through generatorControlMeshes.
+  GENERATOR_RESTART_SEQUENCE.forEach((controlId) => {
+    const lamp = new THREE.Mesh(
+      new THREE.SphereGeometry(0.011, 14, 10),
+      new THREE.MeshStandardMaterial({ color: 0x2f3a2c, roughness: 0.3, emissive: GENERATOR_CONTROL_COLOR_IDLE })
+    );
+    lamp.position.set(panelX + 0.008, rowY.lamp, GENERATOR_CONTROL_Z[controlId]);
+    generatorShake.add(lamp);
+    generatorControlMeshes[controlId] = lamp;
+
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 0.11), new THREE.MeshBasicMaterial({ visible: false }));
+    hit.position.set(panelX + 0.035, rowY.control, GENERATOR_CONTROL_Z[controlId]);
+    hit.userData.interact = {
       label: GENERATOR_CONTROLS[controlId].label,
       onInteract: () => pressGeneratorControl(controlId)
     };
-    interactables.push(control);
-    lab.add(control);
-    generatorControlMeshes[controlId] = control;
+    generatorShake.add(hit);
+    interactables.push(hit);
   });
+  updateGeneratorControlLights();
 
   const restartPlate = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.3, 0.24),
+    new THREE.PlaneGeometry(0.26, 0.16),
     new THREE.MeshStandardMaterial({
       map: createPaperNoteTexture(['RESTART ORDER', '1. FUEL VALVE', '2. PRIME', '3. STARTER']),
       roughness: 1
     })
   );
-  restartPlate.position.set(GENERATOR_FACE_X + 0.005, 1.05, generator.position.z);
+  restartPlate.position.set(panelX + 0.0015, 0.32, 0);
   restartPlate.rotation.y = Math.PI / 2;
   restartPlate.userData.interact = {
     label: 'Read the restart plate',
     onInteract: () => showCaption('"RESTART ORDER: 1. FUEL VALVE. 2. PRIME. 3. STARTER."')
   };
   interactables.push(restartPlate);
-  lab.add(restartPlate);
+  generatorShake.add(restartPlate);
+
+  dynamics.push({
+    update(dt, elapsed) {
+      // Running, it hums through the floor; a failed pull shakes it hard.
+      if (generatorSputterSeconds > 0) generatorSputterSeconds = Math.max(0, generatorSputterSeconds - dt);
+      const shake = (isGeneratorRunning() ? 1 : 0) + Math.min(1, generatorSputterSeconds) * 3;
+      generatorShake.position.x = Math.sin(elapsed * 97) * 0.0006 * shake;
+      generatorShake.position.z = Math.sin(elapsed * 83 + 1.3) * 0.0006 * shake;
+      generatorShake.rotation.z = Math.sin(elapsed * 71 + 0.4) * 0.0012 * shake;
+
+      gauges.forEach((gauge) => {
+        const target = gaugeTarget(gauge.def);
+        gauge.value += (target - gauge.value) * Math.min(1, dt * 2.5);
+        // A running engine never holds a needle perfectly still.
+        const jitter = isGeneratorRunning() ? Math.sin(elapsed * 23 + gauge.def.max) * gauge.def.max * 0.004 : 0;
+        const frac = THREE.MathUtils.clamp((gauge.value + jitter) / gauge.def.max, 0, 1);
+        gauge.needle.rotation.x = GAUGE_SWEEP_RADIANS * (1 - 2 * frac);
+      });
+
+      const valveOpen = isGeneratorRunning() || generatorStepsCompleted >= 1;
+      const valveTarget = valveOpen ? Math.PI / 2 : 0;
+      valveAngle += (valveTarget - valveAngle) * Math.min(1, dt * 12);
+      valveLever.rotation.x = valveAngle;
+
+      if (primerPressSeconds > 0) primerPressSeconds = Math.max(0, primerPressSeconds - dt);
+      primerKnob.position.x = PRIMER_REST_X - (primerPressSeconds > 0 ? 0.014 : 0);
+
+      let pulled = 0;
+      if (pullSeconds >= 0) {
+        pullSeconds += dt;
+        if (pullSeconds < PULL_OUT_SECONDS) {
+          const t = pullSeconds / PULL_OUT_SECONDS;
+          pulled = 1 - (1 - t) * (1 - t);
+        } else if (pullSeconds < PULL_OUT_SECONDS + PULL_BACK_SECONDS) {
+          const t = (pullSeconds - PULL_OUT_SECONDS) / PULL_BACK_SECONDS;
+          pulled = 1 - t * t;
+        } else {
+          pullSeconds = -1;
+        }
+      }
+      const reach = pulled * PULL_LENGTH;
+      pullHandle.position.set(ROPE_EXIT.x + reach, ROPE_EXIT.y - pulled * 0.03, ROPE_EXIT.z);
+      rope.visible = reach > 0.004;
+      if (rope.visible) {
+        rope.scale.y = reach;
+        rope.position.set(ROPE_EXIT.x + reach / 2, ROPE_EXIT.y - pulled * 0.015, ROPE_EXIT.z);
+        rope.rotation.z = Math.PI / 2 - Math.atan2(pulled * 0.03, reach);
+      }
+    }
+  });
 
   // ---------- puzzle 2b: the breaker panel ----------
 
@@ -1039,16 +1719,18 @@ export function createHallwayBasementLevel({
     { id: 'vent', label: 'VENT', loadInAmps: 30, isRequired: false }
   ];
 
-  const BREAKER_ON_TILT_IN_RADIANS = -0.4;
-  const BREAKER_OFF_TILT_IN_RADIANS = 0.4;
-  const BREAKER_COLOR_ON = 0x2e6b3a;
-  const BREAKER_COLOR_OFF = 0x000000;
-
-  /** circuit id -> whether that breaker is currently closed. */
+  /**
+   * circuit id -> whether that breaker is currently closed.
+   *
+   * Every breaker starts UP. Until the blackout the panel is simply a working
+   * panel the fuse problem was upstream of; the blackout is what knocks them
+   * all down, along with the main lever, and the player finds the panel that
+   * way -- the clearest sign that a hand, not a fault, did it.
+   */
   const breakerIsOn = {};
-  /** circuit id -> its switch mesh, so the panel can repaint or reset one. */
+  /** circuit id -> its toggle mesh, so the panel can repaint or reset one. */
   const breakerMeshes = {};
-  BREAKER_CIRCUITS.forEach(({ id }) => { breakerIsOn[id] = false; });
+  BREAKER_CIRCUITS.forEach(({ id }) => { breakerIsOn[id] = true; });
 
   /**
    * How long the lights stay blown out after the panel trips. Long enough that
@@ -1082,21 +1764,25 @@ export function createHallwayBasementLevel({
       .map((circuit) => circuit.label);
   }
 
-  /** Repaints and re-tilts one switch to match its state. */
+  /** Tilts one lever and repaints its flag to match its state. */
   function updateBreakerSwitch(circuitId) {
     const mesh = breakerMeshes[circuitId];
     const isOn = breakerIsOn[circuitId];
-    mesh.rotation.z = isOn ? BREAKER_ON_TILT_IN_RADIANS : BREAKER_OFF_TILT_IN_RADIANS;
-    mesh.material.emissive.setHex(isOn ? BREAKER_COLOR_ON : BREAKER_COLOR_OFF);
+    // A lever sticks out along +Z; tilting it about X by a negative angle
+    // lifts its tip.
+    mesh.rotation.x = isOn ? -BREAKER_TOGGLE_TILT : BREAKER_TOGGLE_TILT;
+    const flag = mesh.userData.flag.material;
+    flag.color.setHex(isOn ? 0x2fbf4a : 0xb3261e);
+    flag.emissive.setHex(isOn ? 0x1a6b2a : 0x4a0e0a);
     const circuit = BREAKER_CIRCUITS.find((c) => c.id === circuitId);
     mesh.userData.interact.label =
       `${circuit.label} (${circuit.loadInAmps}A) -- ${isOn ? 'ON' : 'OFF'}`;
   }
 
-  /** Drops every breaker back to open and repaints the whole panel. */
-  function resetAllBreakers() {
+  /** Puts every breaker up or down and repaints the whole panel. */
+  function setAllBreakers(isOn) {
     BREAKER_CIRCUITS.forEach(({ id }) => {
-      breakerIsOn[id] = false;
+      breakerIsOn[id] = isOn;
       updateBreakerSwitch(id);
     });
   }
@@ -1108,7 +1794,8 @@ export function createHallwayBasementLevel({
    * visual for "you pushed this circuit too hard".
    */
   function tripBreakerPanel() {
-    resetAllBreakers();
+    setAllBreakers(false);
+    setMainLever(false);
     breakerTripTimeRemainingInSeconds = BREAKER_TRIP_GLARE_IN_SECONDS;
     onSpark();
     onOverload();
@@ -1124,11 +1811,9 @@ export function createHallwayBasementLevel({
     powerStage = POWER_STAGE.ROUTED;
     screenMaterial.uniforms.uNoiseStrength.value = 0.35;
     screenMaterial.uniforms.uStaticMix.value = 0.18;
-    monitorBody.userData.interact.label = 'View camera feeds';
+    syncMonitor();
     metalDoor.userData.interact.label = DOOR_LABELS[POWER_STAGE.ROUTED];
-    mainSwitch.rotation.z = BREAKER_ON_TILT_IN_RADIANS;
-    mainSwitch.material.emissive.setHex(BREAKER_COLOR_ON);
-    mainSwitch.userData.interact.label = 'Main switch (in)';
+    setMainLever(true);
     syncFeedRoomPower();
 
     showCaption('The panel takes the load. Light comes back the length of the room, and bolts move in the far wall.');
@@ -1168,8 +1853,18 @@ export function createHallwayBasementLevel({
    * rather than one they stumble into by closing a switch.
    */
   function flickBreaker(circuitId) {
+    // The toggles sit behind the cover. Its own click target catches a press
+    // while it is down, but one aimed past its edge must not reach through.
+    if (!breakerCover.open) {
+      openBreakerCover();
+      return;
+    }
     if (powerStage === POWER_STAGE.ROUTED) {
       showCaption('Everything that needs feeding is fed. Leave it.');
+      return;
+    }
+    if (powerStage === POWER_STAGE.DEAD || powerStage === POWER_STAGE.LIT) {
+      showCaption('Every breaker is already up. Whatever is wrong down here, it is not this panel.');
       return;
     }
     if (powerStage !== POWER_STAGE.RUNNING) {
@@ -1206,7 +1901,11 @@ export function createHallwayBasementLevel({
    */
   function throwMainSwitch() {
     if (powerStage === POWER_STAGE.ROUTED) {
-      showCaption('Already in. The panel is carrying everything it is going to.');
+      showCaption('Already up. The panel is carrying everything it is going to.');
+      return;
+    }
+    if (powerStage === POWER_STAGE.DEAD || powerStage === POWER_STAGE.LIT) {
+      showCaption('The main lever is already up. Whatever is wrong down here, it is not this panel.');
       return;
     }
     if (powerStage !== POWER_STAGE.RUNNING) {
@@ -1219,6 +1918,8 @@ export function createHallwayBasementLevel({
     }
 
     if (getTotalBreakerLoadInAmps() > PANEL_CAPACITY_IN_AMPS) {
+      // The lever goes up, the panel blows, and the trip throws it back down.
+      setMainLever(true);
       tripBreakerPanel();
       return;
     }
@@ -1226,83 +1927,279 @@ export function createHallwayBasementLevel({
     const missing = getMissingRequiredLabels();
     if (missing.length > 0) {
       // Named, not withheld. The player can see which breakers are open; the
-      // puzzle is the budget, not guessing which systems matter.
-      showCaption(`The main goes in and nothing changes. ${missing.join(' and ')} still open.`);
+      // puzzle is the budget, not guessing which systems matter. The lever
+      // goes up and will not stay: it falls back on its own a moment later.
+      setMainLever(true);
+      mainLever.springBackInSeconds = 0.45;
+      showCaption(`The lever goes up and drops straight back. ${missing.join(' and ')} still off.`);
       return;
     }
     routePower();
   }
 
-  const breakerPanel = new THREE.Mesh(
-    // Tall enough for the five breakers AND the main switch below them.
-    new THREE.BoxGeometry(0.12, 0.86, 0.46),
-    new THREE.MeshStandardMaterial({ color: 0x2b2e28, roughness: 0.65, metalness: 0.4 })
+  /**
+   * The consumer unit: breaker_panel.glb (blender/build_breaker_panel.py) on
+   * the west wall, facing into the room -- the model faces its own +Z, and a
+   * quarter turn takes that to +X, exactly as the fuse box is hung.
+   *
+   * The model is the look, the cover and the lever. Everything the puzzle
+   * touches is built here, in the model's frame, so none of it waits on the
+   * download: the five toggles and their flags, the label strip, and the
+   * click targets, which are invisible boxes because Interaction raycasts
+   * non-recursively and never reaches inside a loaded .glb.
+   */
+  const breakerPanelModel = new THREE.Group();
+  breakerPanelModel.position.set(-LAB_W / 2, 1.4, 1.7);
+  breakerPanelModel.rotation.y = Math.PI / 2;
+  breakerPanelModel.updateMatrix();
+  lab.add(breakerPanelModel);
+
+  const hiddenHitMat = new THREE.MeshBasicMaterial({ visible: false });
+  const hitBox = (size, centre) => {
+    const mesh = new THREE.Mesh(new THREE.BoxGeometry(...size), hiddenHitMat);
+    mesh.position.set(...centre);
+    breakerPanelModel.add(mesh);
+    return mesh;
+  };
+
+  /** The cover and the lever. Their pivots stay null until the model loads; their state does not wait. */
+  const breakerCover = { open: false, pivot: null, angle: 0 };
+  const mainLever = {
+    pivot: null,
+    up: true,
+    angle: MAIN_LEVER_UP_ANGLE,
+    /** Seconds until a lever the panel refused falls back down, or 0. */
+    springBackInSeconds: 0
+  };
+
+  loadModel(breakerPanelModelUrl).then((model) => {
+    const paintMap = createFixtureSteelTexture({ rust: 0.7 });
+    const paintNormal = createFixtureSteelNormalTexture();
+    model.traverse((child) => {
+      if (!child.isMesh) return;
+      const materials = Array.isArray(child.material) ? child.material : [child.material];
+      materials.forEach((mat) => {
+        if (mat.name === 'BreakerPaint') {
+          // White, so the texture's own yellowed enamel is not tinted twice.
+          mat.color.set(0xffffff);
+          mat.map = paintMap;
+          mat.normalMap = paintNormal;
+          mat.needsUpdate = true;
+        } else if (mat.name === 'BreakerCover') {
+          mat.transparent = true;
+          mat.opacity = 0.42;
+          mat.depthWrite = false;
+        }
+      });
+    });
+    breakerCover.pivot = model.getObjectByName('BreakerCoverPivot');
+    mainLever.pivot = model.getObjectByName('BreakerLeverPivot');
+    if (!breakerCover.pivot || !mainLever.pivot) {
+      console.warn('[lab] breaker_panel.glb is missing its cover or lever pivot -- they cannot move');
+    }
+    if (breakerCover.pivot) breakerCover.pivot.rotation.x = breakerCover.angle;
+    if (mainLever.pivot) mainLever.pivot.rotation.x = mainLever.angle;
+    breakerPanelModel.add(model);
+  }).catch((err) => console.error('[lab] breaker_panel.glb failed to load', err));
+
+  /** The panel as a whole, for examining it. Stops behind the modules' faces, so the toggles win. */
+  const breakerPanel = hitBox(
+    [BREAKER_BOX.width, BREAKER_BOX.height, BREAKER_BOX.depth - 0.002],
+    [0, 0, (BREAKER_BOX.depth - 0.002) / 2]
   );
-  breakerPanel.position.set(-LAB_W / 2 + 0.12, 1.4, 1.7);
   breakerPanel.userData.interact = {
     label: 'Breaker panel',
-    onInteract: () => showCaption(
-      powerStage === POWER_STAGE.RUNNING
-        ? `Five labelled breakers, all open. The panel is rated ${PANEL_CAPACITY_IN_AMPS}A.`
-        : 'Five labelled breakers, all open. Nothing is reaching them.'
-    )
+    onInteract: () => {
+      if (powerStage === POWER_STAGE.ROUTED) {
+        showCaption('The panel hums under its load. Leave it.');
+      } else if (powerStage === POWER_STAGE.RUNNING) {
+        showCaption(`Five labelled breakers under a cover, and the main lever on the side. The panel is rated ${PANEL_CAPACITY_IN_AMPS}A.`);
+      } else if (powerStage === POWER_STAGE.BLACKOUT) {
+        showCaption('Every breaker has been knocked down, and the main lever with them. Someone was here.');
+      } else {
+        showCaption('Five breakers in a row, every one of them up, and a main lever on the side, up too.');
+      }
+    }
   };
   interactables.push(breakerPanel);
-  lab.add(breakerPanel);
 
-  // A column of five switches down the panel's face. Individually interactable,
-  // same non-recursive-raycast reason as the generator controls above.
-  const BREAKER_FACE_X = breakerPanel.position.x + 0.07;
-  const BREAKER_SPACING_IN_METRES = 0.115;
-  const breakerColumnTopY =
-    breakerPanel.position.y + ((BREAKER_CIRCUITS.length - 1) / 2) * BREAKER_SPACING_IN_METRES;
+  /**
+   * The cover's click target rides on a stand-in for its hinge, turned in step
+   * with the real one, so it is always wherever the cover is: down in front of
+   * the levers to lift it, up above them to close it. Closed, it sits in front
+   * of the levers, so the first press anywhere over them lifts the cover.
+   */
+  const breakerCoverHinge = new THREE.Group();
+  breakerCoverHinge.position.set(0, BREAKER_COVER.hingeY, BREAKER_COVER.hingeZ);
+  breakerPanelModel.add(breakerCoverHinge);
+  const breakerCoverHit = new THREE.Mesh(
+    new THREE.BoxGeometry(BREAKER_COVER.width, BREAKER_COVER.height, 0.012),
+    hiddenHitMat
+  );
+  breakerCoverHit.position.set(0, -BREAKER_COVER.height / 2, 0.006);
+  breakerCoverHinge.add(breakerCoverHit);
+  breakerCoverHit.userData.interact = {
+    label: 'Lift the breaker cover',
+    onInteract: () => setBreakerCoverOpen(!breakerCover.open)
+  };
+  interactables.push(breakerCoverHit);
+  const breakerCoverCollider = { box: null };
+
+  /**
+   * Lifts or lowers the cover. Up, it stands out into the room at head
+   * height, so it gets a collider for as long as it is up. `quiet` skips the
+   * caption, for a restart.
+   */
+  function setBreakerCoverOpen(open, { quiet = false } = {}) {
+    breakerCover.open = open;
+    breakerCoverHit.userData.interact.label = open ? 'Close the breaker cover' : 'Lift the breaker cover';
+    if (open) {
+      // The raised cover, hinge line to free edge, across its whole width.
+      const a = BREAKER_COVER_OPEN_ANGLE;
+      const tipY = BREAKER_COVER.hingeY - BREAKER_COVER.height * Math.cos(a);
+      const tipZ = BREAKER_COVER.hingeZ - BREAKER_COVER.height * Math.sin(a);
+      const half = BREAKER_COVER.width / 2;
+      setSwingCollider(breakerCoverCollider, [
+        [-half, BREAKER_COVER.hingeY, BREAKER_COVER.hingeZ], [half, BREAKER_COVER.hingeY, BREAKER_COVER.hingeZ],
+        [-half, tipY, tipZ], [half, tipY, tipZ]
+      ].map((p) => new THREE.Vector3(...p).applyMatrix4(breakerPanelModel.matrix)));
+    } else {
+      setSwingCollider(breakerCoverCollider, null);
+    }
+    if (!quiet) {
+      showCaption(open ? 'The smoked cover lifts on a stiff hinge and stays up.' : 'You lower the cover over the breakers.');
+    }
+  }
+
+  function openBreakerCover() {
+    if (!breakerCover.open) setBreakerCoverOpen(true);
+  }
+
+  /**
+   * The five levers, one per module, after a modern RCD's: a chunky green
+   * lever nearly the width of its module, standing well proud of it, with a
+   * sloped face and a rounded tip. Each has the little window above it that
+   * shows green when the breaker is on and red when it is off. Individually
+   * interactable, same non-recursive-raycast reason as above.
+   *
+   * Built as a side profile extruded across the lever's width. The profile's
+   * x is how far out from the module, so the extrusion is turned to put that
+   * along +Z, and the pivot is the lever's root -- tilting it about X swings
+   * the tip up or down.
+   */
+  const breakerLeverGeometry = (() => {
+    const WIDTH = 0.026;
+    const profile = new THREE.Shape();
+    profile.moveTo(0, -0.016);
+    profile.lineTo(0.024, -0.012);
+    profile.quadraticCurveTo(0.032, -0.01, 0.032, -0.003);
+    profile.lineTo(0.032, 0.006);
+    profile.quadraticCurveTo(0.032, 0.012, 0.025, 0.013);
+    profile.lineTo(0, 0.016);
+    profile.closePath();
+    const geometry = new THREE.ExtrudeGeometry(profile, {
+      depth: WIDTH, bevelEnabled: true, bevelThickness: 0.0015, bevelSize: 0.0015, bevelSegments: 2, curveSegments: 6
+    });
+    geometry.rotateY(-Math.PI / 2);
+    geometry.translate(WIDTH / 2, 0, 0);
+    return geometry;
+  })();
+  const breakerLeverMat = new THREE.MeshStandardMaterial({ color: 0x1e8a38, roughness: 0.4 });
+  const breakerFlagGeometry = new THREE.PlaneGeometry(0.012, 0.008);
+  const breakerLabelGeometry = new THREE.PlaneGeometry(BREAKER_LABEL.width, BREAKER_LABEL.height);
+  const breakerLabelBackGeometry = new THREE.BoxGeometry(BREAKER_LABEL.width + 0.002, BREAKER_LABEL.height + 0.002, 0.002);
+  const breakerLabelBackMat = new THREE.MeshStandardMaterial({ color: 0x0d0d0e, roughness: 0.7 });
 
   BREAKER_CIRCUITS.forEach((circuit, i) => {
-    const toggle = new THREE.Mesh(
-      new THREE.BoxGeometry(0.05, 0.055, 0.14),
-      new THREE.MeshStandardMaterial({
-        color: 0x8d8578,
-        emissive: BREAKER_COLOR_OFF,
-        roughness: 0.5,
-        metalness: 0.3
-      })
-    );
-    toggle.position.set(
-      BREAKER_FACE_X,
-      breakerColumnTopY - i * BREAKER_SPACING_IN_METRES,
-      breakerPanel.position.z
-    );
+    const x = BREAKER_MODULE_X[i];
+    const toggle = new THREE.Mesh(breakerLeverGeometry, breakerLeverMat);
+    toggle.position.set(x, BREAKER_MODULE_CENTRE_Y, BREAKER_TOGGLE_BASE_Z);
     toggle.userData.interact = {
-      label: `${circuit.label} (${circuit.loadInAmps}A) -- OFF`,
+      label: `${circuit.label} (${circuit.loadInAmps}A)`,
       onInteract: () => flickBreaker(circuit.id)
     };
+    const flag = new THREE.Mesh(breakerFlagGeometry, new THREE.MeshStandardMaterial({ roughness: 0.4 }));
+    flag.position.set(x, BREAKER_MODULE_CENTRE_Y + 0.035, BREAKER_MODULE_FACE_Z + 0.0005);
+    toggle.userData.flag = flag;
+
+    // Its own black label plate underneath.
+    const labelBack = new THREE.Mesh(breakerLabelBackGeometry, breakerLabelBackMat);
+    labelBack.position.set(x, BREAKER_LABEL.y, BREAKER_BOX.depth + 0.001);
+    const label = new THREE.Mesh(
+      breakerLabelGeometry,
+      new THREE.MeshStandardMaterial({ map: createSwitchLabelTexture(circuit.label, circuit.loadInAmps), roughness: 0.75 })
+    );
+    label.position.set(x, BREAKER_LABEL.y, BREAKER_BOX.depth + 0.0021);
+
+    breakerPanelModel.add(toggle, flag, labelBack, label);
     interactables.push(toggle);
-    lab.add(toggle);
     breakerMeshes[circuit.id] = toggle;
     updateBreakerSwitch(circuit.id);
   });
 
   /**
-   * The main switch, mounted below the breaker column and deliberately bigger
-   * than the five above it, so it reads as the thing you do LAST rather than
-   * a sixth circuit.
+   * The main lever, on the right-hand side of the box. Its click target is a
+   * box round the whole of its swing, because the arm moves and the target
+   * cannot. Keeps the old `mainSwitch` name.
    */
-  const mainSwitch = new THREE.Mesh(
-    new THREE.BoxGeometry(0.07, 0.09, 0.22),
-    new THREE.MeshStandardMaterial({ color: 0xa8452f, emissive: 0x000000, roughness: 0.45, metalness: 0.3 })
-  );
-  mainSwitch.position.set(
-    BREAKER_FACE_X,
-    breakerColumnTopY - BREAKER_CIRCUITS.length * BREAKER_SPACING_IN_METRES - 0.03,
-    breakerPanel.position.z
-  );
-  mainSwitch.rotation.z = BREAKER_OFF_TILT_IN_RADIANS;
+  const mainSwitch = hitBox(MAIN_LEVER_HIT.size, MAIN_LEVER_HIT.centre);
   mainSwitch.userData.interact = {
-    label: 'Throw the main switch',
+    label: 'Main lever (up)',
     onInteract: () => throwMainSwitch()
   };
   interactables.push(mainSwitch);
-  lab.add(mainSwitch);
+
+  /**
+   * Swings the lever up or down. Up is ON, as on the reference. `instant`
+   * skips the swing, for a restart.
+   */
+  function setMainLever(up, { instant = false } = {}) {
+    mainLever.up = up;
+    mainLever.springBackInSeconds = 0;
+    if (instant) {
+      mainLever.angle = up ? MAIN_LEVER_UP_ANGLE : MAIN_LEVER_DOWN_ANGLE;
+      if (mainLever.pivot) mainLever.pivot.rotation.x = mainLever.angle;
+    }
+    mainSwitch.userData.interact.label = up ? 'Main lever (up)' : 'Push the main lever up';
+  }
+
+  /** Puts the cover back down at once, for a restart. */
+  function closeBreakerCover() {
+    setBreakerCoverOpen(false, { quiet: true });
+    breakerCover.angle = 0;
+    breakerCoverHinge.rotation.x = 0;
+    if (breakerCover.pivot) breakerCover.pivot.rotation.x = 0;
+  }
+
+  dynamics.push({
+    update(dt) {
+      const coverTarget = breakerCover.open ? BREAKER_COVER_OPEN_ANGLE : 0;
+      if (breakerCover.angle !== coverTarget) {
+        const step = (Math.abs(BREAKER_COVER_OPEN_ANGLE) / BREAKER_COVER_OPEN_SECONDS) * dt;
+        breakerCover.angle = coverTarget < breakerCover.angle
+          ? Math.max(coverTarget, breakerCover.angle - step)
+          : Math.min(coverTarget, breakerCover.angle + step);
+        if (breakerCover.pivot) breakerCover.pivot.rotation.x = breakerCover.angle;
+        breakerCoverHinge.rotation.x = breakerCover.angle;
+      }
+
+      // A lever the panel would not take, falling back.
+      if (mainLever.springBackInSeconds > 0) {
+        mainLever.springBackInSeconds -= dt;
+        if (mainLever.springBackInSeconds <= 0) setMainLever(false);
+      }
+
+      const leverTarget = mainLever.up ? MAIN_LEVER_UP_ANGLE : MAIN_LEVER_DOWN_ANGLE;
+      if (mainLever.angle !== leverTarget) {
+        // Thrown up by hand, but DROPPED under its own weight -- twice as fast.
+        const speed = (MAIN_LEVER_DOWN_ANGLE - MAIN_LEVER_UP_ANGLE) / (mainLever.up ? 0.35 : 0.18);
+        mainLever.angle = leverTarget > mainLever.angle
+          ? Math.min(leverTarget, mainLever.angle + speed * dt)
+          : Math.max(leverTarget, mainLever.angle - speed * dt);
+        if (mainLever.pivot) mainLever.pivot.rotation.x = mainLever.angle;
+      }
+    }
+  });
 
   const loadChart = new THREE.Mesh(
     new THREE.PlaneGeometry(0.3, 0.38),
@@ -1402,12 +2299,50 @@ export function createHallwayBasementLevel({
   deskLeg(-0.55);
   deskLeg(0.55);
 
+  /**
+   * The CRT: crt_monitor.glb, sitting on the desk with its screen to the room.
+   * `monitor` is the model's frame -- every part the level builds around the
+   * model (picture, power button, click target, sticky note) is placed in it,
+   * so they all move with the monitor if the monitor moves.
+   */
+  const monitor = new THREE.Group();
+  monitor.position.set(0, DESK_TOP_Y, -0.02);
+  desk.add(monitor);
+
+  loadModel(crtMonitorModelUrl).then((model) => {
+    // The holes down the sides and the slots on top, painted on in the
+    // plastic's own colour so the panels match the rest of the casing.
+    const ventTextures = { CrtVents: createCrtVentTexture, CrtTopVents: createCrtTopVentTexture };
+    model.traverse((child) => {
+      if (!child.isMesh || !ventTextures[child.material.name]) return;
+      const vents = ventTextures[child.material.name](
+        `#${child.material.color.getHexString(THREE.SRGBColorSpace)}`
+      );
+      child.material.color.set(0xffffff);
+      child.material.map = vents.map;
+      child.material.bumpMap = vents.bumpMap;
+      child.material.bumpScale = 2;
+      child.material.needsUpdate = true;
+    });
+    monitor.add(model);
+  }).catch((err) => console.error('[lab] crt_monitor.glb failed to load', err));
+
+  /**
+   * The click target for the monitor as a whole: an invisible box over the
+   * casing. It stops just behind the bezel's face so the power button and the
+   * sticky note, which stand proud of it, are hit before it is. Keeps the old
+   * `monitorBody` name, which the rest of the level and its refs use.
+   */
   const monitorBody = new THREE.Mesh(
-    new THREE.BoxGeometry(0.5, 0.42, 0.42),
-    new THREE.MeshStandardMaterial({ color: 0xcbc4ac, roughness: 0.6 })
+    new THREE.BoxGeometry(CRT_BODY.width, CRT_BODY.top - CRT_BODY.bottom, CRT_BODY.front - CRT_BODY.back),
+    new THREE.MeshBasicMaterial({ visible: false })
   );
-  monitorBody.position.set(0, 1.0, -0.05);
-  desk.add(monitorBody);
+  monitorBody.position.set(
+    0,
+    (CRT_BODY.top + CRT_BODY.bottom) / 2,
+    (CRT_BODY.front + CRT_BODY.back) / 2 - 0.002
+  );
+  monitor.add(monitorBody);
 
   /**
    * The five feeds. Drawn onto canvases rather than rendered, because three of
@@ -1417,27 +2352,138 @@ export function createHallwayBasementLevel({
   const feeds = createCctvFeeds();
   const screenMaterial = createStaticScreenMaterial({
     noiseStrength: 1.0,
-    feed: feeds.textures.kitchen
+    feed: feeds.textures.kitchen,
+    power: 0
   });
-  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.36, 0.28), screenMaterial);
-  screen.position.set(0, 1.0, 0.17);
-  desk.add(screen);
+
+  /** The glass, bowed toward the player the way a CRT tube's face is. */
+  const screenGeometry = new THREE.PlaneGeometry(CRT_SCREEN.width, CRT_SCREEN.height, 24, 18);
+  {
+    const pos = screenGeometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const u = pos.getX(i) / (CRT_SCREEN.width / 2);
+      const v = pos.getY(i) / (CRT_SCREEN.height / 2);
+      pos.setZ(i, CRT_SCREEN_BULGE * (1 - u * u) * (1 - v * v));
+    }
+    screenGeometry.computeVertexNormals();
+  }
+  const screen = new THREE.Mesh(screenGeometry, screenMaterial);
+  screen.position.set(0, CRT_SCREEN.centreY, CRT_SCREEN.z + 0.001);
+  monitor.add(screen);
+
+  const screenGlow = new THREE.PointLight(0x8fd0ff, 0, 1.5, 2);
+  screenGlow.position.set(0, CRT_SCREEN.centreY, CRT_BODY.front + 0.14);
+  monitor.add(screenGlow);
+  const SCREEN_GLOW_INTENSITY = 0.5;
+
+  /**
+   * The monitor starts OFF and has to be switched on at its power button.
+   *
+   * `monitorSwitchedOn` is the button's own state; whether there is a picture
+   * is that AND whether the CCTV circuit is live. The button only latches when
+   * there is power to feel it -- pressed on a dead lab it does nothing, which
+   * is the clearest way to say "no power" -- but once on it STAYS on, so a
+   * monitor that dies in the blackout comes back by itself when the power does.
+   */
+  let monitorSwitchedOn = false;
+  /** Which feed the remote last picked, lit on the remote while the picture is up. */
+  let activeFeedId = FEED_IDS[0];
+
+  function isMonitorShowing() {
+    return monitorSwitchedOn && isCctvPowered();
+  }
+
+  const POWER_GLOW_COLOR = 0x2bff52;
+  const powerButtonCapMat = new THREE.MeshStandardMaterial({
+    color: 0xc9c1a8, roughness: 0.5, emissive: POWER_GLOW_COLOR, emissiveIntensity: 0,
+    emissiveMap: createPowerSymbolTexture()
+  });
+  const powerButtonRimMat = new THREE.MeshStandardMaterial({
+    color: 0xb8b097, roughness: 0.5, emissive: POWER_GLOW_COLOR, emissiveIntensity: 0
+  });
+  const powerButton = new THREE.Mesh(
+    new THREE.CylinderGeometry(CRT_POWER_BUTTON.radius, CRT_POWER_BUTTON.radius, CRT_POWER_BUTTON.depth, 24),
+    // Side, front face (the symbol), back face.
+    [powerButtonRimMat, powerButtonCapMat, powerButtonRimMat]
+  );
+  // A cylinder stands along Y; a quarter turn about X faces its top -- the
+  // face carrying the symbol -- out of the screen.
+  powerButton.rotation.x = Math.PI / 2;
+  powerButton.position.set(
+    CRT_POWER_BUTTON.x, CRT_POWER_BUTTON.y, CRT_POWER_BUTTON.ringFront + CRT_POWER_BUTTON.depth / 2
+  );
+  monitor.add(powerButton);
+
+  const powerLedMat = new THREE.MeshStandardMaterial({
+    color: 0x1d2a1f, roughness: 0.3, emissive: POWER_GLOW_COLOR, emissiveIntensity: 0
+  });
+  const powerLed = new THREE.Mesh(new THREE.SphereGeometry(0.0028, 10, 8), powerLedMat);
+  powerLed.position.set(CRT_POWER_BUTTON.x + 0.025, CRT_POWER_BUTTON.y, CRT_BODY.front);
+  monitor.add(powerLed);
+
+  // A faint green cast on the bezel round the button, since there is no bloom
+  // to make an emissive glow spill.
+  const powerGlow = new THREE.PointLight(POWER_GLOW_COLOR, 0, 0.18, 2);
+  powerGlow.position.set(CRT_POWER_BUTTON.x, CRT_POWER_BUTTON.y, CRT_BODY.front + 0.03);
+  monitor.add(powerGlow);
+
+  /**
+   * Puts the button, the remote and both prompts in line with whether the
+   * monitor is showing a picture. The picture itself warms up and cools down
+   * in the frame loop below, so this never snaps the screen.
+   */
+  function syncMonitor() {
+    const showing = isMonitorShowing();
+    powerButtonCapMat.emissiveIntensity = showing ? 1.6 : 0;
+    powerButtonRimMat.emissiveIntensity = showing ? 0.35 : 0;
+    powerLedMat.emissiveIntensity = showing ? 2.2 : 0;
+    powerGlow.intensity = showing ? 0.04 : 0;
+    feedButtons.forEach(({ mesh, feedId }) => {
+      mesh.material.emissive.setHex(showing && feedId === activeFeedId ? 0x2e6b3a : 0x000000);
+    });
+    monitorBody.userData.interact.label = showing ? 'View camera feeds' : 'Examine the monitor';
+    powerButton.userData.interact.label = monitorSwitchedOn ? 'Switch the monitor off' : 'Switch the monitor on';
+  }
+
+  powerButton.userData.interact = {
+    label: 'Switch the monitor on',
+    onInteract: () => {
+      if (!isCctvPowered()) {
+        showCaption(
+          powerStage === POWER_STAGE.DEAD
+            ? 'You press the power button. Nothing. There is no power down here.'
+            : 'You press the power button. Nothing. The power has gone again.'
+        );
+        return;
+      }
+      monitorSwitchedOn = !monitorSwitchedOn;
+      syncMonitor();
+      if (monitorSwitchedOn) {
+        showCaption('The button clicks in and glows green. The tube whines, and a line of light opens into a picture.');
+      }
+    }
+  };
+  interactables.push(powerButton);
+
   dynamics.push({
     update: (dt, elapsed) => {
       screenMaterial.uniforms.uTime.value = elapsed;
-      // Only redraw a feed once there is power. Before that the screen is pure
-      // static and the canvases would be painting for nobody.
-      if (isCctvPowered()) feeds.update(dt);
+      const power = screenMaterial.uniforms.uPower;
+      if (isMonitorShowing()) {
+        power.value = Math.min(1, power.value + dt / CRT_WARM_UP_SECONDS);
+      } else {
+        power.value = Math.max(0, power.value - dt / CRT_SWITCH_OFF_SECONDS);
+      }
+      screenGlow.intensity = SCREEN_GLOW_INTENSITY * power.value;
+      // Only redraw a feed while there is a picture. Otherwise the canvases
+      // would be painting for nobody.
+      if (power.value > 0) feeds.update(dt);
     }
   });
 
-  const screenGlow = new THREE.PointLight(0x8fd0ff, 0.5, 1.5, 2);
-  screenGlow.position.set(0, 1.0, 0.3);
-  desk.add(screenGlow);
-
   monitorBody.userData.interact = {
-    // Reads "no power" until there is power, rather than inviting the player to
-    // view feeds that cannot exist yet.
+    // Reads as a thing to examine until there is a picture, rather than
+    // inviting the player to view feeds that cannot exist yet.
     label: 'Examine the monitor',
     onInteract: () => {
       if (!isCctvPowered()) {
@@ -1446,9 +2492,13 @@ export function createHallwayBasementLevel({
         // was working a moment ago and something took it away.
         showCaption(
           powerStage === POWER_STAGE.DEAD
-            ? 'Five camera feeds, and every one of them is static. No power.'
+            ? 'An old CRT, dead. Nothing on this desk has power.'
             : 'The screen is dark. It was showing you the house a minute ago.'
         );
+        return;
+      }
+      if (!monitorSwitchedOn) {
+        showCaption('The monitor is off. The power button is on the front, under the screen.');
         return;
       }
       // Said "No power" even after the breaker was flipped, which told the
@@ -1489,11 +2539,14 @@ export function createHallwayBasementLevel({
           showCaption('The remote is dead. Nothing on this desk has power.');
           return;
         }
+        if (!monitorSwitchedOn) {
+          showCaption('The remote clicks, but the monitor is switched off.');
+          return;
+        }
         feeds.setActive(id);
         screenMaterial.uniforms.uFeed.value = feeds.textures[id];
-        feedButtons.forEach(({ mesh, feedId }) => {
-          mesh.material.emissive.setHex(feedId === id ? 0x2e6b3a : 0x000000);
-        });
+        activeFeedId = id;
+        syncMonitor();
         onViewFeed(id);
       }
     };
@@ -1503,6 +2556,112 @@ export function createHallwayBasementLevel({
     feedButtons.push({ mesh: btn, feedId: id, material: lit });
   });
 
+  /**
+   * The monitor's three cables, in desk space -- the desk is turned to face
+   * the room, so the wall behind it is at -Z here.
+   *
+   *  - power, off the back of the desk, down the leg side and along the floor
+   *    to a socket low on the wall;
+   *  - video, back and up the wall into a conduit to the ceiling, where the
+   *    camera lines come down from;
+   *  - the remote's lead, along the desk top round the monitor's right side.
+   *
+   * Each one starts at its socket on the CRT's back panel (CRT_PORTS), which
+   * the model carries, and is a tube along a hand-placed curve.
+   */
+  {
+    const WALL_Z = -(LAB_D / 2 - DESK_POSITION.z);
+    const DESK_BACK_Z = -DESK_TOP_SIZE.depth / 2;
+    const portInDesk = ({ x, y, depth }) => new THREE.Vector3(
+      x, DESK_TOP_Y + y, monitor.position.z + CRT_BODY.back - depth
+    );
+    const cableTube = (points, radius, material) => {
+      const curve = new THREE.CatmullRomCurve3(points.map((p) => (p.isVector3 ? p : new THREE.Vector3(...p))));
+      const mesh = new THREE.Mesh(new THREE.TubeGeometry(curve, 64, radius, 6, false), material);
+      desk.add(mesh);
+      return mesh;
+    };
+    const powerCableMat = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.65 });
+    const videoCableMat = new THREE.MeshStandardMaterial({ color: 0x2c2d30, roughness: 0.55 });
+    const plugMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.5 });
+
+    // Power.
+    const powerPort = portInDesk(CRT_PORTS.power);
+    const SOCKET = { x: 0.11, y: 0.3 };
+    cableTube([
+      powerPort,
+      [0.062, powerPort.y - 0.005, powerPort.z - 0.03],
+      [0.07, DESK_TOP_Y + 0.006, DESK_BACK_Z + 0.01],
+      [0.075, DESK_TOP_Y - 0.004, DESK_BACK_Z - 0.015],
+      [0.085, 0.45, DESK_BACK_Z - 0.05],
+      [0.095, 0.08, DESK_BACK_Z - 0.1],
+      [0.1, 0.012, (DESK_BACK_Z + WALL_Z) / 2 + 0.03],
+      [SOCKET.x, 0.012, WALL_Z + 0.015],
+      [SOCKET.x, 0.15, WALL_Z + 0.012],
+      [SOCKET.x, SOCKET.y - 0.018, WALL_Z + 0.015]
+    ], 0.0045, powerCableMat);
+    const powerPlug = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.016, 0.016), plugMat);
+    powerPlug.position.set(powerPort.x, powerPort.y, powerPort.z - 0.006);
+    desk.add(powerPlug);
+
+    const socketPlate = new THREE.Mesh(
+      new THREE.BoxGeometry(0.07, 0.07, 0.008),
+      new THREE.MeshStandardMaterial({ color: 0xd8d2c0, roughness: 0.6 })
+    );
+    socketPlate.position.set(SOCKET.x, SOCKET.y, WALL_Z + 0.004);
+    desk.add(socketPlate);
+    const wallPlug = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.034, 0.022), plugMat);
+    wallPlug.position.set(SOCKET.x, SOCKET.y, WALL_Z + 0.019);
+    desk.add(wallPlug);
+
+    // Video, up into the conduit.
+    const videoPort = portInDesk(CRT_PORTS.video);
+    const CONDUIT = { x: -0.09, bottom: 1.25, radius: 0.014 };
+    const conduitZ = WALL_Z + CONDUIT.radius + 0.002;
+    cableTube([
+      videoPort,
+      [videoPort.x - 0.005, videoPort.y + 0.005, videoPort.z - 0.045],
+      [-0.075, 0.98, -0.42],
+      [-0.085, 1.06, conduitZ + 0.012],
+      [CONDUIT.x, 1.15, conduitZ],
+      [CONDUIT.x, CONDUIT.bottom + 0.02, conduitZ]
+    ], 0.004, videoCableMat);
+    const videoPlug = new THREE.Mesh(new THREE.CylinderGeometry(0.0075, 0.0075, 0.016, 12), plugMat);
+    videoPlug.rotation.x = Math.PI / 2;
+    videoPlug.position.set(videoPort.x, videoPort.y, videoPort.z - 0.006);
+    desk.add(videoPlug);
+
+    const conduitLength = LAB_H - CONDUIT.bottom;
+    const conduit = new THREE.Mesh(
+      new THREE.CylinderGeometry(CONDUIT.radius, CONDUIT.radius, conduitLength, 10),
+      pipeMat
+    );
+    conduit.position.set(CONDUIT.x, CONDUIT.bottom + conduitLength / 2, conduitZ);
+    desk.add(conduit);
+    const conduitMouth = new THREE.Mesh(
+      new THREE.CylinderGeometry(CONDUIT.radius + 0.005, CONDUIT.radius + 0.005, 0.03, 10),
+      pipeMat
+    );
+    conduitMouth.position.set(CONDUIT.x, CONDUIT.bottom + 0.015, conduitZ);
+    desk.add(conduitMouth);
+
+    // The remote's lead, lying on the desk round the monitor's right side and
+    // clear of its stand.
+    const remotePort = portInDesk(CRT_PORTS.remote);
+    const onDesk = DESK_TOP_Y + 0.003;
+    cableTube([
+      // Out of the remote's right end, wide of the monitor's front corner.
+      [0.15, onDesk + 0.006, 0.2],
+      [0.2, onDesk, 0.2],
+      [0.27, onDesk, 0.13],
+      [0.285, onDesk, -0.05],
+      [0.23, onDesk, -0.2],
+      [0.08, onDesk + 0.015, -0.25],
+      [0.02, remotePort.y - 0.02, remotePort.z - 0.01],
+      remotePort
+    ], 0.003, powerCableMat);
+  }
+
   const noteTex = createStickyNoteTexture("Restore power and pray it doesn't hear you.");
   /**
    * The sticky note, ON THE MONITOR'S BEZEL -- the storyline puts it "stuck on
@@ -1511,26 +2670,26 @@ export function createHallwayBasementLevel({
    * It used to float at x = -0.35, which is 0.10 m clear of the monitor casing
    * altogether: a note stuck to nothing, hanging in the air beside the screen.
    *
-   * Sized to the bezel rather than placed on top of it. The casing is 0.5 wide
-   * and the picture 0.36, so each side bezel is a 0.07 m strip; a 0.06 m note
-   * centred at x = 0.215 sits inside that strip with the screen's edge at 0.18
-   * left clear. Any bigger and it would either cover the picture -- which is
-   * the one thing in this room the player has to be able to read -- or hang
-   * off the side of the casing again.
+   * Sized to the bezel rather than placed on top of it. The CRT's side border
+   * runs from the picture opening at x = 0.186 to the casing's edge at 0.23, a
+   * 0.044 m strip; a 0.04 m note centred in it leaves the picture clear. Any
+   * bigger and it would either cover the picture -- which is the one thing in
+   * this room the player has to be able to read -- or hang off the side of the
+   * casing again.
    */
-  const STICKY_SIZE = 0.06;
+  const STICKY_SIZE = 0.04;
   const sticky = new THREE.Mesh(
     new THREE.PlaneGeometry(STICKY_SIZE, STICKY_SIZE),
     new THREE.MeshStandardMaterial({ map: noteTex })
   );
-  sticky.position.set(0.215, 1.06, 0.172);
+  sticky.position.set(0.208, CRT_SCREEN.centreY + 0.105, CRT_BODY.front + 0.001);
   sticky.rotation.z = 0.09;
   sticky.userData.interact = {
     label: 'Read sticky note',
     onInteract: () => showCaption("Restore power and pray it doesn't hear you.")
   };
   interactables.push(sticky);
-  desk.add(sticky);
+  monitor.add(sticky);
 
   colliders.push({
     minX: desk.position.x - 0.65, maxX: desk.position.x + 0.65,
@@ -1786,10 +2945,21 @@ export function createHallwayBasementLevel({
     powerStage = POWER_STAGE.BLACKOUT;
     powerLevel = 0;
 
+    // Whoever threw the main took every breaker down with it. The player
+    // finds the panel this way, having seen it all up on the way in.
+    setAllBreakers(false);
+    setMainLever(false);
+    // And the engine dies with it: its lamps go out, its needles fall, and
+    // its fuel valve is found shut -- someone was at that too.
+    generatorStepsCompleted = 0;
+    starterPulls = 0;
+    updateGeneratorControlLights();
+
     screenMaterial.uniforms.uNoiseStrength.value = 1.0;
     screenMaterial.uniforms.uStaticMix.value = 1;
-    feedButtons.forEach(({ mesh }) => mesh.material.emissive.setHex(0x000000));
-    monitorBody.userData.interact.label = 'Examine the monitor';
+    // Still switched on -- the picture collapses because the power went, and
+    // returns with it.
+    syncMonitor();
     // The screen is pure static now so nothing is on show, but the feeds must
     // still be told the basement went dark -- leaving them believing this room
     // is lit means the first frame after power returns paints a stale image.
@@ -1972,11 +3142,23 @@ export function createHallwayBasementLevel({
   ]);
   const tornNotes = new THREE.Mesh(
     new THREE.PlaneGeometry(0.3, 0.38),
-    new THREE.MeshStandardMaterial({ map: tornNoteTex, roughness: 1 })
+    // Pulled toward the camera in the depth test as well as lifted: at the
+    // shallow angle a player looks across the bench from, 3 mm alone can
+    // still lose to the bench top on some depth buffers.
+    new THREE.MeshStandardMaterial({
+      map: tornNoteTex,
+      roughness: 1,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1
+    })
   );
   tornNotes.rotation.x = -Math.PI / 2;
   tornNotes.rotation.z = 0.15;
-  tornNotes.position.set(-0.2, 0.845, 0.15); // local to the workbench, which is its parent
+  // Local to the workbench, which is its parent. Lifted 3 mm off the bench
+  // top (0.845) -- sitting exactly on it, the two faces shared one depth and
+  // z-fought into a jagged staircase across the page.
+  tornNotes.position.set(-0.2, 0.848, 0.15);
   tornNotes.userData.interact = {
     label: 'Read the torn notes',
     onInteract: () => showCaption('"SUBJECT UNSTABLE. CONTAINMENT REQUIRED. MEMORY DETERIORATION OBSERVED. VISUAL DISTORTION INCREASING."')
@@ -2145,12 +3327,13 @@ export function createHallwayBasementLevel({
       // after a solved panel would restart the level with the generator's
       // sequence half-entered and every breaker still showing green.
       generatorStepsCompleted = 0;
+      starterPulls = 0;
+      generatorSputterSeconds = 0;
       updateGeneratorControlLights();
       breakerTripTimeRemainingInSeconds = 0;
-      resetAllBreakers();
-      mainSwitch.rotation.z = BREAKER_OFF_TILT_IN_RADIANS;
-      mainSwitch.material.emissive.setHex(BREAKER_COLOR_OFF);
-      mainSwitch.userData.interact.label = 'Throw the main switch';
+      setAllBreakers(true);
+      setMainLever(true, { instant: true });
+      closeBreakerCover();
       securityCleared = false;
       // The door note splices itself out of the target list once read, so a
       // restart has to put it back or the second run never shows the prompt.
@@ -2174,10 +3357,16 @@ export function createHallwayBasementLevel({
         const i = interactables.indexOf(blackPool);
         if (i >= 0) interactables.splice(i, 1);
       }
-      feedButtons.forEach(({ mesh }) => mesh.material.emissive.setHex(0x000000));
-      monitorBody.userData.interact.label = 'Examine the monitor';
+      monitorSwitchedOn = false;
+      activeFeedId = FEED_IDS[0];
+      screenMaterial.uniforms.uPower.value = 0;
+      syncMonitor();
 
-      fuseBox.userData.interact.label = 'Empty fuse slot';
+      setFuseCoverOpen(false, { quiet: true });
+      fuseCover.everOpened = false;
+      fuseCover.angle = 0;
+      fuseCoverHinge.rotation.y = 0;
+      if (fuseCover.pivot) fuseCover.pivot.rotation.y = fuseCover.closedRotationY;
       metalDoor.userData.interact.label = DOOR_LABELS[POWER_STAGE.DEAD];
 
       fuseData.forEach((data, i) => {
@@ -2186,6 +3375,7 @@ export function createHallwayBasementLevel({
         fuse.rotation.set(0, 0, 0);
         fuse.rotation.z = Math.PI / 2;
         fuse.visible = true;
+        setFuseScorched(fuse, false);
         fuse.userData.interact = {
           label: `Pick up fuse (${data.amps})`,
           onInteract: () => {

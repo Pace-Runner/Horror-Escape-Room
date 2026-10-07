@@ -16,6 +16,7 @@ import bpy
 import bmesh
 import math
 import os
+from mathutils import Matrix, Vector
 
 
 def clear_scene():
@@ -249,3 +250,92 @@ def export_rigged_glb(out_path, objects):
                                               # the albedo at runtime
     )
     print(f'Exported {out_path} ({os.path.getsize(out_path)} bytes)')
+
+
+# ---------------------------------------------------------------------------
+# Building INTO an existing bmesh.
+#
+# The make_* helpers above create one object per part. These instead add a
+# primitive to a bmesh the caller already holds, so every part that shares a
+# material can be built into one bmesh and exported as ONE mesh -- one draw
+# call at runtime instead of one per screw. build_fuse_box.py and
+# glass_fuse.py are built this way.
+# ---------------------------------------------------------------------------
+
+def add_box(bm, centre, size):
+    matrix = Matrix.Translation(centre) @ Matrix.Diagonal((*size, 1.0))
+    bmesh.ops.create_cube(bm, size=1.0, matrix=matrix)
+
+
+def add_cylinder(bm, centre, radius, depth, axis='Z', segments=12, radius2=None):
+    rotation = {
+        'X': Matrix.Rotation(math.pi / 2, 4, 'Y'),
+        'Y': Matrix.Rotation(math.pi / 2, 4, 'X'),
+        'Z': Matrix.Identity(4),
+    }[axis]
+    bmesh.ops.create_cone(
+        bm, cap_ends=True, cap_tris=False, segments=segments,
+        radius1=radius, radius2=radius if radius2 is None else radius2, depth=depth,
+        matrix=Matrix.Translation(centre) @ rotation
+    )
+
+
+def catmull_rom(points, samples_per_segment=3):
+    """Smooths a short polyline so a wire bends instead of kinking."""
+    pts = [Vector(p) for p in points]
+    padded = [pts[0]] + pts + [pts[-1]]
+    out = []
+    for i in range(1, len(padded) - 2):
+        p0, p1, p2, p3 = padded[i - 1], padded[i], padded[i + 1], padded[i + 2]
+        for s in range(samples_per_segment):
+            t = s / samples_per_segment
+            t2, t3 = t * t, t * t * t
+            out.append(0.5 * ((2 * p1) + (-p0 + p2) * t
+                              + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2
+                              + (-p0 + 3 * p1 - 3 * p2 + p3) * t3))
+    out.append(pts[-1])
+    return out
+
+
+def add_tube(bm, points, radius, sides=6, samples_per_segment=3):
+    """
+    A wire along `points`. Each ring is carried forward from the last one
+    (parallel transport) instead of being rebuilt from a fixed up vector,
+    which is what stops the tube twisting where the path turns vertical.
+    """
+    path = catmull_rom(points, samples_per_segment)
+    rings = []
+    normal = None
+    for i, p in enumerate(path):
+        tangent = (path[min(i + 1, len(path) - 1)] - path[max(i - 1, 0)]).normalized()
+        if normal is None:
+            seed = Vector((1, 0, 0)) if abs(tangent.x) < 0.9 else Vector((0, 1, 0))
+            normal = tangent.cross(seed).normalized()
+        else:
+            normal = (normal - tangent * normal.dot(tangent)).normalized()
+        binormal = tangent.cross(normal)
+        ring = []
+        for k in range(sides):
+            a = 2 * math.pi * k / sides
+            ring.append(bm.verts.new(p + radius * (math.cos(a) * normal + math.sin(a) * binormal)))
+        rings.append(ring)
+    for a, b in zip(rings, rings[1:]):
+        for k in range(sides):
+            bm.faces.new((a[k], a[(k + 1) % sides], b[(k + 1) % sides], b[k]))
+
+
+def object_keeping_uvs(name, bm, material, smooth=False):
+    """
+    new_object() without the box projection, for geometry that has already
+    been given UVs of its own -- the glass fuse's caps are wrapped
+    cylindrically so a stamped rating runs round them undistorted.
+    """
+    mesh = bpy.data.meshes.new(name + '_mesh')
+    bm.to_mesh(mesh)
+    bm.free()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    obj.data.materials.append(material)
+    for p in obj.data.polygons:
+        p.use_smooth = smooth
+    return obj

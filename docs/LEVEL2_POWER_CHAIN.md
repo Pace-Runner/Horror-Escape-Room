@@ -21,7 +21,7 @@ Generator", "Puzzle 3 -- Breaker / Circuit Panel").
 | 3 | **Blackout** | Go for the metal door | A lever is thrown. Lights *and* cameras die together |
 | 4 | **Generator** | Work three controls in the order on the plate | Current reaches the breaker panel, nothing else |
 | 5 | **Breaker panel** | Set the three circuits that fit the 60A rating | Nothing yet -- the panel is dead until the main goes in |
-| 6 | **Main switch** | Throw it | The bolts come live, and the whole house lights up |
+| 6 | **Main lever** | Push it up | The bolts come live, and the whole house lights up |
 | 7 | **Security code** | Read the claw tally off CAM 4, enter it at the door | The lockout releases |
 | 8 | **Exit** | Open the door | On to the study |
 
@@ -96,6 +96,83 @@ never the problem -- the classic failure mode of taking a reward away.
 
 `CORRECT_FUSE_AMPS` is a named constant; four branches used to test the
 bare string `'30A'`.
+
+### The fuse box and the fuses themselves
+
+The box is `fuse_box.glb`, built by `blender/build_fuse_box.py` after a
+four-way cartridge fuse board: sloped inner walls, a screwed backplate, four
+pairs of copper spring clips, wires out through grommets top and bottom (the
+generator cable goes into the bottom one, a conduit leaves the top one for
+the ceiling), and a **hinged, transparent cover**.
+
+- **Four slots, one empty.** Three glass fuses are part of the box model
+  itself and never move. The third slot is empty, and it is the only one the
+  player ever fills.
+- **The cover is its own click.** The first E opens it; only then does the
+  slot take a fuse. The dirty pane lets the player see the empty clips
+  before touching anything. **It closes again** from a click on the open
+  cover itself (`setFuseCoverOpen`), and reopening restores whatever the
+  slot was offering.
+- **An open cover is solid.** While it stands out into the room it has a
+  collider (`setSwingCollider`), added on opening and removed on closing.
+  The player used to walk straight through it.
+- **Every fuse is the same glass cartridge** (`blender/glass_fuse.py`):
+  nickel caps, a glass tube, blue end sleeves and an S-shaped element, about
+  the size of a toilet-roll tube (4.8 cm by 10 cm). The four loose ones are
+  clones of `fuse.glb`, and the rating stamped round their caps
+  (`createFuseCapStampTexture`) is the only thing that tells them apart.
+  They used to differ in thickness instead.
+- **A fuse is seen in the slot.** Whatever the player installs stands in the
+  empty clips, right or wrong, until it is pulled.
+- **Only an under-rated fuse blows.** A 15A or 20A soots its glass and snaps
+  its element the moment it goes (`setFuseScorched`), and stays that way
+  where it lands on the floor. The 45A whites the room out but comes back out
+  intact. A restart puts every fuse back to whole and closes the cover.
+
+Two practical rules: the slot and clip positions and the fuse's size are
+written in BOTH the Blender scripts and the level (`FUSE_BOX_*`, `FUSE_*`),
+so change them together. And the
+click target is an invisible box over the front, not the model, because
+Interaction raycasts non-recursively and never reaches inside a loaded
+`.glb`.
+
+### The CRT monitor and its power button
+
+The monitor is `crt_monitor.glb` (`blender/build_crt_monitor.py`), a beige
+CRT after four reference photos. The picture is still the static/feed shader,
+now on a slightly bowed plane set into the bezel's recess.
+
+- **It starts switched off.** Seating the 30A gives it power, but it stays
+  dark until the player presses the power button under the screen. The
+  `powerRestored` caption now points at it ("The monitor on the desk has
+  power now") instead of saying it woke by itself.
+- **The button only works with power.** Pressed in a dead lab it does
+  nothing and says so. That is the clearest "no power" message, and it means
+  the monitor can never end up switched on unseen.
+- **When it is on, the button glows green**, along with the LED beside it and
+  a faint green light on the bezel. The picture opens out from a thin bright
+  line and collapses back to one when it goes off (`uPower` in
+  `StaticScreenMaterial.js`).
+- **It stays switched on through the blackout.** The picture dies with the
+  power and comes back by itself when the panel is routed, so the cameras the
+  player loses at the blackout return as the beat promises.
+- The remote needs a picture, not just power. Pressed with the monitor off,
+  it says the monitor is switched off.
+
+**Vents and cables.** The holes down each side follow a close photo of a
+real CRT: a crescent of round holes in arcs, under a pressed crease, with a
+plain skirt below. The top of the casing carries rows of cooling slots. Both
+are textures (`createCrtVentTexture`, `createCrtTopVentTexture`) on faces
+given their own UVs, because over a thousand modelled holes would cost more
+than the rest of the monitor. Three cables leave the sockets on its back
+panel (`CRT_PORTS`): power, off the back of the desk to a socket low on the
+wall; video, up the wall into a conduit to the ceiling; and the remote's
+lead, round the monitor's right side on the desk top. They are decoration
+only and are not clickable.
+
+`isMonitorShowing()` (switched on AND the CCTV circuit live) is the one test;
+`syncMonitor()` puts the button glow, the remote and both prompts in line
+with it, and is called wherever the power stage changes.
 
 ---
 
@@ -188,14 +265,31 @@ The player keeps their flashlight, so the dark lab stays navigable.
 
 ## Puzzle 3 -- the generator
 
-Three controls in a row across the generator's front face, worked in the
-order given by a plate bolted above them:
+The generator is `generator.glb` (`blender/build_generator.py`): an
+**enclosed diesel standby set, right for the 1980s**. That means a sheet-steel
+cabinet in worn teal paint (`createPaintedSteelTexture`, the shared finish for
+painted machinery), a latched access door, louvres, and a steel skid with
+forklift pockets rather than modern casters. Its control panel faces the room
+and is laid out for period hardware: three analogue gauges (volts, Hz, amps),
+a pilot lamp over each control, and a maker's plate dated 1983. A ribbed
+exhaust hose runs from the roof outlet to a vent high on the wall behind.
+
+Three controls in a row across the control panel, worked in the order given
+by the plate under them:
 
 ```
 GENERATOR_RESTART_SEQUENCE = ['valve', 'primer', 'starter']
 ```
 
-- **Correct step** -> that control lights green, caption acknowledges it.
+- **Each control moves when worked**: the fuel valve's red lever turns a
+  quarter, the primer plunger goes in and springs back, and the pull-start's
+  T-handle rips out on its rope and snaps back.
+- **Correct step** -> that control's pilot lamp lights green, and a caption
+  acknowledges it.
+- **The pull-start takes `STARTER_PULLS_TO_CATCH = 3` pulls** once primed.
+  The first coughs, the second roars for a second and dies, each shaking the
+  cabinet harder; the third catches. That's the real price of restarting a
+  diesel in a house you are hiding in.
 - **Wrong step** -> `generatorStepsCompleted` resets to `0`, every light
   goes dark, a spark fires: *"It coughs, floods and dies."*
 - **Third correct step** -> `startGenerator()` moves the stage to
@@ -203,6 +297,13 @@ GENERATOR_RESTART_SEQUENCE = ['valve', 'primer', 'starter']
 
 The green lights exist so the player can see how far into the sequence
 they are without having to remember, which matters when the room is dark.
+
+**Running vs dead.** `isGeneratorRunning()` is true in every stage but the
+blackout. While running, the cabinet vibrates, all three lamps are green, the
+fuel valve is open, and the needles sit at 230 V and 50 Hz; the ammeter reads
+the real load (35A off the fuse, the routed breakers' total after the panel).
+The blackout kills it: the needles fall, the lamps go out, and **the fuel
+valve is found shut**, another sign that a hand, not a fault, did this.
 
 Outside `BLACKOUT` the controls only talk: before the main is thrown the
 generator is already turning over, and afterwards it is running. Neither
@@ -217,8 +318,33 @@ children would never register a hit. Same reasoning as the CCTV remote.
 
 ## Puzzle 4 -- the breaker panel
 
-Five labelled circuits, a load chart on the wall, and a **main switch** below
-the column that commits whatever the breakers are set to.
+Five labelled circuits, a load chart on the wall, and a **main lever** on the
+side of the box that commits whatever the breakers are set to.
+
+### The panel itself
+
+`breaker_panel.glb` (`blender/build_breaker_panel.py`) is a white consumer
+unit after reference photos: five black breaker modules **in one row**, spaced
+wider than a real unit so each one is easy to aim at, and vent slots below.
+Each module has a **chunky green lever** after a modern RCD's, built in the
+level as an extruded profile, and its own **black label plate with white
+capitals** after a marine switch panel (`createSwitchLabelTexture`), drawn
+from `BREAKER_CIRCUITS` so it always matches the load chart.
+
+- **A smoked cover, hinged along the top, lifts up to reach the breakers.**
+  The first press lifts it; a press on the raised cover lowers it again
+  (`setBreakerCoverOpen`). Its click target rides on a stand-in for the
+  hinge, so it is always wherever the cover is. While raised it sticks out
+  at head height, so it gets a collider just like the fuse box cover.
+- **The main is a lever on the right-hand side**, a steel arm on a screwed
+  plate with a green-over-red handle, after a photo of an old one. Up is on.
+- **Every breaker and the lever start UP**, because until the blackout this
+  is a working panel and the problem was upstream of it. **The blackout knocks
+  them all down**, so the player finds the panel the way whoever threw the
+  main left it. The flag above each toggle shows green when it is up and red
+  when it is down.
+- Before the blackout, the toggles and the lever refuse with "Whatever is
+  wrong down here, it is not this panel."
 
 | Circuit | Load | Required? | What it is |
 |---------|-----:|-----------|------------|
@@ -277,7 +403,7 @@ Two **build-time `console.warn`s** guard the arithmetic: the required circuits
 must come to *exactly* the capacity (over is unsolvable, under lets a decoy be
 left on and still solve it), and LOCKS must not fit alongside DOOR.
 
-### The main switch
+### The main lever
 
 Flicking a breaker never trips and never routes. The panel is dead until the
 main goes in, so setting breakers is a **plan laid out against the load chart**,
@@ -286,10 +412,12 @@ any feedback, which is the difference between a puzzle and a slot machine.
 
 Throwing the main does one of three things:
 
-- **over capacity** -> `tripBreakerPanel()`: every breaker drops open, a spark
-  fires, the room blows out white for `BREAKER_TRIP_GLARE_IN_SECONDS = 1.1`.
-- **a required circuit still open** -> refuses, and *names which one*. The
-  puzzle is the budget, not guessing which systems matter.
+- **over capacity** -> `tripBreakerPanel()`: every breaker drops open and the
+  lever falls with them, a spark fires, the room blows out white for
+  `BREAKER_TRIP_GLARE_IN_SECONDS = 1.1`.
+- **a required circuit still open** -> the lever goes up and drops straight
+  back, and the caption *names which circuit*. The puzzle is the budget, not
+  guessing which systems matter.
 - **otherwise** -> `routePower()`.
 
 During the trip glare, flicks are refused out loud (*"The panel has not reset
@@ -566,8 +694,9 @@ powerStage = POWER_STAGE.DEAD;
 generatorStepsCompleted = 0;
 updateGeneratorControlLights();
 breakerTripTimeRemainingInSeconds = 0;
-resetAllBreakers();
-mainSwitch.rotation.z = BREAKER_OFF_TILT_IN_RADIANS;   // + emissive, + label
+setAllBreakers(true);                  // all back UP, as before the blackout
+setMainLever(true, { instant: true });
+closeBreakerCover();
 hasViewedAnyFeed = false;
 hasHesitatedAtDoor = false;
 if (!interactables.includes(doorNote)) interactables.push(doorNote);
@@ -608,7 +737,8 @@ passing:
 - LOCKS + DOOR trips; the trip drops every breaker.
 - The required three plus VENT reads 90A and trips the main.
 - The required three alone route, and light the lab and the house together.
-- The main switch latches.
+- The main lever stays up once the panel routes.
+- Before the blackout every breaker and the lever are up; after it, all down.
 
 **The door**
 - The note sits dead centre in x, at eye level (y = 1.55), facing back down
