@@ -4,21 +4,20 @@ import okabeModelUrl from '../assets/models/okabe.glb?url';
 import okabeCleanModelUrl from '../assets/models/okabe_clean.glb?url';
 
 /**
- * The imported Okabe character, with the same public contract as Creature.js.
+ * The imported Okabe character -- the only monster in the game, and the
+ * player's own body.
  *
- * WHY A SECOND FILE RATHER THAN A FLAG INSIDE Creature.js. That file builds a
- * primitive capsule rig AND drives a generated GLB, and every line of it is
- * tuned to bone names its own exporter chose. This asset arrives from a Unity
- * package with an MMD-derived skeleton -- 'Right elbow' is the forearm, the
- * lab coat has twenty-one of its own bones, and the rest pose is an A-pose
- * rather than the T-pose the generated rig uses. Threading two skeletons
- * through one set of functions would make both harder to read and neither
- * easier to fix.
- *
- * It exports the SAME shape, though, deliberately: group, refs, setPosition,
+ * It replaced Creature.js, a procedural capsule rig driving a generated GLB,
+ * and kept that file's public contract on purpose: group, refs, setPosition,
  * setYaw, setSpeed, setCorrection, setSilhouette, update, reset, dispose and
- * the visible/height/position/yaw accessors. main.js can swap the import and
- * change nothing else.
+ * the visible/height/position/yaw accessors. That is why CreatureAI, the visor
+ * and every scripted beat in main.js took the swap without changing. Comments
+ * below that cite "Creature.js" are recording where a number or a recipe came
+ * from; that file is deleted and lives on in git history.
+ *
+ * This asset arrives from a Unity package with an MMD-derived skeleton --
+ * 'Right elbow' is the forearm, the lab coat has twenty-one of its own bones,
+ * and the rest pose is an A-pose rather than a T-pose.
  *
  * ONE BODY, TWO READINGS, exactly as before. blender/import_okabe.py bakes a
  * single 'Monster' shape key onto the imported mesh, so correction 1 is the
@@ -357,8 +356,13 @@ const LAG = { knee: 0.14, ankle: 0.30, spine: 0.16, chest: 0.26, neck: 0.44, arm
  * writes the clean one before befoul() is allowed near the images, which is
  * the only way to have both: a glTF material carries ONE base colour texture,
  * so the blood cannot be on a dial the way the proportions are.
+ *
+ * @param restCorrection {number} what reset() puts the dial back to. 1, the
+ * man, for the backrooms figure and the player's body. The house creature
+ * passes 0: every beat that shows it calls reset() and expects the monster,
+ * which is the contract the procedural Creature.js had before this replaced it.
  */
-export function createOkabeCreature({ clean = false } = {}) {
+export function createOkabeCreature({ clean = false, restCorrection = 1 } = {}) {
   const group = new THREE.Group();
   group.name = 'okabe';
 
@@ -376,7 +380,7 @@ export function createOkabeCreature({ clean = false } = {}) {
   let morphMeshes = [];         // meshes carrying the Monster target
   let baseColors = null;        // material -> original colour, for silhouette
 
-  let correction = 1;           // 1 = the man, 0 = the monster
+  let correction = restCorrection;  // 1 = the man, 0 = the monster
   let speed = 0;
   let gaitPhase = 0;
   let elapsed = 0;
@@ -1044,8 +1048,14 @@ export function createOkabeCreature({ clean = false } = {}) {
       speed = 0;
       peekTarget = 0;
       peekNow = 0;
-      correction = 1;
+      correction = restCorrection;
       applyCorrection();
+      // Pose NOW, not on the next update(). Some beats show the figure for a
+      // fraction of a second and never tick it -- the Level 2 hallway strike
+      // does exactly that -- and an un-animated rig is in its bind pose, arms
+      // straight out. Creature.js's reset() ended the same way, for the same
+      // reason, and the swap to this file lost it.
+      animate();
     },
     dispose() {
       for (const mesh of skin || []) {

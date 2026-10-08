@@ -23,7 +23,6 @@ import { createDocumentUI } from './core/DocumentUI.js';
 import { createPostFX } from './world/Postprocessing.js';
 import { createCutsceneRunner } from './core/Cutscene.js';
 import { createScriptRunner } from './core/Script.js';
-import { createCreature } from './systems/Creature.js';
 import { createOkabeCreature } from './systems/OkabeCreature.js';
 import { createCreatureAI } from './systems/CreatureAI.js';
 import { createBackroomsHunter } from './systems/BackroomsHunter.js';
@@ -619,32 +618,35 @@ function runBedroomHorrorEvent(id, sequence) {
 }
 
 /**
- * ONE creature for the whole game, parented to the world root rather than to
- * any level.
+ * ONE creature for the house, parented to the world root rather than to any
+ * level.
  *
  * It is the same person in every room -- that is the entire twist -- so giving
  * each level its own would be building the lie into the code. It lives here,
  * hidden, and a level's beats make it visible where they want it. Levels sit at
  * the world origin, so level coordinates and world coordinates are the same
  * numbers, which is what makes this safe.
+ *
+ * THE IMPORTED OKABE, bloodied, and the same model the backrooms and the
+ * player's own body use, so the game has one monster rather than two. It used
+ * to be the procedural capsule rig in Creature.js; that is gone.
+ *
+ * restCorrection 0 because every beat that shows it calls reset() and expects
+ * the monster -- the window glimpse, the hallway strike, the corner, the chase.
+ * The Level 3 reveal asks for the man explicitly, and the visor drives the dial
+ * between the two.
  */
-const creature = createCreature();
+const creature = createOkabeCreature({ restCorrection: 0 });
 creature.visible = false;
 worldRoot.add(creature.group);
 
 /**
- * A SECOND figure, for the backrooms only, built on the imported Okabe model.
+ * A SECOND instance of the same figure, for the backrooms only.
  *
- * WHY TWO CREATURES RATHER THAN ONE SWAPPED OUT. The procedural creature still
- * owns the two beats where the FACE and the correction dial have to be read up
- * close -- the Level 1 window glimpse and the Level 3 reveal -- and those are
- * tuned against its proportions. The backrooms figure is the opposite problem:
- * seen at 5-15 m through fog with setSilhouette on, where only outline and
- * timing survive, and that is exactly where a 20k-triangle character with a
- * rigged lab coat pays for itself.
- *
- * Both expose the same contract, so this is an assignment and not a port --
- * see OkabeCreature.js's header. Nothing above this line changes.
+ * Not the house creature reused, because the backrooms drives state the house
+ * beats would then have to undo: setSilhouette, the MAIN_ONLY layer that hides
+ * it from the minimap, and a partial correction. Two instances keep each one's
+ * state its own. They share the cached file, not a skeleton.
  */
 const okabe = createOkabeCreature();
 okabe.visible = false;
@@ -1433,8 +1435,8 @@ let backroomsFrom = null;
  * no collision code of its own needed. It simply retraces where the player
  * has already proven the floor is.
  *
- * CORRECTION IS DELIBERATELY PARTWAY, not the clean Annabelle reading and
- * not the full Hollow either -- see Creature.js's two proportion sets. A
+ * CORRECTION IS DELIBERATELY PARTWAY, not the man and not the full monster
+ * either -- see OkabeCreature.js's STRETCH table. A
  * partial blend gives a shape that reads as human (upright, ordinary limb
  * length) but subtly wrong up close, which is exactly "can only sort of make
  * it out" at the distance and light level this is ever seen at.
@@ -1651,15 +1653,26 @@ const AMBIENT_DARK = 0.13;
  * brightens the rain-glass shader itself via its uFlash uniform) left her
  * completely invisible -- the glass's own flash brightening dominates the
  * blend long before a dark, distant figure reads through it at that
- * intensity. A dedicated light fixes this without touching the room: it is
- * scoped to REVEAL_LAYER, which only the creature is ever put on, so it
- * illuminates her and nothing else -- the walls stay exactly as dark as
- * they already were.
+ * intensity. A dedicated light fixes this without touching the room.
+ *
+ * A NARROW SPOT JUST OUTSIDE THE GLASS, AIMED AWAY FROM THE ROOM. This used to
+ * be a DirectionalLight on a private layer, on the belief that a layer scopes
+ * a light to the objects that share it. three.js has no such thing: a light
+ * is culled against the CAMERA's layers (WebGLRenderer's light pass tests
+ * light.layers against camera.layers) and then lights every object. The camera
+ * never had that layer, so the light was dropped every frame and the figure
+ * was never lit at all. Measured after the Okabe swap: a barely-there smudge.
+ * A spot sitting between the wall and the figure, pointing outward, reaches
+ * the figure and the night behind it and nothing inside the room.
+ *
+ * Built ONCE and left in the scene at intensity 0. Adding a light at the
+ * moment of the scare changes the light count, which recompiles every lit
+ * material on screen -- a hitch on exactly the frame that must not have one.
  */
 let windowFlashArmed = false;
 let windowFlashUsed = false;
-const WINDOW_REVEAL_LAYER = 6;
-let windowRevealLight = null;
+const WINDOW_REVEAL_INTENSITY = 16;
+const windowRevealLight = new THREE.SpotLight(0xbcd4ff, 0, 4, 0.95, 0.7, 2);
 
 const bedroomStorm = new Storm({
   bulbLight: bedroom.refs.bulbLight,
@@ -1691,15 +1704,7 @@ const bedroomStorm = new Storm({
       creatureStanding = true;
       creature.visible = true;
 
-      // layers are NOT inherited by children in three.js -- every mesh in the
-      // rig needs the bit set directly, or a light scoped to this layer would
-      // illuminate nothing (the top-level group has no geometry of its own).
-      creature.group.traverse((o) => o.layers?.enable(WINDOW_REVEAL_LAYER));
-      windowRevealLight = new THREE.DirectionalLight(0xbcd4ff, 8);
-      windowRevealLight.layers.set(WINDOW_REVEAL_LAYER);
-      windowRevealLight.position.set(-2.1, 2.3, wz - 0.1);
-      windowRevealLight.target.position.set(-2.1, 1.6, wz - 0.9);
-      bedroom.group.add(windowRevealLight, windowRevealLight.target);
+      windowRevealLight.intensity = WINDOW_REVEAL_INTENSITY;
 
       const shownFor = bedroomStorm?.flashDuration || 0.2;
       script.run(async (s) => {
@@ -1719,11 +1724,13 @@ const bedroomStorm = new Storm({
 function hideWindowReveal() {
   creature.visible = false;
   creatureStanding = false;
-  if (windowRevealLight) {
-    bedroom.group.remove(windowRevealLight, windowRevealLight.target);
-    windowRevealLight = null;
-  }
-  creature.group.traverse((o) => o.layers?.disable(WINDOW_REVEAL_LAYER));
+  windowRevealLight.intensity = 0;
+}
+{
+  const wz = bedroom.refs.windowGroup.position.z;
+  windowRevealLight.position.set(-2.1, 1.9, wz - 0.15);
+  windowRevealLight.target.position.set(-2.1, 1.2, wz - 0.9);
+  bedroom.group.add(windowRevealLight, windowRevealLight.target);
 }
 
 const rain = new Rain({
@@ -1785,7 +1792,10 @@ const ON_ENTER = {
       s.do(() => {
         creature.reset();
         creature.setPosition(0, 5.0);
-        creature.setYaw(Math.PI);        // facing back down the hallway at you
+        // AT the player, worked out rather than written down. This was a
+        // hardcoded PI, which looks down +Z -- straight away from a player who
+        // stands at smaller z -- so the one-flash sighting showed its back.
+        creature.setYaw(Math.atan2(-(camera.position.x - 0), -(camera.position.z - 5.0)));
         creature.setSpeed(0);
         creature.visible = true;
         hallwayBasement.refs.strike(0.55);
@@ -2679,7 +2689,7 @@ async function warmUp() {
   // serves the second one from cache, then its own pile of programs.
   setLoadProgress(done / steps, 'something is already inside...');
   await nextFrame();
-  await Promise.all([okabe.ready, playerBody.ready]);
+  await Promise.all([okabe.ready, playerBody.ready, creature.ready]);
   await advance('something is already inside...');
   const creatureWasVisible = okabe.visible;
   const fogBefore = scene.fog;
@@ -2702,7 +2712,7 @@ async function warmUp() {
   okabe.setLayer(0);
   const unculled = [];
   okabe.group.traverse((o) => {
-    if (o.isMesh || o.isSkinnedMesh) { unculled.push(o); o.frustumCulled = false; }
+    if (o.isMesh || o.isSkinnedMesh) { unculled.push([o, o.frustumCulled]); o.frustumCulled = false; }
   });
   try {
     await renderer.compileAsync(okabe.group, camera, scene);
@@ -2717,7 +2727,7 @@ async function warmUp() {
   playerBody.setPosition(camera.position.x, camera.position.z);
   playerBody.update(1 / 60);
   playerBody.group.traverse((o) => {
-    if (o.isMesh || o.isSkinnedMesh) { unculled.push(o); o.frustumCulled = false; }
+    if (o.isMesh || o.isSkinnedMesh) { unculled.push([o, o.frustumCulled]); o.frustumCulled = false; }
   });
   try {
     await renderer.compileAsync(playerBody.group, camera, scene);
@@ -2727,7 +2737,29 @@ async function warmUp() {
   }
   playerBody.visible = bodyWasVisible;
 
-  for (const o of unculled) o.frustumCulled = true;
+  // And the house creature, at the monster reading every house beat shows,
+  // under the bedroom's fog -- fog is part of the program key, and the window
+  // glimpse there is the first frame it is ever drawn on.
+  const houseWasVisible = creature.visible;
+  scene.fog = LEVEL_FOG.bedroom ?? null;
+  creature.visible = true;
+  creature.setPosition(camera.position.x, camera.position.z - 4);
+  creature.update(1 / 60);
+  creature.group.traverse((o) => {
+    if (o.isMesh || o.isSkinnedMesh) { unculled.push([o, o.frustumCulled]); o.frustumCulled = false; }
+  });
+  try {
+    await renderer.compileAsync(creature.group, camera, scene);
+    postFX.render();
+  } catch (err) {
+    console.warn('warmUp: could not warm the house creature', err);
+  }
+  creature.visible = houseWasVisible;
+
+  // Put back what each mesh HAD, not true: OkabeCreature turns culling off on
+  // its skinned meshes on purpose (their bounding sphere freezes at the first
+  // pose), and blanket-restoring true here quietly undid that.
+  for (const [o, was] of unculled) o.frustumCulled = was;
   okabe.visible = creatureWasVisible;
   okabe.setSilhouette(false);
   if (maze) maze.group.visible = mazeWasVisible;

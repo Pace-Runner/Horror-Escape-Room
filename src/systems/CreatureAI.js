@@ -142,7 +142,7 @@ function dist2(ax, az, bx, bz) {
 }
 
 /**
- * @param creature   from createCreature()
+ * @param creature   from createOkabeCreature()
  * @param getPlayer  () => ({ x, z, yaw }) -- the player's position and facing
  * @param colliders  the active level's collider list
  * @param waypoints  [[x, z], ...] it walks between when it has nothing else to do

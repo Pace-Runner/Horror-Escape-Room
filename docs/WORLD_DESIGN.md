@@ -52,6 +52,11 @@ and CreatureAI.js's own header for why a kill would break the story.
 
 ### The creature is now a model, and why that is still one body
 
+> **Update:** the generated `creature.glb` and `Creature.js` have since been
+> replaced everywhere by the imported Okabe model (`src/systems/OkabeCreature.js`,
+> `okabe.glb`), which uses the same one-body/one-shape-key idea with a
+> `Monster` shape key. The history below is kept for the reasoning.
+
 `src/systems/Creature.js` used to build the figure out of capsules and boxes,
 and its header argued at length that it should never become a `.glb`: two
 models would have to be SWAPPED, and a swap is a cut -- the player would see

@@ -9,7 +9,7 @@ import { gameState } from './GameState.js';
  * change together and stay in step:
  *
  *   the image      world/VisorPass.js -- the blue correction, shadows lifting
- *   the creature   systems/Creature.js -- long arms become a woman's arms
+ *   the creature   systems/OkabeCreature.js -- the monster reading becomes the man
  *   the room       whatever the active level hides from a broken eye
  *   the state      gameState.visorWorn, which the third lock and the ending read
  *
