@@ -34,8 +34,16 @@ import { addBaseboard } from '../world/trim.js';
 const HALL_W = 2.4;
 const HALL_LEN = 5.5;
 const HALL_H = 2.7;
-const LAB_W = 8;
-const LAB_D = 6.5;
+/**
+ * How much bigger the lab is than the 8 x 6.5 m room it was laid out in. Every
+ * free-standing prop is placed at its original spot times this, so it keeps
+ * its place relative to the room as the room grows; anything hung on or pushed
+ * against a wall is written against that wall and follows it on its own. The
+ * ceiling stays where it was -- this is a basement, not a hall.
+ */
+const LAB_SCALE = 1.5;
+const LAB_W = 8 * LAB_SCALE;
+const LAB_D = 6.5 * LAB_SCALE;
 const LAB_H = 3.2;
 const LAB_Z = HALL_LEN + LAB_D / 2 + 0.2;
 
@@ -172,8 +180,19 @@ const FUSE_COVER_OPEN_SECONDS = 0.6;
  * was supposed to be on. Deriving the fuse from the prop means a prop can move
  * freely and take whatever is resting on it along.
  */
-const DESK_POSITION = { x: 1.6, z: LAB_D / 2 - 0.55 };
+const DESK_POSITION = { x: 1.6 * LAB_SCALE, z: LAB_D / 2 - 0.55 };
 const DESK_TOP_SIZE = { width: 1.2, depth: 0.6, thickness: 0.06, standHeight: 0.75 };
+const WORKBENCH_POSITION = { x: 0.4 * LAB_SCALE, z: -0.3 * LAB_SCALE };
+
+/** The breaker panel's place along the west wall. The load chart hangs beside it. */
+const BREAKER_PANEL_Z = 1.7 * LAB_SCALE;
+
+/**
+ * Where the creature stands after camera five, in lab space: the far corner
+ * on the opposite side from the desk, so turning round from the monitor puts
+ * it in frame, and just behind where its black pool is left.
+ */
+const CREATURE_CORNER = { x: -2.6 * LAB_SCALE, z: -1.25 * LAB_SCALE };
 
 /**
  * The crates. `stackY` is the height of the crate's underside, so 0 sits on
@@ -191,9 +210,9 @@ const DESK_TOP_SIZE = { width: 1.2, depth: 0.6, thickness: 0.06, standHeight: 0.
  */
 const CRATE_SIZE = 0.5;
 const CRATE_LAYOUT = [
-  { x: 0.9, z: 1.5, stackY: 0, turn: 0.34 },
-  { x: 0.9, z: 1.5, stackY: CRATE_SIZE, turn: 0 },   // carries the 45A fuse
-  { x: -1.6, z: 2.2, stackY: 0, turn: 0.8 }
+  { x: 0.9 * LAB_SCALE, z: 1.5 * LAB_SCALE, stackY: 0, turn: 0.34 },
+  { x: 0.9 * LAB_SCALE, z: 1.5 * LAB_SCALE, stackY: CRATE_SIZE, turn: 0 },   // carries the 45A fuse
+  { x: -1.6 * LAB_SCALE, z: 2.2 * LAB_SCALE, stackY: 0, turn: 0.8 }
 ];
 
 /**
@@ -382,9 +401,27 @@ export function createHallwayBasementLevel({
   lab.position.set(0, 0, LAB_Z);
   group.add(lab);
 
+  /**
+   * The concrete is drawn to tile a set number of times across a surface, which
+   * suited the room it was tuned in. Tiled up by the same factor the room grew
+   * along each side, so the blocks stay the size they were instead of
+   * stretching. The walls only grew along their length, not their height.
+   */
+  function tiledForLab(texture, scaleU, scaleV) {
+    const tiled = texture.clone();
+    tiled.repeat.set(texture.repeat.x * scaleU, texture.repeat.y * scaleV);
+    tiled.needsUpdate = true;
+    return tiled;
+  }
+
   const labFloor = new THREE.Mesh(
     new THREE.PlaneGeometry(LAB_W, LAB_D),
-    new THREE.MeshStandardMaterial({ map: concreteTex, bumpMap: concreteBump, bumpScale: 0.3, roughness: 1 })
+    new THREE.MeshStandardMaterial({
+      map: tiledForLab(concreteTex, LAB_SCALE, LAB_SCALE),
+      bumpMap: tiledForLab(concreteBump, LAB_SCALE, LAB_SCALE),
+      bumpScale: 0.3,
+      roughness: 1
+    })
   );
   labFloor.rotation.x = -Math.PI / 2;
   labFloor.receiveShadow = true;
@@ -396,7 +433,12 @@ export function createHallwayBasementLevel({
   labCeil.material = new THREE.MeshStandardMaterial({ color: 0x121110 });
   lab.add(labCeil);
 
-  const labWallMat = new THREE.MeshStandardMaterial({ map: concreteTex, bumpMap: concreteBump, bumpScale: 0.3, roughness: 1 });
+  const labWallMat = new THREE.MeshStandardMaterial({
+    map: tiledForLab(concreteTex, LAB_SCALE, 1),
+    bumpMap: tiledForLab(concreteBump, LAB_SCALE, 1),
+    bumpScale: 0.3,
+    roughness: 1
+  });
   function labWall(w, x, z, ry) {
     const wall = new THREE.Mesh(new THREE.PlaneGeometry(w, LAB_H), labWallMat);
     wall.position.set(x, LAB_H / 2, z);
@@ -499,9 +541,11 @@ export function createHallwayBasementLevel({
       color: 0xdfe8ff, emissive: 0x9fc0ff, emissiveIntensity: 0.06
     });
     const tube = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.06, 0.1), tubeMat);
-    tube.position.set(i * 2.4, LAB_H - 0.05, -1);
+    tube.position.set(i * 2.4 * LAB_SCALE, LAB_H - 0.05, -1 * LAB_SCALE);
     fixturesGroup.add(tube);
-    const tubeLight = new THREE.PointLight(0xaec4ff, 0, 9, 1.5);
+    // Reach grown with the room, so the light still falls off at the same
+    // point relative to the walls rather than leaving the corners black.
+    const tubeLight = new THREE.PointLight(0xaec4ff, 0, 9 * LAB_SCALE, 1.5);
     tubeLight.position.copy(tube.position);
     tubeLight.position.y -= 0.3;
     fixturesGroup.add(tubeLight);
@@ -588,9 +632,9 @@ export function createHallwayBasementLevel({
    */
   const generator = new THREE.Group();
   // Pushed into the corner beside the doorway rather than standing mid-wall.
-  // Its front edge stops at z = -2.5, which keeps it clear of the black pool's
-  // footprint (nearest edge about -2.46) and of the corner the creature is
-  // shown standing in after camera five.
+  // Its front edge stops 0.8 m off the entrance wall, which keeps it clear of
+  // the black pool's footprint and of the corner the creature is shown
+  // standing in after camera five.
   generator.position.set(-LAB_W / 2 + 0.55, 0, -LAB_D / 2 + 0.4);
   lab.add(generator);
   const generatorShake = new THREE.Group();
@@ -901,14 +945,15 @@ export function createHallwayBasementLevel({
   /**
    * Where each fuse lies, index-matched to `fuseData`, in `lab` space.
    *
-   * The 30A and 45A spots are computed from the desk and the crate instead of
-   * being written out, because those two are the ones that kept coming adrift
-   * when their prop moved. The other two sit on the workbench and the floor,
-   * neither of which has ever moved.
+   * Every spot is computed from the prop it lies on or beside instead of being
+   * written out, because fuses with hand-copied coordinates kept coming adrift
+   * whenever their prop moved -- and the room growing moves all of them.
    */
   const fuseRestingSpots = [
-    { x: 0.9, z: -0.55, surfaceY: WORKBENCH_TOP_Y },   // workbench top, clear of the four tool props
-    { x: 1.3, z: -0.3, surfaceY: LAB_FLOOR_Y },        // floor, just outside the workbench's collider
+    // workbench top, clear of the four tool props
+    { x: WORKBENCH_POSITION.x + 0.5, z: WORKBENCH_POSITION.z - 0.25, surfaceY: WORKBENCH_TOP_Y },
+    // floor, just outside the workbench's collider
+    { x: WORKBENCH_POSITION.x + 0.9, z: WORKBENCH_POSITION.z, surfaceY: LAB_FLOOR_Y },
     {
       // Desk top, on the right of the monitor and clear of both it and the
       // remote. The monitor body is 0.5 wide on the desk's centreline, so
@@ -1949,7 +1994,7 @@ export function createHallwayBasementLevel({
    * non-recursively and never reaches inside a loaded .glb.
    */
   const breakerPanelModel = new THREE.Group();
-  breakerPanelModel.position.set(-LAB_W / 2, 1.4, 1.7);
+  breakerPanelModel.position.set(-LAB_W / 2, 1.4, BREAKER_PANEL_Z);
   breakerPanelModel.rotation.y = Math.PI / 2;
   breakerPanelModel.updateMatrix();
   lab.add(breakerPanelModel);
@@ -2213,7 +2258,7 @@ export function createHallwayBasementLevel({
       roughness: 1
     })
   );
-  loadChart.position.set(-LAB_W / 2 + 0.06, 1.42, 2.25);
+  loadChart.position.set(-LAB_W / 2 + 0.06, 1.42, BREAKER_PANEL_Z + 0.55);
   loadChart.rotation.y = Math.PI / 2;
   loadChart.userData.interact = {
     label: 'Read the load chart',
@@ -2260,7 +2305,7 @@ export function createHallwayBasementLevel({
   const shelfMat = new THREE.MeshStandardMaterial({ color: 0x24261f, roughness: 0.8, metalness: 0.4 });
   for (let s = 0; s < 2; s++) {
     const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.2, 0.5), shelfMat);
-    shelf.position.set(LAB_W / 2 - 0.9, 1.1, -2 + s * 2.4);
+    shelf.position.set(LAB_W / 2 - 0.9, 1.1, (-2 + s * 2.4) * LAB_SCALE);
     lab.add(shelf);
     colliders.push({
       minX: shelf.position.x - 0.8, maxX: shelf.position.x + 0.8,
@@ -2993,7 +3038,7 @@ export function createHallwayBasementLevel({
   });
   const blackPool = new THREE.Mesh(new THREE.CircleGeometry(0.5, 24), poolMat);
   blackPool.rotation.x = -Math.PI / 2;
-  blackPool.position.set(-LAB_W / 2 + 1.5, 0.014, -LAB_D / 2 + 1.2);
+  blackPool.position.set(-2.5 * LAB_SCALE, 0.014, -2.05 * LAB_SCALE);
   blackPool.scale.set(0.85, 1.15, 1);
   blackPool.visible = false;
   blackPool.userData.interact = {
@@ -3011,7 +3056,7 @@ export function createHallwayBasementLevel({
   // height matches the workbench top, but x = -0.5 is west of the bench, which
   // starts at -0.3. Laid flat where a broken restraint would actually end up,
   // and turned within the floor plane so it does not read as placed.
-  restraint.position.set(-0.7, 0.02, 0.35);
+  restraint.position.set(-0.7 * LAB_SCALE, 0.02, 0.35 * LAB_SCALE);
   restraint.rotation.x = Math.PI / 2;
   restraint.rotation.y = 0.4;
   lab.add(restraint);
@@ -3021,14 +3066,14 @@ export function createHallwayBasementLevel({
   }
 
   // ---------- central detail ----------
-  // The lab is an 8x6.5m room with most of its dressing pushed against
+  // The lab is a 12x9.75m room with most of its dressing pushed against
   // the side walls (generator/fuse box on one side, shelves on the
   // other) -- a player walking straight in from the hallway down the
   // centre saw nothing but bare floor and ceiling. A workbench and crates
   // along that direct sightline fill the middle of the room instead of
   // leaving it as dead space between the two side walls.
   const workbench = new THREE.Group();
-  workbench.position.set(0.4, 0, -0.3);
+  workbench.position.set(WORKBENCH_POSITION.x, 0, WORKBENCH_POSITION.z);
   lab.add(workbench);
   const benchTop = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.05, 0.8), frameWoodMat());
   benchTop.position.y = 0.82;
@@ -3122,7 +3167,7 @@ export function createHallwayBasementLevel({
   );
   sketch.rotation.x = -Math.PI / 2;
   sketch.rotation.z = -0.32;
-  sketch.position.set(-1.35, 0.013, 0.85);
+  sketch.position.set(-1.35 * LAB_SCALE, 0.013, 0.85 * LAB_SCALE);
   sketch.userData.interact = {
     label: 'Pick up the sketch',
     onInteract: () => onExamineSketch()
@@ -3282,6 +3327,8 @@ export function createHallwayBasementLevel({
       feedButtons,
       hallLightning,
       blackPool,
+      /** Where the creature stands after camera five, as world [x, z]. */
+      creatureCorner: [CREATURE_CORNER.x, LAB_Z + CREATURE_CORNER.z],
       /** One lightning strike down the hallway. Returns how long it lasts. */
       strike: (duration = 0.55) => {
         flash.duration = duration;

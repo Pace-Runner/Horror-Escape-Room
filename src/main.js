@@ -1084,11 +1084,6 @@ function setGlare(amount) {
  */
 const cctvSeen = new Set();
 
-/**
- * Where it stands after camera five. The far corner of the lab, on the opposite
- * side from the desk, so turning round from the monitor puts it in frame.
- */
-const CORNER = [-2.6, 7.7];
 /** True while it is standing there, so the frame loop keeps it breathing. */
 let creatureStanding = false;
 
@@ -1204,6 +1199,9 @@ const hallwayBasement = createHallwayBasementLevel({
          */
         if (!await s.wait(0.7)) return;
         s.do(() => {
+          // Where it stands after camera five -- the level owns the spot, so it
+          // moves with the lab if the room is ever resized again.
+          const CORNER = hallwayBasement.refs.creatureCorner;
           creature.reset();
           creature.setPosition(CORNER[0], CORNER[1]);
           creature.setYaw(Math.atan2(-(camera.position.x - CORNER[0]), -(camera.position.z - CORNER[1])));
