@@ -11,6 +11,7 @@ import { addBaseboard, makeHandle } from '../world/trim.js';
 import { DOOR_PANEL_ROWS, getPanelSpans } from '../world/doorPanels.js';
 import { gameState } from '../core/GameState.js';
 import { createHiddenWritingTexture, createFootmarkTexture } from '../world/textures.js';
+import { line } from '../dialogue/index.js';
 
 /**
  * The combination on lock 2. Written on the note in the desk drawer, so it is
@@ -232,7 +233,7 @@ export function createStudyLevel({
     label: 'Open the desk drawer',
     onInteract: () => {
       if (puzzle.drawerOpen) {
-        showCaption('Empty now, apart from paperclips and a dried-out pen.');
+        showCaption(line('dialog_drawer_empty'));
         return;
       }
       puzzle.drawerOpen = true;
@@ -241,7 +242,7 @@ export function createStudyLevel({
       drawerNote.visible = true;
       drawerHitbox.userData.interact.label = 'Search the drawer';
       interactables.push(drawerNoteHitbox);
-      showCaption('The drawer sticks, then gives. A door key, and a note folded in half.');
+      showCaption(line('dialog_drawer_opened'));
       onTakeDoorKey();
     }
   };
@@ -337,9 +338,9 @@ export function createStudyLevel({
   portrait.userData.interact = {
     label: 'Examine family portrait',
     onInteract: () => {
-      showCaption(portraitMat.map === portraitTexTrue
-        ? 'The same photograph from the bedroom. Four people now. The fourth has been scratched out with marker.'
-        : 'The same family photo from the bedroom. Three people, and the same gap on the end.');
+      showCaption(line(portraitMat.map === portraitTexTrue
+        ? 'dialog_portrait_with_visor'
+        : 'dialog_portrait_without_visor'));
     }
   };
   interactables.push(portrait);
@@ -615,10 +616,10 @@ export function createStudyLevel({
       label: 'Deadbolt',
       try: () => {
         if (!puzzle.hasDoorKey) {
-          showCaption('A keyed deadbolt. There is no key in it.');
+          showCaption(line('dialog_deadbolt_no_key'));
           return false;
         }
-        showCaption('The key turns. The deadbolt comes back with a clack.');
+        showCaption(line('dialog_deadbolt_opened'));
         return true;
       }
     },
@@ -633,7 +634,7 @@ export function createStudyLevel({
           length: FRONT_DOOR_CODE.length,
           code: FRONT_DOOR_CODE,
           onSolved: () => {
-            showCaption('Four digits, and the shackle springs.');
+            showCaption(line('dialog_combination_opened'));
             openLock('combination');
           }
         });
@@ -654,14 +655,14 @@ export function createStudyLevel({
          * cannot be opened until the visor is worn.
          */
         if (!gameState.visorWorn) {
-          showCaption(
+          showCaption(line(
             gameState.hasVisor
-              ? 'You cannot find the keyway. You know it is there. Put the visor on.'
-              : 'Your hand goes to the lock and finds nothing to put it in. There is no keyhole on this one.'
-          );
+              ? 'dialog_third_lock_visor_off'
+              : 'dialog_third_lock_no_visor'
+          ));
           return false;
         }
-        showCaption('Through the lenses there is a keyway, exactly where your hand kept going. It turns.');
+        showCaption(line('dialog_third_lock_opened'));
         return true;
       }
     }
@@ -695,7 +696,7 @@ export function createStudyLevel({
       },
       onInteract: () => {
         if (gameState.locksOpen.has(id)) {
-          showCaption('Already open.');
+          showCaption(line('dialog_lock_already_open'));
           return;
         }
         if (attempt()) openLock(id);
@@ -722,15 +723,15 @@ export function createStudyLevel({
       const left = LOCK_IDS.filter((k) => !gameState.locksOpen.has(k)).length;
       if (left > 0) {
         showCaption(left === 1
-          ? 'One lock still holds it.'
-          : `${left} of the three locks still hold it.`);
+          ? line('dialog_front_door_one_lock_left')
+          : line('dialog_front_door_locks_left', { count: left }));
         return;
       }
       if (!doorState.open) {
         doorState.open = true;
         // The doorway becomes walkable at the same moment it becomes open.
         setDoorSolid(false);
-        showCaption('Every bolt is back. The door comes off its frame and swings in.');
+        showCaption(line('dialog_front_door_opens'));
         return;
       }
       onExit();
@@ -899,14 +900,14 @@ export function createStudyLevel({
     onInteract: () => {
       if (puzzle.gateOpen) { onExit(); return; }
       if (!puzzle.hasGateKey) {
-        showCaption(gameState.visorWorn
-          ? 'Padlocked. The key is not on this side of it.'
-          : 'A padlocked gate across the porch. The key is not in it, and not on the ground.');
+        showCaption(line(gameState.visorWorn
+          ? 'dialog_fence_gate_locked_visor'
+          : 'dialog_fence_gate_locked'));
         return;
       }
       puzzle.gateOpen = true;
       setGateSolid(false);
-      showCaption('The padlock opens. The gate swings out into the rain.');
+      showCaption(line('dialog_fence_gate_opens'));
       offerTheChoice();
     }
   };

@@ -35,6 +35,7 @@ import { createCctvFeeds, FEED_IDS, FEED_LABELS } from '../world/CctvFeeds.js';
 import { SECURITY_CODE } from '../world/doorPanels.js';
 import { createCreatureSketchTexture } from '../world/textures.js';
 import { addBaseboard } from '../world/trim.js';
+import { line } from '../dialogue/index.js';
 
 const HALL_W = 2.4;
 const HALL_LEN = 5.5;
@@ -1147,9 +1148,9 @@ export function createHallwayBasementLevel({
 
     if (quiet) return;
     if (open && !fuseCover.everOpened) {
-      showCaption('The cover sticks, then swings out on stiff hinges. Three fuses, and one pair of empty clips.');
+      showCaption(line('dialog_fuse_cover_first_open'));
     } else {
-      showCaption(open ? 'You swing the cover open.' : 'You swing the cover shut.');
+      showCaption(line(open ? 'dialog_fuse_cover_open' : 'dialog_fuse_cover_shut'));
     }
     if (open) fuseCover.everOpened = true;
   }
@@ -1234,7 +1235,7 @@ export function createHallwayBasementLevel({
        * the caption is worded to head that off before they try.
        */
       if (puzzleState.slotFuse === CORRECT_FUSE_AMPS) {
-        showCaption('The 30A fuse is seated and holding. Whatever went wrong, it is further down the line.');
+        showCaption(line('dialog_fuse_already_seated'));
         return;
       }
 
@@ -1246,7 +1247,7 @@ export function createHallwayBasementLevel({
         sparkTimer = 0;
         sparkLight.intensity = 0;
         fuseBox.userData.interact.label = 'Empty fuse slot';
-        showCaption(`You pull the ${removed} fuse back out. The lab settles back to normal.`);
+        showCaption(line('dialog_fuse_pulled_out', { amps: removed }));
 
         const dropped = fuseMeshes[removed];
         const slot = droppedFuseSlots[Math.min(droppedFuseCount, droppedFuseSlots.length - 1)];
@@ -1259,11 +1260,11 @@ export function createHallwayBasementLevel({
         dropped.userData.interact = {
           label: reason === 'blown' ? 'Blown fuse' : 'Fuse (rating too high)',
           onInteract: () => {
-            showCaption(
+            showCaption(line(
               reason === 'blown'
-                ? 'This fuse is blown.'
-                : "This fuse's rating is too high. Try another one."
-            );
+                ? 'dialog_dropped_fuse_blown'
+                : 'dialog_dropped_fuse_overrated'
+            ));
           }
         };
         if (!interactables.includes(dropped)) interactables.push(dropped);
@@ -1272,7 +1273,7 @@ export function createHallwayBasementLevel({
 
       // Slot is empty -- try installing whatever's in hand
       if (!puzzleState.heldFuse) {
-        showCaption('An empty slot. It needs a fuse -- the right one.');
+        showCaption(line('dialog_fuse_slot_empty'));
         return;
       }
 
@@ -1290,7 +1291,7 @@ export function createHallwayBasementLevel({
       if (installed === CORRECT_FUSE_AMPS) {
         powerStage = POWER_STAGE.LIT;
         puzzleState.slotFuse = CORRECT_FUSE_AMPS;
-        showCaption('The fuse clicks in. The lights come up the length of the room.');
+        showCaption(line('dialog_fuse_clicks_in'));
         fuseBox.userData.interact.label = 'Fuse seated (30A)';
         // NOT 'Open the door'. The fuse feeds this section of the lab only --
         // the bolts are on a circuit that has not been fed yet, and the whole
@@ -1312,7 +1313,7 @@ export function createHallwayBasementLevel({
       } else if (amps < 30) {
         puzzleState.slotFuse = installed;
         fuseFailReason[installed] = 'blown';
-        showCaption(`The ${installed} fuse can't take the load -- it flares and burns out.`);
+        showCaption(line('dialog_fuse_burns_out', { amps: installed }));
         // Only a fuse too weak for the line burns. The 45A whites the lab out
         // but comes back out clean -- nothing in it gave way.
         setFuseScorched(seatedFuse, true);
@@ -1323,7 +1324,7 @@ export function createHallwayBasementLevel({
       } else {
         puzzleState.slotFuse = installed;
         fuseFailReason[installed] = 'overrated';
-        showCaption(`The ${installed} fuse's rating is too high -- every light in the lab surges into a blinding white glare.`);
+        showCaption(line('dialog_fuse_rating_too_high', { amps: installed }));
         puzzleState.overloaded = true;
         fuseBox.userData.interact.label = 'Remove fuse';
       }
@@ -1340,11 +1341,11 @@ export function createHallwayBasementLevel({
       label: `Pick up fuse (${data.amps})`,
       onInteract: () => {
         if (puzzleState.heldFuse) {
-          showCaption("You're already holding a fuse. Install or remove it at the fuse box first.");
+          showCaption(line('dialog_fuse_already_holding'));
           return;
         }
         puzzleState.heldFuse = data.amps;
-        showCaption(`You take the ${data.amps} fuse.`);
+        showCaption(line('dialog_fuse_taken', { amps: data.amps }));
         fuse.visible = false;
         const idx = interactables.indexOf(fuse);
         if (idx !== -1) interactables.splice(idx, 1);
@@ -1383,7 +1384,7 @@ export function createHallwayBasementLevel({
   maintenanceNote.rotation.y = Math.PI / 2;
   maintenanceNote.userData.interact = {
     label: 'Read maintenance log',
-    onInteract: () => showCaption('"REPLACE BLOWN FUSE. CORRECT RATING ONLY -- anything else will blow, or burn the line."')
+    onInteract: () => showCaption(line('dialog_maintenance_log'))
   };
   interactables.push(maintenanceNote);
   lab.add(maintenanceNote);
@@ -1448,7 +1449,8 @@ export function createHallwayBasementLevel({
    */
   const GENERATOR_RESTART_SEQUENCE = ['valve', 'primer', 'starter'];
   /**
-   * Each control's prompt, and what pressing it in the right order says.
+   * Each control's prompt, and the dialogue key for what pressing it in the
+   * right order says (the text is in src/dialogue/level2_basement.js).
    *
    * The caption is PER CONTROL rather than one template with the label
    * substituted in. It used to read "<label>. It is waiting for the next one."
@@ -1464,11 +1466,11 @@ export function createHallwayBasementLevel({
   const GENERATOR_CONTROLS = {
     valve: {
       label: 'Fuel valve',
-      caption: 'The valve turns without a sound. Is it the last quiet thing you do down here?'
+      caption: 'dialog_generator_valve'
     },
     primer: {
       label: 'Primer pump',
-      caption: 'The stroke of the primer bangs through the pipes.'
+      caption: 'dialog_generator_primer'
     },
     starter: {
       label: 'Starter',
@@ -1517,7 +1519,7 @@ export function createHallwayBasementLevel({
   function startGenerator() {
     powerStage = POWER_STAGE.RUNNING;
     metalDoor.userData.interact.label = DOOR_LABELS[POWER_STAGE.RUNNING];
-    showCaption('The engine catches and the noise of it fills everything. Then the breaker panel hums.');
+    showCaption(line('dialog_generator_catches'));
     onGeneratorRunning();
   }
 
@@ -1533,11 +1535,11 @@ export function createHallwayBasementLevel({
    */
   function pressGeneratorControl(controlId) {
     if (powerStage !== POWER_STAGE.BLACKOUT) {
-      showCaption(
+      showCaption(line(
         powerStage === POWER_STAGE.RUNNING || powerStage === POWER_STAGE.ROUTED
-          ? 'The generator is running. Leave it alone.'
-          : 'The generator is turning over on its own. Nothing here needs restarting.'
-      );
+          ? 'dialog_generator_leave_it_alone'
+          : 'dialog_generator_turning_over'
+      ));
       return;
     }
 
@@ -1549,7 +1551,7 @@ export function createHallwayBasementLevel({
       starterPulls = 0;
       updateGeneratorControlLights();
       onSpark();
-      showCaption('It coughs, floods and dies. Wrong order -- and the noise carried anyway.');
+      showCaption(line('dialog_generator_wrong_order'));
       return;
     }
 
@@ -1559,9 +1561,9 @@ export function createHallwayBasementLevel({
       starterPulls += 1;
       if (starterPulls < STARTER_PULLS_TO_CATCH) {
         generatorSputterSeconds = 0.4 + starterPulls * 0.5;
-        showCaption(starterPulls === 1
-          ? 'The cord rips out and snaps back. The engine coughs once, and dies.'
-          : 'It catches -- roars for one second -- and dies. The sound goes up through the whole house.');
+        showCaption(line(starterPulls === 1
+          ? 'dialog_starter_first_pull'
+          : 'dialog_starter_later_pull'));
         return;
       }
     }
@@ -1570,7 +1572,7 @@ export function createHallwayBasementLevel({
     updateGeneratorControlLights();
 
     if (generatorStepsCompleted < GENERATOR_RESTART_SEQUENCE.length) {
-      showCaption(GENERATOR_CONTROLS[controlId].caption);
+      showCaption(line(GENERATOR_CONTROLS[controlId].caption));
       return;
     }
     startGenerator();
@@ -1717,7 +1719,7 @@ export function createHallwayBasementLevel({
   restartPlate.rotation.y = Math.PI / 2;
   restartPlate.userData.interact = {
     label: 'Read the restart plate',
-    onInteract: () => showCaption('"RESTART ORDER: 1. FUEL VALVE. 2. PRIME. 3. STARTER."')
+    onInteract: () => showCaption(line('dialog_restart_plate'))
   };
   interactables.push(restartPlate);
   generatorShake.add(restartPlate);
@@ -1890,7 +1892,7 @@ export function createHallwayBasementLevel({
     breakerTripTimeRemainingInSeconds = BREAKER_TRIP_GLARE_IN_SECONDS;
     onSpark();
     onOverload();
-    showCaption(`Over ${PANEL_CAPACITY_IN_AMPS}A. The panel blows white and drops every breaker it has.`);
+    showCaption(line('dialog_breaker_panel_trips', { capacity: PANEL_CAPACITY_IN_AMPS }));
   }
 
   /**
@@ -1907,7 +1909,7 @@ export function createHallwayBasementLevel({
     setMainLever(true);
     syncFeedRoomPower();
 
-    showCaption('The panel takes the load. Light comes back the length of the room, and bolts move in the far wall.');
+    showCaption(line('dialog_breaker_panel_takes_load'));
     onPowerRouted();
   }
 
@@ -1951,22 +1953,22 @@ export function createHallwayBasementLevel({
       return;
     }
     if (powerStage === POWER_STAGE.ROUTED) {
-      showCaption('Everything that needs feeding is fed. Leave it.');
+      showCaption(line('dialog_breakers_all_fed'));
       return;
     }
     if (powerStage === POWER_STAGE.DEAD || powerStage === POWER_STAGE.LIT) {
-      showCaption('Every breaker is already up. Whatever is wrong down here, it is not this panel.');
+      showCaption(line('dialog_breakers_already_up'));
       return;
     }
     if (powerStage !== POWER_STAGE.RUNNING) {
-      showCaption('Dead switches. There is no current reaching this panel.');
+      showCaption(line('dialog_breakers_dead'));
       return;
     }
     // Locked out for as long as the trip glare lasts, so a player mashing the
     // key through the whiteout cannot queue up flicks they cannot see. It
     // still SAYS so -- swallowing the input silently reads as a broken switch.
     if (breakerTripTimeRemainingInSeconds > 0) {
-      showCaption('The panel has not reset yet.');
+      showCaption(line('dialog_breaker_panel_not_reset'));
       return;
     }
 
@@ -1975,11 +1977,10 @@ export function createHallwayBasementLevel({
 
     const drawnInAmps = getTotalBreakerLoadInAmps();
     const remainingInAmps = PANEL_CAPACITY_IN_AMPS - drawnInAmps;
-    showCaption(
-      remainingInAmps < 0
-        ? `${drawnInAmps}A set against a ${PANEL_CAPACITY_IN_AMPS}A panel. That will not hold.`
-        : `${drawnInAmps}A set. ${remainingInAmps}A spare.`
-    );
+    showCaption(line(
+      remainingInAmps < 0 ? 'dialog_breaker_load_over' : 'dialog_breaker_load_spare',
+      { drawn: drawnInAmps, capacity: PANEL_CAPACITY_IN_AMPS, spare: remainingInAmps }
+    ));
   }
 
   /**
@@ -1992,19 +1993,19 @@ export function createHallwayBasementLevel({
    */
   function throwMainSwitch() {
     if (powerStage === POWER_STAGE.ROUTED) {
-      showCaption('Already up. The panel is carrying everything it is going to.');
+      showCaption(line('dialog_main_lever_already_routed'));
       return;
     }
     if (powerStage === POWER_STAGE.DEAD || powerStage === POWER_STAGE.LIT) {
-      showCaption('The main lever is already up. Whatever is wrong down here, it is not this panel.');
+      showCaption(line('dialog_main_lever_already_up'));
       return;
     }
     if (powerStage !== POWER_STAGE.RUNNING) {
-      showCaption('The main will not move. Nothing is reaching this panel.');
+      showCaption(line('dialog_main_lever_dead'));
       return;
     }
     if (breakerTripTimeRemainingInSeconds > 0) {
-      showCaption('The panel has not reset yet.');
+      showCaption(line('dialog_breaker_panel_not_reset'));
       return;
     }
 
@@ -2022,7 +2023,7 @@ export function createHallwayBasementLevel({
       // goes up and will not stay: it falls back on its own a moment later.
       setMainLever(true);
       mainLever.springBackInSeconds = 0.45;
-      showCaption(`The lever goes up and drops straight back. ${missing.join(' and ')} still off.`);
+      showCaption(line('dialog_main_lever_drops_back', { missing: missing.join(' and ') }));
       return;
     }
     routePower();
@@ -2102,13 +2103,13 @@ export function createHallwayBasementLevel({
     label: 'Breaker panel',
     onInteract: () => {
       if (powerStage === POWER_STAGE.ROUTED) {
-        showCaption('The panel hums under its load. Leave it.');
+        showCaption(line('dialog_breaker_panel_hums'));
       } else if (powerStage === POWER_STAGE.RUNNING) {
-        showCaption(`Five labelled breakers under a cover, and the main lever on the side. The panel is rated ${PANEL_CAPACITY_IN_AMPS}A.`);
+        showCaption(line('dialog_breaker_panel_examine', { capacity: PANEL_CAPACITY_IN_AMPS }));
       } else if (powerStage === POWER_STAGE.BLACKOUT) {
-        showCaption('Every breaker has been knocked down, and the main lever with them. Someone was here.');
+        showCaption(line('dialog_breaker_panel_knocked_down'));
       } else {
-        showCaption('Five breakers in a row, every one of them up, and a main lever on the side, up too.');
+        showCaption(line('dialog_breaker_panel_all_up'));
       }
     }
   };
@@ -2158,7 +2159,7 @@ export function createHallwayBasementLevel({
       setSwingCollider(breakerCoverCollider, null);
     }
     if (!quiet) {
-      showCaption(open ? 'The smoked cover lifts on a stiff hinge and stays up.' : 'You lower the cover over the breakers.');
+      showCaption(line(open ? 'dialog_breaker_cover_lift' : 'dialog_breaker_cover_lower'));
     }
   }
 
@@ -2308,10 +2309,10 @@ export function createHallwayBasementLevel({
   loadChart.rotation.y = Math.PI / 2;
   loadChart.userData.interact = {
     label: 'Read the load chart',
-    onInteract: () => showCaption(
-      `"MAX ${PANEL_CAPACITY_IN_AMPS}A TOTAL. ` +
-      `${BREAKER_CIRCUITS.map((c) => `${c.label} ${c.loadInAmps}A`).join('. ')}. DO NOT EXCEED."`
-    )
+    onInteract: () => showCaption(line('dialog_load_chart', {
+      capacity: PANEL_CAPACITY_IN_AMPS,
+      circuits: BREAKER_CIRCUITS.map((c) => `${c.label} ${c.loadInAmps}A`).join('. ')
+    }))
   };
   interactables.push(loadChart);
   lab.add(loadChart);
@@ -2576,17 +2577,17 @@ export function createHallwayBasementLevel({
     label: 'Switch the monitor on',
     onInteract: () => {
       if (!isCctvPowered()) {
-        showCaption(
+        showCaption(line(
           powerStage === POWER_STAGE.DEAD
-            ? 'You press the power button. Nothing. There is no power down here.'
-            : 'You press the power button. Nothing. The power has gone again.'
-        );
+            ? 'dialog_monitor_button_no_power'
+            : 'dialog_monitor_button_power_gone'
+        ));
         return;
       }
       monitorSwitchedOn = !monitorSwitchedOn;
       syncMonitor();
       if (monitorSwitchedOn) {
-        showCaption('The button clicks in and glows green. The tube whines, and a line of light opens into a picture.');
+        showCaption(line('dialog_monitor_switched_on'));
       }
     }
   };
@@ -2617,20 +2618,20 @@ export function createHallwayBasementLevel({
         // Two different kinds of dead screen, and the player has earned the
         // difference: before the fuse it never worked, after the blackout it
         // was working a moment ago and something took it away.
-        showCaption(
+        showCaption(line(
           powerStage === POWER_STAGE.DEAD
-            ? 'An old CRT, dead. Nothing on this desk has power.'
-            : 'The screen is dark. It was showing you the house a minute ago.'
-        );
+            ? 'dialog_monitor_dead'
+            : 'dialog_monitor_dark_again'
+        ));
         return;
       }
       if (!monitorSwitchedOn) {
-        showCaption('The monitor is off. The power button is on the front, under the screen.');
+        showCaption(line('dialog_monitor_off'));
         return;
       }
       // Said "No power" even after the breaker was flipped, which told the
       // player their one objective had not worked.
-      showCaption('Five feeds, live now. The kitchen. A hallway. The porch. A study. And this room.');
+      showCaption(line('dialog_monitor_feeds_live'));
     }
   };
   interactables.push(monitorBody);
@@ -2663,11 +2664,11 @@ export function createHallwayBasementLevel({
       label: FEED_LABELS[id],
       onInteract: () => {
         if (!isCctvPowered()) {
-          showCaption('The remote is dead. Nothing on this desk has power.');
+          showCaption(line('dialog_remote_dead'));
           return;
         }
         if (!monitorSwitchedOn) {
-          showCaption('The remote clicks, but the monitor is switched off.');
+          showCaption(line('dialog_remote_monitor_off'));
           return;
         }
         feeds.setActive(id);
@@ -2813,7 +2814,7 @@ export function createHallwayBasementLevel({
   sticky.rotation.z = 0.09;
   sticky.userData.interact = {
     label: 'Read sticky note',
-    onInteract: () => showCaption("Restore power and pray it doesn't hear you.")
+    onInteract: () => showCaption(line('dialog_sticky_note_examine'))
   };
   interactables.push(sticky);
   monitor.add(sticky);
@@ -2871,12 +2872,12 @@ export function createHallwayBasementLevel({
         return;
       }
       if (!isDoorPowered()) {
-        showCaption('Heavy bolts, seated deep in the frame. Nothing is feeding them.');
+        showCaption(line('dialog_door_bolts_unpowered'));
         return;
       }
 
       if (securityCleared) {
-        showCaption('The door unlocks with a heavy clunk. You head deeper into the house.');
+        showCaption(line('dialog_metal_door_opens'));
         onExit();
         return;
       }
@@ -2898,7 +2899,7 @@ export function createHallwayBasementLevel({
         onSolved: () => {
           securityCleared = true;
           metalDoor.userData.interact.label = 'Open the door';
-          showCaption('The lockout releases. Bolts run back into the frame.');
+          showCaption(line('dialog_security_lockout_released'));
         }
       });
     }
@@ -2986,7 +2987,7 @@ export function createHallwayBasementLevel({
   doorNote.userData.interact = {
     label: 'Read the note on the door',
     onInteract: () => {
-      showCaption('"SECURITY LOCKOUT. I will forget this. The study door will not. In what it wears, top row down, lies your way out."');
+      showCaption(line('dialog_door_note'));
       /**
        * Read once, then it stops being a target.
        *
@@ -3096,7 +3097,7 @@ export function createHallwayBasementLevel({
     // Terse and sensory on purpose. The BEATS.blackout script that onBlackout
     // fires is what tells the player it was a hand on a lever, not a fault --
     // they feel it here and understand it a second later.
-    showCaption('The room goes out. All of it, in one snap.');
+    showCaption(line('dialog_room_goes_out'));
     onBlackout();
   }
 
@@ -3125,7 +3126,7 @@ export function createHallwayBasementLevel({
   blackPool.visible = false;
   blackPool.userData.interact = {
     label: 'Examine the pool',
-    onInteract: () => showCaption('Whatever it is, it is not water, and it is still wet.')
+    onInteract: () => showCaption(line('dialog_black_pool_examine'))
   };
   lab.add(blackPool);
 
@@ -3274,7 +3275,7 @@ export function createHallwayBasementLevel({
   tornNotes.position.set(-0.2, 0.848, 0.15);
   tornNotes.userData.interact = {
     label: 'Read the torn notes',
-    onInteract: () => showCaption('"SUBJECT UNSTABLE. CONTAINMENT REQUIRED. MEMORY DETERIORATION OBSERVED. VISUAL DISTORTION INCREASING."')
+    onInteract: () => showCaption(line('dialog_torn_notes'))
   };
   interactables.push(tornNotes);
   workbench.add(tornNotes);
@@ -3320,10 +3321,7 @@ export function createHallwayBasementLevel({
   operatingTableHit.position.set(OPERATING_TABLE.x, OPERATING_TABLE.padTop - 0.03, OPERATING_TABLE.z);
   operatingTableHit.userData.interact = {
     label: 'Examine the table',
-    onInteract: () => showCaption(
-      'Straps at the wrists, the chest, the ankles. The ankle cuffs have been unbuckled, and so has the far wrist. ' +
-      'This wrist was not. Its strap is torn straight through.'
-    )
+    onInteract: () => showCaption(line('dialog_operating_table'))
   };
   interactables.push(operatingTableHit);
   lab.add(operatingTableHit);
@@ -3398,16 +3396,16 @@ export function createHallwayBasementLevel({
       lampHit.userData.interact.label = lampSwitchedOn ? 'Switch off the operating lamp' : 'Switch on the operating lamp';
       if (!lampSwitchedOn) return;
       if (!isLabLightingOn()) {
-        showCaption(
+        showCaption(line(
           powerStage === POWER_STAGE.DEAD
-            ? 'The switch in the handle clicks over. Nothing. There is no power down here.'
-            : 'The switch clicks over. Nothing. The lamp is as dead as the rest of the lights.'
-        );
+            ? 'dialog_surgical_lamp_no_power'
+            : 'dialog_surgical_lamp_dead'
+        ));
         return;
       }
       if (!lampHasBeenLit) {
         lampHasBeenLit = true;
-        showCaption('The lamp stutters, then floods the table white. Every strap on it throws a shadow.');
+        showCaption(line('dialog_surgical_lamp_lit'));
       }
     }
   };
@@ -3467,7 +3465,7 @@ export function createHallwayBasementLevel({
   trolleyHit.position.set(0, INSTRUMENT_TROLLEY.top + 0.03, 0);
   trolleyHit.userData.interact = {
     label: 'Examine the instruments',
-    onInteract: () => showCaption('Scalpels, forceps, a bone saw, laid out ready. The gauze has been used.')
+    onInteract: () => showCaption(line('dialog_instrument_trolley'))
   };
   // The hit box is the trolley's own child so it turns with it -- it is
   // still raycast directly, since it is listed in interactables itself.
@@ -3731,11 +3729,11 @@ export function createHallwayBasementLevel({
           label: `Pick up fuse (${data.amps})`,
           onInteract: () => {
             if (puzzleState.heldFuse) {
-              showCaption("You're already holding a fuse. Install or remove it at the fuse box first.");
+              showCaption(line('dialog_fuse_already_holding'));
               return;
             }
             puzzleState.heldFuse = data.amps;
-            showCaption(`You take the ${data.amps} fuse.`);
+            showCaption(line('dialog_fuse_taken', { amps: data.amps }));
             fuse.visible = false;
             const idx = interactables.indexOf(fuse);
             if (idx !== -1) interactables.splice(idx, 1);

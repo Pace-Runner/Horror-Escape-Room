@@ -102,10 +102,26 @@ export class CaptionSequencer {
    * One incidental line. Returns false if a story sequence is running, so the
    * caller can tell it was dropped (nothing needs to today, but a level that
    * wants to re-offer the line later can).
+   *
+   * Takes a plain string, a { text, voice, duration } line, or the array that
+   * dialogue/index.js line() returns. A line object is what lets an examine
+   * caption carry a voice clip -- onLineStart fires for it like any other. An
+   * array of several lines plays them in order, but only if nothing else owns
+   * the box: incidental text still never cuts into a story beat.
    */
   say(text, duration) {
     if (this._sequence) return false;
-    this._start(toLine({ text, duration }), false);
+    if (Array.isArray(text)) {
+      if (!text.length) return false;
+      if (text.length > 1) {
+        this.play(text);
+        return true;
+      }
+      text = text[0];
+    }
+    const line = typeof text === 'string' ? { text } : { ...text };
+    if (duration != null) line.duration = duration;
+    this._start(toLine(line), false);
     return true;
   }
 

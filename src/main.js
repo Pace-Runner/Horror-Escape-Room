@@ -27,7 +27,8 @@ import { createOkabeCreature } from './systems/OkabeCreature.js';
 import { createCreatureAI } from './systems/CreatureAI.js';
 import { createBackroomsHunter } from './systems/BackroomsHunter.js';
 import { createVisor } from './core/Visor.js';
-import { BEATS, DOCUMENTS, ENDINGS } from './story/lines.js';
+import { DOCUMENTS } from './story/lines.js';
+import { line } from './dialogue/index.js';
 import { Hands } from './systems/hands/hands.js';
 import { HELD_MAGNIFICATION } from './systems/hands/sockets.js';
 import { setHandAssetUrl } from './systems/hands/hand-mesh.js';
@@ -803,7 +804,7 @@ const creatureAI = createCreatureAI({
           player.lookEnabled = false;
           interaction.setEnabled(false);
         });
-        if (!await s.play('Something closes around your arm and hauls you back.')) return;
+        if (!await s.play(line('dialog_caught_hauled_back'))) return;
         // fade.fadeOut()/fadeIn() are not part of Script's cancellation system
         // (they always resolve, unlike s.wait()/s.play()) -- checking s.alive()
         // afterward is what stops a restart mid-fade from having this sequence
@@ -823,7 +824,7 @@ const creatureAI = createCreatureAI({
           player.movementEnabled = true;
           interaction.setEnabled(true);
         });
-        await s.play("You're back by the door. Whatever had you has let go.");
+        await s.play(line('dialog_caught_back_by_door'));
       } finally {
         caughtInFlight = false;
       }
@@ -871,9 +872,9 @@ const bedroom = createBedroomLevel({
     // await returns false once a restart has bumped the generation.
     script.run(async (s) => {
       // The cuff caption stays on screen, but must not lengthen the measured
-      // unlock-to-blow delay: `BEATS.freed` has two lines and used to push the
+      // unlock-to-blow delay: `line('dialog_freed')` has two lines and used to push the
       // bulb event several seconds later than its intended beat.
-      s.do(() => { captions.play(BEATS.freed); });
+      s.do(() => { captions.play(line('dialog_freed')); });
       if (!await s.wait(BULB_BLOW_DELAY_AFTER_CUFF_UNLOCK_SECONDS)) return;
       s.do(() => {
         bedroomStorm.blowBulb();
@@ -888,7 +889,7 @@ const bedroom = createBedroomLevel({
         // the darkness the line promises never arrived.
         bedroom.refs.ambient.intensity = AMBIENT_DARK;
       });
-      if (!await s.play(BEATS.bulbBlows)) return;
+      if (!await s.play(line('dialog_bulb_blows'))) return;
       if (!await s.wait(1.8)) return;
       s.do(() => {
         audio.creak();
@@ -908,7 +909,7 @@ const bedroom = createBedroomLevel({
     // The storm goes back to a normal rhythm: the player can see for themselves
     // now, so the lightning stops being the only way to navigate.
     bedroomStorm.calm();
-    captions.play(BEATS.flashlightOn);
+    captions.play(line('dialog_flashlight_on'));
     runBedroomHorrorEvent('flashlight-sound', (s) => {
       s.do(() => {
         bedroom.refs.disturbChair();
@@ -1025,7 +1026,7 @@ const bedroom = createBedroomLevel({
    */
   onReadMessage: () => {
     script.run(async (s) => {
-      if (!await s.play(BEATS.scratches)) return;
+      if (!await s.play(line('dialog_scratches'))) return;
       if (!await s.wait(0.8)) return;
       s.do(() => {
         // Sound and picture start together. The steps sweep left to right past
@@ -1035,7 +1036,7 @@ const bedroom = createBedroomLevel({
         // It is right outside. Nothing in the game has been this close yet.
         audio.setBreathing(LEVEL_ONE_DOOR_BREATHING);
       });
-      if (!await s.play(BEATS.pastTheDoor)) return;
+      if (!await s.play(line('dialog_past_the_door'))) return;
       s.do(() => {
         objectiveEl.textContent = 'Escape the house without getting caught.';
         audio.setBreathing(LEVEL_ONE_BREATHING_BASE);
@@ -1044,7 +1045,7 @@ const bedroom = createBedroomLevel({
   },
 
   onExaminePolaroid: () => {
-    captions.play(BEATS.polaroid);
+    captions.play(line('dialog_polaroid'));
   },
   onExaminePhotos: ({ photos, onSolved }) => {
     player.unlock();
@@ -1097,7 +1098,7 @@ const hallwayBasement = createHallwayBasementLevel({
 
   onPowerRestored: () => {
     script.run(async (s) => {
-      if (!await s.play(BEATS.powerRestored)) return;
+      if (!await s.play(line('dialog_power_restored'))) return;
     });
   },
 
@@ -1118,22 +1119,22 @@ const hallwayBasement = createHallwayBasementLevel({
         // It is close. The breathing says so without showing anything.
         audio.setBreathing(0.9);
       });
-      if (!await s.play(BEATS.blackout)) return;
+      if (!await s.play(line('dialog_blackout'))) return;
       s.do(() => audio.setBreathing(0.7));
     });
   },
 
   onGeneratorRunning: () => {
     script.run(async (s) => {
-      if (!await s.play(BEATS.generatorRunning)) return;
+      if (!await s.play(line('dialog_generator_running'))) return;
     });
   },
 
-  onOverload: () => captions.play(BEATS.breakerOverload),
+  onOverload: () => captions.play(line('dialog_breaker_overload')),
 
   onPowerRouted: () => {
     script.run(async (s) => {
-      if (!await s.play(BEATS.powerRouted)) return;
+      if (!await s.play(line('dialog_power_routed'))) return;
     });
   },
 
@@ -1160,7 +1161,7 @@ const hallwayBasement = createHallwayBasementLevel({
       title: 'A sketch, in pencil',
       variant: 'note',
       body: DOCUMENTS.creatureSketch.body,
-      onRead: () => captions.play(BEATS.creatureSketch)
+      onRead: () => captions.play(line('dialog_creature_sketch'))
     });
   },
 
@@ -1174,7 +1175,7 @@ const hallwayBasement = createHallwayBasementLevel({
       script.run(async (s) => {
         if (!await s.wait(1.2)) return;
         s.do(() => audio.setBreathing(0.8));
-        await s.play(BEATS.cctvDash);
+        await s.play(line('dialog_cctv_dash'));
       });
       return;
     }
@@ -1185,7 +1186,7 @@ const hallwayBasement = createHallwayBasementLevel({
       script.run(async (s) => {
         if (!await s.wait(0.6)) return;
         s.do(() => audio.setBreathing(0.95));
-        if (!await s.play(BEATS.cctvBasement)) return;
+        if (!await s.play(line('dialog_cctv_basement'))) return;
         s.do(() => audio.creak());
 
         /**
@@ -1211,7 +1212,7 @@ const hallwayBasement = createHallwayBasementLevel({
           creature.visible = true;
           creatureStanding = true;
         });
-        if (!await s.play(BEATS.creatureCorner)) return;
+        if (!await s.play(line('dialog_creature_corner'))) return;
         s.do(() => {
           creature.visible = false;
           creatureStanding = false;
@@ -1220,7 +1221,7 @@ const hallwayBasement = createHallwayBasementLevel({
           audio.setBreathing(0.6);
         });
         if (!await s.wait(0.6)) return;
-        await s.play(BEATS.blackPool);
+        await s.play(line('dialog_black_pool'));
       });
     }
   }
@@ -1241,10 +1242,7 @@ const study = createStudyLevel({
   // level. Unit 17 replaces this; until then it says so plainly instead of
   // silently doing nothing, which is what an unimplemented exit used to do.
   onExit: () => {
-    captions.play([
-      'The porch. Rain, and the treeline past the fence.',
-      'The gate is padlocked, and the key is not on this side of it.'
-    ]);
+    captions.play(line('dialog_porch_gate_locked'));
   },
   onExaminePinpad: ({ length, code, onSolved }) => {
     player.unlock();
@@ -1260,7 +1258,7 @@ const study = createStudyLevel({
   },
   onAllLocksOpen: () => {
     script.run(async (s) => {
-      if (!await s.play(BEATS.shadowWrong)) return;
+      if (!await s.play(line('dialog_shadow_wrong'))) return;
     });
   },
 
@@ -1269,7 +1267,7 @@ const study = createStudyLevel({
     visor.take();
     pickUpItem('visor');
     objectiveEl.textContent = 'Put the visor on. [V]';
-    captions.play(BEATS.visorFound);
+    captions.play(line('dialog_visor_found'));
   },
   onTakeDoorKey: () => {
     hands.play('right', 'pickup', { fade: 0.15 });
@@ -1283,7 +1281,7 @@ const study = createStudyLevel({
    */
   onReadLetter: () => {
     if (!gameState.visorWorn) {
-      showCaption('A sheet of paper, face up on the boards. Blank on both sides.');
+      showCaption(line('dialog_letter_blank_without_visor'));
       return;
     }
     player.unlock();
@@ -1296,7 +1294,7 @@ const study = createStudyLevel({
         gameState.letterRead = true;
         script.run(async (s) => {
           if (!await s.wait(0.6)) return;
-          if (!await s.play(BEATS.realisation)) return;
+          if (!await s.play(line('dialog_realisation'))) return;
           s.do(() => {
             /**
              * She has been in the corner the whole time. The same rig, at
@@ -1317,9 +1315,9 @@ const study = createStudyLevel({
             // has been menace for the whole game becomes just a person breathing.
             audio.setBreathing(0.28);
           });
-          if (!await s.play(BEATS.annabelle)) return;
+          if (!await s.play(line('dialog_annabelle'))) return;
           s.do(() => { objectiveEl.textContent = 'Decide.'; });
-          if (!await s.play(BEATS.theChoice)) return;
+          if (!await s.play(line('dialog_the_choice'))) return;
           s.do(() => {
             /**
              * Hand off from "stands still and breathes" to the free-roam AI.
@@ -1346,10 +1344,7 @@ const study = createStudyLevel({
   onTakeGateKey: () => {
     hands.play('right', 'pickup', { fade: 0.15 });
     pickUpItem('gateKey');
-    captions.play([
-      'A key, hanging on the side of the mirror frame.',
-      'It has been there the whole time. You simply could not see it.'
-    ]);
+    captions.play(line('dialog_pickup_gate_key'));
   },
 
   /**
@@ -1359,11 +1354,11 @@ const study = createStudyLevel({
    */
   onLookInMirror: () => {
     if (!gameState.visorWorn) {
-      showCaption('The first mirror in this house that is not cracked. Your reflection looks like you.');
+      showCaption(line('dialog_mirror_without_visor'));
       return;
     }
     script.run(async (s) => {
-      if (!await s.play(BEATS.mirror)) return;
+      if (!await s.play(line('dialog_mirror'))) return;
       s.do(() => {
         objectiveEl.textContent = 'Read the letter.';
         audio.setBreathing(0.35);
@@ -1804,7 +1799,7 @@ const ON_ENTER = {
       // Gone before the light is. It was only ever there for the flash.
       if (!await s.wait(0.45)) return;
       s.do(() => { creature.visible = false; });
-      await s.play(BEATS.hallwaySighting);
+      await s.play(line('dialog_hallway_sighting'));
     });
   },
 
@@ -1847,7 +1842,7 @@ function onHunterCaught() {
         // is standing on top of the spawn point when the screen comes back.
         backroomsHunter.stop();
       });
-      if (!await s.play('It has you. The corridor goes out like a bulb.')) return;
+      if (!await s.play(line('dialog_backrooms_caught'))) return;
       await fade.fadeOut(450);
       if (!s.alive()) return;
       s.do(() => {
@@ -1864,7 +1859,7 @@ function onHunterCaught() {
         // chase back. start() already biases the draw away from the player.
         backroomsHunter.start();
       });
-      await s.play('Back at the mouth of the corridor. It is still in here.');
+      await s.play(line('dialog_backrooms_respawn'));
     } finally {
       caughtInFlight = false;
     }
@@ -2144,9 +2139,9 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyV') {
     const result = visor.toggle();
     if (result === 'none') {
-      showCaption('You are not carrying anything to see with.');
+      showCaption(line('dialog_visor_not_carried'));
     } else {
-      captions.play(result === 'on' ? BEATS.visorFirstWorn : BEATS.visorRemoved);
+      captions.play(result === 'on' ? line('dialog_visor_first_worn') : line('dialog_visor_removed'));
     }
   }
   if (e.code === 'KeyR') resetGame();
@@ -2215,7 +2210,7 @@ async function playEnding(which) {
       lookAt: (t) => [2.5, 1.4 + t * 1.2, 3.0],
       seconds: 13,
       fadeMs: 2200,
-      body: () => captions.play(ENDINGS[which])
+      body: () => captions.play(line(`dialog_ending_${which}`))
     });
 
     showEndScreen(which);
@@ -2409,7 +2404,7 @@ function beginGame() {
     s.do(() => fade.snapToBlack());
     if (!await s.wait(0.9)) return;
     fade.fadeIn(2600);
-    await s.play(BEATS.wake);
+    await s.play(line('dialog_wake'));
   });
 }
 

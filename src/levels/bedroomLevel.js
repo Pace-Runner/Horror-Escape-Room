@@ -12,6 +12,7 @@ import {
 import { addBaseboard } from '../world/trim.js';
 import { createRainGlassMaterial } from '../world/RainGlassMaterial.js';
 import { loadModel, applyTextureByMaterialName } from '../world/modelLoader.js';
+import { line } from '../dialogue/index.js';
 import bedModelUrl from '../assets/models/bed.glb?url';
 import bedsideTableModelUrl from '../assets/models/bedside_table.glb?url';
 import vanityBaseUrl from '../assets/models/vanity/vanity_base.glb?url';
@@ -787,7 +788,7 @@ export function createBedroomLevel({
 
   radiatorGroup.userData.interact = {
     label: 'Examine radiator',
-    onInteract: () => showCaption("An old cast-iron radiator, stone cold. Whatever heated this house stopped working a long time before the power did.")
+    onInteract: () => showCaption(line('dialog_radiator'))
   };
   const radiatorHitbox = new THREE.Mesh(
     new THREE.BoxGeometry(RAD_W, RAD_H, 0.14),
@@ -1385,7 +1386,7 @@ export function createBedroomLevel({
     label: 'Examine polaroid',
     onInteract: () => {
       if (puzzleState.polaroidRead) {
-        showCaption('A polaroid of a shadowy figure, stuck to the door frame. Written on it: "PROJECT HOLLOW", June 1987.');
+        showCaption(line('dialog_polaroid_examine'));
         return;
       }
       puzzleState.polaroidRead = true;
@@ -1436,7 +1437,7 @@ export function createBedroomLevel({
   clawMarks.position.z = 0.014;
   clawMarks.userData.interact = {
     label: 'Examine the wall',
-    onInteract: () => showCaption('Four deep gouges raked into the wallpaper, at roughly shoulder height. Whatever made them was clawing to get OUT.')
+    onInteract: () => showCaption(line('dialog_claw_marks'))
   };
   interactables.push(clawMarks);
   heroWallDamage.add(clawMarks);
@@ -1477,7 +1478,7 @@ export function createBedroomLevel({
   floorPhotoHitbox.userData.interact = {
     label: 'Pick up photograph',
     onInteract: () => {
-      showCaption('A third photograph, torn at the corner. The family again -- dated 1986.');
+      showCaption(line('dialog_pickup_floor_photo'));
       puzzleState.foundPhotos.add('floorPhoto');
       onPhotoCollected(puzzleState.foundPhotos.size);
       photoThumbMeshes.floorPhoto.visible = true;
@@ -1523,7 +1524,7 @@ export function createBedroomLevel({
   windowPhotoHitbox.userData.interact = {
     label: 'Pick up photograph',
     onInteract: () => {
-      showCaption('A damp photograph tucked beside the radiator. The family is younger here — dated 1984.');
+      showCaption(line('dialog_pickup_radiator_photo'));
       puzzleState.foundPhotos.add('windowPhoto');
       onPhotoCollected(puzzleState.foundPhotos.size);
       photoThumbMeshes.windowPhoto.visible = true;
@@ -1557,7 +1558,7 @@ export function createBedroomLevel({
       // First read is the story beat; afterwards it is just a thing on the
       // floor, so re-examining does not replay the whole sequence.
       if (puzzleState.messageRead) {
-        showCaption('Scratched into the floorboards, in shaking letters: "Don\'t let it out."');
+        showCaption(line('dialog_scratches_examine'));
         return;
       }
       puzzleState.messageRead = true;
@@ -1640,7 +1641,7 @@ export function createBedroomLevel({
       // Defence in depth: the hitbox is not registered while chained, but this
       // prevents a future caller from bypassing that interaction-state gate.
       if (!puzzleState.chainsEscaped) return;
-      showCaption('You pick up the flashlight.');
+      showCaption(line('dialog_pickup_flashlight'));
       flashlight.visible = false;
       flashlightHitbox.visible = false;
       const idx = interactables.indexOf(flashlightHitbox);
@@ -1816,7 +1817,7 @@ export function createBedroomLevel({
     label: 'Locked drawer',
     onInteract: () => {
       if (drawerStates.lampDrawer.isOpen) {
-        showCaption('The drawer stands open, empty now.');
+        showCaption(line('dialog_lamp_drawer_empty'));
         return;
       }
       onExaminePinpad({
@@ -1960,7 +1961,7 @@ export function createBedroomLevel({
     label: 'Pick up paperclip',
     onInteract: () => {
       onPaperclipUsed();
-      showCaption("You work the paperclip into the cuff's lock... it clicks open.");
+      showCaption(line('dialog_paperclip_unlocks_cuff'));
       paperclip.visible = false;
       paperclipHitbox.visible = false;
       const idx = interactables.indexOf(paperclipHitbox);
@@ -2128,7 +2129,7 @@ export function createBedroomLevel({
       rugCornerHitbox.visible = false;
       const index = interactables.indexOf(rugCornerHitbox);
       if (index >= 0) interactables.splice(index, 1);
-      showCaption('You fold back the worn rug. A loose floorboard lies beneath its corner.');
+      showCaption(line('dialog_rug_folded_back'));
     }
   };
   loadModel(victorianRugModelUrl).then((rugModel) => {
@@ -2166,7 +2167,7 @@ export function createBedroomLevel({
     label: 'Examine loose floorboard',
     onInteract: () => {
       if (!puzzleState.hasCrowbar) {
-        showCaption('One floorboard has been pried loose before. It needs leverage to lift the rest of the way.');
+        showCaption(line('dialog_floorboard_needs_crowbar'));
         return;
       }
       puzzleState.floorboardPried = true;
@@ -2178,7 +2179,7 @@ export function createBedroomLevel({
       bedroomKeyHitbox.visible = true;
       if (!interactables.includes(bedroomKeyHitbox)) interactables.push(bedroomKeyHitbox);
       onFloorboardOpened();
-      showCaption('The crowbar lifts the board. A steel key has been hidden underneath.');
+      showCaption(line('dialog_floorboard_pried_up'));
     }
   };
   group.add(looseFloorboardHitbox);
@@ -2215,7 +2216,7 @@ export function createBedroomLevel({
       const keyIndex = interactables.indexOf(bedroomKeyHitbox);
       if (keyIndex >= 0) interactables.splice(keyIndex, 1);
       onBedroomKeyFound();
-      showCaption('A bedroom door key. The lock on the boarded door should take it.');
+      showCaption(line('dialog_pickup_bedroom_key'));
     }
   };
   group.add(bedroomKeyHitbox);
@@ -2227,20 +2228,20 @@ export function createBedroomLevel({
       if (!puzzleState.planksRemoved) {
         if (puzzleState.hasCrowbar) {
           if (!puzzleState.floorboardPried) {
-            showCaption('The planks can wait. Use the crowbar on the loose floorboard first — the door still needs a key.');
+            showCaption(line('dialog_door_planks_floorboard_first'));
             return;
           }
           puzzleState.planksRemoved = true;
           onCrowbarUsed();
           startDoorPlankPryAnimation();
           onDoorPlankRemoved();
-          showCaption('You wedge the crowbar behind the planks and pry them off the door.');
+          showCaption(line('dialog_door_planks_pried_off'));
         } else {
-          showCaption('Two wooden planks, boarded diagonally. Whatever is in this house trapped you inside.');
+          showCaption(line('dialog_door_planks_examine'));
         }
       } else if (!puzzleState.doorUnlocked) {
         if (!puzzleState.hasBedroomKey) {
-          showCaption('The planks are gone, but the bedroom door is still locked. A keyhole waits beneath the knob.');
+          showCaption(line('dialog_door_locked_needs_key'));
           return;
         }
         // Set synchronously, which is what makes spamming E safe: the third
@@ -2248,7 +2249,7 @@ export function createBedroomLevel({
         puzzleState.doorUnlocked = true;
         puzzleState.hasBedroomKey = false;
         onBedroomKeyUsed();
-        showCaption('The door creaks open on its hinges. You slip out into the dark hallway...');
+        showCaption(line('dialog_door_opens'));
         // Enough of the hinge swing to read as a door opening, and no more.
         // This used to be 1400ms and cut straight to Level 2; now a 700ms fade
         // follows it, so at 1400 the pair was over two seconds of dead air.
@@ -2260,7 +2261,7 @@ export function createBedroomLevel({
         // Making transitionTo aware of it would make it content-aware.
         exitTimer = setTimeout(() => { exitTimer = null; onDoorOpened(); }, 600);
       } else {
-        showCaption('The door hangs open ahead of you.');
+        showCaption(line('dialog_door_hangs_open'));
       }
     }
   };
@@ -2401,9 +2402,7 @@ export function createBedroomLevel({
       nightstandDrawerMotion = opening ? 1 : -1;
       nightstandPhotoRevealed = false;
       if (!opening) nightstandPhotoPickup.hide();
-      showCaption(opening
-        ? 'The bedside drawer slides open.'
-        : 'The bedside drawer slides shut.');
+      showCaption(line(opening ? 'dialog_bedside_drawer_open' : 'dialog_bedside_drawer_shut'));
     }
   };
   interactables.push(nightstandLeft);
@@ -2423,9 +2422,9 @@ export function createBedroomLevel({
     onInteract: () => {
       if (!drawerStates.bin.isOpen) {
         drawerStates.bin.isOpen = true;
-        showCaption('Just crumpled paper, spilled out when it tipped over. Nothing else in here.');
+        showCaption(line('dialog_bin_search'));
       } else {
-        showCaption('Just crumpled paper left in here.');
+        showCaption(line('dialog_bin_search_again'));
       }
     }
   };
@@ -2458,9 +2457,7 @@ export function createBedroomLevel({
       vanityDrawerMotion = opening ? 1 : -1;
       vanityPhotoRevealed = false;
       if (!opening) dresserPhotoPickup.hide();
-      showCaption(opening
-        ? 'The middle drawer slides open.'
-        : 'The middle drawer slides shut.');
+      showCaption(line(opening ? 'dialog_middle_drawer_open' : 'dialog_middle_drawer_shut'));
     }
   };
   interactables.push(dresserTop);
@@ -2557,9 +2554,9 @@ export function createBedroomLevel({
     label: 'Examine corkboard',
     onInteract: () => {
       if (puzzleState.photosArranged) {
-        showCaption('The corkboard hangs open.');
+        showCaption(line('dialog_corkboard_open'));
       } else if (puzzleState.foundPhotos.size < 4) {
-        showCaption('A corkboard with four empty places. You need to find the rest of the family photographs.');
+        showCaption(line('dialog_corkboard_needs_photos'));
       } else {
         // Hand off to the close-up board view -- dragging the photos into
         // place (and figuring out what order they actually belong in) is
@@ -2571,7 +2568,7 @@ export function createBedroomLevel({
             dataUrl: PUZZLE_PHOTO_URLS[slot.date]
           })),
           onSolved: () => {
-            showCaption('Something clicks nearby... The corkboard swings open on a hidden hinge, revealing a hollow in the wall.');
+            showCaption(line('dialog_corkboard_solved'));
             puzzleState.photosArranged = true;
             updateLockedBoxPresentation(0);
             onPhotoPuzzleSolved();
@@ -2669,7 +2666,7 @@ export function createBedroomLevel({
     onInteract: () => {
       if (boxOpened) return; // Never replay the inventory grant during animation.
       if (puzzleState.photosArranged && puzzleState.hasBrassKey) {
-        showCaption('The brass key fits. Inside is a crowbar and a Project HOLLOW evidence tag.');
+        showCaption(line('dialog_lockbox_opened'));
         boxHitbox.visible = false;
         boxOpened = true;
         boxOpenElapsedSeconds = 0;
@@ -2680,9 +2677,9 @@ export function createBedroomLevel({
         onReadSafeTag();
         onSafeOpened();
       } else if (puzzleState.photosArranged) {
-        showCaption('The box is locked. You need to find a key first.');
+        showCaption(line('dialog_lockbox_needs_key'));
       } else {
-        showCaption('The box is locked tight. Maybe clues elsewhere will help unlock it.');
+        showCaption(line('dialog_lockbox_locked_tight'));
       }
     }
   };

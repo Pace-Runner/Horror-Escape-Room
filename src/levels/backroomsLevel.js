@@ -33,6 +33,7 @@ import {
 import { loadModel, applyTextureByMaterialName } from '../world/modelLoader.js';
 import { MINIMAP_ONLY, MAIN_ONLY } from '../core/RenderLayers.js';
 import { gameState } from '../core/GameState.js';
+import { line } from '../dialogue/index.js';
 import doorModelUrl from '../assets/models/door.glb?url';
 import {
   CORRIDOR_W, T, CORRIDORS, ROUTE, BOX, LEGS, buildWallRuns, runCollider, validateMaze,
@@ -1267,11 +1268,11 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
       // exactly the window a second E press lands in, and main.js's
       // transitionInFlight guard does not cover it yet.
       if (opened) {
-        showCaption('It hangs open. Whatever is past it is not yellow.');
+        showCaption(line('dialog_exit_door_already_open'));
         return;
       }
       opened = true;
-      showCaption('The handle turns. Behind you, the humming stops all at once.');
+      showCaption(line('dialog_exit_door_opens'));
       // The route is captured NOW, not read when the timer fires. Restarting
       // inside this delay calls setRoute(null), and a timer that read the live
       // variable would then hand onExit a null route -- which main.js would
@@ -1319,9 +1320,7 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
   sealedHitbox.position.set(0, 1.1, 0.08);
   sealedHitbox.userData.interact = {
     label: 'The door you came through',
-    onInteract: () => showCaption(
-      'The wallpaper runs straight across it. No frame, no handle, no seam. It was never a door.'
-    )
+    onInteract: () => showCaption(line('dialog_sealed_door'))
   };
   group.add(sealedHitbox);
   interactables.push(sealedHitbox);

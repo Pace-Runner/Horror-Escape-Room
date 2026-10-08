@@ -23,22 +23,40 @@ const BREATHING_FILES = import.meta.glob('../assets/audio/breathing.*', {
 });
 const BREATHING_URL = Object.values(BREATHING_FILES)[0] ?? null;
 
-// Voice clips -- the four cassette tapes and the two closing news reports.
+// Voice clips, for any caption whose dialogue entry names one -- see
+// src/dialogue/README.md.
 // Globbed for exactly the reason the breathing loop is: the game ships with
 // text now and audio later, and a plain import of a file that is not there
 // fails the BUILD. A glob that matches nothing is an empty object, so the game
-// runs, captions still play, and the lines are simply silent. Keys are the
-// bare filename without extension, matching the `voice` field in story/lines.js
-// -- so dropping tape-1.m4a into src/assets/voice/ is the entire integration.
-const VOICE_FILES = import.meta.glob('../assets/voice/*.{m4a,mp3,ogg,wav}', {
+// runs, captions still play, and the lines are simply silent.
+//
+// RECURSIVE, and keyed by the path under voice/, because the dialogue files
+// name clips as "level1/wake_1.m4a". Each file answers to that path with and
+// without its extension, so a writer who records an .mp3 against a line that
+// says .m4a still gets it -- and to its bare filename, which is what the
+// pre-dialogue-file keys ("tape-1") were.
+const VOICE_FILES = import.meta.glob('../assets/voice/**/*.{m4a,mp3,ogg,wav}', {
   query: '?url',
   import: 'default',
   eager: true
 });
 const VOICE_URLS = {};
 for (const [path, url] of Object.entries(VOICE_FILES)) {
-  const key = path.split('/').pop().replace(/\.[^.]+$/, '');
-  VOICE_URLS[key] = url;
+  const rel = path.slice('../assets/voice/'.length);
+  const noExt = rel.replace(/\.[^./]+$/, '');
+  VOICE_URLS[rel] = url;
+  VOICE_URLS[noExt] = url;
+  const bare = noExt.split('/').pop();
+  if (!(bare in VOICE_URLS)) VOICE_URLS[bare] = url;
+}
+
+/**
+ * The same key a dialogue file wrote, however it was written: tolerant of a
+ * leading "src/assets/voice/" or "voice/", backslashes, and the extension.
+ */
+function voiceUrl(key) {
+  const k = String(key).replace(/\\/g, '/').replace(/^(\.?\/)?(src\/)?(assets\/)?(voice\/)?/, '');
+  return VOICE_URLS[k] ?? VOICE_URLS[k.replace(/\.[^./]+$/, '')];
 }
 
 // Voice sits above the ambience: a line that has to compete with the wind for
@@ -535,7 +553,7 @@ export class AudioEngine {
    */
   playVoice(key) {
     if (!key || !this.ctx || !this.voiceGain) return false;
-    const url = VOICE_URLS[key];
+    const url = voiceUrl(key);
     if (!url) {
       if (!this.voiceWarned.has(key)) {
         this.voiceWarned.add(key);
