@@ -25,6 +25,10 @@ import fuseModelUrl from '../assets/models/fuse.glb?url';
 import crtMonitorModelUrl from '../assets/models/crt_monitor.glb?url';
 import breakerPanelModelUrl from '../assets/models/breaker_panel.glb?url';
 import generatorModelUrl from '../assets/models/generator.glb?url';
+import operatingTableModelUrl from '../assets/models/operating_table.glb?url';
+import surgicalLampModelUrl from '../assets/models/surgical_lamp.glb?url';
+import instrumentTrolleyModelUrl from '../assets/models/instrument_trolley.glb?url';
+import labChairModelUrl from '../assets/models/lab_chair.glb?url';
 import { createStaticScreenMaterial } from '../world/StaticScreenMaterial.js';
 import { createCctvFeeds, FEED_IDS, FEED_LABELS } from '../world/CctvFeeds.js';
 import { SECURITY_CODE } from '../world/doorPanels.js';
@@ -193,6 +197,44 @@ const BREAKER_PANEL_Z = 1.7 * LAB_SCALE;
  * it in frame, and just behind where its black pool is left.
  */
 const CREATURE_CORNER = { x: -2.6 * LAB_SCALE, z: -1.25 * LAB_SCALE };
+
+/**
+ * The restraint table (operating_table.glb), in lab space, and its size in
+ * the model's own: length along x with the head end at -x, the torn-strap
+ * side toward the entrance (-z). Mirrors build_operating_table.py.
+ *
+ * Out in the west half of the room, where the sketch and the black pool
+ * already are -- the corner of the lab where it got
+ * loose. The lamp, the trolley and the stool are all placed from the table,
+ * so it can move and take them with it.
+ */
+const OPERATING_TABLE = {
+  x: -1.75 * LAB_SCALE, z: 0.2 * LAB_SCALE,
+  halfLength: 0.95, halfWidth: 0.28, padTop: 0.87,
+  /** How far the hanging straps and grab hoops stand off each side. */
+  sideReach: 0.33
+};
+
+/**
+ * The surgical lamp (surgical_lamp.glb), in the model's own space: hung from
+ * its ceiling mount at the origin, the arm reaching out along +x to the head.
+ * Mirrors HEAD_X, HEAD_RADIUS, LENS_Z and HANDLE_BOTTOM in
+ * build_surgical_lamp.py.
+ */
+const SURGICAL_LAMP = { headX: 0.55, headRadius: 0.32, lensY: -1.092, handleBottomY: -1.22, domeTopY: -0.93 };
+/** The lamp's head hangs over the table this far toward its head end: over the chest. */
+const SURGICAL_LAMP_OVER_TABLE_X = -0.2;
+
+/** The instrument trolley (instrument_trolley.glb): push handle at -x. Mirrors build_instrument_trolley.py. */
+const INSTRUMENT_TROLLEY = { length: 0.7, depth: 0.45, top: 0.85, handleReach: 0.07 };
+
+/**
+ * The stool (lab_chair.glb), in the model's own space, standing. Mirrors
+ * build_lab_chair.py. Only the two things it rests on when knocked onto its
+ * +x side matter here: the castor at the tip of the leg that points that
+ * way, and the edge of the seat.
+ */
+const LAB_CHAIR = { castorReach: 0.295, castorHeight: 0.025, seatRadius: 0.212, seatEdgeHeight: 0.49 };
 
 /**
  * The crates. `stackY` is the height of the crate's underside, so 0 sits on
@@ -3047,20 +3089,6 @@ export function createHallwayBasementLevel({
   };
   lab.add(blackPool);
 
-  // broken restraints / chair dressing near the middle of the lab
-  const restraint = new THREE.Mesh(
-    new THREE.TorusGeometry(0.15, 0.02, 8, 16),
-    new THREE.MeshStandardMaterial({ color: 0x6b6b6b, metalness: 0.7, roughness: 0.5 })
-  );
-  // On the floor. It used to hang at y = 0.9 with nothing under it: that
-  // height matches the workbench top, but x = -0.5 is west of the bench, which
-  // starts at -0.3. Laid flat where a broken restraint would actually end up,
-  // and turned within the floor plane so it does not read as placed.
-  restraint.position.set(-0.7 * LAB_SCALE, 0.02, 0.35 * LAB_SCALE);
-  restraint.rotation.x = Math.PI / 2;
-  restraint.rotation.y = 0.4;
-  lab.add(restraint);
-
   function frameWoodMat() {
     return new THREE.MeshStandardMaterial({ color: 0x3a2c1e, roughness: 0.85 });
   }
@@ -3210,6 +3238,238 @@ export function createHallwayBasementLevel({
   };
   interactables.push(tornNotes);
   workbench.add(tornNotes);
+
+  // ---------- the operating corner ----------
+
+  /** Loaded props cast and catch the lamp's shadow: the straps across the pad are the point of it. */
+  function shadowed(model) {
+    model.traverse((child) => {
+      if (!child.isMesh) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+    return model;
+  }
+
+  /**
+   * The restraint table: operating_table.glb (blender/build_operating_table.py),
+   * a pedestal table with leather restraints at the wrists, chest and ankles.
+   * The far wrist and ankle cuffs lie open, unbuckled; the near wrist strap
+   * was torn through and the chest strap snapped; and a dried stain runs off
+   * the pad onto the floor.
+   */
+  const operatingTable = new THREE.Group();
+  operatingTable.position.set(OPERATING_TABLE.x, 0, OPERATING_TABLE.z);
+  lab.add(operatingTable);
+  loadModel(operatingTableModelUrl)
+    .then((model) => operatingTable.add(shadowed(model)))
+    .catch((err) => console.error('[lab] operating_table.glb failed to load', err));
+  colliders.push({
+    minX: OPERATING_TABLE.x - OPERATING_TABLE.halfLength - 0.03,
+    maxX: OPERATING_TABLE.x + OPERATING_TABLE.halfLength + 0.03,
+    minZ: LAB_Z + OPERATING_TABLE.z - OPERATING_TABLE.sideReach,
+    maxZ: LAB_Z + OPERATING_TABLE.z + OPERATING_TABLE.sideReach
+  });
+
+  // The click target: an invisible slab over the pad, since Interaction
+  // never reaches inside a loaded model.
+  const operatingTableHit = new THREE.Mesh(
+    new THREE.BoxGeometry(OPERATING_TABLE.halfLength * 2, 0.12, OPERATING_TABLE.halfWidth * 2),
+    hiddenHitMat
+  );
+  operatingTableHit.position.set(OPERATING_TABLE.x, OPERATING_TABLE.padTop - 0.03, OPERATING_TABLE.z);
+  operatingTableHit.userData.interact = {
+    label: 'Examine the table',
+    onInteract: () => showCaption(
+      'Straps at the wrists, the chest, the ankles. The ankle cuffs have been unbuckled, and so has the far wrist. ' +
+      'This wrist was not. Its strap is torn straight through.'
+    )
+  };
+  interactables.push(operatingTableHit);
+  lab.add(operatingTableHit);
+
+  /**
+   * The surgical lamp, hung from the ceiling so its head is over the chest of
+   * whoever was on the table. The player can switch it on and off by the
+   * handle once the lab's lights have power, and it remembers being on: a
+   * blackout puts it out, and it comes back with the power, like the monitor.
+   */
+  const lampHeadX = OPERATING_TABLE.x + SURGICAL_LAMP_OVER_TABLE_X;
+  const surgicalLamp = new THREE.Group();
+  surgicalLamp.position.set(lampHeadX - SURGICAL_LAMP.headX, LAB_H, OPERATING_TABLE.z);
+  lab.add(surgicalLamp);
+
+  const LAMP_COLOR = 0xe6fff0;            // a cold, faintly green white
+  const LAMP_LIGHT_INTENSITY = 7;
+  const LAMP_LENS_EMISSIVE_INTENSITY = 2.4;
+  /** How long the lamp stutters when it comes on, before it holds. */
+  const LAMP_STRIKE_SECONDS = 0.5;
+  const lampLensY = LAB_H + SURGICAL_LAMP.lensY;
+
+  // A material to drive until the model arrives, swapped for the model's own
+  // lens material once it has loaded.
+  let lampLensMat = new THREE.MeshStandardMaterial({ emissive: LAMP_COLOR });
+  loadModel(surgicalLampModelUrl).then((model) => {
+    model.traverse((child) => {
+      if (!child.isMesh) return;
+      child.castShadow = false;           // it is the light: its own head would shadow the whole table
+      if (child.material.name === 'LampLens') {
+        child.material.emissive.setHex(LAMP_COLOR);
+        child.material.emissiveIntensity = lampLensMat.emissiveIntensity;
+        lampLensMat = child.material;
+      }
+    });
+    surgicalLamp.add(model);
+  }).catch((err) => console.error('[lab] surgical_lamp.glb failed to load', err));
+
+  const lampLight = new THREE.SpotLight(LAMP_COLOR, 0, 5, 0.62, 0.5, 1.5);
+  lampLight.position.set(lampHeadX, lampLensY - 0.01, OPERATING_TABLE.z);
+  lampLight.target.position.set(lampHeadX, 0, OPERATING_TABLE.z);
+  lampLight.castShadow = true;
+  lampLight.shadow.mapSize.set(1024, 1024);
+  lampLight.shadow.bias = -0.0005;
+  lampLight.shadow.normalBias = 0.02;
+  lampLight.shadow.camera.near = 0.1;
+  lampLight.shadow.camera.far = 3;
+  lab.add(lampLight, lampLight.target);
+
+  // The click target: the head, handle and all.
+  const lampHeadHeight = SURGICAL_LAMP.domeTopY - SURGICAL_LAMP.handleBottomY;
+  const lampHit = new THREE.Mesh(
+    new THREE.CylinderGeometry(SURGICAL_LAMP.headRadius, SURGICAL_LAMP.headRadius, lampHeadHeight, 16),
+    hiddenHitMat
+  );
+  lampHit.position.set(lampHeadX, LAB_H + SURGICAL_LAMP.handleBottomY + lampHeadHeight / 2, OPERATING_TABLE.z);
+  lab.add(lampHit);
+
+  let lampSwitchedOn = false;
+  let lampHasBeenLit = false;
+  let lampWasLit = false;
+  let lampStrikeSecondsLeft = 0;
+
+  function isLampLit() {
+    return lampSwitchedOn && isLabLightingOn();
+  }
+
+  lampHit.userData.interact = {
+    label: 'Switch on the operating lamp',
+    onInteract: () => {
+      lampSwitchedOn = !lampSwitchedOn;
+      lampHit.userData.interact.label = lampSwitchedOn ? 'Switch off the operating lamp' : 'Switch on the operating lamp';
+      if (!lampSwitchedOn) return;
+      if (!isLabLightingOn()) {
+        showCaption(
+          powerStage === POWER_STAGE.DEAD
+            ? 'The switch in the handle clicks over. Nothing. There is no power down here.'
+            : 'The switch clicks over. Nothing. The lamp is as dead as the rest of the lights.'
+        );
+        return;
+      }
+      if (!lampHasBeenLit) {
+        lampHasBeenLit = true;
+        showCaption('The lamp stutters, then floods the table white. Every strap on it throws a shadow.');
+      }
+    }
+  };
+  interactables.push(lampHit);
+
+  dynamics.push({
+    update: (dt) => {
+      const lit = isLampLit();
+      if (lit && !lampWasLit) lampStrikeSecondsLeft = LAMP_STRIKE_SECONDS;
+      lampWasLit = lit;
+      let level = lit ? 1 : 0;
+      if (lit && lampStrikeSecondsLeft > 0) {
+        // Striking: catching and dropping out a few times before it holds.
+        lampStrikeSecondsLeft -= dt;
+        level = Math.random() < 0.45 ? 0.12 : 1;
+      }
+      lampLight.intensity = LAMP_LIGHT_INTENSITY * level;
+      lampLensMat.emissiveIntensity = LAMP_LENS_EMISSIVE_INTENSITY * level;
+    }
+  });
+
+  /**
+   * The instrument trolley, pulled up at the head of the table:
+   * instrument_trolley.glb, with everything on it baked in. Turned a little,
+   * as if shoved aside.
+   */
+  const instrumentTrolley = new THREE.Group();
+  instrumentTrolley.position.set(
+    OPERATING_TABLE.x - OPERATING_TABLE.halfLength + 0.1,
+    0,
+    OPERATING_TABLE.z - OPERATING_TABLE.sideReach - INSTRUMENT_TROLLEY.depth / 2 - 0.2
+  );
+  instrumentTrolley.rotation.y = 0.25;
+  lab.add(instrumentTrolley);
+  loadModel(instrumentTrolleyModelUrl)
+    .then((model) => instrumentTrolley.add(shadowed(model)))
+    .catch((err) => console.error('[lab] instrument_trolley.glb failed to load', err));
+  {
+    // The box round the trolley as turned. The handle end is counted on both
+    // ends, which costs a few centimetres and saves tracking which end it is.
+    const halfLength = INSTRUMENT_TROLLEY.length / 2 + INSTRUMENT_TROLLEY.handleReach;
+    const halfDepth = INSTRUMENT_TROLLEY.depth / 2;
+    const cos = Math.abs(Math.cos(instrumentTrolley.rotation.y));
+    const sin = Math.abs(Math.sin(instrumentTrolley.rotation.y));
+    const halfX = halfLength * cos + halfDepth * sin;
+    const halfZ = halfLength * sin + halfDepth * cos;
+    colliders.push({
+      minX: instrumentTrolley.position.x - halfX, maxX: instrumentTrolley.position.x + halfX,
+      minZ: LAB_Z + instrumentTrolley.position.z - halfZ, maxZ: LAB_Z + instrumentTrolley.position.z + halfZ
+    });
+  }
+
+  const trolleyHit = new THREE.Mesh(
+    new THREE.BoxGeometry(INSTRUMENT_TROLLEY.length, 0.08, INSTRUMENT_TROLLEY.depth),
+    hiddenHitMat
+  );
+  trolleyHit.position.set(0, INSTRUMENT_TROLLEY.top + 0.03, 0);
+  trolleyHit.userData.interact = {
+    label: 'Examine the instruments',
+    onInteract: () => showCaption('Scalpels, forceps, a bone saw, laid out ready. The gauze has been used.')
+  };
+  // The hit box is the trolley's own child so it turns with it -- it is
+  // still raycast directly, since it is listed in interactables itself.
+  instrumentTrolley.add(trolleyHit);
+  interactables.push(trolleyHit);
+
+  /**
+   * The stool, knocked over beside the head of the table: lab_chair.glb,
+   * modelled standing and tipped over here onto its +x side.
+   *
+   * It does not lie flat. It rests on two things -- the castor of the leg
+   * pointing down, and the edge of the seat -- so the column leans this far
+   * short of horizontal: the slope of the line between those two points.
+   */
+  const chairRestTilt = Math.atan2(
+    LAB_CHAIR.castorReach - LAB_CHAIR.seatRadius,
+    LAB_CHAIR.seatEdgeHeight - LAB_CHAIR.castorHeight
+  );
+  const labChair = new THREE.Group();
+  labChair.position.set(OPERATING_TABLE.x - 0.35, 0, OPERATING_TABLE.z + OPERATING_TABLE.sideReach + 0.55);
+  // Fallen toward the west wall, the seat turned half away from the table.
+  labChair.rotation.y = Math.PI + 0.45;
+  lab.add(labChair);
+  loadModel(labChairModelUrl).then((model) => {
+    const tipped = new THREE.Group();
+    // A turn about z takes the chair's up (+y) over toward +x.
+    tipped.rotation.z = -(Math.PI / 2 - chairRestTilt);
+    tipped.add(shadowed(model));
+    labChair.add(tipped);
+    // Sat back down on the floor: whatever now hangs lowest is lifted to it.
+    // The lab floor is world y = 0, and the chair is only ever turned about
+    // y, so a world height is a local one.
+    labChair.updateWorldMatrix(true, true);
+    const bounds = new THREE.Box3().setFromObject(tipped, true);
+    tipped.position.y = -bounds.min.y;
+    // Its collider comes from the model as it lies, since a tipped-over
+    // chair is not a shape worth working out by hand. Box3 is in world
+    // space, which is what colliders are in.
+    labChair.updateWorldMatrix(true, true);
+    const lying = new THREE.Box3().setFromObject(tipped, true);
+    colliders.push({ minX: lying.min.x, maxX: lying.max.x, minZ: lying.min.z, maxZ: lying.max.z });
+  }).catch((err) => console.error('[lab] lab_chair.glb failed to load', err));
 
   /**
    * Eases a ramp value toward a target at a fixed rate.
@@ -3408,6 +3668,10 @@ export function createHallwayBasementLevel({
       activeFeedId = FEED_IDS[0];
       screenMaterial.uniforms.uPower.value = 0;
       syncMonitor();
+
+      lampSwitchedOn = false;
+      lampHasBeenLit = false;
+      lampHit.userData.interact.label = 'Switch on the operating lamp';
 
       setFuseCoverOpen(false, { quiet: true });
       fuseCover.everOpened = false;

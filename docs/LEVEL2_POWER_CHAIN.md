@@ -64,7 +64,10 @@ Four named predicates sit on top of it, and nothing outside them tests the
 stage directly:
 
 - `hasMainsPower()` -- anything live at all. `LIT` or `ROUTED`.
-- `isLabLightingOn()` -- the strip lights and the ambient term.
+- `isLabLightingOn()` -- the strip lights, the ambient term, and the surgical
+  lamp over the restraint table, which the player switches on by its handle
+  and which, like the monitor, stays switched on through a blackout and comes
+  back with the power.
 - `isCctvPowered()` -- the monitor, the remote, and whether `feeds.update()`
   bothers redrawing.
 - `isDoorPowered()` -- the bolts.
