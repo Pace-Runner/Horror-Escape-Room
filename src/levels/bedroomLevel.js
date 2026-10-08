@@ -5,8 +5,6 @@ import {
   createScratchedMessageNormalTexture,
   createPolaroidTexture,
   createFamilyPhotoTexture,
-  createRugTexture,
-  createRugNormalTexture,
   createFurnitureWoodTexture,
   createFurnitureWoodNormalTexture,
   createCobwebTexture
@@ -22,6 +20,8 @@ import vanityCandlestickUrl from '../assets/models/vanity/vanity_candlestick.glb
 import vanityPerfumeUrl from '../assets/models/vanity/vanity_perfume.glb?url';
 import vanityTrayUrl from '../assets/models/vanity/vanity_tray.glb?url';
 import vanityStoolUrl from '../assets/models/vanity/vanity_stool.glb?url';
+import pinboardModelUrl from '../assets/models/pinboard.glb?url';
+import victorianRugModelUrl from '../assets/models/rug/level1_victorian_rug.glb?url';
 import doorModelUrl from '../assets/models/door.glb?url';
 import flashlightModelUrl from '../assets/models/flashlight.glb?url';
 import pendantLightModelUrl from '../assets/models/ceiling_pendant.glb?url';
@@ -50,7 +50,7 @@ const PUZZLE_PHOTO_URLS = {
 const PUZZLE_PHOTO_ASPECT_RATIO = 1122 / 1402;
 const PUZZLE_PHOTO_HEIGHT_METRES = 0.17;
 const LOCKBOX_OPEN_DURATION_SECONDS = 0.7;
-const LOCKBOX_OPEN_ANGLE_RADIANS = -Math.PI / 2;
+const LOCKBOX_OPEN_ANGLE_RADIANS = -THREE.MathUtils.degToRad(85);
 
 // The GLB's authored detail faces local +Z, while the bedroom camera approaches
 // the doorway from local -Z. Mirroring only depth presents the detailed face to
@@ -176,6 +176,7 @@ const ROOM_H = 2.9;
 // centre route without changing what any interaction does.
 const WINDOW_POSITION_X = -2.35;
 const PIN_RECESS_POSITION_Z = -1.35;
+const PINBOARD_SCALE = 1.9;
 const BED_POSITION_X = 1.65;
 const BED_POSITION_Z = -1.9;
 // The wake-up position is deliberately on the mattress. Once the cuff is
@@ -428,7 +429,14 @@ export function createBedroomLevel({
   // rotated onto the Z axis, plus a hollow pocket (back panel + four
   // connecting sides) behind the gap so the reveal isn't a hole into the
   // void once the pinboard swings open.
-  const pinRecess = { z: PIN_RECESS_POSITION_Z, y: 1.3, w: 0.74, h: 0.78, depth: 0.42 };
+  const pinRecess = {
+    z: PIN_RECESS_POSITION_Z,
+    y: 1.45,
+    w: 0.74 * PINBOARD_SCALE,
+    h: 0.78 * PINBOARD_SCALE,
+    depth: 0.42 * PINBOARD_SCALE
+  };
+  const cubbyFloorSurfaceY = pinRecess.y - 0.38 * 1.7;
   {
     const wallThickness = 0.12;
     const wallX = -ROOM_W / 2;
@@ -470,7 +478,7 @@ export function createBedroomLevel({
       cavityFallback.add(mesh);
     };
     side(gapY1, pinRecess.z, 0.02, pinRecess.w); // top
-    side(gapY0, pinRecess.z, 0.02, pinRecess.w); // bottom
+    side(cubbyFloorSurfaceY - 0.01, pinRecess.z, 0.02, pinRecess.w); // bottom
     side(pinRecess.y, gapZ0, pinRecess.h, 0.02); // near side
     side(pinRecess.y, gapZ1, pinRecess.h, 0.02); // far side
 
@@ -478,8 +486,12 @@ export function createBedroomLevel({
     // No interactables, colliders, or compartment state belong to this asset.
     loadModel(wallHollowModelUrl).then((hollowVisual) => {
       hollowVisual.name = 'Level1_HollowInterior';
-      hollowVisual.position.set(wallX, pinRecess.y, pinRecess.z);
+      hollowVisual.position.set(wallX - 0.046, pinRecess.y, pinRecess.z);
       hollowVisual.rotation.y = Math.PI / 2;
+      // The authored liner already overhangs the original aperture. Its face
+      // scales a little less than the cut-out to keep the trim under the board;
+      // its depth reaches the new rear wall.
+      hollowVisual.scale.set(1.7, 1.7, 1.79);
       hollowVisual.traverse((child) => {
         if (!child.isMesh) return;
         child.castShadow = false;
@@ -1054,7 +1066,8 @@ export function createBedroomLevel({
   const vanityDrawerOpenSeconds = 0.65;
   let vanityDrawer = null;
   let vanityDrawerClosedPosition = null;
-  let vanityDrawerElapsedSeconds = 0;
+  let vanityDrawerProgress = 0;
+  let vanityDrawerMotion = 0;
   let vanityPhotoRevealed = false;
   const vanityPhotoAnchor = new THREE.Group();
   dresser.add(vanityPhotoAnchor);
@@ -2086,45 +2099,54 @@ export function createBedroomLevel({
   // floor level in undisturbed corners just as much as up at the ceiling
   addCobweb(ROOM_W / 2 - 0.06, 0.12, ROOM_D / 2 - 0.06, Math.PI / 4 + Math.PI, 0.3, -0.3);
 
-  // Ornate Persian-style rug (filled border band, nested medallion, corner
-  // motifs -- see textures.js) with a matching normal map for pile detail,
-  // plus a fringe of small tassels along the two short ends. Bigger than
-  // before (2.2x1.4, was 1.8x1.2) and using the richer default palette
-  // (deep red field, dark teal border, cream trim, gold medallion core).
-  const rug = new THREE.Mesh(
-    new THREE.PlaneGeometry(2.2, 1.4),
-    new THREE.MeshStandardMaterial({
-      map: createRugTexture(),
-      normalMap: createRugNormalTexture(),
-      normalScale: new THREE.Vector2(0.5, 0.5),
-      roughness: 1
-    })
+  // A larger Blender-authored rug sits diagonally in the open floor area.
+  // Only its separate corner overlaps the loose board's existing puzzle spot.
+  const rugGroup = new THREE.Group();
+  rugGroup.position.set(-0.60, 0.006, 0.54);
+  rugGroup.rotation.y = THREE.MathUtils.degToRad(25);
+  group.add(rugGroup);
+  const rugFoldAxis = new THREE.Vector3(-1, 0, -1).normalize();
+  const rugFoldAngle = THREE.MathUtils.degToRad(150);
+  const rugFoldDurationSeconds = 0.65;
+  let rugFoldCorner = null;
+  let rugCornerOpen = false;
+  let rugCornerOpening = false;
+  let rugFoldProgress = 0;
+  const rugCornerHitbox = new THREE.Mesh(
+    new THREE.BoxGeometry(0.62, 0.12, 0.62),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
-  rug.rotation.x = -Math.PI / 2;
-  rug.rotation.z = 0.05;
-  rug.position.set(0, 0.008, 0.15);
-  rug.scale.setScalar(0.88);
-  group.add(rug);
-
-  // Tassels are children of the rug plane itself, so they inherit its
-  // rotation for free and only need positioning in the plane's own local
-  // (pre-rotation) XY -- width (2.2) along local X, the two short ends
-  // (1.4 depth) at local Y = ±0.7.
-  const fringeMat = new THREE.MeshStandardMaterial({ color: 0xd8c9a0, roughness: 1 });
-  const fringeGeo = new THREE.BoxGeometry(0.014, 0.05, 0.004);
-  [-0.7, 0.7].forEach((ey) => {
-    for (let i = 0; i < 18; i++) {
-      const tassel = new THREE.Mesh(fringeGeo, fringeMat);
-      const along = -1.06 + (2.12 / 17) * i;
-      tassel.position.set(along, ey + 0.025 * Math.sign(ey), 0.001);
-      tassel.rotation.z = (Math.random() - 0.5) * 0.3;
-      rug.add(tassel);
+  rugCornerHitbox.name = 'RugFoldCornerInteraction';
+  rugCornerHitbox.position.set(-1.55, 0.09, 2.30);
+  rugCornerHitbox.visible = false;
+  group.add(rugCornerHitbox);
+  rugCornerHitbox.userData.interact = {
+    label: 'Lift rug corner',
+    onInteract: () => {
+      if (!rugFoldCorner || rugCornerOpening || rugCornerOpen) return;
+      rugCornerOpening = true;
+      rugCornerHitbox.visible = false;
+      const index = interactables.indexOf(rugCornerHitbox);
+      if (index >= 0) interactables.splice(index, 1);
+      showCaption('You fold back the worn rug. A loose floorboard lies beneath its corner.');
     }
-  });
+  };
+  loadModel(victorianRugModelUrl).then((rugModel) => {
+    rugFoldCorner = rugModel.getObjectByName('RugFoldCorner');
+    if (!rugFoldCorner || !rugModel.getObjectByName('RugMain')) {
+      throw new Error('Victorian rug is missing RugMain or RugFoldCorner');
+    }
+    rugModel.traverse((child) => {
+      if (child.isMesh) child.receiveShadow = true;
+    });
+    rugGroup.add(rugModel);
+    rugFoldCorner.quaternion.setFromAxisAngle(rugFoldAxis, rugFoldAngle * rugFoldProgress);
+    rugCornerHitbox.visible = !rugCornerOpen && !rugCornerOpening;
+    if (rugCornerHitbox.visible && !interactables.includes(rugCornerHitbox)) interactables.push(rugCornerHitbox);
+  }).catch((error) => console.error('Could not load Victorian rug:', error));
 
-  // The floorboard sits in the front-left route, visibly lifted from the
-  // surrounding boards. It can be examined before the safe is opened, but the
-  // crowbar is the only tool that exposes the bedroom door key beneath it.
+  // The loose board sits partly beneath the rug corner. Folding that corner
+  // reveals its existing crowbar interaction and the same key reward.
   const looseFloorboard = new THREE.Mesh(
     new THREE.BoxGeometry(0.72, 0.04, 0.28),
     new THREE.MeshStandardMaterial({ color: 0x4a3321, roughness: 0.9 })
@@ -2132,6 +2154,7 @@ export function createBedroomLevel({
   looseFloorboard.position.set(-1.55, 0.025, 2.3);
   looseFloorboard.rotation.z = 0.035;
   looseFloorboard.castShadow = true;
+  looseFloorboard.visible = false;
   group.add(looseFloorboard);
 
   const looseFloorboardHitbox = new THREE.Mesh(
@@ -2159,7 +2182,7 @@ export function createBedroomLevel({
     }
   };
   group.add(looseFloorboardHitbox);
-  interactables.push(looseFloorboardHitbox);
+  looseFloorboardHitbox.visible = false;
 
   const bedroomKey = new THREE.Group();
   bedroomKey.position.set(-1.55, 0.07, 2.3);
@@ -2263,7 +2286,8 @@ export function createBedroomLevel({
   const NIGHTSTAND_DRAWER_OPEN_SECONDS = 0.65;
   let nightstandDrawer = null;
   let nightstandDrawerClosedPosition = null;
-  let nightstandDrawerElapsedSeconds = 0;
+  let nightstandDrawerProgress = 0;
+  let nightstandDrawerMotion = 0;
   let nightstandPhotoRevealed = false;
   const nightstandPhotoAnchor = new THREE.Group();
 
@@ -2283,11 +2307,11 @@ export function createBedroomLevel({
     });
 
     const hitbox = new THREE.Mesh(
-      new THREE.BoxGeometry(0.415, 0.168, 0.062),
+      new THREE.BoxGeometry(0.415, 0.065, 0.062),
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
     );
     hitbox.name = 'BedsideDrawerInteraction';
-    hitbox.position.set(0, 0.386, 0.252);
+    hitbox.position.set(0, 0.43, 0.252);
     hitbox.visible = false;
     ns.add(hitbox);
     loadModel(bedsideTableModelUrl).then((tableModel) => {
@@ -2342,15 +2366,19 @@ export function createBedroomLevel({
 
     return {
       reveal() {
+        if (puzzleState.foundPhotos.has(key)) return;
         photo.visible = true;
         hitbox.visible = true;
         if (!interactables.includes(hitbox)) interactables.push(hitbox);
       },
-      reset() {
+      hide() {
         photo.visible = false;
         hitbox.visible = false;
         const index = interactables.indexOf(hitbox);
         if (index >= 0) interactables.splice(index, 1);
+      },
+      reset() {
+        this.hide();
       }
     };
   }
@@ -2365,18 +2393,17 @@ export function createBedroomLevel({
   });
   const nightstandLeft = addNightstand(SEARCH_NIGHTSTAND_POSITION_X, SEARCH_NIGHTSTAND_POSITION_Z);
   nightstandLeft.userData.interact = {
-    label: 'Search drawer',
+    label: 'Open/close drawer',
     onInteract: () => {
-      if (!nightstandDrawer) return;
-      if (!drawerStates.nightstandLeft.isOpen) {
-        drawerStates.nightstandLeft.isOpen = true;
-        nightstandDrawerElapsedSeconds = 0;
-        const nightstandIndex = interactables.indexOf(nightstandLeft);
-        if (nightstandIndex >= 0) interactables.splice(nightstandIndex, 1);
-        showCaption('Inside the drawer is a faded family photograph, dated 1985, and an old battery.');
-      } else {
-        showCaption('You already searched this drawer.');
-      }
+      if (!nightstandDrawer || nightstandDrawerMotion !== 0) return;
+      const opening = !drawerStates.nightstandLeft.isOpen;
+      drawerStates.nightstandLeft.isOpen = opening;
+      nightstandDrawerMotion = opening ? 1 : -1;
+      nightstandPhotoRevealed = false;
+      if (!opening) nightstandPhotoPickup.hide();
+      showCaption(opening
+        ? 'The bedside drawer slides open.'
+        : 'The bedside drawer slides shut.');
     }
   };
   interactables.push(nightstandLeft);
@@ -2415,26 +2442,25 @@ export function createBedroomLevel({
     canCollect: () => drawerStates.dresserTop.isOpen && vanityPhotoRevealed
   });
   const dresserTop = new THREE.Mesh(
-    new THREE.BoxGeometry(0.52, 0.17, 0.10),
+    new THREE.BoxGeometry(0.52, 0.07, 0.10),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
   dresserTop.name = 'VanityMiddleDrawerInteraction';
-  dresserTop.position.set(0, 0.675, 0.33);
+  dresserTop.position.set(0, 0.72, 0.33);
   dresserTop.visible = false;
   dresser.add(dresserTop);
   dresserTop.userData.interact = {
-    label: 'Open middle drawer',
+    label: 'Open/close middle drawer',
     onInteract: () => {
-      if (!vanityDrawer) return;
-      if (!drawerStates.dresserTop.isOpen) {
-        drawerStates.dresserTop.isOpen = true;
-        vanityDrawerElapsedSeconds = 0;
-        const dresserIndex = interactables.indexOf(dresserTop);
-        if (dresserIndex >= 0) interactables.splice(dresserIndex, 1);
-        showCaption('The middle drawer slides open. A faded photograph lies inside, dated 1987.');
-      } else {
-        showCaption('You already searched this dresser.');
-      }
+      if (!vanityDrawer || vanityDrawerMotion !== 0) return;
+      const opening = !drawerStates.dresserTop.isOpen;
+      drawerStates.dresserTop.isOpen = opening;
+      vanityDrawerMotion = opening ? 1 : -1;
+      vanityPhotoRevealed = false;
+      if (!opening) dresserPhotoPickup.hide();
+      showCaption(opening
+        ? 'The middle drawer slides open.'
+        : 'The middle drawer slides shut.');
     }
   };
   interactables.push(dresserTop);
@@ -2448,8 +2474,8 @@ export function createBedroomLevel({
   // wall decor, but once all three photos are arranged it hinges open
   // into the room to reveal the cavity -- and the locked box sitting
   // inside it -- the way a picture conceals a wall safe.
-  const pinboardWidth = pinRecess.w + 0.06;
-  const pinboardHeight = pinRecess.h + 0.06;
+  const pinboardWidth = 0.80 * PINBOARD_SCALE;
+  const pinboardHeight = 0.84 * PINBOARD_SCALE;
   const pinboardX = -ROOM_W / 2 + 0.12; // flush with the recess's inner (room-facing) face
   const pinboardHingeZ = pinRecess.z + pinboardWidth / 2; // hinge on the far edge of the gap
   const pinboardClosedRotY = Math.PI / 2; // matches the left wall's own rotation.y
@@ -2462,20 +2488,40 @@ export function createBedroomLevel({
 
   const photoHolderGroup = new THREE.Group();
   photoHolderGroup.position.x = pinboardWidth / 2; // recentre on the hinge's local origin
+  photoHolderGroup.scale.setScalar(PINBOARD_SCALE);
   pinboardHinge.add(photoHolderGroup);
+  loadModel(pinboardModelUrl).then((board) => {
+    board.traverse((child) => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
+    photoHolderGroup.add(board);
+  }).catch((err) => {
+    console.error('Failed to load Level 1 pinboard:', err);
+  });
 
-  const pinboardFrame = new THREE.Mesh(
-    new THREE.BoxGeometry(pinboardWidth, pinboardHeight, 0.03),
-    new THREE.MeshStandardMaterial({ color: 0x2c1c10, roughness: 0.85 })
-  );
-  photoHolderGroup.add(pinboardFrame);
-
-  const corkPanel = new THREE.Mesh(
-    new THREE.BoxGeometry(pinboardWidth - 0.08, pinboardHeight - 0.08, 0.02),
-    new THREE.MeshStandardMaterial({ color: 0xb99364, roughness: 1 })
-  );
-  corkPanel.position.z = 0.02;
-  photoHolderGroup.add(corkPanel);
+  // The player's collision system uses world-space rectangles. One moving
+  // footprint follows the hinge, so the open board stays solid without
+  // leaving a closed-position obstacle over the revealed cubby.
+  const pinboardCollider = {
+    minX: 0, maxX: 0, minZ: 0, maxZ: 0
+  };
+  colliders.push(pinboardCollider);
+  function updatePinboardCollision() {
+    const angle = pinboardHinge.rotation.y;
+    const cosine = Math.cos(angle);
+    const sine = Math.sin(angle);
+    const halfThickness = 0.09; // enlarged frame and raised pin heads
+    const farX = pinboardX + cosine * pinboardWidth;
+    const farZ = pinboardHingeZ - sine * pinboardWidth;
+    pinboardCollider.minX = Math.min(pinboardX, farX) - halfThickness;
+    pinboardCollider.maxX = Math.max(pinboardX, farX) + halfThickness;
+    pinboardCollider.minZ = Math.min(pinboardHingeZ, farZ) - halfThickness;
+    pinboardCollider.maxZ = Math.max(pinboardHingeZ, farZ) + halfThickness;
+  }
+  updatePinboardCollision();
 
   // Each of the four findable photos gets its own pin + a real photo
   // thumbnail underneath it (hidden until that photo is actually found),
@@ -2484,19 +2530,14 @@ export function createBedroomLevel({
   // solving the puzzle happens in a dedicated close-up board view (see
   // onExaminePhotos below) where the photos can be dragged into place,
   // rather than clicking each one in the 3D world.
-  const pinGeo = new THREE.SphereGeometry(0.015, 8, 6);
   const photoSlots = {
-    windowPhoto: { pin: [-0.2, 0.3], pinColor: 0x477a96, photo: [-0.2, 0.18, -0.04], tex: windowPhotoTex, date: 1984, w: 0.19, h: 0.15 },
-    nightstandLeft: { pin: [0.2, 0.3], pinColor: 0xa02020, photo: [0.2, 0.18, 0.05], tex: puzzlePhotoTextures[1985], date: 1985, w: 0.19, h: 0.15 },
-    floorPhoto: { pin: [-0.2, -0.1], pinColor: 0x1f4f8f, photo: [-0.2, -0.22, -0.06], tex: tornPhotoTex, date: 1986, w: 0.19, h: 0.15 },
-    dresserTop: { pin: [0.2, -0.1], pinColor: 0xc9a227, photo: [0.2, -0.22, 0.03], tex: puzzlePhotoTextures[1987], date: 1987, w: 0.19, h: 0.15 }
+    windowPhoto: { pin: [-0.2, 0.3], pinColor: 0x477a96, photo: [-0.2, 0.18, -0.04], tex: windowPhotoTex, date: 1984, w: 0.19, h: 0.19 },
+    nightstandLeft: { pin: [0.2, 0.3], pinColor: 0xa02020, photo: [0.2, 0.18, 0.05], tex: puzzlePhotoTextures[1985], date: 1985, w: 0.19, h: 0.19 },
+    floorPhoto: { pin: [-0.2, -0.1], pinColor: 0x1f4f8f, photo: [-0.2, -0.22, -0.06], tex: tornPhotoTex, date: 1986, w: 0.19, h: 0.19 },
+    dresserTop: { pin: [0.2, -0.1], pinColor: 0xc9a227, photo: [0.2, -0.22, 0.03], tex: puzzlePhotoTextures[1987], date: 1987, w: 0.19, h: 0.19 }
   };
   const photoThumbMeshes = {};
   Object.entries(photoSlots).forEach(([key, slot]) => {
-    const pin = new THREE.Mesh(pinGeo, new THREE.MeshStandardMaterial({ color: slot.pinColor, roughness: 0.4, metalness: 0.5 }));
-    pin.position.set(slot.pin[0], slot.pin[1], 0.045);
-    photoHolderGroup.add(pin);
-
     const thumb = new THREE.Mesh(
       new THREE.PlaneGeometry(slot.h * PUZZLE_PHOTO_ASPECT_RATIO, slot.h),
       new THREE.MeshStandardMaterial({ map: slot.tex, roughness: 1 })
@@ -2509,7 +2550,7 @@ export function createBedroomLevel({
   });
 
   const photoAreaHitbox = new THREE.Mesh(
-    new THREE.BoxGeometry(pinboardWidth - 0.05, pinboardHeight - 0.05, 0.15),
+    new THREE.BoxGeometry(0.75, 0.79, 0.15 / PINBOARD_SCALE),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
   photoAreaHitbox.userData.interact = {
@@ -2544,8 +2585,13 @@ export function createBedroomLevel({
 
   // ---------- locked box (sits in the wall cavity behind the pinboard, appears after photo puzzle is solved) ----------
   const lockedBoxGroup = new THREE.Group();
-  lockedBoxGroup.position.set(-ROOM_W / 2 - pinRecess.depth * 0.55, pinRecess.y - pinRecess.h / 2 + 0.16, pinRecess.z);
+  lockedBoxGroup.position.set(
+    -ROOM_W / 2 - pinRecess.depth * 0.43,
+    cubbyFloorSurfaceY + 0.15 * PINBOARD_SCALE + 0.005,
+    pinRecess.z
+  );
   lockedBoxGroup.rotation.y = Math.PI / 2; // face the lock plate out toward the room
+  lockedBoxGroup.scale.setScalar(PINBOARD_SCALE);
   lockedBoxGroup.name = 'Level1_LockedBox';
   group.add(lockedBoxGroup);
 
@@ -2724,15 +2770,19 @@ export function createBedroomLevel({
       setFlashlightPickupEnabled(false);
 
       drawerStates.nightstandLeft.isOpen = false;
-      nightstandDrawerElapsedSeconds = 0;
+      nightstandDrawerProgress = 0;
+      nightstandDrawerMotion = 0;
       nightstandPhotoRevealed = false;
       nightstandPhotoAnchor.position.z = 0;
       if (nightstandDrawer) nightstandDrawer.position.copy(nightstandDrawerClosedPosition);
+      nightstandLeft.position.z = 0.252;
       drawerStates.dresserTop.isOpen = false;
-      vanityDrawerElapsedSeconds = 0;
+      vanityDrawerProgress = 0;
+      vanityDrawerMotion = 0;
       vanityPhotoRevealed = false;
       vanityPhotoAnchor.position.z = 0;
       if (vanityDrawer) vanityDrawer.position.copy(vanityDrawerClosedPosition);
+      dresserTop.position.z = 0.33;
       drawerStates.bin.isOpen = false;
       drawerStates.lampDrawer.isOpen = false;
       chairGroup.position.copy(chairRestPosition);
@@ -2754,6 +2804,7 @@ export function createBedroomLevel({
       dresserPhotoPickup.reset();
       Object.values(photoThumbMeshes).forEach((thumb) => { thumb.visible = false; });
       pinboardHinge.rotation.y = pinboardClosedRotY;
+      updatePinboardCollision();
 
       boxHitbox.visible = true;
       boxOpened = false;
@@ -2761,9 +2812,16 @@ export function createBedroomLevel({
       updateLockedBoxPresentation(0);
       boxVisual.visible = false;
 
-      looseFloorboard.visible = true;
-      looseFloorboardHitbox.visible = true;
-      if (!interactables.includes(looseFloorboardHitbox)) interactables.push(looseFloorboardHitbox);
+      rugCornerOpen = false;
+      rugCornerOpening = false;
+      rugFoldProgress = 0;
+      if (rugFoldCorner) rugFoldCorner.quaternion.identity();
+      rugCornerHitbox.visible = Boolean(rugFoldCorner);
+      if (rugCornerHitbox.visible && !interactables.includes(rugCornerHitbox)) interactables.push(rugCornerHitbox);
+      looseFloorboard.visible = false;
+      looseFloorboardHitbox.visible = false;
+      const hiddenFloorboardIndex = interactables.indexOf(looseFloorboardHitbox);
+      if (hiddenFloorboardIndex >= 0) interactables.splice(hiddenFloorboardIndex, 1);
       bedroomKey.visible = false;
       bedroomKeyHitbox.visible = false;
       const bedroomKeyIndex = interactables.indexOf(bedroomKeyHitbox);
@@ -2792,27 +2850,52 @@ export function createBedroomLevel({
       puzzleState.polaroidRead = false;
     },
     update(dt) {
-      if (vanityDrawer && drawerStates.dresserTop.isOpen) {
-        vanityDrawerElapsedSeconds = Math.min(vanityDrawerOpenSeconds, vanityDrawerElapsedSeconds + dt);
-        const progress = vanityDrawerElapsedSeconds / vanityDrawerOpenSeconds;
+      if (rugCornerOpening && rugFoldCorner) {
+        rugFoldProgress = Math.min(1, rugFoldProgress + dt / rugFoldDurationSeconds);
+        const eased = rugFoldProgress * rugFoldProgress * (3 - 2 * rugFoldProgress);
+        rugFoldCorner.quaternion.setFromAxisAngle(rugFoldAxis, rugFoldAngle * eased);
+        if (rugFoldProgress === 1) {
+          rugCornerOpening = false;
+          rugCornerOpen = true;
+          if (!puzzleState.floorboardPried) {
+            looseFloorboard.visible = true;
+            looseFloorboardHitbox.visible = true;
+            if (!interactables.includes(looseFloorboardHitbox)) interactables.push(looseFloorboardHitbox);
+          }
+        }
+      }
+      if (vanityDrawer && vanityDrawerMotion !== 0) {
+        vanityDrawerProgress = THREE.MathUtils.clamp(
+          vanityDrawerProgress + vanityDrawerMotion * dt / vanityDrawerOpenSeconds, 0, 1
+        );
+        const progress = vanityDrawerProgress;
         const travel = vanityDrawerTravelMetres * progress * progress * (3 - 2 * progress);
         vanityDrawer.position.z = vanityDrawerClosedPosition.z + travel;
         vanityPhotoAnchor.position.z = travel;
-        if (progress === 1 && !vanityPhotoRevealed) {
+        dresserTop.position.z = 0.33 + travel;
+        if (progress === 1) {
+          vanityDrawerMotion = 0;
           vanityPhotoRevealed = true;
           dresserPhotoPickup.reveal();
+        } else if (progress === 0) {
+          vanityDrawerMotion = 0;
         }
       }
-      // A reset-safe scripted slide, with pickup enabled only after it finishes.
-      if (nightstandDrawer && drawerStates.nightstandLeft.isOpen) {
-        nightstandDrawerElapsedSeconds = Math.min(NIGHTSTAND_DRAWER_OPEN_SECONDS, nightstandDrawerElapsedSeconds + dt);
-        const progress = nightstandDrawerElapsedSeconds / NIGHTSTAND_DRAWER_OPEN_SECONDS;
+      if (nightstandDrawer && nightstandDrawerMotion !== 0) {
+        nightstandDrawerProgress = THREE.MathUtils.clamp(
+          nightstandDrawerProgress + nightstandDrawerMotion * dt / NIGHTSTAND_DRAWER_OPEN_SECONDS, 0, 1
+        );
+        const progress = nightstandDrawerProgress;
         const travel = NIGHTSTAND_DRAWER_TRAVEL_METRES * progress * progress * (3 - 2 * progress);
         nightstandDrawer.position.z = nightstandDrawerClosedPosition.z + travel;
         nightstandPhotoAnchor.position.z = travel;
-        if (progress === 1 && !nightstandPhotoRevealed) {
+        nightstandLeft.position.z = 0.252 + travel;
+        if (progress === 1) {
+          nightstandDrawerMotion = 0;
           nightstandPhotoRevealed = true;
           nightstandPhotoPickup.reveal();
+        } else if (progress === 0) {
+          nightstandDrawerMotion = 0;
         }
       }
       this._t = (this._t ?? 0) + dt;
@@ -2851,6 +2934,7 @@ export function createBedroomLevel({
       const targetSwing = puzzleState.photosArranged ? pinboardOpenSwing : 0;
       const targetRotY = pinboardClosedRotY + targetSwing;
       pinboardHinge.rotation.y += (targetRotY - pinboardHinge.rotation.y) * Math.min(1, dt * 3);
+      updatePinboardCollision();
       updateLockedBoxPresentation(dt);
 
       // Same easing treatment for the front door once the planks are

@@ -601,8 +601,8 @@ html, body {
 
 #board-panel {
   position: relative;
-  width: min(1000px, 94vw);
-  padding: 30px 36px 24px;
+  width: min(1120px, 96vw);
+  padding: 28px 32px 24px;
   background: #2c1c10;
   border: 10px solid #1c1108;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7);
@@ -612,8 +612,8 @@ html, body {
 
 #board-slots {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, clamp(112px, 24vh, 208px)));
-  gap: 28px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
   justify-content: center;
   padding: 22px;
   background: #b99364;
@@ -642,20 +642,20 @@ html, body {
 
 #board-tray {
   min-height: 0;
-  margin-top: 28px;
+  margin-top: 20px;
   padding: 20px;
   background: rgba(0, 0, 0, 0.25);
   border: 1px solid #4a3624;
   display: flex;
   flex-wrap: wrap;
-  gap: 24px;
+  gap: 16px;
   align-items: flex-start;
   justify-content: center;
 }
 
 .board-photo {
   /* Full portrait print, including its dated border; no landscape crop. */
-  width: clamp(96px, min(18vw, 21vh), 188px);
+  width: clamp(110px, min(20vw, 27vh), 220px);
   height: auto;
   aspect-ratio: 1122 / 1402;
   flex-shrink: 0;
@@ -674,6 +674,12 @@ html, body {
 .board-slot .board-photo {
   max-width: 100%;
   max-height: 100%;
+}
+
+@media (max-width: 720px) {
+  #board-slots {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .board-photo:hover {
