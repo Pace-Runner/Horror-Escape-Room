@@ -29,6 +29,7 @@ import { createBackroomsHunter } from './systems/BackroomsHunter.js';
 import { createVisor } from './core/Visor.js';
 import { DOCUMENTS } from './story/lines.js';
 import { line } from './dialogue/index.js';
+import { installUnloadGuard } from './core/KeyboardGuard.js';
 import { Hands } from './systems/hands/hands.js';
 import { HELD_MAGNIFICATION } from './systems/hands/sockets.js';
 import { setHandAssetUrl } from './systems/hands/hand-mesh.js';
@@ -2409,6 +2410,10 @@ function beginGame() {
 }
 
 let gameStarted = false;
+// "Leave site?" instead of a silent close if Ctrl+W (crouch + forward) gets
+// past Keyboard Lock -- Firefox, Safari, or a player out of fullscreen. Only
+// while actually playing; see core/KeyboardGuard.js for why not on reloads.
+installUnloadGuard(() => gameStarted && player.isLocked && !gameState.endingChosen);
 startButton.addEventListener('click', () => {
   toggleCredits(false);
   if (!gameStarted) {

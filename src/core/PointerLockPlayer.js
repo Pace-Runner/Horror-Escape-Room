@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { enterImmersive } from './KeyboardGuard.js';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 import { resolveCircle } from './collision.js';
 import { WALK_SPEED, SPRINT_SCALE } from './MoveSpeeds.js';
@@ -236,13 +237,20 @@ export class PointerLockPlayer {
   }
 
   #onKey(e, isDown) {
+    // Ctrl is crouch, so every Ctrl+key is a thing the player does by accident
+    // mid-game. Cancel the browser's action for all of them while the game has
+    // the pointer -- save page, bookmark, find. The ones a page is not allowed
+    // to cancel (Ctrl+W above all) are core/KeyboardGuard.js's job. Not while
+    // unlocked, so Ctrl+C still copies in the menus.
+    if (this.isLocked && (e.ctrlKey || e.metaKey)) e.preventDefault();
     switch (e.code) {
       case 'KeyW': case 'ArrowUp': this.keys.forward = isDown; break;
       case 'KeyS': case 'ArrowDown': this.keys.back = isDown; break;
       case 'KeyA': case 'ArrowLeft': this.keys.left = isDown; break;
       case 'KeyD': case 'ArrowRight': this.keys.right = isDown; break;
       // Ctrl rather than the more usual C, which this game already spends on
-      // the credits screen (see index.html).
+      // the credits screen (see index.html). Ctrl+W crouch-walks instead of
+      // closing the tab because of core/KeyboardGuard.js.
       case 'ControlLeft': case 'ControlRight': this.keys.crouch = isDown; break;
       case 'ShiftLeft': case 'ShiftRight': this.keys.sprint = isDown; break;
     }
@@ -310,6 +318,7 @@ export class PointerLockPlayer {
     } catch {
       // Older signature: throws rather than returning a rejected promise.
       plainLock();
+      enterImmersive();
       return;
     }
     // Chromium returns a promise and rejects with NotSupportedError where raw
@@ -318,6 +327,12 @@ export class PointerLockPlayer {
     if (req && typeof req.catch === 'function') {
       req.catch(plainLock);
     }
+    // AFTER the pointer request, not before. Both need the click's user
+    // activation and Chromium's fullscreen consumes it, so asking for
+    // fullscreen first left the pointer request with nothing to spend. Every
+    // path into the game comes through here, which is why this lives here
+    // rather than at each button.
+    enterImmersive();
   }
 
   unlock() {
