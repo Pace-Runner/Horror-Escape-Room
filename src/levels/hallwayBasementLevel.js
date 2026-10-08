@@ -29,6 +29,7 @@ import operatingTableModelUrl from '../assets/models/operating_table.glb?url';
 import surgicalLampModelUrl from '../assets/models/surgical_lamp.glb?url';
 import instrumentTrolleyModelUrl from '../assets/models/instrument_trolley.glb?url';
 import labChairModelUrl from '../assets/models/lab_chair.glb?url';
+import storageShelfModelUrl from '../assets/models/storage_shelf.glb?url';
 import { createStaticScreenMaterial } from '../world/StaticScreenMaterial.js';
 import { createCctvFeeds, FEED_IDS, FEED_LABELS } from '../world/CctvFeeds.js';
 import { SECURITY_CODE } from '../world/doorPanels.js';
@@ -187,6 +188,9 @@ const FUSE_COVER_OPEN_SECONDS = 0.6;
 const DESK_POSITION = { x: 1.6 * LAB_SCALE, z: LAB_D / 2 - 0.55 };
 const DESK_TOP_SIZE = { width: 1.2, depth: 0.6, thickness: 0.06, standHeight: 0.75 };
 const WORKBENCH_POSITION = { x: 0.4 * LAB_SCALE, z: -0.3 * LAB_SCALE };
+
+/** One unit of the steel shelving (storage_shelf.glb): length along x. Mirrors build_storage_shelf.py. */
+const STORAGE_SHELF = { width: 1.2, depth: 0.5, height: 1.83 };
 
 /** The breaker panel's place along the west wall. The load chart hangs beside it. */
 const BREAKER_PANEL_Z = 1.7 * LAB_SCALE;
@@ -2343,17 +2347,53 @@ export function createHallwayBasementLevel({
     }
   }
 
-  // storage shelves
-  const shelfMat = new THREE.MeshStandardMaterial({ color: 0x24261f, roughness: 0.8, metalness: 0.4 });
-  for (let s = 0; s < 2; s++) {
-    const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.2, 0.5), shelfMat);
-    shelf.position.set(LAB_W / 2 - 0.9, 1.1, (-2 + s * 2.4) * LAB_SCALE);
-    lab.add(shelf);
+  /**
+   * Storage shelving along the east wall: three units of storage_shelf.glb
+   * (blender/build_storage_shelf.py), boltless steel rivet shelving with
+   * slotted uprights. The two end units stand with a short side to the wall
+   * and run out into the room; the middle one stands with its long side to
+   * the wall. They replace two plain dark boxes.
+   *
+   * One model, loaded once and cloned: the clones share its geometry, so the
+   * slotted uprights -- which are real holes, and a lot of small parts --
+   * are only uploaded to the GPU once.
+   */
+  const SHELF_WALL_GAP = 0.02;
+  const shelfPlacements = [
+    // [z along the wall, true if the long side is against it]
+    [-2 * LAB_SCALE, false],
+    [0, true],
+    [2 * LAB_SCALE, false]
+  ];
+  const shelfUnits = shelfPlacements.map(([z, longSideToWall]) => {
+    // Long side to the wall means the unit's length runs along the wall (z),
+    // so it is turned a quarter; out from the wall, its depth is what it takes up.
+    const reachFromWall = longSideToWall ? STORAGE_SHELF.depth : STORAGE_SHELF.width;
+    const alongWall = longSideToWall ? STORAGE_SHELF.width : STORAGE_SHELF.depth;
+    const unit = new THREE.Group();
+    unit.position.set(LAB_W / 2 - SHELF_WALL_GAP - reachFromWall / 2, 0, z);
+    unit.rotation.y = longSideToWall ? Math.PI / 2 : 0;
+    lab.add(unit);
     colliders.push({
-      minX: shelf.position.x - 0.8, maxX: shelf.position.x + 0.8,
-      minZ: LAB_Z + shelf.position.z - 0.25, maxZ: LAB_Z + shelf.position.z + 0.25
+      minX: unit.position.x - reachFromWall / 2, maxX: LAB_W / 2,
+      minZ: LAB_Z + z - alongWall / 2, maxZ: LAB_Z + z + alongWall / 2
     });
-  }
+    return unit;
+  });
+  loadModel(storageShelfModelUrl).then((model) => {
+    // Light galvanised grey gone dull and spotted with rust, rather than the
+    // flat grey the model carries.
+    const steelMap = createPaintedSteelTexture({ base: [150, 152, 148], rust: 0.6 });
+    const steelNormal = createFixtureSteelNormalTexture();
+    model.traverse((child) => {
+      if (!child.isMesh || !['ShelfUpright', 'ShelfBoard'].includes(child.material.name)) return;
+      child.material.color.set(0xffffff);
+      child.material.map = steelMap;
+      child.material.normalMap = steelNormal;
+      child.material.needsUpdate = true;
+    });
+    shelfUnits.forEach((unit, i) => unit.add(shadowed(i === 0 ? model : model.clone())));
+  }).catch((err) => console.error('[lab] storage_shelf.glb failed to load', err));
 
   // retro computer desk with the CCTV monitor (custom shader material)
   /**
