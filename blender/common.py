@@ -262,22 +262,121 @@ def export_rigged_glb(out_path, objects):
 # glass_fuse.py are built this way.
 # ---------------------------------------------------------------------------
 
-def add_box(bm, centre, size):
+def add_box(bm, centre, size, transform=None):
+    """`transform`, when given, places the box in some other frame first --
+    a tilted table section, say -- so parts can be laid out in that frame's
+    own flat coordinates."""
     matrix = Matrix.Translation(centre) @ Matrix.Diagonal((*size, 1.0))
+    if transform is not None:
+        matrix = transform @ matrix
     bmesh.ops.create_cube(bm, size=1.0, matrix=matrix)
 
 
-def add_cylinder(bm, centre, radius, depth, axis='Z', segments=12, radius2=None):
+def add_cylinder(bm, centre, radius, depth, axis='Z', segments=12, radius2=None, transform=None):
     rotation = {
         'X': Matrix.Rotation(math.pi / 2, 4, 'Y'),
         'Y': Matrix.Rotation(math.pi / 2, 4, 'X'),
         'Z': Matrix.Identity(4),
     }[axis]
+    matrix = Matrix.Translation(centre) @ rotation
+    if transform is not None:
+        matrix = transform @ matrix
     bmesh.ops.create_cone(
         bm, cap_ends=True, cap_tris=False, segments=segments,
         radius1=radius, radius2=radius if radius2 is None else radius2, depth=depth,
-        matrix=Matrix.Translation(centre) @ rotation
+        matrix=matrix
     )
+
+
+def add_lathe(bm, profile, centre=(0, 0, 0), segments=24):
+    """
+    A solid of revolution about the Z axis through `centre`. `profile` is a
+    list of (radius, z) pairs; start and end it on radius 0 to close the top
+    and bottom.
+    """
+    cx, cy, cz = centre
+    before = set(bm.verts)
+    verts = [bm.verts.new((cx + r, cy, cz + z)) for (r, z) in profile]
+    edges = [bm.edges.new((verts[i], verts[i + 1])) for i in range(len(verts) - 1)]
+    bmesh.ops.spin(
+        bm, geom=verts + edges, axis=(0.0, 0.0, 1.0), cent=(cx, cy, cz),
+        angle=math.radians(360), steps=segments, use_duplicate=False
+    )
+    # Welds the seam and the points on the axis -- only this lathe's own
+    # vertices, so a part that happens to touch it is not merged into it.
+    bmesh.ops.remove_doubles(bm, verts=[v for v in bm.verts if v not in before], dist=0.0001)
+
+
+def add_ring(bm, centre, major_radius, minor_radius, axis='Z', segments=24, sides=8, transform=None):
+    """A torus: a ring of tube, lying in the plane square to `axis`."""
+    rotation = {
+        'X': Matrix.Rotation(math.pi / 2, 4, 'Y'),
+        'Y': Matrix.Rotation(math.pi / 2, 4, 'X'),
+        'Z': Matrix.Identity(4),
+    }[axis]
+    matrix = Matrix.Translation(centre) @ rotation
+    if transform is not None:
+        matrix = transform @ matrix
+    rings = []
+    for i in range(segments):
+        a = 2 * math.pi * i / segments
+        ring = []
+        for k in range(sides):
+            b = 2 * math.pi * k / sides
+            r = major_radius + minor_radius * math.cos(b)
+            ring.append(bm.verts.new(matrix @ Vector((r * math.cos(a), r * math.sin(a), minor_radius * math.sin(b)))))
+        rings.append(ring)
+    for i in range(segments):
+        a, b = rings[i], rings[(i + 1) % segments]
+        for k in range(sides):
+            bm.faces.new((a[k], a[(k + 1) % sides], b[(k + 1) % sides], b[k]))
+
+
+def add_band(bm, inner_radius, outer_radius, width, segments=24, transform=None, arc=None):
+    """
+    A hollow ring of flat band -- a cuff, a collar, a hose clamp -- round the Z
+    axis through the origin of `transform`, `width` tall along it. Unlike
+    add_ring's round tube, its faces are flat inside and out.
+
+    `arc` = (start, end) in radians, counter-clockwise, makes it an open band
+    running only between those angles, with both ends capped.
+    """
+    matrix = transform if transform is not None else Matrix.Identity(4)
+    profile = ((inner_radius, -width / 2), (outer_radius, -width / 2),
+               (outer_radius, width / 2), (inner_radius, width / 2))
+    if arc is None:
+        angles = [2 * math.pi * i / segments for i in range(segments)]
+    else:
+        angles = [arc[0] + (arc[1] - arc[0]) * i / segments for i in range(segments + 1)]
+    rings = [[bm.verts.new(matrix @ Vector((r * math.cos(a), r * math.sin(a), z))) for r, z in profile]
+             for a in angles]
+    pairs = len(rings) if arc is None else len(rings) - 1
+    for i in range(pairs):
+        a, b = rings[i], rings[(i + 1) % len(rings)]
+        for k in range(4):
+            bm.faces.new((a[k], b[k], b[(k + 1) % 4], a[(k + 1) % 4]))
+    if arc is not None:
+        bm.faces.new(list(reversed(rings[0])))
+        bm.faces.new(rings[-1])
+
+
+def add_blob(bm, centre, radius, seed, points=20, wobble=0.35, stretch=(1.0, 1.0), transform=None):
+    """
+    A flat, irregular splash facing +Z: a stain, a spill. Seeded, so the same
+    stain comes out the same shape every build.
+    """
+    import random
+    rng = random.Random(seed)
+    radii = [radius * (1 - wobble / 2 + wobble * rng.random()) for _ in range(points)]
+    # Smoothed once, so the edge undulates instead of being a star.
+    radii = [(radii[i - 1] + 2 * radii[i] + radii[(i + 1) % points]) / 4 for i in range(points)]
+    matrix = transform if transform is not None else Matrix.Identity(4)
+    verts = []
+    for i, r in enumerate(radii):
+        a = 2 * math.pi * i / points
+        local = Vector((centre[0] + r * math.cos(a) * stretch[0], centre[1] + r * math.sin(a) * stretch[1], centre[2]))
+        verts.append(bm.verts.new(matrix @ local))
+    bm.faces.new(verts)
 
 
 def catmull_rom(points, samples_per_segment=3):
