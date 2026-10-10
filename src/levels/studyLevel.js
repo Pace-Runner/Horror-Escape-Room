@@ -62,6 +62,13 @@ export function createStudyLevel({
   /** 'released' | 'contained'. The last decision in the game. */
   onChooseEnding = () => {},
   onReadNote = () => {},
+  /**
+   * Is this item in the player's hand right now? The deadbolt and the gate both
+   * want their key HELD, not merely found -- the same rule as the bedroom's
+   * crowbar and keys. Defaults to "yes" so an unwired caller keeps the old
+   * behaviour rather than two locks that can never open.
+   */
+  isHolding = () => true,
   /** Fired with the lock id each time one opens, and again when all three are. */
   onLockOpened = () => {},
   onAllLocksOpen = () => {}
@@ -238,7 +245,11 @@ export function createStudyLevel({
       }
       puzzle.drawerOpen = true;
       puzzle.hasDoorKey = true;
-      doorKey.visible = true;
+      // Left hidden: the key goes straight into the player's hand (onTakeDoorKey
+      // -> the held-item view), and the same key lying in the drawer as well
+      // would be two of it. The mesh is still the one the hand shows -- it is
+      // cloned for that, see world/itemMeshes.js.
+      doorKey.visible = false;
       drawerNote.visible = true;
       drawerHitbox.userData.interact.label = 'Search the drawer';
       interactables.push(drawerNoteHitbox);
@@ -619,6 +630,10 @@ export function createStudyLevel({
           showCaption(line('dialog_deadbolt_no_key'));
           return false;
         }
+        if (!isHolding('doorKey')) {
+          showCaption(line('dialog_hold_door_key'));
+          return false;
+        }
         showCaption(line('dialog_deadbolt_opened'));
         return true;
       }
@@ -905,6 +920,10 @@ export function createStudyLevel({
           : 'dialog_fence_gate_locked'));
         return;
       }
+      if (!isHolding('gateKey')) {
+        showCaption(line('dialog_hold_gate_key'));
+        return;
+      }
       puzzle.gateOpen = true;
       setGateSolid(false);
       showCaption(line('dialog_fence_gate_opens'));
@@ -1118,6 +1137,9 @@ export function createStudyLevel({
       visorHitbox,
       visorOnly,
       gateKey,
+      // The desk-drawer key. Cloned by main.js for the held and dropped views,
+      // like gateKey and visorGroup above -- see world/itemMeshes.js.
+      doorKey,
       letterHit,
       exterior,
       leaveHit,

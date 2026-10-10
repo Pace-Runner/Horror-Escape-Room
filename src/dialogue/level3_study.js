@@ -178,3 +178,9 @@ export const dialog_fence_gate_locked_visor = ["Padlocked. The key is not on thi
 export const dialog_fence_gate_locked = ["A padlocked gate across the porch. The key is not in it, and not on the ground.", "level3/fence_gate_locked.m4a"];
 
 export const dialog_fence_gate_opens = ["The padlock opens. The gate swings out into the rain.", "level3/fence_gate_opens.m4a"];
+
+// ---- holding the right key -------------------------------------------------
+
+export const dialog_hold_door_key = ["The key from the desk drawer would turn this. You need it in your hand.", "level3/hold_door_key.m4a"];
+
+export const dialog_hold_gate_key = ["This padlock wants the gate key. You need it in your hand.", "level3/hold_gate_key.m4a"];

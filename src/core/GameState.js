@@ -77,15 +77,19 @@ function initialState() {
  * Display info for every item the inventory HUD can show. Keyed by the same
  * id addItem()/removeItem() take, so a level only ever has to know a short
  * string, never a label or a hint.
+ *
+ * `label` is the item's title (hotbar tooltip); `name` is how it reads in the
+ * middle of a sentence, for prompts built around it ("Pick up crowbar").
  */
 export const ITEMS = {
-  flashlight: { label: 'Flashlight', hint: 'F to toggle' },
-  crowbar: { label: 'Crowbar' },
-  brassKey: { label: 'Brass safe key' },
-  bedroomKey: { label: 'Bedroom door key' },
-  visor: { label: "Annabelle's visor", hint: 'V to toggle' },
-  doorKey: { label: 'Desk drawer key' },
-  gateKey: { label: 'Gate key' }
+  paperclip: { label: 'Paperclip', name: 'paperclip' },
+  flashlight: { label: 'Flashlight', name: 'flashlight', hint: 'F to toggle' },
+  crowbar: { label: 'Crowbar', name: 'crowbar' },
+  brassKey: { label: 'Brass safe key', name: 'brass key' },
+  bedroomKey: { label: 'Bedroom door key', name: 'bedroom key' },
+  visor: { label: "Annabelle's visor", name: 'visor', hint: 'V to toggle' },
+  doorKey: { label: 'Desk drawer key', name: 'desk drawer key' },
+  gateKey: { label: 'Gate key', name: 'gate key' }
 };
 
 /** Adds an item to the carried set. A no-op if it is already there. */
@@ -93,7 +97,7 @@ export function addItem(id) {
   gameState.inventory.add(id);
 }
 
-/** Removes an item once it is spent (e.g. the crowbar, after the planks). */
+/** Removes an item once it is spent (e.g. the crowbar, after the planks) or dropped. */
 export function removeItem(id) {
   gameState.inventory.delete(id);
 }

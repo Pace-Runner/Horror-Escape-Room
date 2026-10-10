@@ -124,3 +124,15 @@ export const dialog_lockbox_opened = ["The brass key fits. Inside is a crowbar a
 export const dialog_lockbox_needs_key = ["The box is locked. You need to find a key first.", "level1/lockbox_needs_key.m4a"];
 
 export const dialog_lockbox_locked_tight = ["The box is locked tight. Maybe clues elsewhere will help unlock it.", "level1/lockbox_locked_tight.m4a"];
+
+// ---- the paperclip, and holding the right thing ----------------------------
+
+export const dialog_pickup_paperclip = ["A paperclip, caught between the pillows. Bent straight, it might reach the cuff's lock.", "level1/pickup_paperclip.m4a"];
+
+export const dialog_cuff_hold_paperclip = ["Your fingers find the cuff's tiny keyhole. You need the paperclip in your hand to work it.", "level1/cuff_hold_paperclip.m4a"];
+
+export const dialog_hold_crowbar = ["You need the crowbar in your hand for this.", "level1/hold_crowbar.m4a"];
+
+export const dialog_hold_bedroom_key = ["The lock wants the bedroom key. Take it in your hand.", "level1/hold_bedroom_key.m4a"];
+
+export const dialog_hold_brass_key = ["The brass key would fit this. You need it in your hand.", "level1/hold_brass_key.m4a"];

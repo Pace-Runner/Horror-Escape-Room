@@ -229,6 +229,18 @@ export function createBedroomLevel({
   // animation against exactly how long the story already says picking the
   // lock takes.
   onPaperclipUsed = () => {},
+  // The paperclip is picked up FIRST, into the inventory, and only then used on
+  // the cuff -- see cuffLockHitbox below.
+  onPaperclipPicked = () => {},
+  /**
+   * Is this item in the player's hand right now? Every item puzzle here asks,
+   * not just whether the item was ever found: the crowbar has to be the thing
+   * you are holding to pry with it. main.js owns the hand (core/HeldItems.js);
+   * the level only asks. Defaults to "yes" so a caller that does not wire it
+   * gets the old found-is-enough behaviour rather than a level that can never
+   * be finished.
+   */
+  isHolding = () => true,
   onFlashlightPicked = () => {},
   onBrassKeyFound = () => {},
   onBrassKeyUsed = () => {},
@@ -1960,11 +1972,57 @@ export function createBedroomLevel({
   paperclipHitbox.userData.interact = {
     label: 'Pick up paperclip',
     onInteract: () => {
-      onPaperclipUsed();
-      showCaption(line('dialog_paperclip_unlocks_cuff'));
+      // Into the inventory, and into the hand -- it is not used yet. Using it is
+      // a second, deliberate press on the cuff, which only exists from here on.
       paperclip.visible = false;
       paperclipHitbox.visible = false;
       const idx = interactables.indexOf(paperclipHitbox);
+      if (idx >= 0) interactables.splice(idx, 1);
+      if (!interactables.includes(cuffLockHitbox)) interactables.push(cuffLockHitbox);
+      onPaperclipPicked();
+      showCaption(line('dialog_pickup_paperclip'));
+    }
+  };
+  interactables.push(paperclipHitbox);
+  group.add(paperclipHitbox);
+
+  /**
+   * The cuff's lock, which the paperclip is used ON.
+   *
+   * NOT AT THE CUFF, and that is measured rather than lazy. The cuff ring really
+   * sits at about (2.15, 0.82, -1.54) -- bed-local (0.495, 0.82, 0.36), the
+   * chain's run end -- which is some 74 degrees to the right of the restrained
+   * view's forward axis. BEDROOM_RESTRAINED_LOOK_BOUNDS in main.js lets the
+   * chained player turn at most about 3 degrees right of -Z, and Interaction
+   * casts from the centre of the screen, so a hitbox on the cuff could never be
+   * aimed at; the same goes for every link of the run back to the headboard.
+   * (The "(1.90, 0.98, -2.35)" quoted for the cuff above the paperclip is from
+   * an older chain layout.)
+   *
+   * So it sits where the paperclip was: in the middle of the bounded view, at
+   * exactly the spot the player is already looking at when they pick the clip
+   * up -- the prompt simply changes under the crosshair from "Pick up
+   * paperclip" to "Pick the cuff lock". A little larger than the clip's own
+   * hitbox, since there is nothing small left there to aim at.
+   */
+  const cuffLockHitbox = new THREE.Mesh(
+    new THREE.SphereGeometry(0.16, 8, 8),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  cuffLockHitbox.name = 'CuffLockInteraction';
+  cuffLockHitbox.position.copy(paperclip.position);
+  cuffLockHitbox.userData.interact = {
+    label: 'Pick the cuff lock',
+    onInteract: () => {
+      // Once only: E spammed through the 900 ms below must not restart it.
+      if (puzzleState.chainsEscaped || freeTimer) return;
+      if (!isHolding('paperclip')) {
+        showCaption(line('dialog_cuff_hold_paperclip'));
+        return;
+      }
+      onPaperclipUsed();
+      showCaption(line('dialog_paperclip_unlocks_cuff'));
+      const idx = interactables.indexOf(cuffLockHitbox);
       if (idx >= 0) interactables.splice(idx, 1);
       chain.visible = false;
       restraintRemnant.visible = true;
@@ -1980,8 +2038,9 @@ export function createBedroomLevel({
       }, 900);
     }
   };
-  interactables.push(paperclipHitbox);
-  group.add(paperclipHitbox);
+  // Registered by the paperclip pickup above, not here: before then there is
+  // nothing to pick the lock with, and the clip's own prompt owns this spot.
+  group.add(cuffLockHitbox);
 
   /**
    * The fallen chair -- which had no legs.
@@ -2170,6 +2229,11 @@ export function createBedroomLevel({
         showCaption(line('dialog_floorboard_needs_crowbar'));
         return;
       }
+      // Found is not enough: it has to be the thing in your hand.
+      if (!isHolding('crowbar')) {
+        showCaption(line('dialog_hold_crowbar'));
+        return;
+      }
       puzzleState.floorboardPried = true;
       looseFloorboard.visible = false;
       looseFloorboardHitbox.visible = false;
@@ -2231,6 +2295,10 @@ export function createBedroomLevel({
             showCaption(line('dialog_door_planks_floorboard_first'));
             return;
           }
+          if (!isHolding('crowbar')) {
+            showCaption(line('dialog_hold_crowbar'));
+            return;
+          }
           puzzleState.planksRemoved = true;
           onCrowbarUsed();
           startDoorPlankPryAnimation();
@@ -2242,6 +2310,10 @@ export function createBedroomLevel({
       } else if (!puzzleState.doorUnlocked) {
         if (!puzzleState.hasBedroomKey) {
           showCaption(line('dialog_door_locked_needs_key'));
+          return;
+        }
+        if (!isHolding('bedroomKey')) {
+          showCaption(line('dialog_hold_bedroom_key'));
           return;
         }
         // Set synchronously, which is what makes spamming E safe: the third
@@ -2665,7 +2737,9 @@ export function createBedroomLevel({
     label: 'Open box',
     onInteract: () => {
       if (boxOpened) return; // Never replay the inventory grant during animation.
-      if (puzzleState.photosArranged && puzzleState.hasBrassKey) {
+      if (puzzleState.photosArranged && puzzleState.hasBrassKey && !isHolding('brassKey')) {
+        showCaption(line('dialog_hold_brass_key'));
+      } else if (puzzleState.photosArranged && puzzleState.hasBrassKey) {
         showCaption(line('dialog_lockbox_opened'));
         boxHitbox.visible = false;
         boxOpened = true;
@@ -2723,6 +2797,10 @@ export function createBedroomLevel({
       flashlightHitbox,
       paperclip,
       paperclipHitbox,
+      cuffLockHitbox,
+      // The key under the floorboard. main.js clones it (and the paperclip) for
+      // the item in the hand and for a dropped copy -- see world/itemMeshes.js.
+      bedroomKey,
       chain,
       doorSlab,
       /**
@@ -2759,6 +2837,10 @@ export function createBedroomLevel({
       paperclip.visible = true;
       paperclipHitbox.visible = true;
       if (!interactables.includes(paperclipHitbox)) interactables.push(paperclipHitbox);
+      // Back to "nothing to pick the lock with": the cuff only offers itself
+      // once the paperclip is in hand again.
+      const cuffLockIndex = interactables.indexOf(cuffLockHitbox);
+      if (cuffLockIndex >= 0) interactables.splice(cuffLockIndex, 1);
       chain.visible = true;
       restraintRemnant.visible = false;
 
