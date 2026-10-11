@@ -943,6 +943,7 @@ const _tpFwd = new THREE.Vector3();
 const _tpRight = new THREE.Vector3();
 const _tpWant = new THREE.Vector3();
 const _tpPrev = new THREE.Vector3();
+const _tpStep = new THREE.Vector3();
 let bodySpeed = 0;
 
 /**
@@ -962,6 +963,27 @@ const TP_MAX_TURN_RATE = 12;
 const TP_YAW_SNAP = 1.0;
 let prevBodyYaw = null;
 let bodyTurnRate = 0;
+
+/**
+ * THE BODY FACES WHERE IT IS GOING, NOT WHERE THE CAMERA LOOKS -- the Dead by
+ * Daylight survivor rule, and the only one under which this gait is honest.
+ *
+ * The foot path can only walk FORWARD along the body's own facing. With the
+ * body glued to the camera's yaw, holding S played a forward walk while the
+ * body slid backwards, and A or D skated it sideways -- measured at about
+ * 4 m/s and 2.8 m/s of shoe slip respectively, against 6 mm per stance walking
+ * forward. Turning the body toward the direction of travel makes every WASD
+ * direction a forward walk, which is exactly what DbD does: backpedal and the
+ * survivor turns round and runs at the camera.
+ *
+ * Eased rather than snapped (a survivor turns fast but not instantly), held
+ * while standing so looking around does not spin the body, and snapped on a
+ * teleport, which would otherwise read as one frame of sprinting somewhere.
+ */
+const TP_FACE_TAU = 0.11;        // ~9 rad/s at a right-angle turn
+const TP_FACE_MIN_SPEED = 0.35;  // m/s; below this the body keeps its facing
+const TP_TELEPORT = 1.0;         // metres in one frame = a spawn, not a step
+let bodyFacing = null;
 
 function setThirdPerson(on) {
   thirdPerson = !!on;
@@ -996,14 +1018,24 @@ function updateThirdPerson(dt) {
 
   // The body tracks the player whether or not it is being drawn, so toggling
   // in never shows it catching up from wherever it was last seen.
-  const moved = Math.hypot(camera.position.x - _tpPrev.x, camera.position.z - _tpPrev.z);
+  _tpStep.set(camera.position.x - _tpPrev.x, 0, camera.position.z - _tpPrev.z);
+  const moved = Math.hypot(_tpStep.x, _tpStep.z);
   _tpPrev.copy(camera.position);
   // Measured from the move, not read off player.speed: that is the speed being
   // asked for, and the gait wants the one actually achieved -- a player walking
   // into a wall is not striding.
   bodySpeed += ((dt > 0 ? moved / dt : 0) - bodySpeed) * (1 - Math.exp(-dt / 0.08));
-  const yawDelta = prevBodyYaw === null ? 0 : player.yaw - prevBodyYaw;
-  prevBodyYaw = player.yaw;
+  if (bodyFacing === null || moved > TP_TELEPORT) {
+    bodyFacing = player.yaw;
+  } else if (dt > 0 && moved / dt > TP_FACE_MIN_SPEED) {
+    // Yaw 0 looks down -Z, so the heading of a step (dx, dz) is atan2(-dx, -dz).
+    const heading = Math.atan2(-_tpStep.x, -_tpStep.z);
+    const d = Math.atan2(Math.sin(heading - bodyFacing), Math.cos(heading - bodyFacing));
+    bodyFacing += d * (1 - Math.exp(-dt / TP_FACE_TAU));
+  }
+  // The turn rate is the BODY's, not the camera's: it is what leans the gait.
+  const yawDelta = prevBodyYaw === null ? 0 : bodyFacing - prevBodyYaw;
+  prevBodyYaw = bodyFacing;
   const yawStep = Math.atan2(Math.sin(yawDelta), Math.cos(yawDelta));
   // More than a radian in one frame is a spawn setting yaw, not a turn.
   const rawTurnRate = dt > 1e-4 && Math.abs(yawStep) < TP_YAW_SNAP
@@ -1011,7 +1043,7 @@ function updateThirdPerson(dt) {
     : 0;
   bodyTurnRate += (rawTurnRate - bodyTurnRate) * (1 - Math.exp(-dt / TP_TURN_TAU));
   playerBody.setPosition(camera.position.x, camera.position.z);
-  playerBody.setYaw(player.yaw);
+  playerBody.setYaw(bodyFacing);
   playerBody.setSpeed(bodySpeed);
   // Optional-chained: these arrive with the player gait in OkabeCreature.js,
   // and the body must keep walking on a build that predates them.
