@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { enterImmersive } from './KeyboardGuard.js';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
 import { resolveCircle } from './collision.js';
-import { WALK_SPEED, SPRINT_SCALE } from './MoveSpeeds.js';
+import { WALK_SPEED, SPRINT_SCALE, PUSH_SPEED_SCALE } from './MoveSpeeds.js';
 
 const FORWARD = new THREE.Vector3();
 const RIGHT = new THREE.Vector3();
@@ -76,6 +76,8 @@ const PITCH_LIMIT = Math.PI / 2 - 0.001;
 const CROUCH_DROP = 0.55;
 const CROUCH_SPEED_SCALE = 0.45;
 const CROUCH_BLEND = 0.12;
+/** How fast the push slowdown comes on and goes off: a beat of leaning in, not a switch. */
+const PUSH_BLEND = 0.15;
 
 /**
  * SPRINTING, on Shift, and it is deliberately built as crouch's mirror image:
@@ -179,6 +181,14 @@ export class PointerLockPlayer {
      * `moving` next to it saturates at 1 and cannot tell a walk from a run.
      */
     this.sprint = 0;
+    /**
+     * Smoothed 0..1: how much the player is leaning into something they are
+     * pushing. Eased toward last frame's contact, so the first frame of a push
+     * goes at full speed and the slowdown arrives a beat later, like weight.
+     */
+    this.pushing = 0;
+    /** Filled in by resolveCircle each frame: did anything pushable move? */
+    this.pushContact = { pushed: false };
     /** Seconds of sprint left. */
     this.stamina = STAMINA_MAX;
     /** True once the bar has emptied, until STAMINA_RECOVER is back. */
@@ -460,7 +470,9 @@ export class PointerLockPlayer {
   // stand where the player cannot reach, or slip through a gap the player is
   // blocked by. Both read as the AI cheating.
   #resolveCollision(nextPos) {
-    resolveCircle(nextPos, this.bodyRadius, this.colliders);
+    // The player, unlike the creature, can shove pushable boxes -- see
+    // resolveCircle.
+    resolveCircle(nextPos, this.bodyRadius, this.colliders, this.pushContact);
     return nextPos;
   }
 
@@ -538,6 +550,7 @@ export class PointerLockPlayer {
       // scripted beat is rest, and coming out of one already winded would
       // punish the player for a cutscene they did not ask for.
       this.#updateStamina(dt, false);
+      this.pushing = 0;
       this.#applyEyeHeight();
       return;
     }
@@ -572,6 +585,7 @@ export class PointerLockPlayer {
     if (this.keys.left) MOVE.sub(RIGHT);
 
     let walked = 0;
+    this.pushContact.pushed = false;
     if (MOVE.lengthSq() > 0) {
       // Interpolated on the smoothed crouch, so speed eases with the drop
       // instead of stepping the instant the key goes down.
@@ -580,7 +594,8 @@ export class PointerLockPlayer {
       // with the animation instead of stepping the instant a key goes down.
       const speed = this.speed
         * (1 - this.crouch * (1 - CROUCH_SPEED_SCALE))
-        * (1 + this.sprint * (SPRINT_SPEED_SCALE - 1));
+        * (1 + this.sprint * (SPRINT_SPEED_SCALE - 1))
+        * (1 - this.pushing * (1 - PUSH_SPEED_SCALE));
       MOVE.normalize().multiplyScalar(speed * dt);
       const next = this.object.position.clone().add(MOVE);
       this.#resolveCollision(next);
@@ -597,6 +612,7 @@ export class PointerLockPlayer {
     this.bobPhase = (this.bobPhase + (walked / stride) * Math.PI * 2) % (Math.PI * 2);
     const want = walked > 1e-6 ? 1 : 0;
     this.moving += (want - this.moving) * Math.min(1, dt / BOB_BLEND);
+    this.pushing += ((this.pushContact.pushed ? 1 : 0) - this.pushing) * Math.min(1, dt / PUSH_BLEND);
 
     this.#applyEyeHeight();
   }

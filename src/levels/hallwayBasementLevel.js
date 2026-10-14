@@ -36,6 +36,7 @@ import { SECURITY_CODE } from '../world/doorPanels.js';
 import { createCreatureSketchTexture } from '../world/textures.js';
 import { addBaseboard } from '../world/trim.js';
 import { line } from '../dialogue/index.js';
+import { createInstrumentTrolley } from '../world/InstrumentTrolley.js';
 
 const HALL_W = 2.4;
 const HALL_LEN = 5.5;
@@ -232,6 +233,18 @@ const SURGICAL_LAMP_OVER_TABLE_X = -0.2;
 
 /** The instrument trolley (instrument_trolley.glb): push handle at -x. Mirrors build_instrument_trolley.py. */
 const INSTRUMENT_TROLLEY = { length: 0.7, depth: 0.45, top: 0.85, handleReach: 0.07 };
+/**
+ * How far the trolley can be pushed from where it starts before it goes over,
+ * in metres -- a radius, so the direction does not matter, only the distance.
+ */
+const TROLLEY_FALL_RADIUS = 1.2;
+/**
+ * How far the trolley stands off the table's side. Far enough out that a
+ * player coming from the entrance can catch it and shove it before it jams
+ * against the table; not so far that the gap reads as a way through (the
+ * player needs 0.7 m).
+ */
+const TROLLEY_TABLE_GAP = 0.5;
 
 /**
  * The stool (lab_chair.glb), in the model's own space, standing. Mirrors
@@ -332,6 +345,17 @@ export function createHallwayBasementLevel({
   onEnterSecurityCode = () => {},
   /** Fired with a camera id each time a feed is selected. Drives the sightings. */
   onViewFeed = () => {},
+  /**
+   * Called every frame with how hard the instrument trolley is rolling, 0 to
+   * 1, so the host can play its castors. The level has no audio of its own.
+   */
+  onTrolleyRoll = () => {},
+  /**
+   * Fired once when the instrument trolley hits the floor. The level shows
+   * the caption; this is for the crash itself, and for anything that should
+   * react to a noise that loud.
+   */
+  onTrolleyCrash = () => {},
   onExamineSketch = () => {}
 } = {}) {
   const group = new THREE.Group();
@@ -3428,35 +3452,35 @@ export function createHallwayBasementLevel({
   });
 
   /**
-   * The instrument trolley, pulled up at the head of the table:
-   * instrument_trolley.glb, with everything on it baked in. Turned a little,
-   * as if shoved aside.
+   * The instrument trolley, pulled up at the head of the table, on castors:
+   * world/InstrumentTrolley.js. Walk into it and it rolls away from you;
+   * shove it more than TROLLEY_FALL_RADIUS from where it starts and it goes
+   * over, throwing the instruments across the floor with a crash the whole
+   * basement hears. It stays down until the level restarts.
    */
-  const instrumentTrolley = new THREE.Group();
-  instrumentTrolley.position.set(
-    OPERATING_TABLE.x - OPERATING_TABLE.halfLength + 0.1,
-    0,
-    OPERATING_TABLE.z - OPERATING_TABLE.sideReach - INSTRUMENT_TROLLEY.depth / 2 - 0.2
-  );
-  instrumentTrolley.rotation.y = 0.25;
-  lab.add(instrumentTrolley);
+  const instrumentTrolley = createInstrumentTrolley({
+    parent: lab,
+    parentWorldZ: LAB_Z,
+    position: {
+      x: OPERATING_TABLE.x - OPERATING_TABLE.halfLength + 0.1,
+      z: OPERATING_TABLE.z - OPERATING_TABLE.sideReach - INSTRUMENT_TROLLEY.depth / 2 - TROLLEY_TABLE_GAP
+    },
+    // Turned a little, as if shoved aside.
+    yaw: 0.25,
+    size: INSTRUMENT_TROLLEY,
+    fallRadius: TROLLEY_FALL_RADIUS,
+    colliders,
+    onRoll: onTrolleyRoll,
+    onCrash: () => {
+      trolleyHit.userData.interact.label = 'Examine the trolley';
+      showCaption(line('dialog_trolley_crash'));
+      onTrolleyCrash();
+    }
+  });
   loadModel(instrumentTrolleyModelUrl)
-    .then((model) => instrumentTrolley.add(shadowed(model)))
+    .then((model) => instrumentTrolley.setModel(shadowed(model)))
     .catch((err) => console.error('[lab] instrument_trolley.glb failed to load', err));
-  {
-    // The box round the trolley as turned. The handle end is counted on both
-    // ends, which costs a few centimetres and saves tracking which end it is.
-    const halfLength = INSTRUMENT_TROLLEY.length / 2 + INSTRUMENT_TROLLEY.handleReach;
-    const halfDepth = INSTRUMENT_TROLLEY.depth / 2;
-    const cos = Math.abs(Math.cos(instrumentTrolley.rotation.y));
-    const sin = Math.abs(Math.sin(instrumentTrolley.rotation.y));
-    const halfX = halfLength * cos + halfDepth * sin;
-    const halfZ = halfLength * sin + halfDepth * cos;
-    colliders.push({
-      minX: instrumentTrolley.position.x - halfX, maxX: instrumentTrolley.position.x + halfX,
-      minZ: LAB_Z + instrumentTrolley.position.z - halfZ, maxZ: LAB_Z + instrumentTrolley.position.z + halfZ
-    });
-  }
+  dynamics.push({ update: (dt) => instrumentTrolley.update(dt) });
 
   const trolleyHit = new THREE.Mesh(
     new THREE.BoxGeometry(INSTRUMENT_TROLLEY.length, 0.08, INSTRUMENT_TROLLEY.depth),
@@ -3465,11 +3489,13 @@ export function createHallwayBasementLevel({
   trolleyHit.position.set(0, INSTRUMENT_TROLLEY.top + 0.03, 0);
   trolleyHit.userData.interact = {
     label: 'Examine the instruments',
-    onInteract: () => showCaption(line('dialog_instrument_trolley'))
+    onInteract: () => showCaption(line(
+      instrumentTrolley.fallen ? 'dialog_instrument_trolley_fallen' : 'dialog_instrument_trolley'
+    ))
   };
-  // The hit box is the trolley's own child so it turns with it -- it is
-  // still raycast directly, since it is listed in interactables itself.
-  instrumentTrolley.add(trolleyHit);
+  // Inside the trolley's body, so it rolls with it and goes over with it --
+  // it is still raycast directly, since it is listed in interactables itself.
+  instrumentTrolley.body.add(trolleyHit);
   interactables.push(trolleyHit);
 
   /**
@@ -3710,6 +3736,9 @@ export function createHallwayBasementLevel({
       lampSwitchedOn = false;
       lampHasBeenLit = false;
       lampHit.userData.interact.label = 'Switch on the operating lamp';
+
+      instrumentTrolley.reset();
+      trolleyHit.userData.interact.label = 'Examine the instruments';
 
       setFuseCoverOpen(false, { quiet: true });
       fuseCover.everOpened = false;

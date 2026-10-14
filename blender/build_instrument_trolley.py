@@ -9,7 +9,16 @@ retractor, a syringe and a bloodied gauze pad -- and on the lower one a
 steel bowl and a few brown medicine bottles. One scalpel has been knocked
 off and lies on the floor by a castor.
 
-Everything here is static, so it is all one model, merged per material.
+The trolley can be pushed, and pushed far enough it tips over and throws
+everything off it -- so what lies on it is NOT merged into it. Each loose
+thing is its own object named `Loose_*`, with its origin at its own centre
+so it spins about itself as it flies; the level finds them by that prefix.
+A loose thing made of two materials (the syringe and its needle, the gauze
+and its stain) is one `Loose_*` object with the second part parented to it.
+The scalpel already on the floor is `Floor_Scalpel`: the level leaves it
+where it lies rather than carrying it along with the trolley. The frame,
+castors and the stain dried onto the top tray are merged per material, as
+before.
 
 Axes: the trolley's length runs along X with the push handle at -X. The
 origin is the floor under its centre. The level's INSTRUMENT_TROLLEY
@@ -84,11 +93,6 @@ def build_round_steel():
         (-LEG_X - 0.06, LEG_Y, TOP_Z + 0.12),
         (-LEG_X, LEG_Y, TOP_Z),
     ], radius=0.011, sides=10, samples_per_segment=4)
-    # The steel bowl on the lower shelf.
-    add_lathe(bm, [
-        (0.0, 0.0), (0.06, 0.0), (0.11, 0.03), (0.13, 0.07), (0.135, 0.075),
-        (0.125, 0.072), (0.105, 0.035), (0.055, 0.008), (0.0, 0.008),
-    ], centre=(0.12, 0.0, SHELF_Z + 0.006), segments=32)
     return bm
 
 
@@ -124,56 +128,95 @@ def retractor(bm, frame):
     add_box(bm, (-0.074, 0, 0.016), (0.008, 0.03, 0.03), transform=frame)
 
 
-def build_tools():
+def loose(name, bm, material, parent=None, smooth_shading=False):
+    """
+    One loose thing as its own object, re-centred so its origin is the middle
+    of its own bounding box: built in trolley space like everything else,
+    then moved so it can spin about itself once the level throws it.
+    """
+    lo = Vector((min(v.co.x for v in bm.verts), min(v.co.y for v in bm.verts), min(v.co.z for v in bm.verts)))
+    hi = Vector((max(v.co.x for v in bm.verts), max(v.co.y for v in bm.verts), max(v.co.z for v in bm.verts)))
+    centre = (lo + hi) / 2
+    bmesh.ops.translate(bm, verts=bm.verts, vec=-centre)
+    obj = common.new_object(name, bm, material)
+    if smooth_shading:
+        smooth(obj)
+    if parent is None:
+        obj.location = centre
+    else:
+        # Parented without an inverse matrix, so its location is simply its
+        # offset from the parent's origin.
+        obj.parent = parent
+        obj.location = centre - parent.location
+    return obj
+
+
+def one(build_part):
+    """A fresh bmesh with one part built into it."""
     bm = bmesh.new()
+    build_part(bm)
+    return bm
+
+
+def build_loose(materials):
+    """Everything that leaves the trolley when it goes over."""
+    tool, plastic, gauze, stain, steel, amber = materials
     z = TRAY_Z
-    scalpel(bm, at(0.18, 0.12, z, 0.1))
-    scalpel(bm, at(0.2, 0.07, z, -0.05))
-    forceps(bm, at(0.02, 0.13, z, 0.3))
-    scissors(bm, at(-0.15, 0.1, z, -0.4))
-    retractor(bm, at(0.05, -0.12, z, 0.15))
-    # A bone saw, because a lab this far gone does not stop at scalpels: a
-    # steel D-frame over a straight blade.
-    saw = at(-0.12, -0.11, z, -0.2)
-    add_box(bm, (0, 0, 0.003), (0.2, 0.025, 0.003), transform=saw)
-    frame_points = [(-0.1, 0.012, 0.006), (-0.1, 0.05, 0.008), (0.1, 0.05, 0.008), (0.1, 0.012, 0.006)]
-    add_tube(bm, [saw @ Vector(p) for p in frame_points], radius=0.004, sides=6, samples_per_segment=2)
-    # The syringe's needle (its barrel is plastic, below).
-    add_cylinder(bm, (0.26, -0.02, z + 0.012), 0.0012, 0.05, 'X', 6)
-    # The one that was knocked off: on the floor, beside the -Y castor at +X.
-    scalpel(bm, at(LEG_X + 0.12, -LEG_Y - 0.1, 0.0, 0.7))
-    return bm
 
+    loose('Loose_Scalpel_1', one(lambda bm: scalpel(bm, at(0.18, 0.12, z, 0.1))), tool)
+    loose('Loose_Scalpel_2', one(lambda bm: scalpel(bm, at(0.2, 0.07, z, -0.05))), tool)
+    loose('Loose_Forceps', one(lambda bm: forceps(bm, at(0.02, 0.13, z, 0.3))), tool)
+    loose('Loose_Scissors', one(lambda bm: scissors(bm, at(-0.15, 0.1, z, -0.4))), tool)
+    loose('Loose_Retractor', one(lambda bm: retractor(bm, at(0.05, -0.12, z, 0.15))), tool)
 
-def build_plastic():
-    bm = bmesh.new()
-    # The syringe: barrel, plunger rod and thumb plate.
-    add_cylinder(bm, (0.19, -0.02, TRAY_Z + 0.012), 0.011, 0.09, 'X', 14)
-    add_cylinder(bm, (0.125, -0.02, TRAY_Z + 0.012), 0.004, 0.05, 'X', 8)
-    add_cylinder(bm, (0.1, -0.02, TRAY_Z + 0.012), 0.012, 0.004, 'X', 14)
-    return bm
+    def bone_saw(bm):
+        # A bone saw, because a lab this far gone does not stop at scalpels: a
+        # steel D-frame over a straight blade.
+        saw = at(-0.12, -0.11, z, -0.2)
+        add_box(bm, (0, 0, 0.003), (0.2, 0.025, 0.003), transform=saw)
+        frame_points = [(-0.1, 0.012, 0.006), (-0.1, 0.05, 0.008), (0.1, 0.05, 0.008), (0.1, 0.012, 0.006)]
+        add_tube(bm, [saw @ Vector(p) for p in frame_points], radius=0.004, sides=6, samples_per_segment=2)
+    loose('Loose_BoneSaw', one(bone_saw), tool)
 
+    def syringe(bm):
+        # Barrel, plunger rod and thumb plate.
+        add_cylinder(bm, (0.19, -0.02, z + 0.012), 0.011, 0.09, 'X', 14)
+        add_cylinder(bm, (0.125, -0.02, z + 0.012), 0.004, 0.05, 'X', 8)
+        add_cylinder(bm, (0.1, -0.02, z + 0.012), 0.012, 0.004, 'X', 14)
+    barrel = loose('Loose_Syringe', one(syringe), plastic, smooth_shading=True)
+    loose('SyringeNeedle', one(lambda bm: add_cylinder(bm, (0.26, -0.02, z + 0.012), 0.0012, 0.05, 'X', 6)),
+          tool, parent=barrel)
 
-def build_gauze():
-    bm = bmesh.new()
-    add_box(bm, (-0.2, -0.02, TRAY_Z + 0.006), (0.1, 0.09, 0.012), transform=at(0, 0, 0, 0.2))
-    add_box(bm, (-0.23, -0.05, TRAY_Z + 0.004), (0.08, 0.07, 0.008), transform=at(0, 0, 0, -0.35))
-    return bm
+    def gauze_pads(bm):
+        add_box(bm, (-0.2, -0.02, z + 0.006), (0.1, 0.09, 0.012), transform=at(0, 0, 0, 0.2))
+        add_box(bm, (-0.23, -0.05, z + 0.004), (0.08, 0.07, 0.008), transform=at(0, 0, 0, -0.35))
+    pad = loose('Loose_Gauze', one(gauze_pads), gauze)
+    loose('GauzeStain', one(lambda bm: add_blob(bm, (-0.2, -0.02, z + 0.0125), 0.035, seed=4, wobble=0.75,
+                                                points=28, transform=at(0, 0, 0, 0.2))),
+          stain, parent=pad)
+
+    # The lower shelf: the steel bowl and the brown bottles.
+    loose('Loose_Bowl', one(lambda bm: add_lathe(bm, [
+        (0.0, 0.0), (0.06, 0.0), (0.11, 0.03), (0.13, 0.07), (0.135, 0.075),
+        (0.125, 0.072), (0.105, 0.035), (0.055, 0.008), (0.0, 0.008),
+    ], centre=(0.12, 0.0, SHELF_Z + 0.006), segments=32)), steel, smooth_shading=True)
+    for i, (x, y) in enumerate(((-0.2, 0.1), (-0.13, 0.13), (-0.16, 0.04))):
+        h = 0.11 if i != 1 else 0.08
+
+        def bottle(bm, x=x, y=y, h=h):
+            add_cylinder(bm, (x, y, SHELF_Z + 0.006 + h / 2), 0.026, h, 'Z', 16)
+            add_cylinder(bm, (x, y, SHELF_Z + 0.006 + h + 0.012), 0.012, 0.024, 'Z', 10)
+        loose(f'Loose_Bottle_{i + 1}', one(bottle), amber, smooth_shading=True)
+
+    # The one that was knocked off already: on the floor, beside the -Y castor
+    # at +X. It stays where it is when the trolley moves.
+    loose('Floor_Scalpel', one(lambda bm: scalpel(bm, at(LEG_X + 0.12, -LEG_Y - 0.1, 0.0, 0.7))), tool)
 
 
 def build_stain():
+    """The stain dried onto the top tray itself, which goes wherever the tray goes."""
     bm = bmesh.new()
-    add_blob(bm, (-0.2, -0.02, TRAY_Z + 0.0125), 0.035, seed=4, wobble=0.75, points=28, transform=at(0, 0, 0, 0.2))
     add_blob(bm, (0.05, 0.05, TRAY_Z + 0.0005), 0.05, seed=12, wobble=0.75, points=28, stretch=(1.4, 0.7))
-    return bm
-
-
-def build_bottles():
-    bm = bmesh.new()
-    for i, (x, y) in enumerate(((-0.2, 0.1), (-0.13, 0.13), (-0.16, 0.04))):
-        h = 0.11 if i != 1 else 0.08
-        add_cylinder(bm, (x, y, SHELF_Z + 0.006 + h / 2), 0.026, h, 'Z', 16)
-        add_cylinder(bm, (x, y, SHELF_Z + 0.006 + h + 0.012), 0.012, 0.024, 'Z', 10)
     return bm
 
 
@@ -196,11 +239,8 @@ def build():
     common.new_object('TrolleyFrame', build_frame(), steel)
     smooth(common.new_object('TrolleyRoundSteel', build_round_steel(), steel))
     smooth(common.new_object('TrolleyCastors', build_rubber(), rubber))
-    common.new_object('TrolleyTools', build_tools(), tool)
-    smooth(common.new_object('TrolleySyringe', build_plastic(), plastic))
-    common.new_object('TrolleyGauze', build_gauze(), gauze)
     common.new_object('TrolleyStain', build_stain(), stain)
-    smooth(common.new_object('TrolleyBottles', build_bottles(), amber))
+    build_loose((tool, plastic, gauze, stain, steel, amber))
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     out_path = os.path.abspath(os.path.join(script_dir, '..', 'src', 'assets', 'models', 'instrument_trolley.glb'))

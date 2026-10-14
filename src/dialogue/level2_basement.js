@@ -248,3 +248,11 @@ export const dialog_surgical_lamp_dead = ["The switch clicks over. Nothing. The 
 export const dialog_surgical_lamp_lit = ["The lamp stutters, then floods the table white. Every strap on it throws a shadow.", "level2/surgical_lamp_lit.m4a"];
 
 export const dialog_instrument_trolley = ["Scalpels, forceps, a bone saw, laid out ready. The gauze has been used.", "level2/instrument_trolley.m4a"];
+
+export const dialog_instrument_trolley_fallen = ["Knocked flat. Everything that was laid out on it is across the floor now.", "level2/instrument_trolley_fallen.m4a"];
+
+// When the trolley is shoved too far and goes over.
+export const dialog_trolley_crash = [
+  ["The trolley goes over. Steel and glass across the concrete, loud enough to fill the whole basement.", "level2/trolley_crash_1.m4a"],
+  ["Then nothing. If anything else is down here, it heard that.", "level2/trolley_crash_2.m4a"]
+];
