@@ -30,6 +30,7 @@ import { createHintSystem } from './core/HintSystem.js';
 import { BEDROOM_HINT_STAGES } from './levels/bedroomHints.js';
 import { enableSinglePassForFlatDecals, createDarkShadowSkipper, findShadowCastingLights } from './world/renderOptimizations.js';
 import { createCutsceneRunner } from './core/Cutscene.js';
+import { FreeCamera } from './core/FreeCamera.js';
 import { createScriptRunner } from './core/Script.js';
 import { createOkabeCreature } from './systems/OkabeCreature.js';
 import { createCreatureAI } from './systems/CreatureAI.js';
@@ -1021,6 +1022,36 @@ thirdPersonBtn?.addEventListener('click', (e) => {
   // presses it again instead of reaching the game.
   e.currentTarget.blur();
 });
+
+// ---------- free camera (N) ----------
+/**
+ * A fly-through camera for recording clips and the trailer -- see
+ * core/FreeCamera.js. The player stays where they were standing and the game
+ * keeps running round them.
+ */
+const freeCamera = new FreeCamera({
+  sourceCamera: camera,
+  isInputLive: () => player.isLocked,
+  getSensitivityMultiplier: () => player.sensitivity,
+  onChange: applyFreeCameraVisibility
+});
+// The same eye-level-only geometry the player's camera draws.
+freeCamera.camera.layers.enable(MAIN_ONLY);
+
+/**
+ * The view model -- hands, held item, dust motes -- is parented to the
+ * player's camera, so from the free camera it is a pair of forearms hanging in
+ * mid-air. Hidden for the same reason setThirdPerson() hides it. The player's
+ * body is optional (B), for shots that want the character in them.
+ */
+function applyFreeCameraVisibility() {
+  const isViewModelShown = !thirdPerson && !freeCamera.isActive;
+  hands.root.visible = isViewModelShown;
+  dustMotes.points.visible = isViewModelShown;
+  playerBody.visible = thirdPerson || (freeCamera.isActive && freeCamera.isPlayerBodyVisible);
+  // Nothing the player was holding down before the switch keeps walking them.
+  player.clearKeys();
+}
 
 /**
  * Put the third-person camera behind the player, and the player's body under it.
@@ -3000,6 +3031,7 @@ if (import.meta.env.DEV) {
     setThirdPerson,
     get thirdPerson() { return thirdPerson; },
     updateThirdPerson,
+    freeCamera,
     visor,
     // Test-only access to the backrooms trailing shadow and the bedroom
     // window flash, neither of which has a keyboard trigger of its own to
@@ -3385,7 +3417,19 @@ const clock = new THREE.Clock();
 let elapsed = 0;
 
 function tick() {
-  const dt = Math.min(clock.getDelta(), 0.05);
+  const realDt = Math.min(clock.getDelta(), 0.05);
+  // On real time, so it flies smoothly through a slowed or frozen world.
+  freeCamera.update(realDt);
+  // Frozen means the world is not updated at all, rather than updated with a
+  // dt of 0: several systems divide by dt.
+  if (freeCamera.isWorldFrozen) {
+    postFX.setCamera(freeCamera.camera);
+    postFX.render();
+    requestAnimationFrame(tick);
+    return;
+  }
+  // Slow motion for the free camera. Exactly realDt the rest of the time.
+  const dt = realDt * freeCamera.timeScale;
   elapsed += dt;
 
   player.update(dt);
@@ -3510,7 +3554,8 @@ function tick() {
   updateThirdPerson(dt);
   // Switched on the blend rather than the flag, so the swap happens once the
   // camera has actually left the head instead of on the frame the key is hit.
-  postFX.setCamera(thirdAmount > 0.001 ? thirdCam : camera);
+  if (freeCamera.isActive) postFX.setCamera(freeCamera.camera);
+  else postFX.setCamera(thirdAmount > 0.001 ? thirdCam : camera);
 
   postFX.update(dt);
   // After everything that sets a light's intensity this frame, so a light that

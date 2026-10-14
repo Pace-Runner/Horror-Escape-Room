@@ -1042,3 +1042,37 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   #fade-overlay { transition-duration: 120ms; }
 }
+
+/* ---------- free camera (trailer / clip recording) ---------- */
+/* Clean frames: everything drawn over the 3D view goes while the free camera
+   is flying, unless H brings it back. visibility rather than display, because
+   main.js's pause and resume handlers write #hud's and #crosshair's display
+   inline and would win. See src/core/FreeCamera.js. */
+body.free-camera-clean #hud,
+body.free-camera-clean #crosshair,
+body.free-camera-clean #caption-box {
+  visibility: hidden;
+}
+
+/* Fades out by itself so it is never left in a recording. Over the fade (30)
+   so it can be read mid-transition, under the pause screen (40). */
+#free-camera-status {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  max-width: calc(100% - 32px);
+  padding: 6px 10px;
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  color: #d8d2c4;
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 35;
+  opacity: 0;
+  transition: opacity 400ms ease;
+}
+
+#free-camera-status.visible {
+  opacity: 1;
+}
