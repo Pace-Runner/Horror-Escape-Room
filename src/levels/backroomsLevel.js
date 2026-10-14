@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { mergeStaticMeshesByMaterial } from '../world/renderOptimizations.js';
 import {
   createBackroomsWallpaperTexture,
   createBackroomsWallpaperNormalTexture,
@@ -337,6 +338,8 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
   // the per-length material, so the seams still land where wallMatFor put them.
   const wallGeo = new THREE.PlaneGeometry(1, 1);
   const tideGeo = new THREE.BoxGeometry(1, 1, 1);
+  // Collected so they can be merged into one draw call per material below.
+  const wallAndTideMeshes = [];
 
   WALL_RUNS.forEach(({ axis, at, from, to }) => {
     const len = to - from;
@@ -360,7 +363,13 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     wall.receiveShadow = true;
     group.add(wall);
     group.add(tide);
+    wallAndTideMeshes.push(wall, tide);
   });
+  // ~180 wall panels and as many skirting boards were a draw call each. One
+  // per material now (the walls are pooled by length in wallMatFor, the
+  // skirting all share tideMat). Nothing reads these meshes after this point:
+  // the colliders above come from WALL_RUNS, not from the meshes.
+  mergeStaticMeshesByMaterial(wallAndTideMeshes, group, 'Walls');
 
   // ---------- damp stains, per wall ----------
   // THESE USED TO LIVE IN THE WALLPAPER CANVAS, and that was the bug. One
@@ -1454,6 +1463,7 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
   // Under the LIVING fixtures only, and now taking an (x, z) pair -- the old
   // loop took a z list and hardcoded x = 0, which only worked while every
   // fixture sat on one straight centreline.
+  const flyMeshes = [];
   lamps.forEach(({ light }) => {
     const fx = light.position.x;
     const fz = light.position.z;
@@ -1463,8 +1473,11 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
       const d = Math.random() * 0.45;
       fly.position.set(fx + Math.cos(a) * d, 0.008, fz + Math.sin(a) * d);
       group.add(fly);
+      flyMeshes.push(fly);
     }
   });
+  // Over a hundred 8 mm specks were a draw call each; one in total now.
+  mergeStaticMeshesByMaterial(flyMeshes, group, 'DeadFlies');
 
   // A fallen ceiling tile under the first dead fixture, with the matching hole
   // above it. Instant "something came through here", and at 2cm tall it needs

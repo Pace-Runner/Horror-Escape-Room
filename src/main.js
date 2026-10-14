@@ -23,6 +23,7 @@ import { createMinimap } from './core/Minimap.js';
 import { CaptionSequencer } from './core/CaptionSequencer.js';
 import { createDocumentUI } from './core/DocumentUI.js';
 import { createPostFX } from './world/Postprocessing.js';
+import { enableSinglePassForFlatDecals, createDarkShadowSkipper, findShadowCastingLights } from './world/renderOptimizations.js';
 import { createCutsceneRunner } from './core/Cutscene.js';
 import { createScriptRunner } from './core/Script.js';
 import { createOkabeCreature } from './systems/OkabeCreature.js';
@@ -81,7 +82,13 @@ const captionsCheckbox = document.getElementById('settings-captions');
 const fade = createScreenFade(fadeOverlay);
 
 // ---------- renderer / scene / camera ----------
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+// antialias is OFF on the canvas on purpose. Nothing draws the scene to the
+// canvas: the composer renders into its own 4x MSAA target (see
+// world/Postprocessing.js) and the canvas only ever receives OutputPass's
+// one full-screen triangle, which has no edges on screen to smooth. MSAA here
+// bought a second multisampled framebuffer and a resolve every frame for an
+// identical picture.
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -1729,6 +1736,13 @@ const backrooms = createBackroomsLevel({
 });
 sceneManager.register('backrooms', backrooms);
 
+// ---------- render-cost trims ----------
+// Both leave the picture identical -- see world/renderOptimizations.js for why
+// each one is invisible. Run here, once every level exists and BEFORE warmUp(),
+// so the loading screen compiles the programs these materials will really use.
+enableSinglePassForFlatDecals(scene);
+const darkShadowSkipper = createDarkShadowSkipper(findShadowCastingLights(scene));
+
 /**
  * The thing that hunts you on the SECOND crossing.
  *
@@ -2233,6 +2247,9 @@ function activateLevel(key, { lockMovement = false } = {}) {
   const isBedroomRestraintActive = key === 'bedroom' && !level.refs.puzzleState.chainsEscaped;
   player.setLookBounds(isBedroomRestraintActive ? BEDROOM_RESTRAINED_LOOK_BOUNDS : null);
   interaction.setTargets(level.interactables);
+  // Again per level: GLB props stream in after the boot-time pass, and any flat
+  // decal among them should get the same single-pass draw.
+  enableSinglePassForFlatDecals(level.group);
   scene.fog = LEVEL_FOG[key] ?? null;
   objectiveEl.textContent = LEVEL_OBJECTIVES[key] ?? '';
   // Hard-cancel rather than just hiding the box: a queued sequence would
@@ -3093,6 +3110,12 @@ async function warmUp() {
       // clipped away but its draw call still issues, so its programs are built.
       // Without it, half of a room warms and the other half stalls on arrival.
       postFX.render();
+      // The map is a separate WebGL context with programs of its own, and it
+      // used to build them on its first frame in each room -- after this bar
+      // had finished. Warmed here, under this same unculled draw, in the mode
+      // the level will actually ask for.
+      minimap.setMode(level.minimap);
+      await minimap.warmUp();
     } catch (err) {
       console.warn(`warmUp: could not warm "${key}"`, err);
     }
@@ -3176,6 +3199,9 @@ async function warmUp() {
   try {
     await renderer.compileAsync(creature.group, camera, scene);
     postFX.render();
+    // It shows on the house map too, which has programs of its own.
+    minimap.setMode(sceneManager.get('bedroom')?.minimap);
+    await minimap.warmUp();
   } catch (err) {
     console.warn('warmUp: could not warm the house creature', err);
   }
@@ -3190,6 +3216,10 @@ async function warmUp() {
   if (maze) maze.group.visible = mazeWasVisible;
   scene.fog = fogBefore;
   camera.position.copy(posBefore);
+  // Leave the map showing the room the game actually opens in, not whichever
+  // level was warmed last.
+  minimap.setMode(sceneManager.active?.minimap);
+  await minimap.warmUp();
   // IT MAY HUNT NOW, and not before. Starting the hunter on a creature whose
   // shaders have never been built is the one stall a fade cannot cover,
   // because it lands the moment the thing becomes visible in the corridor.
@@ -3338,6 +3368,9 @@ function tick() {
   postFX.setCamera(thirdAmount > 0.001 ? thirdCam : camera);
 
   postFX.update(dt);
+  // After everything that sets a light's intensity this frame, so a light that
+  // has just come on gets a fresh shadow in the very frame it lights.
+  darkShadowSkipper.update();
   postFX.render();
   requestAnimationFrame(tick);
 }

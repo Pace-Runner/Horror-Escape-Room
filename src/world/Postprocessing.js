@@ -18,8 +18,8 @@ import { VisorPass } from './VisorPass.js';
  *    per-level light tuning documented at the top of main.js -- and it would
  *    look like a lighting regression rather than a colour-space one.
  *
- * 2. samples on the render target. The renderer is constructed with
- *    antialias: true, but that only covers the default framebuffer. The
+ * 2. samples on the render target. The canvas framebuffer is not where the
+ *    scene is drawn (main.js leaves antialias off on it for that reason). The
  *    composer's own targets default to no MSAA, so simply adding a composer
  *    turns antialiasing off across the whole game. This asks for 4x, which
  *    every WebGL2 context supports.
