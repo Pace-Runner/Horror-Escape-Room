@@ -40,3 +40,11 @@ export const SPRINT_SCALE = 1.75;
 
 /** 3.53 m/s. */
 export const SPRINT_SPEED = WALK_SPEED * SPRINT_SCALE;
+
+/**
+ * The share of their speed a player keeps while shoving something on castors
+ * (the basement's instrument trolley). Applies to whatever speed they were
+ * already at -- a crouch or a sprint -- and the thing pushed moves exactly as
+ * fast as they do, since it is shoved along by the overlap each frame.
+ */
+export const PUSH_SPEED_SCALE = 0.75;

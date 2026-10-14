@@ -129,6 +129,38 @@ const RUN_STEP_FILES = import.meta.glob('../assets/audio/running_audio.*', {
   eager: true
 });
 const WALK_STEP_URL = Object.values(WALK_STEP_FILES)[0] ?? null;
+
+// The instrument trolley's recordings: its castors rolling (looped while it
+// moves) and its crash when it goes over. Globbed like the rest, so a missing
+// file just falls back to the synthesised versions in setTrolleyRattle() and
+// trolleyCrash() instead of breaking the build.
+const TROLLEY_ROLL_URL = Object.values(import.meta.glob('../assets/audio/trolley_roll.*', {
+  query: '?url', import: 'default', eager: true
+}))[0] ?? null;
+const TROLLEY_CRASH_URL = Object.values(import.meta.glob('../assets/audio/trolley_crash.*', {
+  query: '?url', import: 'default', eager: true
+}))[0] ?? null;
+// A sample quieter than this counts as silence when the trolley clips are
+// measured for where their sound actually starts and ends -- see audibleSpan().
+const TROLLEY_SILENCE = 0.02;
+
+/**
+ * Where a recording's sound starts and ends, in seconds, skipping the silence
+ * either side. Measured at load rather than typed in, so a replacement file
+ * needs no code change. The rolling loop runs between the two, so leading or
+ * trailing silence (and the AAC encoder's padding) never plays as a gap at
+ * every pass; the crash starts at the first, so it lands with the impact
+ * instead of a beat after it.
+ */
+function audibleSpan(buffer) {
+  const data = buffer.getChannelData(0);
+  let first = 0;
+  while (first < data.length && Math.abs(data[first]) < TROLLEY_SILENCE) first++;
+  let last = data.length - 1;
+  while (last > first && Math.abs(data[last]) < TROLLEY_SILENCE) last--;
+  if (last <= first) return { start: 0, end: buffer.duration };
+  return { start: first / buffer.sampleRate, end: (last + 1) / buffer.sampleRate };
+}
 const RUN_STEP_URL = Object.values(RUN_STEP_FILES)[0] ?? null;
 
 /**
@@ -311,6 +343,9 @@ export class AudioEngine {
     this.ctx = null;
     this.master = null;
     this.windSource = null;
+    // The trolley rattle loop, built on first use -- see setTrolleyRattle().
+    this.rattleGain = null;
+    this.rattleNodes = null;
 
     // Settable before start(): the settings menu can call this from a value it
     // restored out of localStorage before the player has even clicked through
@@ -383,6 +418,23 @@ export class AudioEngine {
     this.#loadBreathing();
     this.#loadFootstepSet(WALK_STEP_URL, 'walking').then((set) => { this.stepWalk = set; });
     this.#loadFootstepSet(RUN_STEP_URL, 'running').then((set) => { this.stepRun = set; });
+    this.#loadClip(TROLLEY_ROLL_URL).then((buffer) => { this.trolleyRollBuffer = buffer; });
+    this.#loadClip(TROLLEY_CRASH_URL).then((buffer) => { this.trolleyCrashBuffer = buffer; });
+  }
+
+  /** Fetches and decodes one recording; resolves null if there is none or it will not decode. */
+  #loadClip(url) {
+    if (!url) return Promise.resolve(null);
+    return fetch(url)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.arrayBuffer();
+      })
+      .then((bytes) => this.ctx?.decodeAudioData(bytes) ?? null)
+      .catch((err) => {
+        console.warn(`AudioEngine: could not load ${url}`, err);
+        return null;
+      });
   }
 
   // Suspends the whole AudioContext rather than just zeroing gain, so the
@@ -1014,6 +1066,131 @@ export class AudioEngine {
     src.stop(now + 0.34);
   }
 
+  /**
+   * The rattle of a trolley's castors, 0 (silent) to 1 (shoved hard). Called
+   * every frame by whoever is pushing one; the level eases toward it.
+   *
+   * One loop, built the first time it is wanted and then left running at zero
+   * gain: noise through a band-pass for the clatter of loose steel, with its
+   * level chopped by a fast LFO so it ticks like small wheels over concrete.
+   */
+  setTrolleyRattle(level) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    // The level reports the rattle every frame, from the moment audio starts --
+    // usually before the recording has finished decoding. Nothing is built
+    // for a silent call, and if the synthesised stand-in was built while the
+    // recording was still loading, it is torn down for the recording now.
+    if (this.trolleyRollBuffer && this.rattleGain && !this.rattleIsRecording) {
+      this.rattleNodes?.forEach((node) => node.stop());
+      this.rattleGain.disconnect();
+      this.rattleNodes = null;
+      this.rattleGain = null;
+    }
+    if (!this.rattleGain && level <= 0) return;
+    if (!this.rattleGain && this.trolleyRollBuffer) {
+      // The recording, looped for as long as the trolley moves.
+      const buffer = this.trolleyRollBuffer;
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.loop = true;
+      const span = audibleSpan(buffer);
+      src.loopStart = span.start;
+      src.loopEnd = span.end;
+      this.rattleGain = ctx.createGain();
+      this.rattleGain.gain.value = 0;
+      src.connect(this.rattleGain).connect(this.master);
+      src.start(0, span.start);
+      this.rattleNodes = [src];
+      this.rattleIsRecording = true;
+    }
+    if (!this.rattleGain) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.#noiseBuffer(2);
+      src.loop = true;
+      const band = ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = 1900;
+      band.Q.value = 1.4;
+      // The tick: an LFO swinging a gain between near-silence and full.
+      const chop = ctx.createGain();
+      chop.gain.value = 0.5;
+      const lfo = ctx.createOscillator();
+      lfo.type = 'square';
+      lfo.frequency.value = 13;
+      const lfoDepth = ctx.createGain();
+      lfoDepth.gain.value = 0.45;
+      lfo.connect(lfoDepth).connect(chop.gain);
+      this.rattleGain = ctx.createGain();
+      this.rattleGain.gain.value = 0;
+      src.connect(band).connect(chop).connect(this.rattleGain).connect(this.master);
+      src.start();
+      lfo.start();
+      this.rattleNodes = [src, lfo];
+    }
+    const clamped = Math.max(0, Math.min(1, level));
+    // The recording is a real level already; the synthesised rattle is quiet noise.
+    const peak = this.rattleIsRecording ? 0.9 : 0.16;
+    this.rattleGain.gain.setTargetAtTime(clamped * peak, ctx.currentTime, 0.06);
+  }
+
+  /**
+   * A steel trolley going over onto concrete with everything on it: one heavy
+   * hit, the frame ringing off it, then the instruments landing in a scatter of
+   * smaller hits that thin out over most of a second.
+   */
+  trolleyCrash() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    this.setTrolleyRattle(0);
+    if (this.trolleyCrashBuffer) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.trolleyCrashBuffer;
+      src.connect(this.master);
+      // Straight in at the impact, a hair early so its attack is not clipped.
+      src.start(0, Math.max(0, audibleSpan(this.trolleyCrashBuffer).start - 0.01));
+      return;
+    }
+    this.thump(0.95);
+
+    // The frame ringing: two inharmonic partials, like a struck steel tube.
+    for (const [freq, level, decay] of [[410, 0.09, 1.1], [1130, 0.05, 0.7], [2310, 0.03, 0.45]]) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.value = freq * (0.97 + Math.random() * 0.06);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, now);
+      gain.gain.exponentialRampToValueAtTime(level, now + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + decay);
+      osc.connect(gain).connect(this.master);
+      osc.start(now);
+      osc.stop(now + decay + 0.05);
+    }
+
+    // The instruments: short bright clicks, each quieter and more spread out
+    // than the last.
+    const clatter = this.#noiseBuffer(0.1);
+    let t = 0.04;
+    for (let i = 0; i < 14; i++) {
+      t += 0.02 + Math.random() * 0.07 * (1 + i * 0.12);
+      const src = ctx.createBufferSource();
+      src.buffer = clatter;
+      const band = ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = 2400 + Math.random() * 4200;
+      band.Q.value = 6;
+      const gain = ctx.createGain();
+      const peak = 0.5 * Math.pow(0.86, i) * (0.6 + Math.random() * 0.4);
+      gain.gain.setValueAtTime(0.0001, now + t);
+      gain.gain.exponentialRampToValueAtTime(peak, now + t + 0.004);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + t + 0.07);
+      src.connect(band).connect(gain).connect(this.master);
+      src.start(now + t);
+      src.stop(now + t + 0.09);
+    }
+  }
+
   // Tears the whole graph down and closes the context. Safe before start(),
   // safe twice, and start() afterwards rebuilds from scratch (the decoded
   // buffer belongs to the closed context, so it is dropped and refetched).
@@ -1024,6 +1201,12 @@ export class AudioEngine {
     this.stopVoice();
     if (!this.ctx) return;
 
+    this.rattleNodes?.forEach((node) => node.stop());
+    this.rattleNodes = null;
+    this.rattleGain = null;
+    this.rattleIsRecording = false;
+    this.trolleyRollBuffer = null;
+    this.trolleyCrashBuffer = null;
     this.windSource?.stop();
     this.windSource?.disconnect();
     this.breathGain?.disconnect();

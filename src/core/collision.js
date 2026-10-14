@@ -23,12 +23,24 @@
  * catches that. A full relaxation loop would be more correct and would also let
  * a body oscillate between two boxes forever.
  *
+ * PUSHABLE BOXES. A box may carry a `push(dx, dz)` method -- something on
+ * castors. When a `pusher` is passed, such a box gets first go at the overlap:
+ * it is asked to slide away from the circle by the full amount, moves as far as
+ * it can (walls and furniture are its business), and returns how far it went.
+ * Only what it could not take is pushed back onto the circle, so walking into a
+ * free trolley shoves it, and walking into one jammed against a wall is the
+ * same as walking into the wall. Without a `pusher` -- the creature, anything
+ * that should not be shoving furniture about -- a pushable box is as solid as
+ * any other.
+ *
  * @param {{x:number,z:number}} pos mutated
  * @param {number} radius
- * @param {Array<{minX:number,maxX:number,minZ:number,maxZ:number}>} colliders
+ * @param {Array<{minX:number,maxX:number,minZ:number,maxZ:number,push?:Function}>} colliders
+ * @param {{pushed:boolean}|null} [pusher] given to let the circle push; its
+ *   `pushed` is set true if any pushable box actually moved
  * @returns {boolean} true if anything actually pushed
  */
-export function resolveCircle(pos, radius, colliders) {
+export function resolveCircle(pos, radius, colliders, pusher = null) {
   let hit = false;
   for (const box of colliders) {
     const closestX = Math.max(box.minX, Math.min(pos.x, box.maxX));
@@ -58,8 +70,18 @@ export function resolveCircle(pos, radius, colliders) {
 
       const dist = Math.sqrt(distSq);
       const push = radius - dist;
-      pos.x += (dx / dist) * push;
-      pos.z += (dz / dist) * push;
+      let pushX = (dx / dist) * push;
+      let pushZ = (dz / dist) * push;
+      if (pusher && box.push) {
+        // The box moves the opposite way to the circle; whatever it managed is
+        // overlap the circle no longer has to give back.
+        const moved = box.push(-pushX, -pushZ);
+        pushX += moved.x;
+        pushZ += moved.z;
+        if (moved.x !== 0 || moved.z !== 0) pusher.pushed = true;
+      }
+      pos.x += pushX;
+      pos.z += pushZ;
       hit = true;
     }
   }

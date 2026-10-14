@@ -1429,6 +1429,10 @@ const hallwayBasement = createHallwayBasementLevel({
   showCaption,
   onExit: () => exitLevel('hallwayBasement'),
   onSpark: () => audio.spark(),
+  onTrolleyRoll: (level) => audio.setTrolleyRattle(level),
+  // The crash. Level 2's creature is scripted rather than hunting, so nothing
+  // answers the noise yet -- this is where to hook it if something should.
+  onTrolleyCrash: () => audio.trolleyCrash(),
   onGlare: setGlare,
 
   onPowerRestored: () => {
@@ -2225,6 +2229,7 @@ function activateLevel(key, { lockMovement = false } = {}) {
   // see returnDroppedItems() for why a drop must never be able to softlock.
   returnDroppedItems(key);
   setGlare(0); // the basement's overload wash must not follow the player into another level
+  audio.setTrolleyRattle(0); // nor a trolley still rolling as they left
   const isBedroomRestraintActive = key === 'bedroom' && !level.refs.puzzleState.chainsEscaped;
   player.setLookBounds(isBedroomRestraintActive ? BEDROOM_RESTRAINED_LOOK_BOUNDS : null);
   interaction.setTargets(level.interactables);
