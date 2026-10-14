@@ -77,6 +77,8 @@ export const dialog_scratches_examine = ["Scratched into the floorboards, in sha
 
 export const dialog_pickup_flashlight = ["You pick up the flashlight.", "level1/pickup_flashlight.m4a"];
 
+export const dialog_lamp_examine = ["The lamp is not quite dead. The bulb stutters on and off in little bursts, as if it is counting something.", "level1/lamp_examine.m4a"];
+
 export const dialog_lamp_drawer_empty = ["The drawer stands open, empty now.", "level1/lamp_drawer_empty.m4a"];
 
 export const dialog_paperclip_unlocks_cuff = ["You work the paperclip into the cuff's lock... it clicks open.", "level1/paperclip_unlocks_cuff.m4a"];
@@ -136,3 +138,55 @@ export const dialog_hold_crowbar = ["You need the crowbar in your hand for this.
 export const dialog_hold_bedroom_key = ["The lock wants the bedroom key. Take it in your hand.", "level1/hold_bedroom_key.m4a"];
 
 export const dialog_hold_brass_key = ["The brass key would fit this. You need it in your hand.", "level1/hold_brass_key.m4a"];
+
+// ---- hints (H key) -----------------------------------------------------------
+// What the player sees when they press H. Each puzzle has a few, vaguest first:
+// pressing H again on the same puzzle gives the next, more direct one. Which
+// puzzle they are on is worked out by src/levels/bedroomHints.js.
+// No voice clips by default -- hints are read, not performed.
+
+export const dialog_hint_nudge = ["Stuck? Press H for a hint.", ""];
+
+// Shown when H is pressed anywhere other than the bedroom.
+export const dialog_hint_unavailable = ["No hints for this part. Trust your eyes.", ""];
+
+export const dialog_hint_all_solved = ["Nothing left to find in here. Get through the door.", ""];
+
+export const dialog_hint_paperclip_1 = ["Your free hand can still reach the pillows. Feel around them.", ""];
+export const dialog_hint_paperclip_2 = ["Something small and metal is caught between the pillows. Pick it up.", ""];
+
+export const dialog_hint_cuff_1 = ["A bent paperclip could work the cuff's lock.", ""];
+export const dialog_hint_cuff_2 = ["Take the paperclip in your hand (scroll wheel), then look at the cuff and press E.", ""];
+
+export const dialog_hint_flashlight_1 = ["You need light to search this room. Something on the bedside table could help.", ""];
+export const dialog_hint_flashlight_2 = ["The flashlight is on the bedside table beside the bed, next to the lamp.", ""];
+
+export const dialog_hint_photos_1 = ["The corkboard on the wall has four empty places. The family's photographs are scattered around the room.", ""];
+export const dialog_hint_photos_2 = ["You have {found} of {needed} photographs. Check the floor, and open the drawers.", ""];
+export const dialog_hint_photos_where = ["Still missing: {places}.", ""];
+export const dialog_hint_photo_place_radiator = ["one leaning against the radiator under the window", ""];
+export const dialog_hint_photo_place_bedside_drawer = ["one in the bedside drawer", ""];
+export const dialog_hint_photo_place_floor = ["one on the floor beside the corkboard", ""];
+export const dialog_hint_photo_place_vanity_drawer = ["one in the vanity's middle drawer", ""];
+
+export const dialog_hint_corkboard_1 = ["You have all four photographs. Take them to the corkboard.", ""];
+export const dialog_hint_corkboard_2 = ["Each photograph has a year printed on it. Pin them in order, oldest first.", ""];
+
+export const dialog_hint_lamp_1 = ["The lamp on the bedside table is not quite dead. Watch it for a while.", ""];
+export const dialog_hint_lamp_2 = ["The flicker is not random. It blinks in groups, with pauses between. Count each group: that is the code for the locked drawer under it.", ""];
+// {blinks} and {code} are filled from the lamp's real code, e.g. "3, then 1, then 5" and "315".
+export const dialog_hint_lamp_3 = ["The lamp blinks {blinks}. Enter {code} on the drawer under it.", ""];
+
+export const dialog_hint_lockbox_1 = ["The hollow behind the corkboard holds a locked box. You have a key that might fit.", ""];
+export const dialog_hint_lockbox_2 = ["Take the brass key in your hand and open the box behind the corkboard.", ""];
+
+export const dialog_hint_floorboard_1 = ["One corner of the rug does not lie flat. Something might be under it.", ""];
+export const dialog_hint_floorboard_2 = ["Lift the rug's corner. There is a loose floorboard beneath it.", ""];
+export const dialog_hint_floorboard_3 = ["Take the crowbar in your hand and pry up the loose floorboard under the rug.", ""];
+
+export const dialog_hint_bedroom_key_1 = ["Something was hidden under that floorboard. Pick it up.", ""];
+
+export const dialog_hint_planks_1 = ["The door is boarded shut. The crowbar could take the planks off.", ""];
+export const dialog_hint_planks_2 = ["Take the crowbar in your hand and use it on the boarded door.", ""];
+
+export const dialog_hint_door_1 = ["The planks are gone. Take the bedroom key in your hand and unlock the door.", ""];

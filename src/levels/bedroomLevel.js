@@ -1759,6 +1759,22 @@ export function createBedroomLevel({
   }
   const lampFlicker = buildFlickerIntervals(drawerPinDigits);
 
+  // The lamp can be looked at, so a player who has noticed it flickering gets
+  // told, in the room's own voice, that the flicker means something. A box
+  // around the shade only: the flashlight's pickup sphere sits lower on the
+  // same tabletop and the locked drawer's hitbox is below it.
+  const lampHitbox = new THREE.Mesh(
+    new THREE.BoxGeometry(0.2, 0.16, 0.2),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  lampHitbox.position.y = lampShade.position.y;
+  lampHitbox.userData.interact = {
+    label: 'Examine lamp',
+    onInteract: () => showCaption(line('dialog_lamp_examine'))
+  };
+  lampGroup.add(lampHitbox);
+  interactables.push(lampHitbox);
+
   const nightstandBook = new THREE.Mesh(
     new THREE.BoxGeometry(0.16, 0.03, 0.12),
     new THREE.MeshStandardMaterial({ color: 0x5a3c2a, roughness: 0.9 })
@@ -2786,6 +2802,9 @@ export function createBedroomLevel({
       disturbChair,
       disturbBin,
       flashLamp,
+      // Read by the hint system (levels/bedroomHints.js), so its most direct
+      // lamp hint always gives the code the lamp is actually blinking.
+      drawerPinDigits,
       rattleDoor,
       bulbLight,
       bulbMaterial,

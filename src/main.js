@@ -23,6 +23,8 @@ import { createMinimap } from './core/Minimap.js';
 import { CaptionSequencer } from './core/CaptionSequencer.js';
 import { createDocumentUI } from './core/DocumentUI.js';
 import { createPostFX } from './world/Postprocessing.js';
+import { createHintSystem } from './core/HintSystem.js';
+import { BEDROOM_HINT_STAGES } from './levels/bedroomHints.js';
 import { enableSinglePassForFlatDecals, createDarkShadowSkipper, findShadowCastingLights } from './world/renderOptimizations.js';
 import { createCutsceneRunner } from './core/Cutscene.js';
 import { createScriptRunner } from './core/Script.js';
@@ -1400,6 +1402,44 @@ const bedroom = createBedroomLevel({
 });
 sceneManager.register('bedroom', bedroom);
 
+// ---------- level 1 hints ----------
+// H gives a hint for whichever bedroom puzzle the player is on, vaguer first
+// and more direct on each press; see core/HintSystem.js and
+// levels/bedroomHints.js. The wording is in dialogue/level1_bedroom.js.
+
+/**
+ * Snapshots the bedroom's puzzle progress for the hint system: the room's own
+ * puzzleState, plus the two things it does not track itself (whether the
+ * paperclip is carried, and whether the torch has been found) and the code the
+ * lamp blinks.
+ *
+ * @returns {object} a fresh progress object; safe for the caller to keep.
+ */
+function readBedroomHintProgress() {
+  return {
+    ...bedroom.refs.puzzleState,
+    hasPaperclip: gameState.inventory.has('paperclip'),
+    flashlightFound,
+    drawerPinDigits: bedroom.refs.drawerPinDigits
+  };
+}
+
+const bedroomHints = createHintSystem({
+  stages: BEDROOM_HINT_STAGES,
+  readProgress: readBedroomHintProgress,
+  // interaction.showCaption, not the local showCaption(): the hint system needs
+  // its answer, which is false while a story sequence holds the caption.
+  showCaption: (lines) => interaction.showCaption(lines),
+  readNudgeLines: () => line('dialog_hint_nudge'),
+  readAllSolvedLines: () => line('dialog_hint_all_solved')
+});
+
+/** The H key: a hint in the bedroom, and a plain answer anywhere else. */
+function showHint() {
+  if (sceneManager.activeKey === 'bedroom') bedroomHints.showNextHint();
+  else showCaption(line('dialog_hint_unavailable'));
+}
+
 // Screen-space half of the basement's overload glare. The level drives the
 // 0..1 amount; here it becomes a cool-white wash plus a backdrop blur, which
 // is what actually takes the player's sight away -- bright lights on their
@@ -2406,6 +2446,7 @@ async function exitLevel(fromKey) {
 
 // ---------- game reset (restart without page refresh) ----------
 function resetGame() {
+  bedroomHints.reset();
   // A restart from the pause menu can land mid-fade; without this the freshly
   // reset bedroom would come up behind a black overlay that never lifts.
   abortTransition();
@@ -2562,6 +2603,7 @@ window.addEventListener('keydown', (e) => {
   }
   // Q lets go of what is in the hand -- see dropHeldItem() for when it refuses.
   if (e.code === 'KeyQ' && !e.repeat) dropHeldItem();
+  if (e.code === 'KeyH' && !e.repeat) showHint();
   if (e.code === 'KeyT') setThirdPerson(!thirdPerson);
   if (e.code === 'KeyV') {
     const result = visor.toggle();
@@ -3257,6 +3299,8 @@ function tick() {
   if (sceneManager.activeKey === 'bedroom') {
     bedroomStorm.update(dt);
     rain.update(dt);
+    // Only while actually playing: a paused game is not a stuck player.
+    if (player.isLocked) bedroomHints.update(dt);
   }
   captions.update(dt);
   // Only while it is actually on screen. The AI is not driving it in Level 2 --

@@ -66,6 +66,12 @@ reasoning behind the scenegraph hierarchy.
   currently carried (flashlight, crowbar, visor, keys), added and
   removed at the same points the story already picks them up or spends
   them. See `ITEMS` in `src/core/GameState.js`.
+- **Hints in Level 1** (H): a hint for whichever bedroom puzzle the
+  player is on, vaguer first and more direct on each press, and a
+  one-time "press H" offer after 90 s stuck on one puzzle. The bedside
+  lamp can also be examined, which points at its flickering code. See
+  `src/core/HintSystem.js` and `src/levels/bedroomHints.js`; the wording
+  is in `src/dialogue/level1_bedroom.js`.
 - First-person WASD + mouse look, pointer-locked, with simple
   wall/furniture collision. The look asks for **raw** mouse input
   (`unadjustedMovement`) so the OS pointer-acceleration curve is not
