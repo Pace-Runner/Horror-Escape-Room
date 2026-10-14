@@ -129,6 +129,38 @@ const RUN_STEP_FILES = import.meta.glob('../assets/audio/running_audio.*', {
   eager: true
 });
 const WALK_STEP_URL = Object.values(WALK_STEP_FILES)[0] ?? null;
+
+// The instrument trolley's recordings: its castors rolling (looped while it
+// moves) and its crash when it goes over. Globbed like the rest, so a missing
+// file just falls back to the synthesised versions in setTrolleyRattle() and
+// trolleyCrash() instead of breaking the build.
+const TROLLEY_ROLL_URL = Object.values(import.meta.glob('../assets/audio/trolley_roll.*', {
+  query: '?url', import: 'default', eager: true
+}))[0] ?? null;
+const TROLLEY_CRASH_URL = Object.values(import.meta.glob('../assets/audio/trolley_crash.*', {
+  query: '?url', import: 'default', eager: true
+}))[0] ?? null;
+// A sample quieter than this counts as silence when the trolley clips are
+// measured for where their sound actually starts and ends -- see audibleSpan().
+const TROLLEY_SILENCE = 0.02;
+
+/**
+ * Where a recording's sound starts and ends, in seconds, skipping the silence
+ * either side. Measured at load rather than typed in, so a replacement file
+ * needs no code change. The rolling loop runs between the two, so leading or
+ * trailing silence (and the AAC encoder's padding) never plays as a gap at
+ * every pass; the crash starts at the first, so it lands with the impact
+ * instead of a beat after it.
+ */
+function audibleSpan(buffer) {
+  const data = buffer.getChannelData(0);
+  let first = 0;
+  while (first < data.length && Math.abs(data[first]) < TROLLEY_SILENCE) first++;
+  let last = data.length - 1;
+  while (last > first && Math.abs(data[last]) < TROLLEY_SILENCE) last--;
+  if (last <= first) return { start: 0, end: buffer.duration };
+  return { start: first / buffer.sampleRate, end: (last + 1) / buffer.sampleRate };
+}
 const RUN_STEP_URL = Object.values(RUN_STEP_FILES)[0] ?? null;
 
 /**
@@ -386,6 +418,23 @@ export class AudioEngine {
     this.#loadBreathing();
     this.#loadFootstepSet(WALK_STEP_URL, 'walking').then((set) => { this.stepWalk = set; });
     this.#loadFootstepSet(RUN_STEP_URL, 'running').then((set) => { this.stepRun = set; });
+    this.#loadClip(TROLLEY_ROLL_URL).then((buffer) => { this.trolleyRollBuffer = buffer; });
+    this.#loadClip(TROLLEY_CRASH_URL).then((buffer) => { this.trolleyCrashBuffer = buffer; });
+  }
+
+  /** Fetches and decodes one recording; resolves null if there is none or it will not decode. */
+  #loadClip(url) {
+    if (!url) return Promise.resolve(null);
+    return fetch(url)
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.arrayBuffer();
+      })
+      .then((bytes) => this.ctx?.decodeAudioData(bytes) ?? null)
+      .catch((err) => {
+        console.warn(`AudioEngine: could not load ${url}`, err);
+        return null;
+      });
   }
 
   // Suspends the whole AudioContext rather than just zeroing gain, so the
@@ -1028,6 +1077,33 @@ export class AudioEngine {
   setTrolleyRattle(level) {
     if (!this.ctx) return;
     const ctx = this.ctx;
+    // The level reports the rattle every frame, from the moment audio starts --
+    // usually before the recording has finished decoding. Nothing is built
+    // for a silent call, and if the synthesised stand-in was built while the
+    // recording was still loading, it is torn down for the recording now.
+    if (this.trolleyRollBuffer && this.rattleGain && !this.rattleIsRecording) {
+      this.rattleNodes?.forEach((node) => node.stop());
+      this.rattleGain.disconnect();
+      this.rattleNodes = null;
+      this.rattleGain = null;
+    }
+    if (!this.rattleGain && level <= 0) return;
+    if (!this.rattleGain && this.trolleyRollBuffer) {
+      // The recording, looped for as long as the trolley moves.
+      const buffer = this.trolleyRollBuffer;
+      const src = ctx.createBufferSource();
+      src.buffer = buffer;
+      src.loop = true;
+      const span = audibleSpan(buffer);
+      src.loopStart = span.start;
+      src.loopEnd = span.end;
+      this.rattleGain = ctx.createGain();
+      this.rattleGain.gain.value = 0;
+      src.connect(this.rattleGain).connect(this.master);
+      src.start(0, span.start);
+      this.rattleNodes = [src];
+      this.rattleIsRecording = true;
+    }
     if (!this.rattleGain) {
       const src = ctx.createBufferSource();
       src.buffer = this.#noiseBuffer(2);
@@ -1053,7 +1129,9 @@ export class AudioEngine {
       this.rattleNodes = [src, lfo];
     }
     const clamped = Math.max(0, Math.min(1, level));
-    this.rattleGain.gain.setTargetAtTime(clamped * 0.16, ctx.currentTime, 0.06);
+    // The recording is a real level already; the synthesised rattle is quiet noise.
+    const peak = this.rattleIsRecording ? 0.9 : 0.16;
+    this.rattleGain.gain.setTargetAtTime(clamped * peak, ctx.currentTime, 0.06);
   }
 
   /**
@@ -1066,6 +1144,14 @@ export class AudioEngine {
     const ctx = this.ctx;
     const now = ctx.currentTime;
     this.setTrolleyRattle(0);
+    if (this.trolleyCrashBuffer) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.trolleyCrashBuffer;
+      src.connect(this.master);
+      // Straight in at the impact, a hair early so its attack is not clipped.
+      src.start(0, Math.max(0, audibleSpan(this.trolleyCrashBuffer).start - 0.01));
+      return;
+    }
     this.thump(0.95);
 
     // The frame ringing: two inharmonic partials, like a struck steel tube.
@@ -1118,6 +1204,9 @@ export class AudioEngine {
     this.rattleNodes?.forEach((node) => node.stop());
     this.rattleNodes = null;
     this.rattleGain = null;
+    this.rattleIsRecording = false;
+    this.trolleyRollBuffer = null;
+    this.trolleyCrashBuffer = null;
     this.windSource?.stop();
     this.windSource?.disconnect();
     this.breathGain?.disconnect();
