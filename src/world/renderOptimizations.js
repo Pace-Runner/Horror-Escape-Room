@@ -115,8 +115,8 @@ export function enableSinglePassForFlatDecals(root) {
  *
  * @param {THREE.Light[]} lights - candidate lights; any that do not cast
  *   shadows or already manage their own shadow updates are ignored.
- * @returns {{ update: () => void, lightCount: number }} call update() once per
- *   frame before rendering.
+ * @returns {{ update: () => void, refreshAllShadowsOnce: () => void,
+ *   lightCount: number }} call update() once per frame before rendering.
  */
 export function createDarkShadowSkipper(lights) {
   const managedLights = lights.filter((light) => light.castShadow && light.shadow?.autoUpdate);
@@ -128,7 +128,17 @@ export function createDarkShadowSkipper(lights) {
     }
   }
 
-  return { update, lightCount: managedLights.length };
+  /**
+   * Makes the next render draw every managed light's shadow map, dark or not.
+   * For the loading screen's warm-up draws: a shadow pass that is skipped never
+   * builds its depth shaders, and they would then be built mid-game the first
+   * time that light comes on.
+   */
+  function refreshAllShadowsOnce() {
+    for (const light of managedLights) light.shadow.needsUpdate = true;
+  }
+
+  return { update, refreshAllShadowsOnce, lightCount: managedLights.length };
 }
 
 /**

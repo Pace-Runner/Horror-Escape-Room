@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+// FIRST, before any module that might start a load: it has to be listening
+// before the first model or texture is requested. See core/LoadTracker.js.
+import { waitForAllLoads } from './core/LoadTracker.js';
 import { PointerLockPlayer, SENSITIVITY_MIN, SENSITIVITY_MAX } from './core/PointerLockPlayer.js';
 import { WALK_SPEED } from './core/MoveSpeeds.js';
 import { SceneManager } from './core/SceneManager.js';
@@ -17,7 +20,7 @@ import { createBackroomsLevel } from './levels/backroomsLevel.js';
 import { createScreenFade, wait } from './core/ScreenFade.js';
 import { gameState, resetState, addItem, removeItem, ITEMS } from './core/GameState.js';
 import { createHeldItems } from './core/HeldItems.js';
-import { createItemMeshes } from './world/itemMeshes.js';
+import { createItemMeshes, ITEM_MESH_IDS } from './world/itemMeshes.js';
 import { MAIN_ONLY } from './core/RenderLayers.js';
 import { createMinimap } from './core/Minimap.js';
 import { CaptionSequencer } from './core/CaptionSequencer.js';
@@ -328,7 +331,9 @@ const hands = new Hands({ camera, renderer });
 // is safe to call before init() has finished. Nothing has to be re-equipped
 // when it lands: the held-item system reconciles every frame (see
 // core/HeldItems.js), so whatever is selected appears the frame the hand does.
-hands.init().catch((err) => {
+// Kept so the loading screen can wait for it: the glove's shaders are built in
+// warmUp(), which needs the glove to exist.
+const handsReady = hands.init().catch((err) => {
   console.error('Failed to initialise the first-person hands:', err);
 });
 
@@ -361,7 +366,7 @@ const itemMeshes = createItemMeshes();
 // RIGHT hand, not the left the README's handedness convention asks for: the
 // game builds the right hand only (ACTIVE_SIDES in systems/hands/hands.js), and
 // that file's own note says a torch then goes in the right hand's grip socket.
-loadModel(flashlightModelUrl).then((torch) => {
+const heldTorchReady = loadModel(flashlightModelUrl).then((torch) => {
   itemMeshes.setTemplate('flashlight', torch);
 }).catch((err) => {
   console.error('Failed to load the held flashlight, it will not appear in hand:', err);
@@ -3095,6 +3100,51 @@ function setLoadProgress(fraction, hint) {
   if (hint && loadingHintEl) loadingHintEl.textContent = hint;
 }
 
+/**
+ * Puts every view-model piece on screen for one warm-up draw, and returns a
+ * function that puts everything back.
+ *
+ * WHY. three.js builds a separate shader for each lighting setup, so the hands
+ * and every held item need one per room. The warm-up draw only builds what is
+ * visible at that moment -- and the bare glove is hidden while anything is in
+ * hand, and an item not yet picked up has no mesh at all. So each of them
+ * built its shaders mid-game instead, the first time it appeared in each room:
+ * opening the bedroom's lockbox froze the game for ~2 s (the glove showing as
+ * the brass key left the hand) and cut the sound with it.
+ *
+ * Shown here: every hidden mesh under the camera (the bare glove and nails
+ * among them), plus a held AND a dropped copy of every item that can be built
+ * yet. Dropped copies receive shadows, which is a different shader again.
+ * Lights under the camera are never touched -- turning one on would change the
+ * very lighting setup the shaders are being built for.
+ *
+ * @returns {() => void} restores visibility and removes the temporary copies.
+ */
+function showViewModelsForWarmUp() {
+  const shownObjects = [];
+  camera.traverse((object) => {
+    if (object === camera || object.isLight || object.visible) return;
+    object.visible = true;
+    shownObjects.push(object);
+  });
+  const WARM_COPY_POSITION = [0, -0.15, -0.7];
+  const warmCopies = [];
+  for (const itemId of ITEM_MESH_IDS) {
+    for (const view of ['held', 'world']) {
+      const copy = itemMeshes.build(itemId, view);
+      if (!copy) continue;
+      copy.position.set(...WARM_COPY_POSITION);
+      copy.traverse((object) => { if (object.isMesh) object.frustumCulled = false; });
+      camera.add(copy);
+      warmCopies.push(copy);
+    }
+  }
+  return () => {
+    for (const copy of warmCopies) camera.remove(copy);
+    for (const object of shownObjects) object.visible = false;
+  };
+}
+
 async function warmUp() {
   const keys = [...sceneManager.levels.keys()];
   // The creature counts as a step of its own: it is a network fetch rather
@@ -3108,6 +3158,14 @@ async function warmUp() {
     // cannot paint between two synchronous compiles.
     await nextFrame();
   };
+
+  // The hands and the held torch are drawn in every room's warm-up below, so
+  // they have to have arrived. Both promises already swallow a failed load,
+  // so a missing model costs that model's warm-up, never the whole boot.
+  await Promise.all([handsReady, heldTorchReady]);
+  // And every room's own models, which can bring lights with them: a room
+  // warmed before its candles arrive is warmed for the wrong lighting.
+  await waitForAllLoads();
 
   // Everything off, so each room is warmed on its own and nothing is paid
   // twice. Restored at the end from what it actually was.
@@ -3151,7 +3209,16 @@ async function warmUp() {
       // frustumCulled off for exactly this draw: a wall behind the camera is
       // clipped away but its draw call still issues, so its programs are built.
       // Without it, half of a room warms and the other half stalls on arrival.
-      postFX.render();
+      //
+      // With the hands and every item on screen too, and every shadow drawn
+      // whether its light is on or not -- see showViewModelsForWarmUp().
+      const restoreViewModels = showViewModelsForWarmUp();
+      darkShadowSkipper.refreshAllShadowsOnce();
+      try {
+        postFX.render();
+      } finally {
+        restoreViewModels();
+      }
       // The map is a separate WebGL context with programs of its own, and it
       // used to build them on its first frame in each room -- after this bar
       // had finished. Warmed here, under this same unculled draw, in the mode
@@ -3227,27 +3294,46 @@ async function warmUp() {
   }
   playerBody.visible = bodyWasVisible;
 
-  // And the house creature, at the monster reading every house beat shows,
-  // under the bedroom's fog -- fog is part of the program key, and the window
-  // glimpse there is the first frame it is ever drawn on.
+  // And the house creature, at the monster reading every house beat shows, in
+  // EACH house room it can appear in, with only that room showing.
+  //
+  // A shader is built for one exact set of lights and fog. This used to be done
+  // once, under the bedroom's fog but with the maze still switched on from the
+  // hunter's warm-up above -- a mix of two rooms' lights that play never
+  // produces -- so the creature built its shaders again on its first
+  // appearance in every room: entering the basement froze for ~2-3 s. The
+  // player's body (T) is drawn alongside it for the same reason.
   const houseWasVisible = creature.visible;
-  scene.fog = LEVEL_FOG.bedroom ?? null;
+  const bodyWasShown = playerBody.visible;
+  const levelWasVisible = new Map([...sceneManager.levels].map(([key, level]) => [key, level.group.visible]));
   creature.visible = true;
-  creature.setPosition(camera.position.x, camera.position.z - 4);
-  creature.update(1 / 60);
+  playerBody.visible = true;
   creature.group.traverse((o) => {
     if (o.isMesh || o.isSkinnedMesh) { unculled.push([o, o.frustumCulled]); o.frustumCulled = false; }
   });
-  try {
-    await renderer.compileAsync(creature.group, camera, scene);
-    postFX.render();
-    // It shows on the house map too, which has programs of its own.
-    minimap.setMode(sceneManager.get('bedroom')?.minimap);
-    await minimap.warmUp();
-  } catch (err) {
-    console.warn('warmUp: could not warm the house creature', err);
+  for (const houseKey of ['bedroom', 'hallwayBasement', 'study']) {
+    const houseLevel = sceneManager.get(houseKey);
+    if (!houseLevel) continue;
+    for (const [key, level] of sceneManager.levels) level.group.visible = key === houseKey;
+    scene.fog = LEVEL_FOG[houseKey] ?? null;
+    if (houseLevel.spawn) camera.position.set(houseLevel.spawn[0], 1.6, houseLevel.spawn[1]);
+    creature.setPosition(camera.position.x, camera.position.z - 4);
+    creature.update(1 / 60);
+    playerBody.setPosition(camera.position.x, camera.position.z);
+    playerBody.update(1 / 60);
+    try {
+      await renderer.compileAsync(creature.group, camera, scene);
+      postFX.render();
+      // It shows on the house map too, which has programs of its own.
+      minimap.setMode(houseLevel.minimap);
+      await minimap.warmUp();
+    } catch (err) {
+      console.warn(`warmUp: could not warm the house creature in "${houseKey}"`, err);
+    }
   }
+  for (const [key, level] of sceneManager.levels) level.group.visible = levelWasVisible.get(key);
   creature.visible = houseWasVisible;
+  playerBody.visible = bodyWasShown;
 
   // Put back what each mesh HAD, not true: OkabeCreature turns culling off on
   // its skinned meshes on purpose (their bounding sphere freezes at the first
