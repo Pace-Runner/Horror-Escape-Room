@@ -233,6 +233,54 @@ html, body {
   color: #6b6459;
 }
 
+/* The hint key, stacked above the view toggle in the same corner block and in
+   the same muted style, with only the key itself brought forward. Hidden
+   outside the rooms that have hints; .nudge pulses it when the game offers a
+   hint to a player who has been stuck a while. */
+#hint-key {
+  position: absolute;
+  bottom: 82px;
+  right: 24px;
+  display: none;
+  font-size: 0.7rem;
+  letter-spacing: 0.1rem;
+  text-transform: uppercase;
+  color: #6b6459;
+}
+
+#hint-key.visible {
+  display: block;
+}
+
+#hint-key kbd {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 1px 6px;
+  font-family: inherit;
+  color: #c9c2b4;
+  background: rgba(4, 3, 2, 0.55);
+  border: 1px solid #3a332b;
+  border-radius: 3px;
+}
+
+#hint-key.nudge {
+  animation: hint-key-pulse 1.2s ease-in-out 3;
+}
+
+@keyframes hint-key-pulse {
+  50% {
+    color: #c9c2b4;
+    text-shadow: 0 0 8px rgba(201, 194, 180, 0.6);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #hint-key.nudge {
+    animation: none;
+    color: #c9c2b4;
+  }
+}
+
 /* Sits just above the flashlight readout and matches it, so the corner stays
    one block. pointer-events is the load-bearing line: #hud sets none on the
    whole overlay so the game can be clicked through it, and a button inside an

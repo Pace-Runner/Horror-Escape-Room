@@ -61,6 +61,7 @@ const crosshair = document.getElementById('crosshair');
 const objectiveEl = document.getElementById('objective');
 const promptEl = document.getElementById('interact-prompt');
 const captionEl = document.getElementById('caption-box');
+const hintKeyEl = document.getElementById('hint-key');
 const flashlightStateEl = document.getElementById('flashlight-state');
 const hotbarSlots = document.querySelectorAll('#hotbar .hotbar-slot');
 const minimapCanvas = document.getElementById('minimap');
@@ -1436,8 +1437,20 @@ const bedroomHints = createHintSystem({
   // its answer, which is false while a story sequence holds the caption.
   showCaption: (lines) => interaction.showCaption(lines),
   readNudgeLines: () => line('dialog_hint_nudge'),
-  readAllSolvedLines: () => line('dialog_hint_all_solved')
+  readAllSolvedLines: () => line('dialog_hint_all_solved'),
+  onNudge: pulseHintKey
 });
+
+/**
+ * Pulses the on-screen hint key, so the "press H" offer points at something.
+ * The class is taken off and put back with a reflow between, or a second
+ * offer would find the animation already finished and do nothing.
+ */
+function pulseHintKey() {
+  hintKeyEl.classList.remove('nudge');
+  void hintKeyEl.offsetWidth;
+  hintKeyEl.classList.add('nudge');
+}
 
 /** The H key: a hint in the bedroom, and a plain answer anywhere else. */
 function showHint() {
@@ -2295,6 +2308,8 @@ function activateLevel(key, { lockMovement = false } = {}) {
   // Again per level: GLB props stream in after the boot-time pass, and any flat
   // decal among them should get the same single-pass draw.
   enableSinglePassForFlatDecals(level.group);
+  // The on-screen hint key, only where H actually gives hints.
+  hintKeyEl.classList.toggle('visible', key === 'bedroom');
   scene.fog = LEVEL_FOG[key] ?? null;
   objectiveEl.textContent = LEVEL_OBJECTIVES[key] ?? '';
   // Hard-cancel rather than just hiding the box: a queued sequence would

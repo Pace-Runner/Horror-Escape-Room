@@ -30,6 +30,10 @@
          key is the one that works while playing, because clicking anything
          during play drops pointer lock. -->
     <button id="third-person-toggle" type="button" title="Switch view (T)">View: 1st</button>
+    <!-- The hint key, on screen so players know it exists. Shown only in rooms
+         that have hints, and pulsed when the game offers one -- see showHint()
+         in src/main.js. -->
+    <div id="hint-key"><kbd>H</kbd> Hint</div>
 
     <div id="minimap-wrap">
       <canvas id="minimap"></canvas>

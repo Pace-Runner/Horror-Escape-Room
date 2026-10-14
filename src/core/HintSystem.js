@@ -34,14 +34,21 @@ export const STUCK_NUDGE_DELAY_SECONDS = 90;
  *   function, not the lines, so an edited dialogue file is picked up live.
  * @param {() => Array<object>} options.readAllSolvedLines - returns what is shown
  *   if a hint is asked for after every stage is solved.
+ * @param {() => void} [options.onNudge] - called when the stuck offer is shown,
+ *   so the page can draw the eye to its on-screen hint key as well.
  * @returns {{ showNextHint: () => void, update: (dt: number) => void,
  *   reset: () => void, readCurrentStageId: () => string | null }}
  */
-export function createHintSystem({ stages, readProgress, showCaption, readNudgeLines, readAllSolvedLines }) {
+export function createHintSystem({ stages, readProgress, showCaption, readNudgeLines, readAllSolvedLines, onNudge = () => {} }) {
   let currentStageId = null;
   let hintsShownForStage = 0;
   let stuckSeconds = 0;
   let nudgeShownForStage = false;
+  // Set when H was pressed while a story sequence held the caption box. The
+  // hint then waits and appears the moment that sequence ends, instead of the
+  // key press being silently thrown away -- the opening "you wake up" lines
+  // are exactly when a new player first reaches for H.
+  let isHintWaiting = false;
 
   /**
    * Finds the first unsolved stage.
@@ -69,41 +76,57 @@ export function createHintSystem({ stages, readProgress, showCaption, readNudgeL
   }
 
   /**
-   * Shows the next hint for the stage the player is on. Repeated presses on the
-   * same stage step towards the most explicit hint and then repeat it. A hint
-   * that could not be shown (a story caption was playing) is not counted, so
-   * the player never skips past one they did not get to read.
+   * Tries to show the next hint for the stage the player is on. Repeated
+   * successful calls on the same stage step towards the most explicit hint and
+   * then repeat it.
+   *
+   * @returns {boolean} false when a story sequence held the caption box and
+   *   nothing was shown. Such a try is not counted, so the player never skips
+   *   past a hint they did not get to read.
    */
-  function showNextHint() {
+  function tryShowNextHint() {
     const progress = readProgress();
     const stage = findCurrentStage(progress);
     updateCurrentStage(stage);
-    if (!stage) {
-      showCaption(readAllSolvedLines());
-      return;
-    }
+    if (!stage) return showCaption(readAllSolvedLines());
     const hints = stage.readHints(progress);
     const hintIndex = Math.min(hintsShownForStage, hints.length - 1);
-    if (showCaption(hints[hintIndex])) {
-      hintsShownForStage++;
-      // Asking for a hint answers the nudge; don't offer one on top of it.
-      nudgeShownForStage = true;
-    }
+    if (!showCaption(hints[hintIndex])) return false;
+    hintsShownForStage++;
+    // Asking for a hint answers the nudge; don't offer one on top of it.
+    nudgeShownForStage = true;
+    return true;
+  }
+
+  /**
+   * The hint key. Shows the next hint now, or -- if a story sequence is on
+   * screen -- as soon as it finishes (see update()).
+   */
+  function showNextHint() {
+    isHintWaiting = !tryShowNextHint();
   }
 
   /**
    * Advances the stuck timer and offers a hint once per stage when it runs out.
-   * Call once per frame while the level is being played.
+   * Also shows a hint the player asked for while a story sequence was on
+   * screen, once that sequence ends. Call once per frame while the level is
+   * being played.
    *
    * @param {number} dt - seconds since the last frame.
    */
   function update(dt) {
+    if (isHintWaiting) {
+      isHintWaiting = !tryShowNextHint();
+      return;
+    }
     updateCurrentStage(findCurrentStage(readProgress()));
     if (currentStageId === null || nudgeShownForStage) return;
     stuckSeconds += dt;
     if (stuckSeconds < STUCK_NUDGE_DELAY_SECONDS) return;
     // Retried next frame if a story caption is on screen right now.
-    if (showCaption(readNudgeLines())) nudgeShownForStage = true;
+    if (!showCaption(readNudgeLines())) return;
+    nudgeShownForStage = true;
+    onNudge();
   }
 
   /** Forgets every counter, for a restart. */
@@ -112,6 +135,7 @@ export function createHintSystem({ stages, readProgress, showCaption, readNudgeL
     hintsShownForStage = 0;
     stuckSeconds = 0;
     nudgeShownForStage = false;
+    isHintWaiting = false;
   }
 
   /**
