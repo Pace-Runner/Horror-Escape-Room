@@ -4,7 +4,6 @@ import {
   createScratchedMessageTexture,
   createScratchedMessageNormalTexture,
   createPolaroidTexture,
-  createFamilyPhotoTexture,
   createFurnitureWoodTexture,
   createFurnitureWoodNormalTexture,
   createCobwebTexture
@@ -34,6 +33,12 @@ import flashlightModelUrl from '../assets/models/flashlight.glb?url';
 import pendantLightModelUrl from '../assets/models/ceiling_pendant.glb?url';
 import wallHollowModelUrl from '../assets/models/wall_hollow.glb?url';
 import antiqueLockboxModelUrl from '../assets/models/antique_lockbox.glb?url';
+import level1ChairRemodelUrl from '../assets/models/level1_chair_remodel.glb?url';
+import level1WastebasketRemodelUrl from '../assets/models/level1_wastebasket_remodel.glb?url';
+import level1CrumpledPaperBallUrl from '../assets/models/level1_crumpled_paper_ball.glb?url';
+import level1RadiatorRemodelUrl from '../assets/models/level1_radiator_remodel.glb?url';
+import level1WindowFrameRemodelUrl from '../assets/models/level1_window_frame_remodel.glb?url';
+import looseFloorboardRemodelUrl from '../assets/models/level1_loose_floorboard_remodel.glb?url';
 import doorPlankAlbedoUrl from '../assets/textures/door/door_plank_albedo.png?url';
 import doorPlankRoughnessUrl from '../assets/textures/door/door_plank_roughness.png?url';
 import doorPlankNormalUrl from '../assets/textures/door/door_wood_normal_1k.png?url';
@@ -41,6 +46,7 @@ import wallpaperBaseUrl from '../assets/textures/bedroom/distressed_victorian_da
 import clawRipUrl from '../assets/textures/bedroom/ripped_victorian_wallpaper_claw_marks.png?url';
 import bedroomFloorUrl from '../assets/textures/bedroom/weathered_dark_wooden_floorboards.png?url';
 import bedroomCeilingUrl from '../assets/textures/bedroom/grimy_cracked_plaster_texture.png?url';
+import hauntedMansionSepiaUrl from '../assets/textures/bedroom/haunted_victorian_mansion_sepia.png?url';
 import photo1984Url from '../assets/textures/bedroom/level_1_1984_pic.png?url';
 import photo1985Url from '../assets/textures/bedroom/level_1_1985_pic.png?url';
 import photo1986Url from '../assets/textures/bedroom/level_1_1986_pic.png?url';
@@ -202,7 +208,6 @@ const VANITY_STOOL_SCALE = 1.03;
 const VANITY_STOOL_POSITION_X = 2.80;
 const DOOR_POSITION_X = 1.2;
 const DOOR_SKIRTING_OPENING_WIDTH_METRES = 1.40;
-const RADIATOR_SKIRTING_OPENING_WIDTH_METRES = 0.70;
 const BED_SKIRTING_OPENING_WIDTH_METRES = 1.60;
 const CHAIR_POSITION_X = -3.15;
 const CHAIR_POSITION_Z = 2.2;
@@ -437,10 +442,46 @@ export function createBedroomLevel({
     slab(gapW, h - gapY1, gapX, (gapY1 + h) / 2); // above gap
   }
 
+  /**
+   * Leaves the existing door's visual opening empty and places one unlit,
+   * near-black backing plane beyond it. The door itself remains the only
+   * animated/puzzle object; these are static wall segments and a background.
+   */
+  function addFrontWallDoorway() {
+    const doorwayWidthMetres = 1.0;
+    const doorwayHeightMetres = 2.0;
+    const doorwayLeftMetres = DOOR_POSITION_X - doorwayWidthMetres / 2;
+    const doorwayRightMetres = DOOR_POSITION_X + doorwayWidthMetres / 2;
+    const createWallSlab = (widthMetres, heightMetres, xMetres, yMetres) => {
+      const slab = new THREE.Mesh(new THREE.PlaneGeometry(widthMetres, heightMetres), wallMat);
+      slab.position.set(xMetres, yMetres, ROOM_D / 2);
+      slab.rotation.y = Math.PI;
+      alignBedroomWallUVs(slab, 'front');
+      slab.castShadow = true;
+      slab.receiveShadow = true;
+      structure.add(slab);
+    };
+    createWallSlab(doorwayLeftMetres - (-ROOM_W / 2), ROOM_H,
+      (-ROOM_W / 2 + doorwayLeftMetres) / 2, ROOM_H / 2);
+    createWallSlab(ROOM_W / 2 - doorwayRightMetres, ROOM_H,
+      (ROOM_W / 2 + doorwayRightMetres) / 2, ROOM_H / 2);
+    createWallSlab(doorwayWidthMetres, ROOM_H - doorwayHeightMetres,
+      DOOR_POSITION_X, doorwayHeightMetres + (ROOM_H - doorwayHeightMetres) / 2);
+
+    const hallwayVoid = new THREE.Mesh(
+      new THREE.PlaneGeometry(doorwayWidthMetres, doorwayHeightMetres),
+      new THREE.MeshBasicMaterial({ color: 0x020202, fog: false })
+    );
+    hallwayVoid.name = 'Level1BedroomDoorwayVoid';
+    hallwayVoid.position.set(DOOR_POSITION_X, doorwayHeightMetres / 2, ROOM_D / 2 + 0.26);
+    hallwayVoid.rotation.y = Math.PI;
+    structure.add(hallwayVoid);
+  }
+
   // back wall (has the window), front wall (has the door), right wall
   addWallWithGap(ROOM_W, ROOM_H, -ROOM_D / 2, WINDOW_POSITION_X, 1.5, 1.3, 1.5);
   addWall(ROOM_D, ROOM_H, ROOM_W / 2, ROOM_H / 2, 0, -Math.PI / 2, 'right');
-  addWall(ROOM_W, ROOM_H, 0, ROOM_H / 2, ROOM_D / 2, Math.PI, 'front');
+  addFrontWallDoorway();
 
   // Left wall has a gap behind the pinboard (see the photo-arrangement
   // puzzle below) opening onto an actual recessed cavity -- built with the
@@ -535,10 +576,9 @@ export function createBedroomLevel({
     depth: ROOM_D,
     materialFactory: (skirtingLengthMetres) => createBedroomSkirtingMaterial(floorTex, skirtingLengthMetres),
     frontOpenings: [{ center: DOOR_POSITION_X, width: DOOR_SKIRTING_OPENING_WIDTH_METRES }],
-    // The cold radiator and the bed headboard occupy the lower back wall.
-    // Skirting resumes between and beyond them rather than clipping through either.
+    // The raised radiator clears this run completely, so the skirting remains
+    // continuous beneath it. The bed headboard still needs its own opening.
     backOpenings: [
-      { center: WINDOW_POSITION_X, width: RADIATOR_SKIRTING_OPENING_WIDTH_METRES },
       { center: BED_POSITION_X, width: BED_SKIRTING_OPENING_WIDTH_METRES }
     ],
     // The left wall uses recessed, thicker pinboard-wall geometry, so it
@@ -763,46 +803,46 @@ export function createBedroomLevel({
   mH.position.z = 0.06;
   mH.castShadow = true;
   windowGroup.add(mH);
+  loadModel(level1WindowFrameRemodelUrl).then((windowFrameVisual) => {
+    frameParts.forEach((_, index) => { windowGroup.children[index].visible = false; });
+    mV.visible = false;
+    mH.visible = false;
+    windowFrameVisual.name = 'Level1WindowFrameRemodelVisual';
+    // Blender exports its Z-up window assembly sideways in Three's Y-up
+    // scene. Rotate only this visual root; rain glass and the window opening
+    // keep their existing transforms and storm behavior.
+    windowFrameVisual.rotation.x = Math.PI / 2;
+    windowFrameVisual.position.z = 0.01;
+    windowFrameVisual.traverse((child) => {
+      if (!child.isMesh) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+    windowGroup.add(windowFrameVisual);
+  }).catch((error) => console.error('Could not load the Level 1 window frame remodel:', error));
 
   // ---------- old cast-iron radiator beneath the window ----------
   const radiatorGroup = new THREE.Group();
   radiatorGroup.position.set(WINDOW_POSITION_X, 0, -ROOM_D / 2 + 0.14);
   group.add(radiatorGroup);
 
-  const radiatorMat = new THREE.MeshStandardMaterial({ color: 0x22231f, metalness: 0.6, roughness: 0.65 });
-  const radiatorRustMat = new THREE.MeshStandardMaterial({ color: 0x5a3a20, metalness: 0.3, roughness: 0.8 });
-
   const RAD_W = 0.7;
-  const RAD_H = 0.5;
-  const RAD_FLOOR_Y = 0.08;
-  const railTop = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, RAD_W, 8), radiatorMat);
-  railTop.rotation.z = Math.PI / 2;
-  railTop.position.set(0, RAD_FLOOR_Y + RAD_H, 0);
-  radiatorGroup.add(railTop);
-  const railBottom = railTop.clone();
-  railBottom.position.y = RAD_FLOOR_Y;
-  radiatorGroup.add(railBottom);
-
-  const finCount = 9;
-  for (let i = 0; i < finCount; i++) {
-    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.02, RAD_H, 0.1), radiatorMat);
-    fin.position.set(-RAD_W / 2 + 0.04 + (i * (RAD_W - 0.08)) / (finCount - 1), RAD_FLOOR_Y + RAD_H / 2, 0);
-    fin.castShadow = true;
-    radiatorGroup.add(fin);
-    // streaks of rust bleeding down from a couple of the fin joints --
-    // an old radiator that's sat unused/leaking for years, not a new one
-    if (i % 3 === 0) {
-      const rust = new THREE.Mesh(new THREE.PlaneGeometry(0.03, 0.22), radiatorRustMat);
-      rust.position.set(fin.position.x, RAD_FLOOR_Y + 0.11, 0.051);
-      radiatorGroup.add(rust);
-    }
-  }
-
-  [-1, 1].forEach((side) => {
-    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.02, RAD_FLOOR_Y, 6), radiatorMat);
-    leg.position.set(side * (RAD_W / 2 - 0.05), RAD_FLOOR_Y / 2, 0);
-    radiatorGroup.add(leg);
-  });
+  const RAD_H = 0.52;
+  const RAD_FLOOR_Y = 0.19;
+  loadModel(level1RadiatorRemodelUrl).then((radiatorVisual) => {
+    radiatorVisual.name = 'Level1RadiatorRemodelVisual';
+    radiatorVisual.position.y = RAD_FLOOR_Y;
+    // Correct the Blender Z-up asset to the wall's vertical plane and place
+    // its full cast-iron body ahead of the back-wall surface.
+    radiatorVisual.rotation.x = Math.PI / 2;
+    radiatorVisual.position.z = 0.06;
+    radiatorVisual.traverse((child) => {
+      if (!child.isMesh) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+    radiatorGroup.add(radiatorVisual);
+  }).catch((error) => console.error('Could not load the Level 1 radiator remodel:', error));
 
   radiatorGroup.userData.interact = {
     label: 'Examine radiator',
@@ -885,8 +925,8 @@ export function createBedroomLevel({
     bedTopShelf.receiveShadow = true;
     bedGroup.add(bedTopShelf);
 
-    // Small dressing resting directly on the new ledge: a candle and framed
-    // family photo keep the headboard lived-in without adding puzzle objects.
+    // Small dressing resting directly on the new ledge: a candle and the
+    // mansion photograph establish the house without adding a puzzle object.
     const shelfCandle = new THREE.Group();
     shelfCandle.position.set(-0.24, bedTopShelfHeightMetres + 0.014, -0.91);
     bedGroup.add(shelfCandle);
@@ -933,24 +973,71 @@ export function createBedroomLevel({
     shelfCandle.add(shelfCandleLight);
 
     const shelfFrameGroup = new THREE.Group();
-    shelfFrameGroup.position.set(0.23, bedTopShelfHeightMetres + 0.014, -0.91);
+    shelfFrameGroup.name = 'Level1MansionFrameVisual';
+    shelfFrameGroup.position.set(0.20, bedTopShelfHeightMetres + 0.014, -0.91);
     shelfFrameGroup.rotation.y = -0.08;
     bedGroup.add(shelfFrameGroup);
-    const shelfFrame = new THREE.Mesh(
-      new RoundedBoxGeometry(0.18, 0.23, 0.018, 2, 0.01),
-      new THREE.MeshStandardMaterial({ color: 0x352114, roughness: 0.72 })
+    const mansionFrameWidthMetres = 0.225;
+    const mansionFrameHeightMetres = 0.225;
+    const mansionFrameRailMetres = 0.024;
+    const mansionFrameCenterYMetres = 0.122;
+    const mansionFrameMaterial = new THREE.MeshStandardMaterial({
+      color: 0x25120a, roughness: 0.83
+    });
+    const mansionTrimMaterial = new THREE.MeshStandardMaterial({
+      color: 0x785128, metalness: 0.36, roughness: 0.66
+    });
+    const mansionFrameBack = new THREE.Mesh(
+      new RoundedBoxGeometry(mansionFrameWidthMetres, mansionFrameHeightMetres, 0.014, 2, 0.004),
+      new THREE.MeshStandardMaterial({ color: 0x160d08, roughness: 0.92 })
     );
-    shelfFrame.position.set(0, 0.115, 0.009);
-    shelfFrame.castShadow = true;
-    shelfFrameGroup.add(shelfFrame);
-    const shelfPhoto = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.136, 0.172),
-      new THREE.MeshStandardMaterial({
-        map: createFamilyPhotoTexture(), color: 0xcbbd9a, roughness: 0.88
-      })
+    mansionFrameBack.position.set(0, mansionFrameCenterYMetres, 0.005);
+    mansionFrameBack.castShadow = true;
+    mansionFrameBack.receiveShadow = true;
+    shelfFrameGroup.add(mansionFrameBack);
+
+    const addFrameRail = (widthMetres, heightMetres, xMetres, yMetres, material) => {
+      const rail = new THREE.Mesh(
+        new RoundedBoxGeometry(widthMetres, heightMetres, 0.018, 2, 0.003),
+        material
+      );
+      rail.position.set(xMetres, yMetres, 0.017);
+      rail.castShadow = true;
+      shelfFrameGroup.add(rail);
+    };
+    const outerHalfWidthMetres = mansionFrameWidthMetres / 2;
+    const outerHalfHeightMetres = mansionFrameHeightMetres / 2;
+    addFrameRail(mansionFrameWidthMetres, mansionFrameRailMetres, 0,
+      mansionFrameCenterYMetres + outerHalfHeightMetres - mansionFrameRailMetres / 2, mansionFrameMaterial);
+    addFrameRail(mansionFrameWidthMetres, mansionFrameRailMetres, 0,
+      mansionFrameCenterYMetres - outerHalfHeightMetres + mansionFrameRailMetres / 2, mansionFrameMaterial);
+    addFrameRail(mansionFrameRailMetres, mansionFrameHeightMetres, -outerHalfWidthMetres + mansionFrameRailMetres / 2,
+      mansionFrameCenterYMetres, mansionFrameMaterial);
+    addFrameRail(mansionFrameRailMetres, mansionFrameHeightMetres, outerHalfWidthMetres - mansionFrameRailMetres / 2,
+      mansionFrameCenterYMetres, mansionFrameMaterial);
+
+    const mansionInnerWidthMetres = mansionFrameWidthMetres - mansionFrameRailMetres * 1.75;
+    const mansionInnerHeightMetres = mansionFrameHeightMetres - mansionFrameRailMetres * 1.75;
+    const mansionTrimMetres = 0.006;
+    addFrameRail(mansionInnerWidthMetres, mansionTrimMetres, 0,
+      mansionFrameCenterYMetres + mansionInnerHeightMetres / 2, mansionTrimMaterial);
+    addFrameRail(mansionInnerWidthMetres, mansionTrimMetres, 0,
+      mansionFrameCenterYMetres - mansionInnerHeightMetres / 2, mansionTrimMaterial);
+    addFrameRail(mansionTrimMetres, mansionInnerHeightMetres, -mansionInnerWidthMetres / 2,
+      mansionFrameCenterYMetres, mansionTrimMaterial);
+    addFrameRail(mansionTrimMetres, mansionInnerHeightMetres, mansionInnerWidthMetres / 2,
+      mansionFrameCenterYMetres, mansionTrimMaterial);
+
+    const mansionTexture = new THREE.TextureLoader().load(hauntedMansionSepiaUrl);
+    mansionTexture.colorSpace = THREE.SRGBColorSpace;
+    mansionTexture.anisotropy = 4;
+    const mansionPhoto = new THREE.Mesh(
+      new THREE.PlaneGeometry(mansionInnerWidthMetres - 0.008, mansionInnerHeightMetres - 0.008),
+      new THREE.MeshStandardMaterial({ map: mansionTexture, roughness: 0.94 })
     );
-    shelfPhoto.position.set(0, 0.115, 0.020);
-    shelfFrameGroup.add(shelfPhoto);
+    mansionPhoto.name = 'Level1HauntedMansionPhotograph';
+    mansionPhoto.position.set(0, mansionFrameCenterYMetres, 0.015);
+    shelfFrameGroup.add(mansionPhoto);
   }).catch((err) => {
     console.error('Failed to load bed.glb, bed frame will be missing:', err);
   });
@@ -1563,13 +1650,19 @@ export function createBedroomLevel({
     new THREE.MeshStandardMaterial({
       map: messageTex,
       normalMap: messageNormal,
-      normalScale: new THREE.Vector2(1.4, 1.4),
+      normalScale: new THREE.Vector2(0.65, 0.65),
       transparent: true,
-      roughness: 1
+      alphaTest: 0.03,
+      depthWrite: false,
+      roughness: 1,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1
     })
   );
+  message.name = 'Level1EtchedFloorWordsDecal';
   message.rotation.x = -Math.PI / 2;
-  message.position.set(-0.85, 0.011, -2.35);
+  message.position.set(-0.85, 0.0025, -2.35);
   message.userData.interact = {
     label: 'Read the floor',
     onInteract: () => {
@@ -2371,42 +2464,25 @@ export function createBedroomLevel({
    * which is why it was the worst place in the room to leave them out.
    */
   const chairGroup = new THREE.Group();
+  chairGroup.name = 'Level1ChairVisualHost';
   chairGroup.rotation.set(0, 0.6, Math.PI / 2.2);
-  const chairSeat = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.05, 0.45), frameMatWood);
-  chairSeat.position.y = 0.42;
-  chairSeat.castShadow = true;
-  chairGroup.add(chairSeat);
-  const chairBack = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.5, 0.05), frameMatWood);
-  chairBack.position.set(0, 0.65, -0.2);
-  chairBack.castShadow = true;
-  chairGroup.add(chairBack);
-  for (const lx of [-0.19, 0.19]) {
-    for (const lz of [-0.19, 0.19]) {
-      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.018, 0.42, 7), frameMatWood);
-      leg.position.set(lx, 0.21, lz);
-      leg.castShadow = true;
-      chairGroup.add(leg);
-    }
-  }
-  // Stretchers between the legs, which is what stops a lying chair reading as
-  // four loose dowels beside a plank.
-  for (const sz of [-0.19, 0.19]) {
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.022, 0.022), frameMatWood);
-    rail.position.set(0, 0.13, sz);
-    rail.castShadow = true;
-    chairGroup.add(rail);
-  }
   group.add(chairGroup);
-  // Sit it ON the boards. Measured from the assembled group rather than guessed,
-  // so adding another part later cannot quietly sink it again.
   chairGroup.position.set(CHAIR_POSITION_X, 0, CHAIR_POSITION_Z);
-  chairGroup.updateMatrixWorld(true);
-  {
-    const box = new THREE.Box3().setFromObject(chairGroup);
-    chairGroup.position.y += Math.max(0, -box.min.y) + 0.004;
-  }
   const chairRestPosition = chairGroup.position.clone();
   const chairRestRotation = chairGroup.rotation.clone();
+  loadModel(level1ChairRemodelUrl).then((chairVisual) => {
+    chairVisual.name = 'Level1ChairRemodelVisual';
+    chairVisual.traverse((child) => {
+      if (!child.isMesh) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+    chairGroup.add(chairVisual);
+    chairGroup.updateMatrixWorld(true);
+    const chairBounds = new THREE.Box3().setFromObject(chairGroup);
+    chairGroup.position.y += Math.max(0, -chairBounds.min.y) + 0.004;
+    chairRestPosition.copy(chairGroup.position);
+  }).catch((error) => console.error('Could not load the Level 1 chair remodel:', error));
 
   /** A small, local shift that reads as uncertain memory rather than a teleport. */
   function disturbChair() {
@@ -2415,14 +2491,23 @@ export function createBedroomLevel({
     chairGroup.rotation.y = chairRestRotation.y + 0.16;
   }
 
-  // ---------- knocked-over waste bin (abandoned-in-a-hurry dressing) ----------
-  const binMat = new THREE.MeshStandardMaterial({ color: 0x34342f, metalness: 0.5, roughness: 0.6 });
-  const bin = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.11, 0.28, 14, 1, true), binMat);
+  // ---------- tipped waste bin (abandoned-in-a-hurry dressing) ----------
+  const bin = new THREE.Group();
+  bin.name = 'Level1WastebasketVisualHost';
   bin.position.set(BIN_POSITION_X, 0.11, BIN_POSITION_Z);
+  const binRestRotationY = 0.3;
   const binRestRotationZ = Math.PI / 2 + 0.12;
-  bin.rotation.set(0, 0.3, binRestRotationZ);
-  bin.castShadow = true;
+  bin.rotation.set(0, binRestRotationY, binRestRotationZ);
   group.add(bin);
+  loadModel(level1WastebasketRemodelUrl).then((wastebasketVisual) => {
+    wastebasketVisual.name = 'Level1WastebasketRemodelVisual';
+    wastebasketVisual.traverse((child) => {
+      if (!child.isMesh) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+    bin.add(wastebasketVisual);
+  }).catch((error) => console.error('Could not load the Level 1 wastebasket remodel:', error));
   const binRestPosition = bin.position.clone();
   const binPapers = [];
   const binPaperRestPositions = [];
@@ -2430,7 +2515,7 @@ export function createBedroomLevel({
   /** A resettable nudge and one displaced paper for the two-photo beat. */
   function disturbBin() {
     bin.position.set(binRestPosition.x - 0.09, binRestPosition.y, binRestPosition.z + 0.06);
-    bin.rotation.z = binRestRotationZ + 0.36;
+    bin.rotation.set(0, binRestRotationY + 0.36, binRestRotationZ + 0.08);
     const displacedPaper = binPapers[0];
     const displacedPaperRestPosition = binPaperRestPositions[0];
     if (displacedPaper && displacedPaperRestPosition) {
@@ -2442,17 +2527,29 @@ export function createBedroomLevel({
     }
   }
 
-  // a few crumpled balls of paper spilled out across the floor
-  const paperMat = new THREE.MeshStandardMaterial({ color: 0xd8d0b8, roughness: 1 });
+  // A few authored paper-ball instances keep the existing reset and movement
+  // positions while replacing only their former primitive visuals.
   [[-0.25, 0.025, -0.20], [0.02, 0.025, -0.32], [-0.18, 0.025, 0.15], [-0.45, 0.025, 0.05]].forEach(([dx, y, dz]) => {
-    const paper = new THREE.Mesh(new THREE.IcosahedronGeometry(0.032, 0), paperMat);
+    const paper = new THREE.Group();
+    paper.name = 'Level1CrumpledPaperBallHost';
     paper.position.set(BIN_POSITION_X + dx, y, BIN_POSITION_Z + dz);
     paper.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
-    paper.scale.set(1, 0.7, 1);
     group.add(paper);
     binPapers.push(paper);
     binPaperRestPositions.push(paper.position.clone());
   });
+  loadModel(level1CrumpledPaperBallUrl).then((paperBallVisual) => {
+    paperBallVisual.traverse((child) => {
+      if (!child.isMesh) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+    binPapers.forEach((paper, index) => {
+      const paperVisual = index === 0 ? paperBallVisual : paperBallVisual.clone(true);
+      paperVisual.name = `Level1CrumpledPaperBallVisual_${index + 1}`;
+      paper.add(paperVisual);
+    });
+  }).catch((error) => console.error('Could not load the Level 1 crumpled paper remodel:', error));
 
   // ---------- cobwebs in neglected ceiling corners -- nobody's cleaned
   // this house in a long time, and it's a cheap detail no normal-mapped
@@ -2522,15 +2619,30 @@ export function createBedroomLevel({
 
   // The loose board sits partly beneath the rug corner. Folding that corner
   // reveals its existing crowbar interaction and the same key reward.
-  const looseFloorboard = new THREE.Mesh(
-    new THREE.BoxGeometry(0.72, 0.04, 0.28),
-    new THREE.MeshStandardMaterial({ color: 0x4a3321, roughness: 0.9 })
-  );
-  looseFloorboard.position.set(-1.55, 0.025, 2.3);
-  looseFloorboard.rotation.z = 0.035;
-  looseFloorboard.castShadow = true;
+  const looseFloorboard = new THREE.Group();
+  looseFloorboard.name = 'Level1LooseFloorboardVisualHost';
+  looseFloorboard.position.set(-1.55, 0.013, 2.3);
   looseFloorboard.visible = false;
   group.add(looseFloorboard);
+
+  // The remodel is the same 72 cm board footprint as the old interaction,
+  // with UVs sampling the matching patch from the room's existing floor map.
+  // That preserves the floor's grain direction and darkness without adding a
+  // second wood bitmap to the game.
+  const looseBoardTexture = floorTex.clone();
+  looseBoardTexture.repeat.set(0.216, 0.0933);
+  looseBoardTexture.offset.set(0.327, 0.86);
+  looseBoardTexture.needsUpdate = true;
+  loadModel(looseFloorboardRemodelUrl).then((floorboardModel) => {
+    floorboardModel.name = 'Level1LooseFloorboardRemodelVisual';
+    applyTextureByMaterialName(floorboardModel, 'LooseFloorboardWood', looseBoardTexture);
+    floorboardModel.traverse((child) => {
+      if (!child.isMesh) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+    looseFloorboard.add(floorboardModel);
+  }).catch((error) => console.error('Could not load the Level 1 loose floorboard remodel:', error));
 
   const looseFloorboardHitbox = new THREE.Mesh(
     new THREE.BoxGeometry(0.78, 0.16, 0.36),
@@ -3196,7 +3308,7 @@ export function createBedroomLevel({
       chairGroup.position.copy(chairRestPosition);
       chairGroup.rotation.copy(chairRestRotation);
       bin.position.copy(binRestPosition);
-      bin.rotation.z = binRestRotationZ;
+      bin.rotation.set(0, binRestRotationY, binRestRotationZ);
       binPapers.forEach((paper, index) => paper.position.copy(binPaperRestPositions[index]));
       lampShockRemainingSeconds = 0;
       if (!interactables.includes(nightstandLeft)) interactables.push(nightstandLeft);

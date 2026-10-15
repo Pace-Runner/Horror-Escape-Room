@@ -76,15 +76,16 @@ html, body {
 #start-screen {
   position: fixed;
   inset: 0;
-  background: radial-gradient(ellipse at center, rgba(20, 16, 14, 0.85) 0%, rgba(0, 0, 0, 0.96) 75%);
+  background:
+    radial-gradient(ellipse at 50% 48%, rgba(32, 17, 7, 0.26) 0%, rgba(2, 1, 1, 0.82) 71%, rgba(0, 0, 0, 0.97) 100%),
+    url('./assets/ui/haunted-bedroom-menu.png') center / cover no-repeat;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 20px;
   z-index: 40;
   text-align: center;
-  transition: opacity 0.6s ease;
+  transition: opacity 0.45s ease;
 }
 
 #start-screen.hidden {
@@ -92,7 +93,144 @@ html, body {
   pointer-events: none;
 }
 
+#main-menu,
+#legacy-start-controls {
+  width: min(450px, calc(100vw - 48px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+#main-menu {
+  align-self: flex-start;
+  margin-left: clamp(48px, 15vw, 280px);
+  padding: clamp(28px, 5vh, 56px) clamp(24px, 4vw, 52px);
+  background: linear-gradient(90deg, rgba(3, 2, 1, 0.26), rgba(8, 5, 3, 0.68), rgba(3, 2, 1, 0.26));
+  border-top: 1px solid rgba(185, 140, 67, 0.26);
+  border-bottom: 1px solid rgba(185, 140, 67, 0.26);
+  animation: menu-arrive 0.5s ease-out both;
+}
+
+.menu-ornament,
+.credits-ornament {
+  color: #c69a50;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.1rem;
+  line-height: 1;
+  text-shadow: 0 0 10px rgba(207, 146, 55, 0.45);
+}
+
+#menu-title {
+  display: flex;
+  flex-direction: column;
+  margin: 12px 0 34px;
+  color: #eadcb8;
+  font-family: Baskerville, 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
+  font-size: clamp(2.8rem, 6vw, 4.75rem);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 0.82;
+  text-shadow: 1px 1px 0 #49331e, -1px 0 0 rgba(52, 35, 20, 0.7), 0 3px 2px rgba(0, 0, 0, 0.8), 0 0 16px rgba(176, 107, 37, 0.14);
+}
+
+#menu-title span {
+  position: relative;
+  display: inline-block;
+  background: linear-gradient(105deg, #cdb98c 0%, #f1e6c8 24%, #bfa56f 49%, #eee0bd 71%, #c7ae7c 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Fine, imperfect cuts at the lower edge suggest aged ink and scratched wood
+   without turning the title into a texture or an expensive animated effect. */
+#menu-title span::after {
+  position: absolute;
+  right: 7%;
+  bottom: -0.18em;
+  width: 2px;
+  height: 0.2em;
+  content: '';
+  background: rgba(221, 204, 164, 0.58);
+  box-shadow: 0.7em 0.06em 0 -0.5px rgba(215, 193, 146, 0.45), 2.2em -0.02em 0 -0.6px rgba(215, 193, 146, 0.37), 4.4em 0.08em 0 -0.7px rgba(215, 193, 146, 0.36);
+}
+
+#menu-title span:last-child {
+  font-size: 0.72em;
+  letter-spacing: 0.15em;
+  margin-top: 0.24em;
+}
+
+.menu-actions {
+  width: min(310px, 100%);
+  display: grid;
+  gap: 9px;
+}
+
+.menu-option,
+#credits-close,
+#quit-back {
+  position: relative;
+  width: 100%;
+  min-height: 50px;
+  padding: 11px 28px;
+  font: 500 1.12rem/1 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #d9cba9;
+  background: rgba(9, 5, 3, 0.38);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.menu-option::before,
+.menu-option::after {
+  position: absolute;
+  top: 50%;
+  color: transparent;
+  content: '✦';
+  transform: translateY(-50%);
+  transition: color 0.18s ease;
+}
+
+.menu-option::before { left: 12px; }
+.menu-option::after { right: 12px; }
+
+.menu-option:hover,
+.menu-option:focus-visible,
+.menu-option.is-selected,
+#credits-close:hover,
+#credits-close:focus-visible,
+#quit-back:hover,
+#quit-back:focus-visible {
+  color: #f0dfb7;
+  background: linear-gradient(90deg, rgba(92, 55, 15, 0.2), rgba(150, 92, 20, 0.26), rgba(92, 55, 15, 0.2));
+  border-color: #bb9148;
+  box-shadow: inset 0 0 0 1px rgba(235, 191, 101, 0.28), 0 0 17px rgba(151, 88, 18, 0.18);
+  outline: none;
+}
+
+.menu-option:hover::before,
+.menu-option:hover::after,
+.menu-option:focus-visible::before,
+.menu-option:focus-visible::after,
+.menu-option.is-selected::before,
+.menu-option.is-selected::after {
+  color: #d9ad5f;
+}
+
+#legacy-start-controls.hidden,
+#main-menu.hidden {
+  display: none;
+}
+
+#legacy-start-controls {
+  align-self: center;
+}
+
 #start-title {
+  margin-bottom: 12px;
   font-size: 3rem;
   letter-spacing: 0.5rem;
   color: #c9c2b4;
@@ -100,6 +238,7 @@ html, body {
 }
 
 #start-sub {
+  margin-bottom: 14px;
   font-size: 0.9rem;
   letter-spacing: 0.3rem;
   color: #7a736a;
@@ -150,6 +289,26 @@ html, body {
   font-size: 0.7rem;
   letter-spacing: 0.1rem;
   color: #55504a;
+}
+
+@keyframes menu-arrive {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #main-menu { animation: none; }
+}
+
+@media (max-width: 760px) {
+  #main-menu {
+    align-self: center;
+    margin-left: 0;
+  }
+
+  #menu-title {
+    font-size: clamp(2.55rem, 12vw, 3.65rem);
+  }
 }
 
 /* ---------- crosshair ---------- */
@@ -876,57 +1035,128 @@ html, body {
 #credits-screen {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.88);
+  background:
+    linear-gradient(rgba(1, 1, 1, 0.79), rgba(1, 1, 1, 0.9)),
+    url('./assets/ui/haunted-bedroom-menu.png') center / cover no-repeat;
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 60;
+  opacity: 1;
+  transition: opacity 0.25s ease;
 }
 
 #credits-screen.hidden {
-  display: none;
+  opacity: 0;
+  pointer-events: none;
 }
 
 #credits-panel {
-  width: min(520px, 90vw);
-  max-height: 80vh;
+  width: min(600px, calc(100vw - 48px));
+  max-height: min(82vh, 760px);
   overflow-y: auto;
-  background: #14110e;
-  border: 1px solid #3a332b;
-  padding: 26px 30px;
+  padding: clamp(26px, 4vh, 42px) clamp(24px, 5vw, 58px);
+  text-align: center;
+  color: #d4c7aa;
+  background: linear-gradient(90deg, rgba(6, 3, 2, 0.78), rgba(22, 12, 6, 0.88), rgba(6, 3, 2, 0.78));
+  border-top: 1px solid rgba(187, 145, 72, 0.5);
+  border-bottom: 1px solid rgba(187, 145, 72, 0.5);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.62);
 }
 
 #credits-panel h2 {
-  letter-spacing: 0.2rem;
+  margin: 10px 0 28px;
+  font: 600 clamp(1.8rem, 4vw, 2.6rem)/1 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  font-size: 1rem;
-  margin-bottom: 16px;
-  color: #b3271a;
+  color: #e4d4ad;
+  text-shadow: 0 0 17px rgba(174, 102, 27, 0.22);
+}
+
+.credits-section {
+  padding: 11px 0;
+  border-top: 1px solid rgba(174, 132, 66, 0.25);
+}
+
+.credits-section h3 {
+  margin-bottom: 7px;
+  color: #cba462;
+  font: 600 0.79rem/1.3 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.credits-section p {
+  font: 0.92rem/1.5 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.04em;
+  color: #d6c7a8;
+}
+
+.credits-editable {
+  color: #a99a7f !important;
+  font-style: italic !important;
 }
 
 #credits-list {
   list-style: none;
-  font-size: 0.8rem;
-  line-height: 1.7;
-  color: #c9c2b4;
+  margin-top: 12px;
+  text-align: center;
+  font: 0.87rem/1.55 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.025em;
+  color: #d6c7a8;
 }
 
 #credits-list li {
-  border-bottom: 1px solid #241f1a;
-  padding: 8px 0;
+  padding: 10px 0;
+  border-top: 1px solid rgba(174, 132, 66, 0.22);
 }
 
 #credits-close {
-  margin-top: 18px;
-  padding: 8px 18px;
-  background: transparent;
-  border: 1px solid #6b6459;
-  color: #d8d2c4;
-  cursor: pointer;
+  display: block;
+  width: min(270px, 100%);
+  margin: 22px auto 0;
 }
 
-#credits-close:hover {
-  background: rgba(179, 39, 26, 0.15);
+#quit-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 61;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.7);
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+#quit-screen.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#quit-panel {
+  width: min(410px, 100%);
+  padding: 38px 42px;
+  text-align: center;
+  background: linear-gradient(135deg, rgba(22, 12, 6, 0.96), rgba(5, 3, 2, 0.98));
+  border: 1px solid rgba(187, 145, 72, 0.58);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.7);
+}
+
+#quit-panel h2 {
+  margin: 13px 0 10px;
+  color: #e4d4ad;
+  font: 600 1.8rem/1.2 Georgia, 'Times New Roman', serif;
+}
+
+#quit-panel p {
+  margin-bottom: 22px;
+  color: #baac92;
+  font: 0.98rem/1.45 Georgia, 'Times New Roman', serif;
+}
+
+#quit-back {
+  width: min(200px, 100%);
 }
 
 /* ---------- settings screen ---------- */

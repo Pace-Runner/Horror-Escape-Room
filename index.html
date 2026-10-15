@@ -120,14 +120,29 @@
   <div id="fade-overlay"></div>
 
   <div id="start-screen">
-    <div id="start-title">DON'T LET IT OUT</div>
-    <div id="start-sub">Project HOLLOW &mdash; June 1987</div>
-    <button id="start-button">Click to begin</button>
-    <button id="settings-button">Settings</button>
-    <button id="restart-button" class="hidden">Restart</button>
-    <div id="start-controls">
-      WASD move &middot; SHIFT sprint &middot; CTRL crouch &middot; mouse look &middot; E interact &middot; Scroll switch item &middot; Q drop &middot; H hint &middot; F flashlight &middot; V visor &middot; T 1st/3rd person &middot; 3/4 preview rooms &middot; G skip to exit &middot; R restart &middot; C credits
-      <br>Plays fullscreen, so crouch-walking (CTRL+W) cannot close the tab. ESC pauses.
+    <div id="main-menu" aria-label="Main menu">
+      <div class="menu-ornament" aria-hidden="true">✦</div>
+      <h1 id="menu-title"><span>DON'T</span><span>LET IT OUT</span></h1>
+      <div class="menu-actions" role="menu">
+        <button class="menu-option is-selected" id="menu-start" type="button" role="menuitem">Start Game</button>
+        <button class="menu-option" id="menu-credits" type="button" role="menuitem">Credits</button>
+        <button class="menu-option" id="menu-quit" type="button" role="menuitem">Quit</button>
+      </div>
+    </div>
+
+    <!-- The existing pause/end controls remain available after play begins.
+         They are deliberately separate from the launch menu so the initial
+         menu contains only Start Game, Credits and Quit. -->
+    <div id="legacy-start-controls" class="hidden">
+      <div id="start-title">DON'T LET IT OUT</div>
+      <div id="start-sub">Project HOLLOW &mdash; June 1987</div>
+      <button id="start-button">Click to begin</button>
+      <button id="settings-button">Settings</button>
+      <button id="restart-button" class="hidden">Restart</button>
+      <div id="start-controls">
+        WASD move &middot; SHIFT sprint &middot; CTRL crouch &middot; mouse look &middot; E interact &middot; Scroll switch item &middot; Q drop &middot; H hint &middot; F flashlight &middot; V visor &middot; T 1st/3rd person &middot; 3/4 preview rooms &middot; G skip to exit &middot; R restart &middot; C credits
+        <br>Plays fullscreen, so crouch-walking (CTRL+W) cannot close the tab. ESC pauses.
+      </div>
     </div>
   </div>
 
@@ -203,9 +218,26 @@
 
   <div id="credits-screen" class="hidden">
     <div id="credits-panel">
-      <h2>Credits</h2>
-      <ul id="credits-list"></ul>
-      <button id="credits-close">Close</button>
+      <div class="credits-ornament" aria-hidden="true">✦</div>
+      <h2>DON'T LET IT OUT</h2>
+      <section class="credits-section">
+        <h3>Team Members</h3>
+        <p>Daniel Passos, Owen Pace, Kiran Soodyall, Sanele Hlatshwayo</p>
+      </section>
+      <section class="credits-section credits-external">
+        <h3>External Assets / Credits</h3>
+        <ul id="credits-list"></ul>
+      </section>
+      <button id="credits-close" type="button">Back to Menu</button>
+    </div>
+  </div>
+
+  <div id="quit-screen" class="hidden" role="dialog" aria-modal="true" aria-labelledby="quit-title">
+    <div id="quit-panel">
+      <div class="credits-ornament" aria-hidden="true">✦</div>
+      <h2 id="quit-title">Thanks for playing.</h2>
+      <p>Return whenever you are ready.</p>
+      <button id="quit-back" type="button">Back</button>
     </div>
   </div>
 

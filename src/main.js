@@ -53,6 +53,12 @@ const loadingBarFill = document.getElementById('loading-bar-fill');
 const loadingHintEl = document.getElementById('loading-hint');
 const thirdPersonBtn = document.getElementById('third-person-toggle');
 const startScreen = document.getElementById('start-screen');
+const mainMenu = document.getElementById('main-menu');
+const legacyStartControls = document.getElementById('legacy-start-controls');
+const menuOptionButtons = [...document.querySelectorAll('.menu-option')];
+const menuStartButton = document.getElementById('menu-start');
+const menuCreditsButton = document.getElementById('menu-credits');
+const menuQuitButton = document.getElementById('menu-quit');
 const startButton = document.getElementById('start-button');
 const restartButton = document.getElementById('restart-button');
 const startTitle = document.getElementById('start-title');
@@ -73,6 +79,8 @@ const creditsList = document.getElementById('credits-list');
 const staminaEl = document.getElementById('stamina');
 const staminaFillEl = document.getElementById('stamina-fill');
 const creditsCloseBtn = document.getElementById('credits-close');
+const quitScreen = document.getElementById('quit-screen');
+const quitBackButton = document.getElementById('quit-back');
 const fadeOverlay = document.getElementById('fade-overlay');
 const settingsButton = document.getElementById('settings-button');
 const settingsScreen = document.getElementById('settings-screen');
@@ -87,6 +95,105 @@ const captionsCheckbox = document.getElementById('settings-captions');
 // other overlay in this file -- see core/ScreenFade.js for why that would snap
 // instead of fading.
 const fade = createScreenFade(fadeOverlay);
+
+// ---------- launch menu ----------
+// This state belongs only to the DOM launch menu. It deliberately does not
+// overlap the game's pause/end state, which continues to use the legacy start
+// controls below after pointer lock has been released.
+let menuOverlayState = 'main';
+let selectedMenuOptionIndex = 0;
+
+function selectMenuOption(optionIndex) {
+  selectedMenuOptionIndex = (optionIndex + menuOptionButtons.length) % menuOptionButtons.length;
+  menuOptionButtons.forEach((button, index) => {
+    button.classList.toggle('is-selected', index === selectedMenuOptionIndex);
+  });
+  menuOptionButtons[selectedMenuOptionIndex].focus({ preventScroll: true });
+}
+
+function showMainMenu() {
+  menuOverlayState = 'main';
+  mainMenu.classList.remove('hidden');
+  legacyStartControls.classList.add('hidden');
+  creditsScreen.classList.add('hidden');
+  quitScreen.classList.add('hidden');
+  startScreen.classList.remove('hidden');
+  hud.style.display = 'none';
+  crosshair.style.display = 'none';
+  selectMenuOption(0);
+}
+
+function showMenuCredits() {
+  menuOverlayState = 'credits';
+  mainMenu.classList.add('hidden');
+  creditsScreen.classList.remove('hidden');
+  quitScreen.classList.add('hidden');
+  hud.style.display = 'none';
+  crosshair.style.display = 'none';
+  creditsCloseBtn.focus({ preventScroll: true });
+}
+
+function showQuitMessage() {
+  menuOverlayState = 'quit';
+  mainMenu.classList.add('hidden');
+  quitScreen.classList.remove('hidden');
+  quitBackButton.focus({ preventScroll: true });
+}
+
+/**
+ * Attempts a browser close only while the Quit click is still a user gesture.
+ * Regular browser tabs normally reject it; the existing thank-you panel is the
+ * intentional fallback for that case.
+ */
+function requestQuit() {
+  window.close();
+  window.setTimeout(() => {
+    if (!window.closed) showQuitMessage();
+  }, 50);
+}
+
+function showLegacyStartScreen() {
+  mainMenu.classList.add('hidden');
+  legacyStartControls.classList.remove('hidden');
+}
+
+menuOptionButtons.forEach((button, index) => {
+  button.addEventListener('mouseenter', () => selectMenuOption(index));
+  button.addEventListener('focus', () => selectMenuOption(index));
+});
+
+menuStartButton.addEventListener('click', () => {
+  menuOverlayState = 'game';
+  mainMenu.classList.add('hidden');
+  // Keep this synchronous with the click so Pointer Lock retains the browser
+  // user gesture that the existing Level 1 flow requires.
+  startButton.click();
+});
+menuCreditsButton.addEventListener('click', showMenuCredits);
+menuQuitButton.addEventListener('click', requestQuit);
+quitBackButton.addEventListener('click', showMainMenu);
+
+window.addEventListener('keydown', (event) => {
+  if (menuOverlayState === 'credits' || menuOverlayState === 'quit') {
+    if (event.code === 'Escape') {
+      event.preventDefault();
+      showMainMenu();
+    }
+    return;
+  }
+
+  if (menuOverlayState !== 'main') return;
+  if (event.code === 'ArrowUp') {
+    event.preventDefault();
+    selectMenuOption(selectedMenuOptionIndex - 1);
+  } else if (event.code === 'ArrowDown') {
+    event.preventDefault();
+    selectMenuOption(selectedMenuOptionIndex + 1);
+  } else if (event.code === 'Enter') {
+    event.preventDefault();
+    menuOptionButtons[selectedMenuOptionIndex].click();
+  }
+});
 
 // ---------- renderer / scene / camera ----------
 // antialias is OFF on the canvas on purpose. Nothing draws the scene to the
@@ -2733,6 +2840,8 @@ async function playEnding(which) {
  * the pause menu -- a third state rather than a third overlay.
  */
 function showEndScreen(which) {
+  menuOverlayState = 'game';
+  showLegacyStartScreen();
   creature.visible = false;
   creatureStanding = false;
   audio.setBreathing(BREATH_BASE_LEVEL);
@@ -2799,7 +2908,14 @@ function toggleCredits(show) {
   creditsScreen.classList.toggle('hidden', !show);
   if (show && player.isLocked) player.unlock();
 }
-creditsCloseBtn.addEventListener('click', () => toggleCredits(false));
+creditsCloseBtn.addEventListener('click', () => {
+  if (menuOverlayState === 'credits') {
+    showMainMenu();
+    return;
+  }
+  toggleCredits(false);
+  if (gameStarted && !gameState.endingChosen) showPauseScreen();
+});
 
 // ---------- settings ----------
 // Volume, mouse sensitivity and captions, persisted in localStorage so they
@@ -2881,6 +2997,19 @@ settingsButton.addEventListener('click', () => settingsScreen.classList.remove('
 settingsCloseBtn.addEventListener('click', () => settingsScreen.classList.add('hidden'));
 
 // ---------- pointer lock flow ----------
+function showPauseScreen() {
+  menuOverlayState = 'game';
+  showLegacyStartScreen();
+  startTitle.textContent = 'PAUSED';
+  startSub.textContent = '';
+  startButton.textContent = 'Click to resume';
+  restartButton.classList.remove('hidden');
+  startScreen.classList.remove('hidden');
+  hud.style.display = 'none';
+  crosshair.style.display = 'none';
+  promptEl.style.display = 'none';
+}
+
 function beginGame() {
   // A fresh run by definition, so it starts from fresh story state. Without
   // this the only thing that ever cleared endingChosen was resetGame(), and a
@@ -2974,14 +3103,7 @@ player.controls.addEventListener('unlock', () => {
   captions.setPaused(true);
 
   if (!creditsScreen.classList.contains('hidden')) return;
-  startTitle.textContent = 'PAUSED';
-  startSub.textContent = '';
-  startButton.textContent = 'Click to resume';
-  restartButton.classList.remove('hidden');
-  startScreen.classList.remove('hidden');
-  hud.style.display = 'none';
-  crosshair.style.display = 'none';
-  promptEl.style.display = 'none';
+  showPauseScreen();
 });
 
 // ---------- dev-only test hook ----------
