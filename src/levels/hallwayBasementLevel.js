@@ -30,6 +30,29 @@ import surgicalLampModelUrl from '../assets/models/surgical_lamp.glb?url';
 import instrumentTrolleyModelUrl from '../assets/models/instrument_trolley.glb?url';
 import labChairModelUrl from '../assets/models/lab_chair.glb?url';
 import storageShelfModelUrl from '../assets/models/storage_shelf.glb?url';
+// TEXTURE PREVIEW (branch lvl2-texture-preview): photo textures the user found,
+// to judge the look. Tiles141, Concrete030 and Metal055B are ambientCG (CC0);
+// the rest are Texturelabs.
+import tilesColorUrl from '../assets/textures/lab/tiles141_color.jpg?url';
+import tilesNormalUrl from '../assets/textures/lab/tiles141_normal_gl.jpg?url';
+import tilesRoughnessUrl from '../assets/textures/lab/tiles141_roughness.jpg?url';
+import concreteColorUrl from '../assets/textures/lab/concrete030_color.jpg?url';
+import concreteNormalUrl from '../assets/textures/lab/concrete030_normal_gl.jpg?url';
+import concreteRoughnessUrl from '../assets/textures/lab/concrete030_roughness.jpg?url';
+import concreteAoUrl from '../assets/textures/lab/concrete030_ao.jpg?url';
+import crackedPaintUrl from '../assets/textures/lab/texturelabs_grunge_328.jpg?url';
+import whiteRustMetalUrl from '../assets/textures/lab/texturelabs_metal_190.jpg?url';
+import steelColorUrl from '../assets/textures/lab/metal055b_color.jpg?url';
+import steelNormalUrl from '../assets/textures/lab/metal055b_normal_gl.jpg?url';
+import steelRoughnessUrl from '../assets/textures/lab/metal055b_roughness.jpg?url';
+import steelMetalnessUrl from '../assets/textures/lab/metal055b_metalness.jpg?url';
+import scuffDecalUrl from '../assets/textures/lab/texturelabs_details_136.png?url';
+// The rust cut out of Texturelabs_Metal_190: its white paint made transparent,
+// so the rust alone can be laid over the generator's own paint.
+import rustOverlayUrl from '../assets/textures/lab/texturelabs_metal_190_rust_overlay.png?url';
+// Green-black damp grime, cut out of the water streaks in Texturelabs_Concrete_189:
+// transparent where that concrete was pale, mossy where it was stained.
+import greenGrimeUrl from '../assets/textures/lab/lab_green_grime_overlay.png?url';
 import { createStaticScreenMaterial } from '../world/StaticScreenMaterial.js';
 import { createCctvFeeds, FEED_IDS, FEED_LABELS } from '../world/CctvFeeds.js';
 import { SECURITY_CODE } from '../world/doorPanels.js';
@@ -485,13 +508,64 @@ export function createHallwayBasementLevel({
     return tiled;
   }
 
+  /**
+   * TEXTURE PREVIEW: loads one photo texture. Only colour images are tagged
+   * sRGB; normal, roughness and bump maps are data and stay linear, or they
+   * wash out. Mirrored wrapping for the photos that are not seamless, so each
+   * copy meets a flipped copy of itself rather than a hard seam.
+   */
+  const photoLoader = new THREE.TextureLoader();
+  /**
+   * Each image is downloaded and decoded ONCE, however many materials use it.
+   * Every loadPhoto() hands back a clone, which can tile at its own repeat but
+   * shares the original's pixels -- and three.js keeps a single copy on the
+   * graphics card for every clone that also shares its wrap and colour-space
+   * settings. Loading per use put the bare-steel set on the card three times
+   * over (pipes, door, instruments).
+   *
+   * A clone made before the image arrives is held back (version 0), so it is
+   * not uploaded empty, and released when the image loads.
+   */
+  const loadedPhotos = new Map();
+  function loadPhoto(url, { colour = true, repeat = [1, 1], wrap = THREE.RepeatWrapping, wrapT = wrap } = {}) {
+    let photo = loadedPhotos.get(url);
+    if (!photo) {
+      photo = { waiting: [] };
+      photo.texture = photoLoader.load(url, () => {
+        photo.waiting.forEach((clone) => { clone.needsUpdate = true; });
+        photo.waiting = null;
+      });
+      loadedPhotos.set(url, photo);
+    }
+    const texture = photo.texture.clone();
+    if (photo.waiting) {
+      texture.version = 0;
+      photo.waiting.push(texture);
+    }
+    if (colour) texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = wrap;
+    texture.wrapT = wrapT;
+    texture.repeat.set(repeat[0], repeat[1]);
+    texture.anisotropy = 8;
+    return texture;
+  }
+
+  // The floor: Tiles141, a full seamless set. One copy of it holds two or three
+  // staggered tiles across, so this is how big the tiles come out: at 4 m a
+  // copy each tile is roughly 1.4-1.8 m. Raise it for bigger tiles, lower it
+  // for smaller ones.
+  const TILE_TEXTURE_METRES = 4.0;
+  const floorRepeat = [LAB_W / TILE_TEXTURE_METRES, LAB_D / TILE_TEXTURE_METRES];
   const labFloor = new THREE.Mesh(
     new THREE.PlaneGeometry(LAB_W, LAB_D),
     new THREE.MeshStandardMaterial({
-      map: tiledForLab(concreteTex, LAB_SCALE, LAB_SCALE),
-      bumpMap: tiledForLab(concreteBump, LAB_SCALE, LAB_SCALE),
-      bumpScale: 0.3,
-      roughness: 1
+      map: loadPhoto(tilesColorUrl, { repeat: floorRepeat }),
+      normalMap: loadPhoto(tilesNormalUrl, { colour: false, repeat: floorRepeat }),
+      roughnessMap: loadPhoto(tilesRoughnessUrl, { colour: false, repeat: floorRepeat }),
+      roughness: 1,
+      // A shade down from the photo's clean white: this floor has not been
+      // mopped in years, and white tile at full brightness glares under the tubes.
+      color: 0xb8b8ae
     })
   );
   labFloor.rotation.x = -Math.PI / 2;
@@ -501,17 +575,83 @@ export function createHallwayBasementLevel({
   const labCeil = labFloor.clone();
   labCeil.rotation.x = Math.PI / 2;
   labCeil.position.y = LAB_H;
-  labCeil.material = new THREE.MeshStandardMaterial({ color: 0x121110 });
-  lab.add(labCeil);
-
-  const labWallMat = new THREE.MeshStandardMaterial({
-    map: tiledForLab(concreteTex, LAB_SCALE, 1),
-    bumpMap: tiledForLab(concreteBump, LAB_SCALE, 1),
-    bumpScale: 0.3,
+  // The ceiling: old paint crazed into cracks, its own image used as a bump
+  // map too so the cracks catch the light.
+  const ceilingRepeat = [LAB_W / 3, LAB_D / 2];
+  // The same texture as both: a bump map only needs light and dark, so it
+  // does not need a second, linear copy of the image on the graphics card.
+  const crackedPaintMap = loadPhoto(crackedPaintUrl, { repeat: ceilingRepeat, wrap: THREE.MirroredRepeatWrapping });
+  labCeil.material = new THREE.MeshStandardMaterial({
+    map: crackedPaintMap,
+    bumpMap: crackedPaintMap,
+    bumpScale: 1.5,
+    color: 0x9a9a92,
     roughness: 1
   });
+  lab.add(labCeil);
+
+  /**
+   * TEXTURE PREVIEW: green grime over the tiles. A second, transparent layer
+   * on the floor carrying the damp stains cut out of a photo, much larger
+   * than the tiles (one copy per FLOOR_GRIME_METRES) and weaker than on the
+   * walls, so it reads as patches of damp rather than as part of the tile
+   * pattern. Added after the ceiling is cloned from the floor, or the ceiling
+   * would come out grimy too.
+   */
+  const FLOOR_GRIME_METRES = [6, 4];
+  const floorGrime = new THREE.Mesh(
+    labFloor.geometry,
+    new THREE.MeshStandardMaterial({
+      map: loadPhoto(greenGrimeUrl, {
+        repeat: [LAB_W / FLOOR_GRIME_METRES[0], LAB_D / FLOOR_GRIME_METRES[1]],
+        wrap: THREE.MirroredRepeatWrapping
+      }),
+      transparent: true,
+      opacity: 0.6,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+      roughness: 0.9
+    })
+  );
+  floorGrime.receiveShadow = true;
+  labFloor.add(floorGrime);
+
+  /**
+   * The walls: Concrete030, plain grey poured concrete, a full seamless set --
+   * colour, normal, roughness and ambient occlusion (the dark in its pits and
+   * pores). Tiled at its real size in both directions, CONCRETE_TEXTURE_METRES
+   * a copy.
+   *
+   * The walls are different widths and share this one material, so each
+   * wall's UVs are measured in metres instead (wallGeometry), rather than one
+   * texture being stretched across all of them.
+   */
+  const CONCRETE_TEXTURE_METRES = 2.0;
+  const labWallMat = new THREE.MeshStandardMaterial({
+    map: loadPhoto(concreteColorUrl),
+    normalMap: loadPhoto(concreteNormalUrl, { colour: false }),
+    roughnessMap: loadPhoto(concreteRoughnessUrl, { colour: false }),
+    aoMap: loadPhoto(concreteAoUrl, { colour: false }),
+    roughness: 1
+  });
+  /**
+   * A wall plane with UVs in texture-copies, measured from the floor, so a
+   * short piece (the lintel over the doorway, `bottom` metres up) carries on
+   * the walls beside it instead of starting the texture over.
+   */
+  function wallGeometry(width, height = LAB_H, bottom = 0) {
+    const geometry = new THREE.PlaneGeometry(width, height);
+    const uv = geometry.attributes.uv;
+    for (let i = 0; i < uv.count; i++) {
+      uv.setX(i, uv.getX(i) * width / CONCRETE_TEXTURE_METRES);
+      uv.setY(i, (bottom + uv.getY(i) * height) / CONCRETE_TEXTURE_METRES);
+    }
+    return geometry;
+  }
   function labWall(w, x, z, ry) {
-    const wall = new THREE.Mesh(new THREE.PlaneGeometry(w, LAB_H), labWallMat);
+    const wall = new THREE.Mesh(wallGeometry(w), labWallMat);
     wall.position.set(x, LAB_H / 2, z);
     wall.rotation.y = ry;
     lab.add(wall);
@@ -534,7 +674,7 @@ export function createHallwayBasementLevel({
   const jambW = (LAB_W - DOORWAY_W) / 2;
   for (const side of [-1, 1]) {
     const x = side * (DOORWAY_W / 2 + jambW / 2);
-    const jamb = new THREE.Mesh(new THREE.PlaneGeometry(jambW, LAB_H), labWallMat);
+    const jamb = new THREE.Mesh(wallGeometry(jambW), labWallMat);
     jamb.position.set(x, LAB_H / 2, -LAB_D / 2);
     // DoubleSide, unlike every other wall here: this is the one the player
     // stands in the doorway of and looks at from both directions.
@@ -546,15 +686,73 @@ export function createHallwayBasementLevel({
     });
   }
   const lintel = new THREE.Mesh(
-    new THREE.PlaneGeometry(DOORWAY_W, LAB_H - DOORWAY_H),
+    wallGeometry(DOORWAY_W, LAB_H - DOORWAY_H, DOORWAY_H),
     labWallMat
   );
   lintel.position.set(0, DOORWAY_H + (LAB_H - DOORWAY_H) / 2, -LAB_D / 2);
   lab.add(lintel);
 
-  labWall(LAB_D, -LAB_W / 2, 0, Math.PI / 2);
-  labWall(LAB_D, LAB_W / 2, 0, -Math.PI / 2);
+  const westWall = labWall(LAB_D, -LAB_W / 2, 0, Math.PI / 2);
+  const eastWall = labWall(LAB_D, LAB_W / 2, 0, -Math.PI / 2);
   const backWall = labWall(LAB_W, 0, LAB_D / 2, Math.PI);
+
+  /**
+   * TEXTURE PREVIEW: green grime down the walls -- a second, transparent layer
+   * on every wall surface, carrying damp streaks cut out of a photo of stained
+   * concrete. One copy is the full wall height, darkest at the top, so the
+   * streaks run down from the ceiling the way damp does, and GRIME_PHOTO_WIDTH
+   * wide. Each wall's copy starts somewhere different along it, so no two
+   * walls show the same streaks; that is done in each layer's own UVs, since
+   * the layers share one material.
+   */
+  const GRIME_PHOTO_WIDTH = LAB_H * 1024 / 683;   // the image's own proportions at full wall height
+  const wallGrimeMat = new THREE.MeshStandardMaterial({
+    map: loadPhoto(greenGrimeUrl, {
+      repeat: [CONCRETE_TEXTURE_METRES / GRIME_PHOTO_WIDTH, CONCRETE_TEXTURE_METRES / LAB_H],
+      // Mirrored both ways like the floor's, so the two share one copy on the
+      // graphics card. Up the wall it makes no difference: a wall is exactly
+      // one copy tall, so it never reaches the repeat.
+      wrap: THREE.MirroredRepeatWrapping
+    }),
+    transparent: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+    roughness: 0.9
+  });
+  lab.children
+    .filter((mesh) => mesh.isMesh && mesh.material === labWallMat)
+    .forEach((wall, i) => {
+      const geometry = wall.geometry.clone();
+      const uv = geometry.attributes.uv;
+      for (let k = 0; k < uv.count; k++) uv.setX(k, uv.getX(k) + i * 1.37);
+      wall.add(new THREE.Mesh(geometry, wallGrimeMat));
+    });
+
+  /**
+   * Scuff marks low on the walls, where trolleys and beds have been banged
+   * into them: a transparent PNG laid just off the wall. Each wall's x runs
+   * left to right seen from the room.
+   */
+  const scuffMat = new THREE.MeshStandardMaterial({
+    map: loadPhoto(scuffDecalUrl, { wrap: THREE.ClampToEdgeWrapping }),
+    transparent: true,
+    opacity: 0.55,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1,
+    roughness: 1
+  });
+  for (const [wall, x, y, flip] of [
+    [eastWall, 1.9, 0.75, 1], [westWall, -3.4, 0.65, -1], [backWall, 3.6, 0.7, 1], [backWall, -4.4, 0.6, -1]
+  ]) {
+    const scuff = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 1.45), scuffMat);
+    scuff.position.set(x, y - LAB_H / 2, 0.01);
+    scuff.scale.x = flip;
+    wall.add(scuff);
+  }
 
   colliders.push(
     { minX: -LAB_W / 2 - 0.1, maxX: -LAB_W / 2 + 0.15, minZ: LAB_Z - LAB_D / 2, maxZ: LAB_Z + LAB_D / 2 },
@@ -609,14 +807,15 @@ export function createHallwayBasementLevel({
   const fluorescents = [];
   for (let i = -1; i <= 1; i++) {
     const tubeMat = new THREE.MeshStandardMaterial({
-      color: 0xdfe8ff, emissive: 0x9fc0ff, emissiveIntensity: 0.06
+      // Pale green: old fluorescent tubes, gone the colour of the room.
+      color: 0xe2f0d8, emissive: 0xb6e0a2, emissiveIntensity: 0.06
     });
     const tube = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.06, 0.1), tubeMat);
     tube.position.set(i * 2.4 * LAB_SCALE, LAB_H - 0.05, -1 * LAB_SCALE);
     fixturesGroup.add(tube);
     // Reach grown with the room, so the light still falls off at the same
     // point relative to the walls rather than leaving the corners black.
-    const tubeLight = new THREE.PointLight(0xaec4ff, 0, 9 * LAB_SCALE, 1.5);
+    const tubeLight = new THREE.PointLight(0xcfeabf, 0, 9 * LAB_SCALE, 1.5);
     tubeLight.position.copy(tube.position);
     tubeLight.position.y -= 0.3;
     fixturesGroup.add(tubeLight);
@@ -634,8 +833,9 @@ export function createHallwayBasementLevel({
   // fully dark while the two share a level. At a quarter of the lit value it
   // is enough to move by with a torch, not enough to read the room -- so
   // restoring the power visibly changes something.
-  const LAB_AMBIENT_COLOR = new THREE.Color(0x3d4658);
-  const OVERLOAD_AMBIENT_COLOR = new THREE.Color(0xe4f0ff); // cool white, matching the fluorescent tubes
+  // Green-grey, the colour shadows go under old fluorescent tubes.
+  const LAB_AMBIENT_COLOR = new THREE.Color(0x3a4636);
+  const OVERLOAD_AMBIENT_COLOR = new THREE.Color(0xeaf6e2); // the tubes' own pale green-white
   const LAB_AMBIENT_ON = 0.40;
   const LAB_AMBIENT_OFF = 0.10;
   const OVERLOAD_AMBIENT_INTENSITY = 3.4;
@@ -663,7 +863,52 @@ export function createHallwayBasementLevel({
   const lowestPipeY =
     DOOR_HEIGHT_IN_METRES + PIPE_CLEARANCE_ABOVE_DOOR_IN_METRES + PIPE_RADIUS_IN_METRES;
 
-  const pipeMat = new THREE.MeshStandardMaterial({ color: 0x5a5f5a, metalness: 0.6, roughness: 0.5 });
+  /**
+   * Bare steel, streaked and spotted with rust: Metal055B, a full set whose
+   * metalness map marks the rust as NOT metal, so the steel reflects and the
+   * rust stays dull. `repeat` is how many copies across each way -- one copy
+   * is about a metre -- and belongs to the textures, so each tiling is its
+   * own set.
+   */
+  function bareSteelMaterial(repeat = [1, 1]) {
+    return new THREE.MeshStandardMaterial({
+      map: loadPhoto(steelColorUrl, { repeat }),
+      normalMap: loadPhoto(steelNormalUrl, { colour: false, repeat }),
+      roughnessMap: loadPhoto(steelRoughnessUrl, { colour: false, repeat }),
+      metalnessMap: loadPhoto(steelMetalnessUrl, { colour: false, repeat }),
+      roughness: 1,
+      metalness: 1
+    });
+  }
+  // Round a 6 cm pipe is about 0.4 m; along it, the run's whole length.
+  const pipeMat = bareSteelMaterial([0.4, LAB_W - 1]);
+
+  /**
+   * TEXTURE PREVIEW: hospital-white paint with rust coming through, for the lab
+   * equipment, given to a loaded model's named materials. Shared, so every
+   * prop wears one texture.
+   */
+  const whiteRustMap = loadPhoto(whiteRustMetalUrl, { wrap: THREE.MirroredRepeatWrapping });
+  function applyWhiteRust(model, materialNames) {
+    model.traverse((child) => {
+      if (!child.isMesh || !materialNames.includes(child.material.name)) return;
+      child.material.color.set(0xffffff);
+      child.material.map = whiteRustMap;
+      child.material.metalness = 0.15;
+      child.material.roughness = 0.7;
+      child.material.needsUpdate = true;
+    });
+    return model;
+  }
+
+  /** TEXTURE PREVIEW: the bare steel, for a loaded model's named materials -- the instruments. */
+  const toolSteelMat = bareSteelMaterial();
+  function applyBareSteel(model, materialNames) {
+    model.traverse((child) => {
+      if (child.isMesh && materialNames.includes(child.material.name)) child.material = toolSteelMat;
+    });
+    return model;
+  }
   for (let i = 0; i < PIPE_COUNT; i++) {
     const pipe = new THREE.Mesh(
       new THREE.CylinderGeometry(PIPE_RADIUS_IN_METRES, PIPE_RADIUS_IN_METRES, LAB_W - 1, 10),
@@ -718,14 +963,53 @@ export function createHallwayBasementLevel({
   loadModel(generatorModelUrl).then((model) => {
     const paintMap = createPaintedSteelTexture({ base: [62, 112, 106], rust: 0.7 });
     const paintNormal = createFixtureSteelNormalTexture();
+
+    /**
+     * TEXTURE PREVIEW: real rust over the paint. A second, transparent layer on
+     * each painted or skid surface, carrying the rust cut out of a photo of
+     * rusting paint -- so the teal stays teal and only the rust is laid on top.
+     * Rust is dead matte, and pulled forward in the depth test so it never
+     * fights the paint it sits on.
+     *
+     * The model's UVs run 2.2 to the metre (blender/common.py), so one copy of
+     * the photo spans RUST_OVERLAY_METRES across and the rust does not repeat
+     * across a machine barely a metre long.
+     */
+    const RUST_OVERLAY_METRES = 1.5;
+    const RUST_OVERLAY_ASPECT = 699 / 1024;   // the overlay image's height over its width
+    const rustOverlayMat = new THREE.MeshStandardMaterial({
+      map: loadPhoto(rustOverlayUrl, {
+        repeat: [1 / (2.2 * RUST_OVERLAY_METRES), 1 / (2.2 * RUST_OVERLAY_METRES * RUST_OVERLAY_ASPECT)],
+        wrap: THREE.MirroredRepeatWrapping
+      }),
+      normalMap: paintNormal,
+      transparent: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+      roughness: 0.95,
+      metalness: 0
+    });
+
+    const rusting = [];
     model.traverse((child) => {
-      if (!child.isMesh || child.material.name !== 'GenPaint') return;
+      if (!child.isMesh) return;
+      if (child.material.name === 'GenPaint' || child.material.name === 'GenSkid') rusting.push(child);
+      if (child.material.name !== 'GenPaint') return;
       // White, so the texture's own paint colour is not tinted twice.
       child.material.color.set(0xffffff);
       child.material.map = paintMap;
       child.material.normalMap = paintNormal;
       child.material.needsUpdate = true;
     });
+    // Added after the walk, so it does not walk into the layers it is adding.
+    // A child of the surface it rusts, so it shakes with the engine too.
+    for (const mesh of rusting) {
+      const rust = new THREE.Mesh(mesh.geometry, rustOverlayMat);
+      rust.receiveShadow = true;
+      mesh.add(rust);
+    }
     generatorShake.add(model);
   }).catch((err) => console.error('[lab] generator.glb failed to load', err));
 
@@ -2413,7 +2697,7 @@ export function createHallwayBasementLevel({
     model.traverse((child) => {
       if (!child.isMesh || !['ShelfUpright', 'ShelfBoard'].includes(child.material.name)) return;
       child.material.color.set(0xffffff);
-      child.material.map = steelMap;
+      child.material.map = whiteRustMap;
       child.material.normalMap = steelNormal;
       child.material.needsUpdate = true;
     });
@@ -2863,11 +3147,53 @@ export function createHallwayBasementLevel({
   // room, a locked metal door"). Previously placed on the entrance-facing
   // wall instead, which meant the player would walk straight past it on
   // the way in rather than having to cross the room to reach it.
+  /**
+   * TEXTURE PREVIEW: the door is steel under dark grey paint, rusting through.
+   *
+   * The paint is the bare-steel photo tinted dark, not a flat colour: the
+   * steel's brush streaks and dents still show through it as wear, and its
+   * normal map keeps the surface relief. Paint is not metal, so metalness is
+   * low. Over it, the same transparent rust layer the generator wears, laid
+   * larger here (one copy of the photo across DOOR_RUST_METRES) so it does not
+   * repeat down a door twice the generator's height, and a little lighter.
+   */
+  const doorFace = [DOOR_WIDTH_IN_METRES, DOOR_HEIGHT_IN_METRES];   // about a metre a copy
   const metalDoor = new THREE.Mesh(
     new THREE.BoxGeometry(DOOR_WIDTH_IN_METRES, DOOR_HEIGHT_IN_METRES, 0.08),
-    new THREE.MeshStandardMaterial({ color: 0x3a3d3f, metalness: 0.7, roughness: 0.4 })
+    new THREE.MeshStandardMaterial({
+      map: loadPhoto(steelColorUrl, { repeat: doorFace }),
+      normalMap: loadPhoto(steelNormalUrl, { colour: false, repeat: doorFace }),
+      color: 0x4a4d4d,
+      metalness: 0.15,
+      roughness: 0.6
+    })
   );
   metalDoor.position.set(0, DOOR_HEIGHT_IN_METRES / 2, LAB_D / 2 - 0.05);
+  {
+    // A box's UVs run 0..1 across each face, so the rust is scaled by the
+    // door's own size: DOOR_RUST_METRES of photo across, its height to match.
+    const DOOR_RUST_METRES = 2.2;
+    const rustAspect = 524 / 768;   // the overlay image's height over its width
+    const doorRust = new THREE.Mesh(
+      metalDoor.geometry,
+      new THREE.MeshStandardMaterial({
+        map: loadPhoto(rustOverlayUrl, {
+          repeat: [DOOR_WIDTH_IN_METRES / DOOR_RUST_METRES, DOOR_HEIGHT_IN_METRES / (DOOR_RUST_METRES * rustAspect)],
+          wrap: THREE.MirroredRepeatWrapping
+        }),
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+        polygonOffsetUnits: -1,
+        roughness: 0.95,
+        metalness: 0
+      })
+    );
+    // A child, so it goes wherever the door goes when it opens.
+    metalDoor.add(doorRust);
+  }
 
   /** What the door says at each stage, so the label always names the real
    *  obstacle instead of a generic "restore power" the player already did. */
@@ -3327,7 +3653,7 @@ export function createHallwayBasementLevel({
   operatingTable.position.set(OPERATING_TABLE.x, 0, OPERATING_TABLE.z);
   lab.add(operatingTable);
   loadModel(operatingTableModelUrl)
-    .then((model) => operatingTable.add(shadowed(model)))
+    .then((model) => operatingTable.add(shadowed(applyWhiteRust(model, ['TableSteel', 'TableBase']))))
     .catch((err) => console.error('[lab] operating_table.glb failed to load', err));
   colliders.push({
     minX: OPERATING_TABLE.x - OPERATING_TABLE.halfLength - 0.03,
@@ -3372,6 +3698,7 @@ export function createHallwayBasementLevel({
   // lens material once it has loaded.
   let lampLensMat = new THREE.MeshStandardMaterial({ emissive: LAMP_COLOR });
   loadModel(surgicalLampModelUrl).then((model) => {
+    applyWhiteRust(model, ['LampEnamel', 'LampSteel']);
     model.traverse((child) => {
       if (!child.isMesh) return;
       child.castShadow = false;           // it is the light: its own head would shadow the whole table
@@ -3478,7 +3805,9 @@ export function createHallwayBasementLevel({
     }
   });
   loadModel(instrumentTrolleyModelUrl)
-    .then((model) => instrumentTrolley.setModel(shadowed(model)))
+    .then((model) => instrumentTrolley.setModel(shadowed(
+      applyBareSteel(applyWhiteRust(model, ['TrolleySteel']), ['TrolleyTool'])
+    )))
     .catch((err) => console.error('[lab] instrument_trolley.glb failed to load', err));
   dynamics.push({ update: (dt) => instrumentTrolley.update(dt) });
 
@@ -3519,7 +3848,7 @@ export function createHallwayBasementLevel({
     const tipped = new THREE.Group();
     // A turn about z takes the chair's up (+y) over toward +x.
     tipped.rotation.z = -(Math.PI / 2 - chairRestTilt);
-    tipped.add(shadowed(model));
+    tipped.add(shadowed(applyWhiteRust(model, ['ChairSteel'])));
     labChair.add(tipped);
     // Sat back down on the floor: whatever now hangs lowest is lifted to it.
     // The lab floor is world y = 0, and the chair is only ever turned about
