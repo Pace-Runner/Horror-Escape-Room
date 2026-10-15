@@ -2553,19 +2553,7 @@ window.addEventListener('keydown', (e) => {
   // Deliberately INSTANT, not faded: these are a mentor-demo tool and 1.7s of
   // black per press is friction. But each one aborts first, or a jump taken
   // mid-fade lands behind an overlay that will never lift.
-  if (e.code === 'Digit1') { abortTransition(); activateLevel('bedroom', { lockMovement: false }); }
-  if (e.code === 'Digit2') {
-    // Gated on the bedroom's own front door actually being open (planks
-    // pried off + door interacted with again) rather than jumping
-    // straight to Level 2 regardless of progress. With the interstitial in
-    // place, 2 now means "put me in Level 2 NOW", skipping the corridor.
-    if (bedroom.refs.puzzleState.doorUnlocked) {
-      abortTransition();
-      activateLevel('hallwayBasement');
-    } else {
-      showCaption("You haven't opened the door yet.");
-    }
-  }
+  // Levels 1 and 2 have no shortcut keys: they are only reached by playing.
   if (e.code === 'Digit3') { abortTransition(); activateLevel('study'); }
   if (e.code === 'Digit4') {
     // Routed off the CURRENT level, so the debug key exercises the same table
