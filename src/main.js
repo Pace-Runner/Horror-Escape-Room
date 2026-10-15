@@ -1292,8 +1292,9 @@ const bedroom = createBedroomLevel({
     });
   },
   onBrassKeyFound: () => {
-    // Granted by the lamp drawer's keypad, so the reach-and-grab plays behind
-    // the keypad and the key is in hand by the time it closes.
+    // The physical drawer key keeps the existing inventory grant; the pickup
+    // gesture makes that transfer visible without introducing a held key mesh.
+    hands.play('right', 'pickup', { fade: 0.15 });
     pickUpItem('brassKey');
   },
   // Used up, not dropped: the key stays in the lockbox, the crowbar comes out

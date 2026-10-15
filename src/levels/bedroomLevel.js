@@ -15,6 +15,12 @@ import { loadModel, applyTextureByMaterialName } from '../world/modelLoader.js';
 import { line } from '../dialogue/index.js';
 import bedModelUrl from '../assets/models/bed.glb?url';
 import bedsideTableModelUrl from '../assets/models/bedside_table.glb?url';
+import bedsidePuzzleTableModelUrl from '../assets/models/bedside_puzzle_table.glb?url';
+import bedsideLampModelUrl from '../assets/models/bedside_lamp.glb?url';
+import bedsideAlarmClockModelUrl from '../assets/models/bedside_alarm_clock.glb?url';
+import bedsideWornNotebookModelUrl from '../assets/models/bedside_worn_notebook.glb?url';
+import bedsideCombinationLockModelUrl from '../assets/models/bedside_combination_lock.glb?url';
+import projectHollowDrawerNoteModelUrl from '../assets/models/project_hollow_drawer_note.glb?url';
 import vanityBaseUrl from '../assets/models/vanity/vanity_base.glb?url';
 import vanityMirrorUrl from '../assets/models/vanity/vanity_mirror.glb?url';
 import vanityCandlestickUrl from '../assets/models/vanity/vanity_candlestick.glb?url';
@@ -1603,7 +1609,7 @@ export function createBedroomLevel({
   // inside the table edge -- so the torch reads as set down in the free
   // corner rather than floating through the dressing.
   const flashlight = new THREE.Group();
-  flashlight.position.set(BEDSIDE_TABLE_POSITION_X - 0.052, 0.825, BEDSIDE_TABLE_POSITION_Z + 0.076);
+  flashlight.position.set(BEDSIDE_TABLE_POSITION_X - 0.052, 0.836, BEDSIDE_TABLE_POSITION_Z + 0.076);
   // The model is authored beam-down-+Y per the socket convention in
   // systems/hands/sockets.js, i.e. standing on its tail. Rolling -90 degrees
   // about Z lays that axis into the horizontal plane, and the Y term then
@@ -1663,6 +1669,9 @@ export function createBedroomLevel({
   };
   group.add(flashlightHitbox);
 
+  /* Legacy primitive dressing retained only as a source reference while the
+   * active implementation below loads the authored, named bedside assets. */
+  if (false) {
   // nightstand the flashlight sits on -- raised again to sit close to the
   // mattress's own top (0.74) rather than well below it, with a thin top
   // slab overhanging the legs rather than a single block, and small
@@ -1856,7 +1865,6 @@ export function createBedroomLevel({
           puzzleState.hasBrassKey = true;
           onBrassKeyFound();
           onDrawerUnlocked();
-          onReadDrawerClue();
         }
       });
     }
@@ -1877,6 +1885,297 @@ export function createBedroomLevel({
     maxZ: bedsideTableWorldBounds.max.z
   };
   colliders.push(bedsideTableCollider);
+  }
+
+  // ---------- Level 1 authored bedside puzzle visuals ----------
+  // The gameplay state, PIN (315), callbacks and item IDs stay below exactly
+  // as they were. These named GLB parts replace only the former primitive
+  // presentation, and the drawer remains the parent of every moving visual.
+  const LAMP_DRAWER_TRAVEL_METRES = 0.22;
+  const LAMP_DRAWER_OPEN_SECONDS = 0.55;
+  const LAMP_DRAWER_HITBOX_CLOSED_Z_METRES = 0.20;
+  const LAMP_LIGHT_OFF_INTENSITY = 0;
+  const LAMP_LIGHT_PULSE_INTENSITY = 0.8;
+  const LAMP_LIGHT_SHOCK_INTENSITY = 1.1;
+  const LAMP_LIGHT_RANGE_METRES = 1.25;
+  const LAMP_BULB_OFF_EMISSIVE_INTENSITY = 0.005;
+  const LAMP_BULB_PULSE_EMISSIVE_INTENSITY = 2.1;
+  const LAMP_BULB_SHOCK_EMISSIVE_INTENSITY = 2.5;
+  const LAMP_SHADE_OFF_EMISSIVE_INTENSITY = 0.015;
+  const LAMP_SHADE_PULSE_EMISSIVE_INTENSITY = 0.85;
+  const LAMP_SHADE_SHOCK_EMISSIVE_INTENSITY = 1.1;
+  const LOCK_FALL_GRAVITY_METRES_PER_SECOND_SQUARED = 5.2;
+  const LOCK_FALL_FLOOR_HEIGHT_METRES = 0.035;
+  const sideTable = new THREE.Group();
+  sideTable.name = 'Level1_BedsidePuzzleTable';
+  sideTable.position.set(BEDSIDE_TABLE_POSITION_X, 0, BEDSIDE_TABLE_POSITION_Z);
+  group.add(sideTable);
+
+  // The broad cabinet footprint is intentionally the only collider; small
+  // props, the falling lock and the open drawer do not add collision noise.
+  const bedsideTableCollider = {
+    minX: BEDSIDE_TABLE_POSITION_X - 0.25,
+    maxX: BEDSIDE_TABLE_POSITION_X + 0.25,
+    minZ: BEDSIDE_TABLE_POSITION_Z - 0.25,
+    maxZ: BEDSIDE_TABLE_POSITION_Z + 0.25
+  };
+  colliders.push(bedsideTableCollider);
+
+  let lampDrawerVisual = null;
+  let lampDrawerClosedPosition = null;
+  let lampDrawerProgress = 0;
+  let lampDrawerMotion = 0;
+  let lampDrawerLockAnchor = null;
+  let lampDrawerContentsAnchor = null;
+  let lampDrawerLockVisual = null;
+  let lampDrawerKeyVisual = null;
+  let lampDrawerNoteVisual = null;
+  let lampDrawerKeyHitbox = null;
+  let lampDrawerNoteHitbox = null;
+  let lampDrawerLockFalling = false;
+  let lampDrawerLockVelocityY = 0;
+
+  function setLampDrawerContentsVisible(visible) {
+    const contentsVisible = visible && drawerStates.lampDrawer.isOpen;
+    if (lampDrawerKeyVisual && !puzzleState.hasBrassKey) lampDrawerKeyVisual.visible = contentsVisible;
+    if (lampDrawerNoteVisual) lampDrawerNoteVisual.visible = contentsVisible;
+    if (lampDrawerKeyHitbox) lampDrawerKeyHitbox.visible = contentsVisible && !puzzleState.hasBrassKey;
+    if (lampDrawerNoteHitbox) lampDrawerNoteHitbox.visible = contentsVisible;
+    [lampDrawerKeyHitbox, lampDrawerNoteHitbox].forEach((hitbox) => {
+      if (!hitbox) return;
+      const index = interactables.indexOf(hitbox);
+      if (hitbox.visible && index < 0) interactables.push(hitbox);
+      if (!hitbox.visible && index >= 0) interactables.splice(index, 1);
+    });
+  }
+
+  function startLampDrawerLockFall() {
+    if (!lampDrawerLockVisual || lampDrawerLockFalling) return;
+    // Object3D.attach preserves the locked visual's current world transform
+    // while moving it out of the animated drawer hierarchy.
+    sideTable.attach(lampDrawerLockVisual);
+    lampDrawerLockFalling = true;
+    lampDrawerLockVelocityY = 0;
+  }
+
+  function restoreLampDrawerLock() {
+    if (!lampDrawerLockVisual || !lampDrawerLockAnchor) return;
+    lampDrawerLockAnchor.attach(lampDrawerLockVisual);
+    lampDrawerLockVisual.position.set(0, 0, 0);
+    lampDrawerLockVisual.rotation.set(0, 0, 0);
+    lampDrawerLockVisual.visible = true;
+    lampDrawerLockFalling = false;
+    lampDrawerLockVelocityY = 0;
+  }
+
+  loadModel(bedsidePuzzleTableModelUrl).then((tableModel) => {
+    tableModel.name = 'Level1BedsidePuzzleTableVisual';
+    tableModel.traverse((child) => {
+      if (!child.isMesh) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+    lampDrawerVisual = tableModel.getObjectByName('Level1BedsideDrawer');
+    lampDrawerLockAnchor = tableModel.getObjectByName('Level1DrawerLockAnchor');
+    lampDrawerContentsAnchor = tableModel.getObjectByName('Level1DrawerContentsAnchor');
+    lampDrawerKeyVisual = tableModel.getObjectByName('Level1DrawerBrassKey');
+    if (!lampDrawerVisual || !lampDrawerLockAnchor || !lampDrawerContentsAnchor || !lampDrawerKeyVisual) {
+      throw new Error('Level 1 bedside table is missing a required drawer hierarchy node.');
+    }
+    lampDrawerClosedPosition = lampDrawerVisual.position.clone();
+    sideTable.add(tableModel);
+    if (lampDrawerLockVisual && !lampDrawerLockVisual.parent) {
+      lampDrawerLockAnchor.add(lampDrawerLockVisual);
+    }
+    if (lampDrawerNoteVisual && lampDrawerNoteHitbox && !lampDrawerNoteVisual.parent) {
+      lampDrawerNoteVisual.add(lampDrawerNoteHitbox);
+      lampDrawerContentsAnchor.add(lampDrawerNoteVisual);
+    }
+
+    lampDrawerKeyHitbox = new THREE.Mesh(
+      new THREE.BoxGeometry(0.09, 0.045, 0.06),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+    );
+    lampDrawerKeyHitbox.name = 'Level1DrawerBrassKeyInteraction';
+    lampDrawerKeyHitbox.position.set(-0.075, 0.02, 0.025);
+    lampDrawerKeyHitbox.userData.interact = {
+      label: 'Pick up brass key',
+      priority: 10,
+      onInteract: () => {
+        if (!drawerStates.lampDrawer.isOpen || puzzleState.hasBrassKey) return;
+        puzzleState.hasBrassKey = true;
+        lampDrawerKeyVisual.visible = false;
+        lampDrawerKeyHitbox.visible = false;
+        const index = interactables.indexOf(lampDrawerKeyHitbox);
+        if (index >= 0) interactables.splice(index, 1);
+        onBrassKeyFound();
+      }
+    };
+    lampDrawerContentsAnchor.add(lampDrawerKeyHitbox);
+    setLampDrawerContentsVisible(lampDrawerProgress === 1);
+  }).catch((error) => console.error('Could not load the Level 1 bedside puzzle table:', error));
+
+  loadModel(bedsideCombinationLockModelUrl).then((lockModel) => {
+    lampDrawerLockVisual = lockModel;
+    lampDrawerLockVisual.name = 'Level1DrawerCombinationLockVisual';
+    if (lampDrawerLockAnchor) lampDrawerLockAnchor.add(lampDrawerLockVisual);
+  }).catch((error) => console.error('Could not load the Level 1 drawer combination lock:', error));
+
+  loadModel(projectHollowDrawerNoteModelUrl).then((noteModel) => {
+    lampDrawerNoteVisual = noteModel;
+    lampDrawerNoteVisual.name = 'Level1ProjectHollowDrawerNoteVisual';
+    // Leave an even margin inside the 31cm drawer tray, so the full archive
+    // sheet remains visible and reachable after the drawer has opened.
+    lampDrawerNoteVisual.position.set(0.052, 0.014, 0.006);
+    lampDrawerNoteVisual.rotation.y = -0.08;
+    lampDrawerNoteVisual.scale.setScalar(0.78);
+    lampDrawerNoteVisual.traverse((child) => {
+      if (!child.isMesh) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+    lampDrawerNoteHitbox = new THREE.Mesh(
+      new THREE.BoxGeometry(0.20, 0.06, 0.15),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+    );
+    lampDrawerNoteHitbox.name = 'Level1ProjectHollowDrawerNoteInteraction';
+    lampDrawerNoteHitbox.position.set(0, 0.018, 0);
+    lampDrawerNoteHitbox.userData.interact = {
+      label: 'Read PROJECT HOLLOW note',
+      priority: 10,
+      onInteract: () => {
+        if (!drawerStates.lampDrawer.isOpen) return;
+        onReadDrawerClue();
+      }
+    };
+    if (lampDrawerContentsAnchor) {
+      lampDrawerNoteVisual.add(lampDrawerNoteHitbox);
+      lampDrawerContentsAnchor.add(lampDrawerNoteVisual);
+      setLampDrawerContentsVisible(lampDrawerProgress === 1);
+    }
+  }).catch((error) => console.error('Could not load the PROJECT HOLLOW drawer note:', error));
+
+  const lampGroup = new THREE.Group();
+  lampGroup.name = 'Level1BedsideLampVisual';
+  lampGroup.position.set(-0.13, 0.81, -0.11);
+  sideTable.add(lampGroup);
+  const lampBulbMat = new THREE.MeshStandardMaterial({ color: 0xffdca0, emissive: 0xffb347, emissiveIntensity: 0.12 });
+  const lampBulb = new THREE.Mesh(new THREE.SphereGeometry(0.028, 10, 10), lampBulbMat);
+  lampBulb.position.y = 0.385;
+  lampGroup.add(lampBulb);
+  // A compact unshadowed point light supports the pulse without washing the
+  // nearby wall. The emissive bulb remains the primary readable signal.
+  const lampLight = new THREE.PointLight(0xffb347, LAMP_LIGHT_OFF_INTENSITY, LAMP_LIGHT_RANGE_METRES, 2);
+  lampLight.position.y = 0.385;
+  lampGroup.add(lampLight);
+  let lampShadeMaterial = null;
+  loadModel(bedsideLampModelUrl).then((lampModel) => {
+    lampModel.traverse((child) => {
+      if (!child.isMesh) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+      if (child.name !== 'LampShade' || !child.material?.emissive) return;
+      lampShadeMaterial = child.material.clone();
+      lampShadeMaterial.emissive.setHex(0xffa64d);
+      lampShadeMaterial.emissiveIntensity = LAMP_SHADE_OFF_EMISSIVE_INTENSITY;
+      child.material = lampShadeMaterial;
+    });
+    lampGroup.add(lampModel);
+  }).catch((error) => console.error('Could not load the Level 1 bedside lamp:', error));
+
+  const lampShockDurationSeconds = 0.32;
+  const lampShockIntervalSeconds = 0.055;
+  let lampShockRemainingSeconds = 0;
+  function flashLamp() { lampShockRemainingSeconds = lampShockDurationSeconds; }
+  const drawerPinDigits = [3, 1, 5];
+  const drawerPinCode = drawerPinDigits.join('');
+  function buildFlickerIntervals(digits, { pulseOn = 0.16, pulseOff = 0.22, digitPause = 1.0, cyclePause = 3.2 } = {}) {
+    const intervals = [];
+    let elapsedSeconds = 0;
+    digits.forEach((count) => {
+      for (let index = 0; index < count; index++) {
+        intervals.push([elapsedSeconds, elapsedSeconds + pulseOn]);
+        elapsedSeconds += pulseOn + pulseOff;
+      }
+      elapsedSeconds += digitPause - pulseOff;
+    });
+    elapsedSeconds += cyclePause - digitPause;
+    return { intervals, total: elapsedSeconds };
+  }
+  const lampFlicker = buildFlickerIntervals(drawerPinDigits);
+
+  const clockGroup = new THREE.Group();
+  clockGroup.name = 'Level1AlarmClockVisual';
+  clockGroup.position.set(0.13, 0.81, -0.12);
+  sideTable.add(clockGroup);
+  loadModel(bedsideAlarmClockModelUrl).then((clockModel) => {
+    clockModel.traverse((child) => { if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; } });
+    clockGroup.add(clockModel);
+  }).catch((error) => console.error('Could not load the Level 1 alarm clock:', error));
+
+  const bookGroup = new THREE.Group();
+  bookGroup.name = 'Level1WornNotebookVisual';
+  bookGroup.position.set(0.12, 0.813, 0.105);
+  bookGroup.rotation.y = 0.3;
+  sideTable.add(bookGroup);
+  const bedsideJournalHitbox = new THREE.Mesh(
+    new THREE.BoxGeometry(0.18, 0.06, 0.14),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  bedsideJournalHitbox.name = 'Level1BedsideJournalInteraction';
+  bedsideJournalHitbox.position.y = 0.025;
+  bedsideJournalHitbox.userData.interact = {
+    label: 'Examine old journal',
+    priority: 5,
+    onInteract: () => showCaption("An old journal. Whoever was in here must've kept accounts.")
+  };
+  bookGroup.add(bedsideJournalHitbox);
+  interactables.push(bedsideJournalHitbox);
+  loadModel(bedsideWornNotebookModelUrl).then((bookModel) => {
+    bookModel.traverse((child) => { if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; } });
+    bookGroup.add(bookModel);
+  }).catch((error) => console.error('Could not load the Level 1 worn notebook:', error));
+
+  const lampDrawerHitbox = new THREE.Mesh(
+    new THREE.BoxGeometry(0.40, 0.23, 0.18),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  lampDrawerHitbox.name = 'Level1BedsideDrawerInteraction';
+  lampDrawerHitbox.position.set(0, 0.61, LAMP_DRAWER_HITBOX_CLOSED_Z_METRES);
+  lampDrawerHitbox.userData.interact = {
+    label: 'Locked drawer',
+    onInteract: () => {
+      if (lampDrawerMotion !== 0 || !lampDrawerVisual) return;
+      if (drawerStates.lampDrawer.isOpen) {
+        drawerStates.lampDrawer.isOpen = false;
+        lampDrawerMotion = -1;
+        setLampDrawerContentsVisible(false);
+        showCaption('The drawer slides shut.');
+        return;
+      }
+      if (drawerStates.lampDrawer.isUnlocked) {
+        drawerStates.lampDrawer.isOpen = true;
+        lampDrawerMotion = 1;
+        showCaption('The unlocked drawer slides open.');
+        return;
+      }
+      onExaminePinpad({
+        length: drawerPinDigits.length,
+        code: drawerPinCode,
+        onSolved: () => {
+          if (drawerStates.lampDrawer.isOpen) return;
+          drawerStates.lampDrawer.isUnlocked = true;
+          drawerStates.lampDrawer.isOpen = true;
+          lampDrawerMotion = 1;
+          lampDrawerHitbox.userData.interact.label = 'Open/close drawer';
+          startLampDrawerLockFall();
+          onDrawerUnlocked();
+        }
+      });
+    }
+  };
+  sideTable.add(lampDrawerHitbox);
+  interactables.push(lampDrawerHitbox);
 
   // ---------- paperclip, on the blanket within reach of the cuffed hand ----------
   //
@@ -2366,7 +2665,7 @@ export function createBedroomLevel({
     bin: { isOpen: false, contents: [] },
     // Locked -- see lampDrawerHitbox above. Opens once the pin pad is
     // solved with the code the nightstand lamp flickers out.
-    lampDrawer: { isOpen: false, contents: ['key'] }
+    lampDrawer: { isOpen: false, isUnlocked: false, contents: ['key'] }
   };
 
   // The custom Blender table beside the bed carries the searchable 1985
@@ -2883,6 +3182,17 @@ export function createBedroomLevel({
       dresserTop.position.z = 0.33;
       drawerStates.bin.isOpen = false;
       drawerStates.lampDrawer.isOpen = false;
+      drawerStates.lampDrawer.isUnlocked = false;
+      lampDrawerHitbox.userData.interact.label = 'Locked drawer';
+      lampDrawerProgress = 0;
+      lampDrawerMotion = 0;
+      if (lampDrawerVisual && lampDrawerClosedPosition) {
+        lampDrawerVisual.position.copy(lampDrawerClosedPosition);
+      }
+      lampDrawerHitbox.position.z = LAMP_DRAWER_HITBOX_CLOSED_Z_METRES;
+      restoreLampDrawerLock();
+      if (lampDrawerKeyVisual) lampDrawerKeyVisual.visible = true;
+      setLampDrawerContentsVisible(false);
       chairGroup.position.copy(chairRestPosition);
       chairGroup.rotation.copy(chairRestRotation);
       bin.position.copy(binRestPosition);
@@ -2996,19 +3306,54 @@ export function createBedroomLevel({
           nightstandDrawerMotion = 0;
         }
       }
+      if (lampDrawerVisual && lampDrawerMotion !== 0) {
+        lampDrawerProgress = THREE.MathUtils.clamp(
+          lampDrawerProgress + lampDrawerMotion * dt / LAMP_DRAWER_OPEN_SECONDS, 0, 1
+        );
+        const progress = lampDrawerProgress;
+        const travel = LAMP_DRAWER_TRAVEL_METRES * progress * progress * (3 - 2 * progress);
+        lampDrawerVisual.position.z = lampDrawerClosedPosition.z + travel;
+        lampDrawerHitbox.position.z = LAMP_DRAWER_HITBOX_CLOSED_Z_METRES + travel;
+        if (progress === 1) {
+          lampDrawerMotion = 0;
+          setLampDrawerContentsVisible(true);
+        } else if (progress === 0) {
+          lampDrawerMotion = 0;
+          setLampDrawerContentsVisible(false);
+        }
+      }
+      if (lampDrawerLockFalling && lampDrawerLockVisual) {
+        lampDrawerLockVelocityY += LOCK_FALL_GRAVITY_METRES_PER_SECOND_SQUARED * dt;
+        lampDrawerLockVisual.position.y -= lampDrawerLockVelocityY * dt;
+        lampDrawerLockVisual.rotation.x += dt * 4.5;
+        lampDrawerLockVisual.rotation.z += dt * 3.2;
+        if (lampDrawerLockVisual.position.y <= LOCK_FALL_FLOOR_HEIGHT_METRES) {
+          lampDrawerLockVisual.position.y = LOCK_FALL_FLOOR_HEIGHT_METRES;
+          lampDrawerLockFalling = false;
+        }
+      }
       this._t = (this._t ?? 0) + dt;
       glassMaterial.uniforms.uTime.value = this._t;
 
-      // Drive the nightstand lamp's flicker off the schedule built above --
-      // a low, always-on glow (it never reads as fully "off") with brief
-      // brighter pulses layered on top for each flash in the code.
+      // Drive the nightstand lamp from the retained 3-1-5 schedule. It is
+      // genuinely dark between windows, making each group countable without
+      // adding another light or a shader-based effect.
       this._lampT = ((this._lampT ?? 0) + dt) % lampFlicker.total;
       const lampPulseOn = lampFlicker.intervals.some(([s, e]) => this._lampT >= s && this._lampT < e);
       const lampShockOn = lampShockRemainingSeconds > 0
         && Math.floor(lampShockRemainingSeconds / lampShockIntervalSeconds) % 2 === 0;
       lampShockRemainingSeconds = Math.max(0, lampShockRemainingSeconds - dt);
-      lampLight.intensity = lampShockOn ? 1.15 : (lampPulseOn ? 0.55 : 0.04);
-      lampBulbMat.emissiveIntensity = lampShockOn ? 1.8 : (lampPulseOn ? 1.1 : 0.12);
+      lampLight.intensity = lampShockOn
+        ? LAMP_LIGHT_SHOCK_INTENSITY
+        : (lampPulseOn ? LAMP_LIGHT_PULSE_INTENSITY : LAMP_LIGHT_OFF_INTENSITY);
+      lampBulbMat.emissiveIntensity = lampShockOn
+        ? LAMP_BULB_SHOCK_EMISSIVE_INTENSITY
+        : (lampPulseOn ? LAMP_BULB_PULSE_EMISSIVE_INTENSITY : LAMP_BULB_OFF_EMISSIVE_INTENSITY);
+      if (lampShadeMaterial) {
+        lampShadeMaterial.emissiveIntensity = lampShockOn
+          ? LAMP_SHADE_SHOCK_EMISSIVE_INTENSITY
+          : (lampPulseOn ? LAMP_SHADE_PULSE_EMISSIVE_INTENSITY : LAMP_SHADE_OFF_EMISSIVE_INTENSITY);
+      }
 
       // The headboard candle is visual dressing only: two crossed planes and
       // one unshadowed local light give it a quiet, inexpensive live flame.

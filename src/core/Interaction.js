@@ -70,7 +70,16 @@ export class Interaction {
     if (!this.enabled) return;
     this.raycaster.setFromCamera(RAY_ORIGIN, this.camera);
     const hits = this.raycaster.intersectObjects(this.targets, false);
-    const hit = hits[0]?.object ?? null;
+    // Most interactions keep nearest-hit behaviour. A child target may opt
+    // into a higher priority when a broad parent hitbox overlaps it, such as
+    // an item inside an open drawer. This preserves aiming at the item rather
+    // than allowing the container to consume the interaction.
+    const hit = hits.reduce((currentHit, candidate) => {
+      if (!currentHit) return candidate.object;
+      const currentPriority = currentHit.userData.interact.priority ?? 0;
+      const candidatePriority = candidate.object.userData.interact.priority ?? 0;
+      return candidatePriority > currentPriority ? candidate.object : currentHit;
+    }, null);
 
     if (hit !== this.current) {
       this.current = hit;
