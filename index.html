@@ -258,6 +258,20 @@
     </div>
   </div>
 
+  <!-- R asks first: it is right next to the movement keys and easy to hit by
+       mistake. Keep playing is the default, so Enter does not wipe a run. -->
+  <div id="restart-confirm" class="hidden" role="alertdialog" aria-modal="true" aria-labelledby="restart-confirm-title" aria-describedby="restart-confirm-text">
+    <div id="restart-confirm-panel">
+      <div class="credits-ornament" aria-hidden="true">✦</div>
+      <h2 id="restart-confirm-title">Restart the game?</h2>
+      <p id="restart-confirm-text">You will go back to the start of the first room and lose everything you have done so far.</p>
+      <div class="restart-confirm-actions">
+        <button id="restart-confirm-keep" type="button">Keep playing</button>
+        <button id="restart-confirm-yes" type="button">Restart</button>
+      </div>
+    </div>
+  </div>
+
   <div id="quit-screen" class="hidden" role="dialog" aria-modal="true" aria-labelledby="quit-title">
     <div id="quit-panel">
       <div class="credits-ornament" aria-hidden="true">✦</div>

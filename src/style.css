@@ -1690,6 +1690,75 @@ html, body {
   width: min(200px, 100%);
 }
 
+/* ---------- restart confirm (R) ---------- */
+/* Same look as the Quit panel. Above the pause screen (40) and the HUD. */
+#restart-confirm {
+  position: fixed;
+  inset: 0;
+  z-index: 62;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.7);
+}
+
+#restart-confirm-panel {
+  width: min(460px, 100%);
+  padding: 34px 40px;
+  text-align: center;
+  background: linear-gradient(135deg, rgba(22, 12, 6, 0.96), rgba(5, 3, 2, 0.98));
+  border: 1px solid rgba(187, 145, 72, 0.58);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.7);
+}
+
+#restart-confirm-panel h2 {
+  margin: 13px 0 10px;
+  color: #e4d4ad;
+  font: 600 1.8rem/1.2 Georgia, 'Times New Roman', serif;
+}
+
+#restart-confirm-panel p {
+  margin-bottom: 24px;
+  color: #baac92;
+  font: 0.98rem/1.45 Georgia, 'Times New Roman', serif;
+}
+
+.restart-confirm-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.restart-confirm-actions button {
+  flex: 1;
+  min-height: 46px;
+  padding: 10px 18px;
+  font: 500 1rem/1 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #d9cba9;
+  background: rgba(9, 5, 3, 0.38);
+  border: 1px solid rgba(187, 145, 72, 0.32);
+  cursor: pointer;
+  transition: color 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+}
+
+.restart-confirm-actions button:hover,
+.restart-confirm-actions button:focus-visible {
+  color: #f0dfb7;
+  background: linear-gradient(90deg, rgba(92, 55, 15, 0.2), rgba(150, 92, 20, 0.26), rgba(92, 55, 15, 0.2));
+  border-color: #bb9148;
+  outline: none;
+}
+
+/* Restart is the destructive one: a red edge, so it is never the eye's default. */
+#restart-confirm-yes:hover,
+#restart-confirm-yes:focus-visible {
+  color: #f3d2c6;
+  border-color: #b3271a;
+  background: rgba(122, 31, 22, 0.32);
+}
+
 /* ---------- settings screen ---------- */
 #settings-screen {
   position: fixed;

@@ -2892,8 +2892,54 @@ window.addEventListener('keydown', (e) => {
       captions.play(result === 'on' ? line('dialog_visor_first_worn') : line('dialog_visor_removed'));
     }
   }
-  if (e.code === 'KeyR') resetGame();
+  if (e.code === 'KeyR' && !e.repeat) openRestartConfirm();
   if (e.code === 'KeyC' && !transitionInFlight) toggleCredits(true);
+});
+
+// ---------- restart confirm (R) ----------
+// R sits right next to the movement keys, so a stray press used to wipe the
+// whole run with no warning. It now asks first. The pointer is released so the
+// buttons can be clicked, and the game pauses behind it exactly like a pause.
+// The pause menu's own Restart button does not ask: that is never an accident.
+const restartConfirmEl = document.getElementById('restart-confirm');
+const restartConfirmYes = document.getElementById('restart-confirm-yes');
+const restartConfirmKeep = document.getElementById('restart-confirm-keep');
+let restartConfirmOpen = false;
+
+function openRestartConfirm() {
+  if (restartConfirmOpen || endingInFlight || gameState.endingChosen) return;
+  restartConfirmOpen = true;
+  restartConfirmEl.classList.remove('hidden');
+  player.unlock();
+  // Keep playing is the default, so a reflexive Enter does nothing harmful.
+  restartConfirmKeep.focus({ preventScroll: true });
+}
+
+/**
+ * @param {boolean} restart - true to restart, false to go back to the game.
+ * @param {object} [options]
+ * @param {boolean} [options.toPauseMenu] - Esc: the browser will not hand the
+ *   pointer back on Esc, so land on the pause menu ("Click to resume") instead.
+ */
+function closeRestartConfirm(restart, { toPauseMenu = false } = {}) {
+  if (!restartConfirmOpen) return;
+  restartConfirmOpen = false;
+  restartConfirmEl.classList.add('hidden');
+  if (restart) resetGame();
+  if (toPauseMenu) showPauseScreen();
+  else player.lock();
+}
+
+restartConfirmYes.addEventListener('click', () => closeRestartConfirm(true));
+restartConfirmKeep.addEventListener('click', () => closeRestartConfirm(false));
+window.addEventListener('keydown', (e) => {
+  if (!restartConfirmOpen) return;
+  // Y confirms; N or Esc backs out. Enter and Space press whichever button has
+  // focus, which the browser does by itself. Not R: the very R press that
+  // opened this reaches this listener too, and would confirm it on the spot.
+  if (e.code === 'KeyY') { e.preventDefault(); closeRestartConfirm(true); }
+  else if (e.code === 'KeyN') { e.preventDefault(); closeRestartConfirm(false); }
+  else if (e.code === 'Escape') { e.preventDefault(); closeRestartConfirm(false, { toPauseMenu: true }); }
 });
 
 /**
@@ -3294,6 +3340,8 @@ player.controls.addEventListener('unlock', () => {
   audio.pause();
   captions.setPaused(true);
 
+  // The restart question is a pause of its own; it brings the game back itself.
+  if (restartConfirmOpen) return;
   if (!creditsScreen.classList.contains('hidden')) return;
   // A finished run (an ending, or out of time) is showing its end screen;
   // the pause menu must not replace it.
