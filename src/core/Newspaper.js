@@ -297,14 +297,9 @@ function fitPage(page, headline) {
  */
 export function createNewspaper({ root, onShow = null }) {
   const stage = root.querySelector('.np-stage');
-  const progress = root.querySelector('.np-progress');
-  const progressFill = root.querySelector('.np-progress-fill');
-  const progressHint = root.querySelector('.np-progress-hint');
   const prompt = root.querySelector('.np-continue');
 
   let open = false;
-  let bootMode = false;
-  let ready = false;
   let shownAt = 0;
   let finish = null;
 
@@ -319,16 +314,13 @@ export function createNewspaper({ root, onShow = null }) {
   ]);
 
   function canContinue() {
-    return open && ready && performance.now() - shownAt >= MIN_READ_MS;
+    return open && performance.now() - shownAt >= MIN_READ_MS;
   }
 
   function close(result) {
     if (!open) return;
     open = false;
-    bootMode = false;
-    prompt.style.transitionDelay = '0ms';
-    // is-boot too: the loading page goes away the same way every other page does.
-    root.classList.remove('is-open', 'is-ready', 'is-boot');
+    root.classList.remove('is-open', 'is-ready');
     const done = finish;
     finish = null;
     done?.(result);
@@ -336,15 +328,14 @@ export function createNewspaper({ root, onShow = null }) {
 
   /**
    * Input is taken in the CAPTURE phase and swallowed, so nothing behind the
-   * page reacts to it: Enter would otherwise start the game from the menu
-   * hidden under the loading page, and E would interact with whatever the
-   * frozen crosshair happened to be pointing at.
+   * page reacts to it: E would otherwise interact with whatever the frozen
+   * crosshair happened to be pointing at.
    *
-   * In game it only listens while the pointer is locked. Without the lock the
-   * pause menu is on top of the page, and its own buttons must get the click.
+   * Only while the pointer is locked. Without the lock the pause menu is on
+   * top of the page, and its own buttons must get the click.
    */
   function accepts() {
-    return open && (bootMode || document.pointerLockElement != null);
+    return open && document.pointerLockElement != null;
   }
 
   window.addEventListener('keydown', (event) => {
@@ -360,21 +351,10 @@ export function createNewspaper({ root, onShow = null }) {
 
   window.addEventListener('mousedown', (event) => {
     if (!accepts()) return;
-    if (bootMode && !root.contains(event.target)) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     if (event.button === 0 && canContinue()) close(true);
   }, true);
-
-  function setReady(value) {
-    ready = value;
-    root.classList.toggle('is-ready', value);
-    // The prompt may only appear once the minimum read time is up as well.
-    if (value) {
-      const wait = Math.max(0, MIN_READ_MS - (performance.now() - shownAt));
-      prompt.style.transitionDelay = `${wait}ms`;
-    }
-  }
 
   return {
     get isOpen() { return open; },
@@ -383,12 +363,9 @@ export function createNewspaper({ root, onShow = null }) {
      * Lays a page on the desk and resolves when the player continues past it.
      *
      * @param {string} id key in NEWSPAPERS
-     * @param {object} [options]
-     * @param {boolean} [options.boot] the loading-screen variant: shows a
-     *   progress bar, and Continue waits for markLoaded().
      * @returns {Promise<boolean>} true when read, false when cancelled.
      */
-    async show(id, { boot = false } = {}) {
+    async show(id) {
       const paper = NEWSPAPERS[id];
       if (!paper) {
         console.warn(`[newspaper] no page called "${id}"`);
@@ -400,17 +377,14 @@ export function createNewspaper({ root, onShow = null }) {
 
       const { page, headline, img, photoKey } = buildPage(paper);
       stage.replaceChildren(page);
-      bootMode = boot;
-      root.classList.toggle('is-boot', boot);
-      progress.hidden = !boot;
-      prompt.textContent = boot ? 'Click or press Space to begin' : 'Click or press Space to continue';
       open = true;
       shownAt = performance.now();
-      setReady(!boot);
       // Re-trigger the landing animation on every show, not just the first.
-      root.classList.remove('is-open');
+      // The prompt fades in only once the minimum read time is up.
+      root.classList.remove('is-open', 'is-ready');
       void root.offsetWidth;
-      root.classList.add('is-open');
+      prompt.style.transitionDelay = `${MIN_READ_MS}ms`;
+      root.classList.add('is-open', 'is-ready');
       fitPage(page, headline);
       onShow?.();
 
@@ -422,19 +396,6 @@ export function createNewspaper({ root, onShow = null }) {
         .catch((err) => console.warn(`[newspaper] could not print "${photoKey}"`, err));
 
       return new Promise((resolve) => { finish = resolve; });
-    },
-
-    /** Boot only: progress through the warm-up, 0..1. */
-    setProgress(fraction, hint) {
-      progressFill.style.width = `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`;
-      if (hint) progressHint.textContent = hint;
-    },
-
-    /** Boot only: everything has loaded, so Continue may now be pressed. */
-    markLoaded() {
-      progressHint.textContent = 'ready';
-      progressFill.style.width = '100%';
-      setReady(true);
     },
 
     /** Prints a page's photograph ahead of time, so it is on the plate when the page lands. */

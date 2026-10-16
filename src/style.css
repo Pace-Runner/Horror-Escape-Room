@@ -25,13 +25,70 @@ html, body {
   outline: none;
 }
 
-/* ---------- newspaper interludes + loading screen ---------- */
+/* ---------- loading screen ---------- */
+/* The newspapers' desk with no paper on it yet, the title, and a thin gold bar.
+   Faded out with .is-done rather than .hidden, which is display: none and so
+   would snap instead of fading -- see #fade-overlay below. */
+#loading-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  transition: opacity 0.8s ease;
+}
+
+#loading-screen.is-done {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#loading-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+}
+
+#loading-title {
+  color: #eadcb8;
+  font-family: Baskerville, 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-shadow: 0 3px 2px rgba(0, 0, 0, 0.8), 0 0 16px rgba(176, 107, 37, 0.18);
+}
+
+#loading-bar-track {
+  width: min(320px, 60vw);
+  height: 2px;
+  background: rgba(234, 220, 184, 0.14);
+}
+
+#loading-bar-fill {
+  width: 0%;
+  height: 100%;
+  background: #c69a50;
+  box-shadow: 0 0 8px rgba(198, 154, 80, 0.55);
+  transition: width 0.25s ease;
+}
+
+#loading-hint {
+  color: #8b7d66;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 0.78rem;
+  font-style: italic;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+/* ---------- newspaper interludes ---------- */
 /*
  * A front page lying on a dark desk under a lamp. See src/core/Newspaper.js.
  *
  * Above the transition fade (30) so it can be read over the black between
  * rooms, below the pause menu (40) so Esc still shows the menu on top of it.
- * While booting it is the loading screen, and sits over everything (50).
  *
  * Every length on the page is in cqw -- a percentage of the page's own width --
  * so the whole layout scales like a photograph of a newspaper would.
@@ -49,14 +106,9 @@ html, body {
   transition: opacity 0.6s ease;
 }
 
-#newspaper-view.is-open,
-#newspaper-view.is-boot {
+#newspaper-view.is-open {
   opacity: 1;
   pointer-events: auto;
-}
-
-#newspaper-view.is-boot {
-  z-index: 50;
 }
 
 /* Dark varnished wood, a lamp pool on the paper, and the room falling away. */
@@ -427,55 +479,13 @@ html, body {
   font-family: 'Old Standard TT', Georgia, serif;
 }
 
-.np-progress,
-.np-continue {
-  grid-area: 1 / 1;
-  transition: opacity 0.5s ease;
-}
-
-.np-progress {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 9px;
-}
-
-.np-progress[hidden] {
-  display: none;
-}
-
-.np-progress-track {
-  width: min(320px, 60vw);
-  height: 2px;
-  background: rgba(234, 220, 184, 0.14);
-}
-
-.np-progress-fill {
-  width: 0%;
-  height: 100%;
-  background: #c69a50;
-  box-shadow: 0 0 8px rgba(198, 154, 80, 0.55);
-  transition: width 0.25s ease;
-}
-
-.np-progress-hint {
-  color: #8b7d66;
-  font-size: 0.78rem;
-  font-style: italic;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-}
-
 .np-continue {
   color: #eadcb8;
   font-size: 0.85rem;
   letter-spacing: 0.26em;
   text-transform: uppercase;
   opacity: 0;
-}
-
-#newspaper-view.is-ready .np-progress {
-  opacity: 0;
+  transition: opacity 0.5s ease;
 }
 
 #newspaper-view.is-ready .np-continue {

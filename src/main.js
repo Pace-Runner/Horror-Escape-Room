@@ -49,6 +49,9 @@ import flashlightModelUrl from './assets/models/flashlight.glb?url';
 // ---------- DOM ----------
 const canvas = document.getElementById('scene');
 const glareOverlay = document.getElementById('glare-overlay');
+const loadingScreen = document.getElementById('loading-screen');
+const loadingBarFill = document.getElementById('loading-bar-fill');
+const loadingHintEl = document.getElementById('loading-hint');
 const thirdPersonBtn = document.getElementById('third-person-toggle');
 const startScreen = document.getElementById('start-screen');
 const mainMenu = document.getElementById('main-menu');
@@ -94,16 +97,13 @@ const captionsCheckbox = document.getElementById('settings-captions');
 // instead of fading.
 const fade = createScreenFade(fadeOverlay);
 
-// The loading screen, and every front page between the rooms -- see
-// core/Newspaper.js and story/newspapers.js. The boot page is laid down now,
-// before the levels are built, so the warm-up at the bottom of this file has a
-// page to print its progress under. `audio` is read only when a page lands,
-// which is always after this module has finished evaluating.
+// Every front page in the game -- see core/Newspaper.js and
+// story/newspapers.js. Pages are only ever shown during play, long after this
+// module has finished evaluating, so reading `audio` in onShow is safe.
 const newspaperView = createNewspaper({
   root: document.getElementById('newspaper-view'),
   onShow: () => audio.paperRustle()
 });
-newspaperView.show('prologue', { boot: true });
 
 // ---------- launch menu ----------
 // This state belongs only to the DOM launch menu. It deliberately does not
@@ -3080,6 +3080,11 @@ function beginGame() {
    */
   script.run(async (s) => {
     s.do(() => fade.snapToBlack());
+    // The first front page, on the black before the eyes open: what the town
+    // read in January, before the player knows where they are. A restart
+    // while it is up cancels it, and the wake-up then does not run on top of
+    // the restarted room.
+    if (!await newspaperView.show('prologue') || !s.alive()) return;
     if (!await s.wait(0.9)) return;
     fade.fadeIn(2600);
     await s.play(line('dialog_wake'));
@@ -3294,7 +3299,8 @@ const nextFrame = () => new Promise((resolve) => {
 });
 
 function setLoadProgress(fraction, hint) {
-  newspaperView.setProgress(fraction, hint);
+  loadingBarFill.style.width = `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`;
+  if (hint) loadingHintEl.textContent = hint;
 }
 
 /**
@@ -3559,14 +3565,10 @@ warmUp()
     // The world is ready either way: a warm-up that failed costs stutter, not
     // a game nobody can start.
     backroomsHunter.setReady(true);
-    // The loading page stays down until the player chooses to put it away:
-    // a fast machine finishes this in a few seconds, and the front page is the
-    // first piece of story in the game -- it should not be snatched away
-    // mid-sentence. Continue reveals the main menu underneath.
-    newspaperView.markLoaded();
-    // Print the later pages' photographs now, while nothing else is happening,
-    // so each one is already on its plate when its page lands.
-    for (const id of ['afterBedroom', 'afterBasement', 'ending_released', 'ending_contained']) {
+    setTimeout(() => loadingScreen.classList.add('is-done'), 250);
+    // Print every page's photograph now, while the player is on the menu, so
+    // each one is already on its plate when its page lands.
+    for (const id of ['prologue', 'afterBedroom', 'afterBasement', 'ending_released', 'ending_contained']) {
       newspaperView.preload(id);
     }
   });
@@ -3604,7 +3606,8 @@ function tick() {
     bedroomStorm.update(dt);
     rain.update(dt);
     // Only while actually playing: a paused game is not a stuck player.
-    if (player.isLocked) bedroomHints.update(dt);
+    // Nor is one reading the front page laid over the room.
+    if (player.isLocked && !newspaperView.isOpen) bedroomHints.update(dt);
   }
   captions.update(dt);
   // Only while it is actually on screen. The AI is not driving it in Level 2 --
