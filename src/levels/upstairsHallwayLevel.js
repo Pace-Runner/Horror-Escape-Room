@@ -32,6 +32,9 @@ import ceilingUrl from '../assets/textures/bedroom/grimy_cracked_plaster_texture
 import clawRipUrl from '../assets/textures/bedroom/ripped_victorian_wallpaper_claw_marks.png?url';
 import houseSepiaUrl from '../assets/textures/bedroom/haunted_victorian_mansion_sepia.png?url';
 import woodNormalUrl from '../assets/textures/door/door_wood_normal_1k.png?url';
+// The basement's own concrete, already in the build: the passage at the foot
+// of the stairs is where the house starts turning into the laboratory.
+import concreteUrl from '../assets/textures/lab/concrete030_color.jpg?url';
 
 /**
  * The upstairs hallway, between the bedroom and the basement stairs.
@@ -80,6 +83,21 @@ const SKIRTING_HEIGHT = 0.16;
 
 /** Where things stand along the hall, so the wall builder can leave room for them. */
 const WINDOW = { z: 6.0, y: 1.72, w: 1.3, h: 1.5 };
+/**
+ * The turn at the foot of the stairs: a doorway in the right-hand wall of the
+ * landing, through to a passage that runs on toward the basement. Without it
+ * the stairs ended at a lit wall, which from the top read as a dead end.
+ */
+const TURN = {
+  z: (STAIR_END_Z + WELL_END_Z) / 2,
+  w: WELL_END_Z - STAIR_END_Z - 0.16,
+  y: STAIR_BOTTOM_Y + 1.05,
+  h: 2.1
+};
+/** How far the passage runs before it is lost in the dark. */
+const PASSAGE_LEN = 3.4;
+/** Level with the top of the doorway, so the two meet with no step. */
+const PASSAGE_H = 2.1;
 const NURSERY_DOOR_Z = 4.2;
 const BATHROOM_DOOR_Z = 9.55;
 /** A door.glb frame is 1.4 m wide; panelling and skirting stop short of it. */
@@ -199,10 +217,15 @@ export function createUpstairsHallwayLevel({
   // ---------- walls ----------------------------------------------------------
   /**
    * One side wall, from the bedroom end to the bottom of the stairwell, built
-   * round any openings (just the window). Pieces share world-space UVs, so the
-   * damask runs unbroken across them.
+   * round any openings: the window in the hall, and the turn at the foot of
+   * the stairs. Pieces share world-space UVs, so the damask runs unbroken
+   * across them.
+   *
+   * @param {'left'|'right'} side
+   * @param {Array<{z: number, y: number, w: number, h: number}>} hallGaps
+   * @param {Array<{z: number, y: number, w: number, h: number}>} wellGaps
    */
-  function addSideWall(side, gaps = []) {
+  function addSideWall(side, hallGaps = [], wellGaps = []) {
     const x = side === 'left' ? LEFT_X : RIGHT_X;
     const rotationY = side === 'left' ? Math.PI / 2 : -Math.PI / 2;
     const addPiece = (z0, z1, y0, y1) => {
@@ -215,25 +238,28 @@ export function createUpstairsHallwayLevel({
       mesh.receiveShadow = true;
       group.add(mesh);
     };
-    // The hall section, with its gaps.
-    let cursor = 0;
-    for (const gap of [...gaps].sort((a, b) => a.z - b.z)) {
-      const z0 = gap.z - gap.w / 2;
-      const z1 = gap.z + gap.w / 2;
-      addPiece(cursor, z0, 0, HALL_H);
-      addPiece(z0, z1, 0, gap.y - gap.h / 2);
-      addPiece(z0, z1, gap.y + gap.h / 2, HALL_H);
-      cursor = z1;
-    }
-    addPiece(cursor, HALL_LEN, 0, HALL_H);
+    /** One stretch of wall, with rectangular holes cut out of it. */
+    const addSection = (start, end, bottom, top, gaps) => {
+      let cursor = start;
+      for (const gap of [...gaps].sort((a, b) => a.z - b.z)) {
+        const z0 = gap.z - gap.w / 2;
+        const z1 = gap.z + gap.w / 2;
+        addPiece(cursor, z0, bottom, top);
+        addPiece(z0, z1, bottom, gap.y - gap.h / 2);
+        addPiece(z0, z1, gap.y + gap.h / 2, top);
+        cursor = z1;
+      }
+      addPiece(cursor, end, bottom, top);
+    };
+    addSection(0, HALL_LEN, 0, HALL_H, hallGaps);
     // The stairwell section runs on down past the hall floor.
-    addPiece(HALL_LEN, WELL_END_Z, STAIR_BOTTOM_Y - 0.1, HALL_H);
+    addSection(HALL_LEN, WELL_END_Z, STAIR_BOTTOM_Y - 0.1, HALL_H, wellGaps);
     colliders.push(side === 'left'
       ? { minX: LEFT_X - 0.2, maxX: LEFT_X + 0.08, minZ: -0.2, maxZ: WELL_END_Z }
       : { minX: RIGHT_X - 0.08, maxX: RIGHT_X + 0.2, minZ: -0.2, maxZ: WELL_END_Z });
   }
   addSideWall('left', [WINDOW]);
-  addSideWall('right');
+  addSideWall('right', [], [TURN]);
 
   // The bedroom end, with the doorway the player just came through.
   {
@@ -264,6 +290,89 @@ export function createUpstairsHallwayLevel({
     mesh.rotation.y = Math.PI;
     setWorldUVs(mesh, (p) => [(p.x + 3) / WALLPAPER_SPAN_METRES, wallV(p.y)]);
     group.add(mesh);
+  }
+
+  /**
+   * THE TURN. Through the doorway at the foot of the stairs, a passage runs
+   * off to the right toward the basement. It is bare concrete -- the lab's
+   * own texture -- so the house is visibly giving way to what is under it,
+   * and it fades into black a few metres in, so from the top of the stairs
+   * there is no end to see: only a doorway, and cold light coming round it.
+   */
+  {
+    const passageX0 = RIGHT_X;
+    const passageX1 = RIGHT_X + PASSAGE_LEN;
+    const z0 = TURN.z - TURN.w / 2;
+    const z1 = TURN.z + TURN.w / 2;
+    const floorY = STAIR_BOTTOM_Y;
+    const concrete = loadTexture(concreteUrl, { anisotropy: 4 });
+    const concreteMat = new THREE.MeshStandardMaterial({ map: concrete, color: 0x6e6a63, roughness: 0.95 });
+    const concreteUV = (u, v) => (p) => [u(p), v(p)];
+    const surface = (w, h, position, rotation, uv) => {
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(w, h), concreteMat);
+      mesh.position.set(...position);
+      mesh.rotation.set(...rotation);
+      setWorldUVs(mesh, uv);
+      mesh.receiveShadow = true;
+      group.add(mesh);
+      return mesh;
+    };
+    const midX = (passageX0 + passageX1) / 2;
+    // floor, ceiling, and the two side walls
+    surface(PASSAGE_LEN, TURN.w, [midX, floorY, TURN.z], [-Math.PI / 2, 0, 0], concreteUV((p) => p.x / 2, (p) => p.z / 2));
+    surface(PASSAGE_LEN, TURN.w, [midX, floorY + PASSAGE_H, TURN.z], [Math.PI / 2, 0, 0], concreteUV((p) => p.x / 2, (p) => p.z / 2));
+    surface(PASSAGE_LEN, PASSAGE_H, [midX, floorY + PASSAGE_H / 2, z0], [0, 0, 0], concreteUV((p) => p.x / 2, (p) => p.y / 2));
+    surface(PASSAGE_LEN, PASSAGE_H, [midX, floorY + PASSAGE_H / 2, z1], [0, Math.PI, 0], concreteUV((p) => p.x / 2, (p) => p.y / 2));
+    // Where it goes: nowhere the eye can follow. Unlit, unfogged black.
+    const dark = new THREE.Mesh(new THREE.PlaneGeometry(TURN.w + 0.02, PASSAGE_H + 0.02), new THREE.MeshBasicMaterial({ color: 0x000000, fog: false }));
+    dark.position.set(passageX1, floorY + PASSAGE_H / 2, TURN.z);
+    dark.rotation.y = -Math.PI / 2;
+    group.add(dark);
+    // A soft ramp of darkness down the last two metres, so the concrete
+    // fades out rather than meeting a black card.
+    const fadeCanvas = document.createElement('canvas');
+    fadeCanvas.width = 256;
+    fadeCanvas.height = 4;
+    const fadeCtx = fadeCanvas.getContext('2d');
+    const fade = fadeCtx.createLinearGradient(0, 0, 256, 0);
+    fade.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    fade.addColorStop(1, 'rgba(0, 0, 0, 1)');
+    fadeCtx.fillStyle = fade;
+    fadeCtx.fillRect(0, 0, 256, 4);
+    const fadeTex = new THREE.CanvasTexture(fadeCanvas);
+    const fadeMat = new THREE.MeshBasicMaterial({ map: fadeTex, transparent: true, depthWrite: false, fog: false });
+    // The far wall faces the other way, so its local x runs back up the
+    // passage: the same ramp, mirrored in the texture rather than the mesh
+    // (a negative scale would turn the strip's face away from the player).
+    const fadeTexReversed = fadeTex.clone();
+    fadeTexReversed.wrapS = THREE.RepeatWrapping;
+    fadeTexReversed.repeat.x = -1;
+    fadeTexReversed.offset.x = 1;
+    const fadeMatReversed = new THREE.MeshBasicMaterial({ map: fadeTexReversed, transparent: true, depthWrite: false, fog: false });
+    const fadeLen = 2.2;
+    for (const [z, ry, material] of [[z0 + 0.004, 0, fadeMat], [z1 - 0.004, Math.PI, fadeMatReversed]]) {
+      const strip = new THREE.Mesh(new THREE.PlaneGeometry(fadeLen, PASSAGE_H), material);
+      strip.position.set(passageX1 - fadeLen / 2, floorY + PASSAGE_H / 2, z);
+      strip.rotation.y = ry;
+      group.add(strip);
+    }
+    for (const [y, rx] of [[floorY + 0.004, -Math.PI / 2], [floorY + PASSAGE_H - 0.004, Math.PI / 2]]) {
+      const strip = new THREE.Mesh(new THREE.PlaneGeometry(fadeLen, TURN.w), fadeMat);
+      strip.position.set(passageX1 - fadeLen / 2, y, TURN.z);
+      strip.rotation.x = rx;
+      group.add(strip);
+    }
+    // A plain dark casing round the doorway, on the landing side.
+    const casingMat = trimMat;
+    for (const [w, h, y, z] of [
+      [0.08, TURN.h, floorY + TURN.h / 2, z0 - 0.04],
+      [0.08, TURN.h, floorY + TURN.h / 2, z1 + 0.04],
+      [TURN.w + 0.24, 0.09, floorY + TURN.h + 0.045, TURN.z]
+    ]) {
+      const piece = new THREE.Mesh(new THREE.BoxGeometry(0.03, h, w), casingMat);
+      piece.position.set(RIGHT_X - 0.015, y, z);
+      group.add(piece);
+    }
   }
 
   // ---------- panelling, rails and skirting ---------------------------------
@@ -920,13 +1029,16 @@ export function createUpstairsHallwayLevel({
   });
 
   /**
-   * The way on has to be readable from the far end of the hall. A cold glow
-   * coming UP the stairwell from the basement -- the colour of the lab's strip
-   * lights -- picks out the treads and the rail, and a faint warm spill from
-   * the last pendant catches the newel post at the top.
+   * The way on has to be readable from the far end of the hall, and it must
+   * not look like a dead end. The cold light -- the colour of the lab's strip
+   * lights -- is round the corner, inside the passage, so what the player sees
+   * from the top is light spilling OUT of a doorway onto the landing, which
+   * says "this goes somewhere" far better than a lit wall facing them did.
    */
-  const belowGlow = new THREE.PointLight(0x7f97a8, 1.0, 6.5, 1.6);
-  belowGlow.position.set(0, STAIR_BOTTOM_Y + 0.6, WELL_END_Z - 0.35);
+  // Set well back from the doorway, so the passage wall the player can see
+  // falls off toward them instead of being lit flat like a card.
+  const belowGlow = new THREE.PointLight(0x7f97a8, 2.2, 5.2, 1.8);
+  belowGlow.position.set(RIGHT_X + 1.05, STAIR_BOTTOM_Y + 1.7, TURN.z);
   group.add(belowGlow);
 
   // ---------- update -----------------------------------------------------------
