@@ -32,6 +32,7 @@ import { BASEMENT_HINT_STAGES } from './levels/basementHints.js';
 import { enableSinglePassForFlatDecals, createDarkShadowSkipper, findShadowCastingLights } from './world/renderOptimizations.js';
 import { createCutsceneRunner } from './core/Cutscene.js';
 import { createNewspaper } from './core/Newspaper.js';
+import { DIFFICULTIES, DEFAULT_DIFFICULTY, createRunTimer } from './core/Difficulty.js';
 import { FreeCamera } from './core/FreeCamera.js';
 import { createScriptRunner } from './core/Script.js';
 import { createOkabeCreature } from './systems/OkabeCreature.js';
@@ -57,7 +58,10 @@ const thirdPersonBtn = document.getElementById('third-person-toggle');
 const startScreen = document.getElementById('start-screen');
 const mainMenu = document.getElementById('main-menu');
 const legacyStartControls = document.getElementById('legacy-start-controls');
-const menuOptionButtons = [...document.querySelectorAll('.menu-option')];
+const menuMainActions = document.getElementById('menu-main-actions');
+const menuDifficulty = document.getElementById('menu-difficulty');
+const menuDifficultyBack = document.getElementById('menu-difficulty-back');
+const runTimerEl = document.getElementById('run-timer');
 const menuStartButton = document.getElementById('menu-start');
 const menuCreditsButton = document.getElementById('menu-credits');
 const menuQuitButton = document.getElementById('menu-quit');
@@ -106,6 +110,14 @@ const newspaperView = createNewspaper({
   onShow: () => audio.paperRustle()
 });
 
+/**
+ * Medium and Hard's per-room clock -- see core/Difficulty.js. Set to the
+ * chosen difficulty by beginGame() and every restart, refilled by
+ * activateLevel() in each room, and counted down in tick() only while the
+ * player is playing. Up here so it exists before any room is activated.
+ */
+const runTimer = createRunTimer({ el: runTimerEl, onExpire: () => playOutOfTime() });
+
 // ---------- launch menu ----------
 // This state belongs only to the DOM launch menu. It deliberately does not
 // overlap the game's pause/end state, which continues to use the legacy start
@@ -113,16 +125,41 @@ const newspaperView = createNewspaper({
 let menuOverlayState = 'main';
 let selectedMenuOptionIndex = 0;
 
+/** The buttons of whichever menu panel is showing: the main list, or difficulty. */
+function readVisibleMenuButtons() {
+  const panel = menuDifficulty.classList.contains('hidden') ? menuMainActions : menuDifficulty;
+  return [...panel.querySelectorAll('.menu-option')];
+}
+
 function selectMenuOption(optionIndex) {
-  selectedMenuOptionIndex = (optionIndex + menuOptionButtons.length) % menuOptionButtons.length;
-  menuOptionButtons.forEach((button, index) => {
+  const buttons = readVisibleMenuButtons();
+  selectedMenuOptionIndex = (optionIndex + buttons.length) % buttons.length;
+  buttons.forEach((button, index) => {
     button.classList.toggle('is-selected', index === selectedMenuOptionIndex);
   });
-  menuOptionButtons[selectedMenuOptionIndex].focus({ preventScroll: true });
+  buttons[selectedMenuOptionIndex].focus({ preventScroll: true });
 }
+
+/** Swaps the main list for the difficulty choice, or back. */
+function showDifficultyChoice(show) {
+  menuDifficulty.classList.toggle('hidden', !show);
+  menuMainActions.classList.toggle('hidden', show);
+  // Start on the difficulty last played, so a replay is one Enter away.
+  const buttons = readVisibleMenuButtons();
+  const lastPlayed = buttons.findIndex((button) => button.dataset.difficulty === currentDifficulty);
+  selectMenuOption(show ? Math.max(0, lastPlayed) : 0);
+}
+
+/**
+ * The difficulty of the run being played (a key of DIFFICULTIES). Up here
+ * because the menu needs it before the settings are loaded further down;
+ * loadSettings() fills it in with the one last played.
+ */
+let currentDifficulty = DEFAULT_DIFFICULTY;
 
 function showMainMenu() {
   menuOverlayState = 'main';
+  showDifficultyChoice(false);
   mainMenu.classList.remove('hidden');
   legacyStartControls.classList.add('hidden');
   creditsScreen.classList.add('hidden');
@@ -130,7 +167,6 @@ function showMainMenu() {
   startScreen.classList.remove('hidden');
   hud.style.display = 'none';
   crosshair.style.display = 'none';
-  selectMenuOption(0);
 }
 
 function showMenuCredits() {
@@ -167,18 +203,33 @@ function showLegacyStartScreen() {
   legacyStartControls.classList.remove('hidden');
 }
 
-menuOptionButtons.forEach((button, index) => {
-  button.addEventListener('mouseenter', () => selectMenuOption(index));
-  button.addEventListener('focus', () => selectMenuOption(index));
+for (const panel of [menuMainActions, menuDifficulty]) {
+  panel.querySelectorAll('.menu-option').forEach((button, index) => {
+    button.addEventListener('mouseenter', () => selectMenuOption(index));
+    button.addEventListener('focus', () => {
+      if (!button.classList.contains('is-selected')) selectMenuOption(index);
+    });
+  });
+}
+
+// The time each difficulty gives, written once in core/Difficulty.js.
+menuDifficulty.querySelectorAll('[data-difficulty]').forEach((button) => {
+  const detail = button.querySelector('.menu-option-detail');
+  if (detail) detail.textContent = DIFFICULTIES[button.dataset.difficulty].detail;
+  button.addEventListener('click', () => {
+    currentDifficulty = button.dataset.difficulty;
+    settings.difficulty = currentDifficulty;
+    saveSettings(settings);
+    menuOverlayState = 'game';
+    mainMenu.classList.add('hidden');
+    // Keep this synchronous with the click so Pointer Lock retains the browser
+    // user gesture that the existing Level 1 flow requires.
+    startButton.click();
+  });
 });
 
-menuStartButton.addEventListener('click', () => {
-  menuOverlayState = 'game';
-  mainMenu.classList.add('hidden');
-  // Keep this synchronous with the click so Pointer Lock retains the browser
-  // user gesture that the existing Level 1 flow requires.
-  startButton.click();
-});
+menuStartButton.addEventListener('click', () => showDifficultyChoice(true));
+menuDifficultyBack.addEventListener('click', () => showDifficultyChoice(false));
 menuCreditsButton.addEventListener('click', showMenuCredits);
 menuQuitButton.addEventListener('click', requestQuit);
 quitBackButton.addEventListener('click', showMainMenu);
@@ -201,7 +252,10 @@ window.addEventListener('keydown', (event) => {
     selectMenuOption(selectedMenuOptionIndex + 1);
   } else if (event.code === 'Enter') {
     event.preventDefault();
-    menuOptionButtons[selectedMenuOptionIndex].click();
+    readVisibleMenuButtons()[selectedMenuOptionIndex].click();
+  } else if (event.code === 'Escape' && !menuDifficulty.classList.contains('hidden')) {
+    event.preventDefault();
+    showDifficultyChoice(false);
   }
 });
 
@@ -2498,6 +2552,8 @@ function activateLevel(key, { lockMovement = false } = {}) {
   enableSinglePassForFlatDecals(level.group);
   // The on-screen hint key, only where H actually gives hints.
   hintKeyEl.classList.toggle('visible', key in HINTS_BY_LEVEL);
+  // Each room gets its own full time on Medium and Hard; corridors none.
+  runTimer.enterRoom(key);
   scene.fog = LEVEL_FOG[key] ?? null;
   objectiveEl.textContent = LEVEL_OBJECTIVES[key] ?? '';
   // Hard-cancel rather than just hiding the box: a queued sequence would
@@ -2725,6 +2781,9 @@ function resetGame() {
   // is already running, so it can never stack a second copy.
   audio.setBreathing(BREATH_BASE_LEVEL);
   audio.startBreathing();
+  // A restart is a new run on the same difficulty; activateLevel() then gives
+  // the bedroom its full time again.
+  runTimer.configure(currentDifficulty);
   activateLevel('bedroom', { lockMovement: true });
 }
 
@@ -2852,7 +2911,13 @@ window.addEventListener('keydown', (e) => {
  */
 const ENDING_TITLES = {
   released: 'THE HOLLOW IS OUT',
-  contained: 'THE HOUSE HELD'
+  contained: 'THE HOUSE HELD',
+  timeout: 'OUT OF TIME'
+};
+
+/** The small line under the title. Only running out of time is not an ending. */
+const ENDING_SUBTITLES = {
+  timeout: 'The house kept you'
 };
 
 const ENDING_CREDITS = {
@@ -2867,6 +2932,34 @@ const ENDING_CREDITS = {
 };
 
 let endingInFlight = false;
+
+/**
+ * Time ran out on Medium or Hard. Not a story ending, so no camera shot and
+ * no newspaper: the room goes dark, a line says why, and the end screen offers
+ * another go.
+ */
+async function playOutOfTime() {
+  if (endingInFlight || gameState.endingChosen) return;
+  endingInFlight = true;
+  gameState.endingChosen = 'timeout';
+  try {
+    // Stop whatever beat was playing (a catch, a sighting), so nothing hands
+    // the controls back while the screen is going dark.
+    script.cancel();
+    newspaperView.cancel();
+    interaction.setEnabled(false);
+    player.movementEnabled = false;
+    player.lookEnabled = false;
+    // Help, not story: shown even with captions off, like the hints.
+    captions.play(alwaysShown(line('dialog_out_of_time')));
+    await fade.fadeOut(2600);
+    // R during the fade already started a new run; resetState() cleared the flag.
+    if (gameState.endingChosen !== 'timeout') return;
+    showEndScreen('timeout');
+  } finally {
+    endingInFlight = false;
+  }
+}
 
 async function playEnding(which) {
   if (endingInFlight) return;
@@ -2924,13 +3017,20 @@ function showEndScreen(which) {
   creatureStanding = false;
   audio.setBreathing(BREATH_BASE_LEVEL);
   startTitle.textContent = ENDING_TITLES[which];
-  startSub.textContent = 'THE END';
+  startSub.textContent = ENDING_SUBTITLES[which] ?? 'THE END';
   startButton.textContent = 'Play again';
   restartButton.classList.add('hidden');
   startScreen.classList.remove('hidden');
   hud.style.display = 'none';
   crosshair.style.display = 'none';
   promptEl.style.display = 'none';
+  // Running out of time is not an ending, so no credits roll over it: the
+  // title and Play again are what the player needs to see.
+  if (!ENDING_CREDITS[which]) {
+    buildCredits();
+    if (player.isLocked) player.unlock();
+    return;
+  }
   buildCredits(which);
   toggleCredits(true);
 }
@@ -3006,7 +3106,8 @@ creditsCloseBtn.addEventListener('click', () => {
 // very first frame.
 const SETTINGS_STORAGE_KEY = 'dontLetItOut.settings';
 // Captions start off: hints (H) and the front pages still show either way.
-const DEFAULT_SETTINGS = { volume: 50, sensitivity: 100, captions: false };
+// `difficulty` is the one last played, so the menu can offer it first.
+const DEFAULT_SETTINGS = { volume: 50, sensitivity: 100, captions: false, difficulty: DEFAULT_DIFFICULTY };
 
 function loadSettings() {
   try {
@@ -3018,7 +3119,8 @@ function loadSettings() {
       sensitivity: Number.isFinite(parsed.sensitivity)
         ? Math.min(SENSITIVITY_MAX * 100, Math.max(SENSITIVITY_MIN * 100, parsed.sensitivity))
         : DEFAULT_SETTINGS.sensitivity,
-      captions: typeof parsed.captions === 'boolean' ? parsed.captions : DEFAULT_SETTINGS.captions
+      captions: typeof parsed.captions === 'boolean' ? parsed.captions : DEFAULT_SETTINGS.captions,
+      difficulty: Object.hasOwn(DIFFICULTIES, parsed.difficulty) ? parsed.difficulty : DEFAULT_SETTINGS.difficulty
     };
   } catch {
     // Private browsing (Safari) throws on localStorage access rather than
@@ -3043,6 +3145,7 @@ function applySettings(settings) {
 }
 
 const settings = loadSettings();
+currentDifficulty = settings.difficulty;
 volumeInput.value = String(settings.volume);
 volumeValueEl.textContent = `${settings.volume}%`;
 sensitivityInput.value = String(settings.sensitivity);
@@ -3108,6 +3211,9 @@ function beginGame() {
   // level or an event, only its intensity is. Safe whether or not the loop
   // file is actually there, and safe before it has decoded -- see AudioEngine.
   audio.startBreathing();
+  // Before the room: activateLevel() starts the bedroom's clock, full and
+  // still -- it only counts once the first newspaper is put away.
+  runTimer.configure(currentDifficulty);
   activateLevel('bedroom', { lockMovement: true });
   player.lock();
 
@@ -3189,6 +3295,9 @@ player.controls.addEventListener('unlock', () => {
   captions.setPaused(true);
 
   if (!creditsScreen.classList.contains('hidden')) return;
+  // A finished run (an ending, or out of time) is showing its end screen;
+  // the pause menu must not replace it.
+  if (gameState.endingChosen) return;
   showPauseScreen();
 });
 
@@ -3209,6 +3318,8 @@ if (import.meta.env.DEV) {
     activateLevel,
     exitLevel,
     resetGame,
+    // So a harness can run the clock out without waiting the whole limit.
+    runTimer,
     hands,
     THREE,
     sceneManager,
@@ -3651,6 +3762,9 @@ function tick() {
   // one reading the front page laid over the room.
   const isPlaying = player.isLocked && !newspaperView.isOpen;
   if (isPlaying) HINTS_BY_LEVEL[sceneManager.activeKey]?.update(dt);
+  // The difficulty's clock. Stopped by the same things, and by every moment
+  // the player has no control: a fade between rooms, a cutscene, an ending.
+  if (isPlaying && !transitionInFlight && !cutscene.isRunning && !endingInFlight) runTimer.update(dt);
   captions.update(dt);
   // Only while it is actually on screen. The AI is not driving it in Level 2 --
   // it is placed by a script -- but it still has to breathe, or a figure

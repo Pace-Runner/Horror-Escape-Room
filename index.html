@@ -38,6 +38,8 @@
 
   <div id="hud">
     <div id="objective"></div>
+    <!-- Time left on Medium and Hard. Hidden on Easy. See src/core/Difficulty.js. -->
+    <div id="run-timer" aria-label="Time left"><span class="run-timer-label">Time left</span><span class="run-timer-value">0:00</span></div>
     <div id="interact-prompt"></div>
     <div id="flashlight-status">FLASHLIGHT: <span id="flashlight-state">not found</span></div>
     <!-- Clickable, and bound to T as well. The button is the one that works
@@ -138,10 +140,19 @@
     <div id="main-menu" aria-label="Main menu">
       <div class="menu-ornament" aria-hidden="true">✦</div>
       <h1 id="menu-title"><span>DON'T</span><span>LET IT OUT</span></h1>
-      <div class="menu-actions" role="menu">
+      <div class="menu-actions" id="menu-main-actions" role="menu">
         <button class="menu-option is-selected" id="menu-start" type="button" role="menuitem">Start Game</button>
         <button class="menu-option" id="menu-credits" type="button" role="menuitem">Credits</button>
         <button class="menu-option" id="menu-quit" type="button" role="menuitem">Quit</button>
+      </div>
+      <!-- Start Game opens this in place of the list above. Choosing one starts
+           the run; see src/core/Difficulty.js for the time each one gives. -->
+      <div class="menu-actions hidden" id="menu-difficulty" role="menu" aria-label="Choose difficulty">
+        <div class="menu-heading">Choose difficulty</div>
+        <button class="menu-option menu-difficulty-option" type="button" role="menuitem" data-difficulty="easy">Easy<span class="menu-option-detail">No time limit</span></button>
+        <button class="menu-option menu-difficulty-option" type="button" role="menuitem" data-difficulty="medium">Medium<span class="menu-option-detail">45 minutes</span></button>
+        <button class="menu-option menu-difficulty-option" type="button" role="menuitem" data-difficulty="hard">Hard<span class="menu-option-detail">25 minutes</span></button>
+        <button class="menu-option menu-back" id="menu-difficulty-back" type="button" role="menuitem">Back</button>
       </div>
     </div>
 
