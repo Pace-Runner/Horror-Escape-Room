@@ -1024,6 +1024,37 @@ export class AudioEngine {
     src.stop(now + 0.6);
   }
 
+  /**
+   * A newspaper landing on the desk: a dry, crackling slide of paper. Three
+   * short bursts of high, narrow noise one after another rather than one long
+   * hiss, because paper does not rustle smoothly -- it crackles in creases.
+   */
+  paperRustle() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const bursts = [[0, 0.22, 0.09], [0.12, 0.16, 0.06], [0.24, 0.3, 0.05]];
+    for (const [offset, length, level] of bursts) {
+      const src = ctx.createBufferSource();
+      src.buffer = this.#noiseBuffer(length);
+
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 2600 + Math.random() * 1800;
+      filter.Q.value = 0.9;
+
+      const gain = ctx.createGain();
+      const start = now + offset;
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(level, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + length);
+
+      src.connect(filter).connect(gain).connect(this.master);
+      src.start(start);
+      src.stop(start + length);
+    }
+  }
+
   spark() {
     if (!this.ctx) return;
     const ctx = this.ctx;

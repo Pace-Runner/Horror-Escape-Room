@@ -7,8 +7,8 @@
 // Deliberately does NOT use the `.hidden` class every other overlay in this
 // project toggles. `.hidden { display: none !important }` at the bottom of
 // style.css outranks any ID selector, which is why the `transition: opacity`
-// already declared on #loading-screen and #start-screen is dead code -- those
-// two snap rather than fade. Opacity is driven from here instead.
+// already declared on #start-screen is dead code -- it snaps rather than
+// fades. Opacity is driven from here instead.
 export function createScreenFade(el, { defaultMs = 700 } = {}) {
   function to(opacity, ms) {
     el.style.transitionDuration = `${ms}ms`;

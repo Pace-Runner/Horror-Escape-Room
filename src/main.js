@@ -30,6 +30,7 @@ import { createHintSystem } from './core/HintSystem.js';
 import { BEDROOM_HINT_STAGES } from './levels/bedroomHints.js';
 import { enableSinglePassForFlatDecals, createDarkShadowSkipper, findShadowCastingLights } from './world/renderOptimizations.js';
 import { createCutsceneRunner } from './core/Cutscene.js';
+import { createNewspaper } from './core/Newspaper.js';
 import { FreeCamera } from './core/FreeCamera.js';
 import { createScriptRunner } from './core/Script.js';
 import { createOkabeCreature } from './systems/OkabeCreature.js';
@@ -48,9 +49,6 @@ import flashlightModelUrl from './assets/models/flashlight.glb?url';
 // ---------- DOM ----------
 const canvas = document.getElementById('scene');
 const glareOverlay = document.getElementById('glare-overlay');
-const loadingScreen = document.getElementById('loading-screen');
-const loadingBarFill = document.getElementById('loading-bar-fill');
-const loadingHintEl = document.getElementById('loading-hint');
 const thirdPersonBtn = document.getElementById('third-person-toggle');
 const startScreen = document.getElementById('start-screen');
 const mainMenu = document.getElementById('main-menu');
@@ -95,6 +93,17 @@ const captionsCheckbox = document.getElementById('settings-captions');
 // other overlay in this file -- see core/ScreenFade.js for why that would snap
 // instead of fading.
 const fade = createScreenFade(fadeOverlay);
+
+// The loading screen, and every front page between the rooms -- see
+// core/Newspaper.js and story/newspapers.js. The boot page is laid down now,
+// before the levels are built, so the warm-up at the bottom of this file has a
+// page to print its progress under. `audio` is read only when a page lands,
+// which is always after this module has finished evaluating.
+const newspaperView = createNewspaper({
+  root: document.getElementById('newspaper-view'),
+  onShow: () => audio.paperRustle()
+});
+newspaperView.show('prologue', { boot: true });
 
 // ---------- launch menu ----------
 // This state belongs only to the DOM launch menu. It deliberately does not
@@ -2543,12 +2552,21 @@ function unfreezePlayerAfterTransition() {
 function abortTransition() {
   transitionGeneration++;
   transitionInFlight = false;
+  newspaperView.cancel();
   fade.clear();
   interaction.setEnabled(true);
   player.lookEnabled = true;
 }
 
-async function transitionTo(key, { lockMovement = false, outMs = 700, holdMs = 140, inMs = 900 } = {}) {
+/**
+ * @param {string} key level to go to
+ * @param {object} [options]
+ * @param {string|null} [options.interlude] a front page from story/newspapers.js
+ *   read on the black between the two rooms. The next room is not switched on
+ *   until the player continues past it, so its entry beat cannot start behind
+ *   the page.
+ */
+async function transitionTo(key, { lockMovement = false, outMs = 700, holdMs = 140, inMs = 900, interlude = null } = {}) {
   if (transitionInFlight) return null;
   transitionInFlight = true;
   const mine = ++transitionGeneration;
@@ -2557,6 +2575,10 @@ async function transitionTo(key, { lockMovement = false, outMs = 700, holdMs = 1
   try {
     await fade.fadeOut(outMs);
     if (mine !== transitionGeneration) return null;   // aborted mid-fade
+    if (interlude) {
+      await newspaperView.show(interlude);
+      if (mine !== transitionGeneration) return null;  // restarted while reading
+    }
     const level = activateLevel(key, { lockMovement: true });
     if (!level) {
       // Fade back in rather than leaving a black screen: a bad route must never
@@ -2590,18 +2612,29 @@ async function exitLevel(fromKey) {
     console.warn('exitLevel: no route out of "' + fromKey + '"');
     return;
   }
-  if (!route.via) { await transitionTo(route.to); return; }
+  const interlude = INTERLUDES[fromKey] ?? null;
+  if (!route.via) { await transitionTo(route.to, { interlude }); return; }
 
   const interstitial = sceneManager.get(route.via);
   // Degrade to a plain cut rather than trapping the player, if the interstitial
   // is ever missing or does not implement the arming contract.
-  if (!interstitial?.setRoute) { await transitionTo(route.to); return; }
+  if (!interstitial?.setRoute) { await transitionTo(route.to, { interlude }); return; }
   // Armed BEFORE activateLevel, so the destination, the re-armed exit door and
   // spawn/spawnYaw are all in place by the time SceneManager reads them.
   backroomsFrom = fromKey;
   interstitial.setRoute({ from: fromKey, ...route });
-  await transitionTo(route.via);
+  await transitionTo(route.via, { interlude });
 }
+
+/**
+ * The front page read on the way out of each room, keyed like TRANSITIONS by
+ * the room being LEFT. Read on the black before the maze, so the walk through
+ * it is spent thinking about what the paper said.
+ */
+const INTERLUDES = {
+  bedroom: 'afterBedroom',
+  hallwayBasement: 'afterBasement'
+};
 
 // ---------- game reset (restart without page refresh) ----------
 function resetGame() {
@@ -2821,13 +2854,18 @@ async function playEnding(which) {
     const from = which === 'released'
       ? [2.5, 1.6, 7.2]
       : [2.5, 1.6, 6.4];
-    await cutscene.playToBlack({
+    const shotFinished = await cutscene.playToBlack({
       points: [from, [2.2, 3.2, 12.0], [0.6, 7.5, 20.0], [-1.5, 12.0, 30.0]],
       lookAt: (t) => [2.5, 1.4 + t * 1.2, 3.0],
       seconds: 13,
       fadeMs: 2200,
       body: () => captions.play(line(`dialog_ending_${which}`))
     });
+
+    // The morning's paper, on the black after the shot: the bulletin the player
+    // just heard, as the town will read it. Skipped only by a restart, which
+    // has already put the game somewhere an end screen must not appear over.
+    if (shotFinished && !await newspaperView.show(`ending_${which}`)) return;
 
     showEndScreen(which);
   } finally {
@@ -2862,6 +2900,8 @@ const CREDITS = [
   'Three.js -- 3D rendering library (three.js authors, MIT licence) -- threejs.org',
   'PointerLockControls -- Three.js official examples module (MIT licence)',
   'Vite -- build tool used to produce the deployment bundle (MIT licence)',
+  'Newspaper typefaces -- UnifrakturMaguntia (J. "Mach" Wust), Playfair Display (Claus Eggers Sørensen) '
+    + 'and Old Standard TT (Alexey Kryukov), all SIL Open Font License 1.1, bundled via Fontsource (fontsource.org).',
   'All textures are generated procedurally on <canvas> at runtime -- no image assets used.',
   // CC-BY REQUIRES ATTRIBUTION AND THIS IS IT. hands.glb is the one piece of
   // third-party geometry in the project; everything else under
@@ -3254,8 +3294,7 @@ const nextFrame = () => new Promise((resolve) => {
 });
 
 function setLoadProgress(fraction, hint) {
-  loadingBarFill.style.width = `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`;
-  if (hint && loadingHintEl) loadingHintEl.textContent = hint;
+  newspaperView.setProgress(fraction, hint);
 }
 
 /**
@@ -3520,7 +3559,16 @@ warmUp()
     // The world is ready either way: a warm-up that failed costs stutter, not
     // a game nobody can start.
     backroomsHunter.setReady(true);
-    setTimeout(() => loadingScreen.classList.add('hidden'), 250);
+    // The loading page stays down until the player chooses to put it away:
+    // a fast machine finishes this in a few seconds, and the front page is the
+    // first piece of story in the game -- it should not be snatched away
+    // mid-sentence. Continue reveals the main menu underneath.
+    newspaperView.markLoaded();
+    // Print the later pages' photographs now, while nothing else is happening,
+    // so each one is already on its plate when its page lands.
+    for (const id of ['afterBedroom', 'afterBasement', 'ending_released', 'ending_contained']) {
+      newspaperView.preload(id);
+    }
   });
 
 // ---------- render loop ----------

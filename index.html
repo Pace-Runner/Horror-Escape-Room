@@ -13,10 +13,20 @@
        Sits above the canvas but below the HUD so prompts stay readable. -->
   <div id="glare-overlay"></div>
 
-  <div id="loading-screen">
-    <div id="loading-title">DON'T LET IT OUT</div>
-    <div id="loading-bar-track"><div id="loading-bar-fill"></div></div>
-    <div id="loading-hint">entering the house...</div>
+  <!-- The newspaper interludes, and the loading screen: a front page laid on a
+       desk. Filled in by src/core/Newspaper.js from src/story/newspapers.js.
+       It starts open (is-boot) so the very first paint is the desk, not a
+       black screen waiting for the module to run. -->
+  <div id="newspaper-view" class="is-boot" aria-live="polite">
+    <div class="np-desk" aria-hidden="true"></div>
+    <div class="np-stage"></div>
+    <div class="np-footer">
+      <div class="np-progress">
+        <div class="np-progress-track"><div class="np-progress-fill"></div></div>
+        <div class="np-progress-hint">entering the house...</div>
+      </div>
+      <div class="np-continue">Click or press Space to continue</div>
+    </div>
   </div>
 
   <div id="crosshair"></div>
