@@ -142,6 +142,21 @@ const CRT_WARM_UP_SECONDS = 0.7;
 const CRT_SWITCH_OFF_SECONDS = 0.25;
 
 /**
+ * The hallway sighting's stutter -- see `stutter` in the level. A fresh strike
+ * every 0.7-1.3 s, each decaying like the original single one; between them a
+ * floor of 1.6, which is where that single 0.55 s strike had decayed to a
+ * quarter of a second in -- still a lit figure -- dipping to 40% of that on
+ * roughly one frame in twelve. Checked against rendered frames, not just by
+ * these numbers: see docs/AUDIO.md.
+ */
+const STUTTER_STRIKE_SECONDS = 0.4;
+const STUTTER_GAP_MIN = 0.7;
+const STUTTER_GAP_MAX = 1.3;
+const STUTTER_FLOOR = 1.6;
+const STUTTER_DIP = 0.4;
+const STUTTER_DIP_CHANCE = 1 / 12;
+
+/**
  * The breaker panel (breaker_panel.glb), in the model's own space: x across
  * the face, y up, z out of the wall. Mirrors build_breaker_panel.py -- the
  * toggles, flags, label strip and click targets are built here and have to
@@ -338,6 +353,8 @@ const FUSE_CRATE = CRATE_LAYOUT.reduce((a, b) => (b.stackY > a.stackY ? b : a));
 export function createHallwayBasementLevel({
   showCaption = () => {},
   onExit = () => {},
+  // The metal door swinging open, with its world position, just before onExit.
+  onDoorOpening = () => {},
   onSpark = () => {},
   onGlare = () => {},  // called with 0..1 each frame so the host can drive a screen-space wash
   // Fired when the breaker goes in. The level changes its own lights and its
@@ -458,6 +475,14 @@ export function createHallwayBasementLevel({
   hallLightning.position.set(0, HALL_H - 0.2, HALL_LEN * 0.75);
   hallway.add(hallLightning);
   const flash = { t: 0, duration: 0 };
+  /**
+   * A STUTTER: the storm keeps catching for `duration` seconds instead of once.
+   * One strike lights the end of the hallway for well under half a second, and
+   * the sighting now holds the figure there for three -- so the light keeps
+   * re-striking over a flickering floor that never drops low enough to lose
+   * it, then cuts out when the figure does.
+   */
+  const stutter = { t: 0, duration: 0, nextStrike: 0 };
   hallway.add(hallLight2);
 
   /**
@@ -3228,6 +3253,7 @@ export function createHallwayBasementLevel({
 
       if (securityCleared) {
         showCaption(line('dialog_metal_door_opens'));
+        onDoorOpening(metalDoor.getWorldPosition(new THREE.Vector3()));
         onExit();
         return;
       }
@@ -3988,6 +4014,13 @@ export function createHallwayBasementLevel({
         flash.t = duration;
         return duration;
       },
+      /** Lightning that keeps catching for `duration` seconds, then goes. Returns the duration. */
+      stutter: (duration) => {
+        stutter.t = 0;
+        stutter.duration = duration;
+        stutter.nextStrike = 0;
+        return duration;
+      },
       /** Reveals the pool and makes it examinable. Once the creature has gone. */
       revealPool: () => {
         if (blackPool.visible) return;
@@ -4051,6 +4084,7 @@ export function createHallwayBasementLevel({
       screenMaterial.uniforms.uFeed.value = feeds.textures.kitchen;
       feeds.reset();
       flash.t = 0;
+      stutter.duration = 0;
       hallLightning.intensity = 0;
       if (blackPool.visible) {
         blackPool.visible = false;
@@ -4118,7 +4152,27 @@ export function createHallwayBasementLevel({
 
       // The scripted lightning. Fast up, slower down, with the intensity
       // jittered so it reads as a strike rather than a lamp being switched.
-      if (flash.t > 0) {
+      if (stutter.duration > 0) {
+        stutter.t += dt;
+        if (stutter.t >= stutter.duration) {
+          // Out with the figure, not after it.
+          stutter.duration = 0;
+          flash.t = 0;
+          hallLightning.intensity = 0;
+        } else {
+          if (stutter.t >= stutter.nextStrike) {
+            flash.duration = STUTTER_STRIKE_SECONDS;
+            flash.t = STUTTER_STRIKE_SECONDS;
+            stutter.nextStrike = stutter.t + STUTTER_GAP_MIN + Math.random() * (STUTTER_GAP_MAX - STUTTER_GAP_MIN);
+          }
+          flash.t = Math.max(0, flash.t - dt);
+          const k = flash.t / flash.duration;
+          // Between strikes the floor flickers but never lets the far end go
+          // dark; now and then it dips hard, which is what makes it a storm.
+          const floor = STUTTER_FLOOR * (Math.random() < STUTTER_DIP_CHANCE ? STUTTER_DIP : 0.7 + Math.random() * 0.3);
+          hallLightning.intensity = Math.max(k * k * 5.2 * (0.55 + Math.random() * 0.45), floor);
+        }
+      } else if (flash.t > 0) {
         flash.t = Math.max(0, flash.t - dt);
         const k = flash.t / flash.duration;
         hallLightning.intensity = k * k * 5.2 * (0.55 + Math.random() * 0.45);

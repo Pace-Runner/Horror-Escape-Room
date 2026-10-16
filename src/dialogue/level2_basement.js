@@ -18,8 +18,10 @@
 
 // ---- story beats ----------------------------------------------------------
 
+// Starts with the lightning. The creature stands there for 3 seconds, so the
+// first line holds 2.6 -- the second one comes up just as it vanishes.
 export const dialog_hallway_sighting = [
-  ["The lightning catches something at the end of the hallway.", "level2/hallway_sighting_1.m4a", 3.8],
+  ["The lightning catches something at the end of the hallway.", "level2/hallway_sighting_1.m4a", 2.6],
   ["Tall. Wrong. Watching you.", "level2/hallway_sighting_2.m4a", 2.8],
   ["Then the dark comes back, and it is gone.", "level2/hallway_sighting_3.m4a"]
 ];

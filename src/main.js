@@ -35,6 +35,7 @@ import { createScriptRunner } from './core/Script.js';
 import { createOkabeCreature } from './systems/OkabeCreature.js';
 import { createCreatureAI } from './systems/CreatureAI.js';
 import { createBackroomsHunter } from './systems/BackroomsHunter.js';
+import { createAudioDirector } from './systems/AudioDirector.js';
 import { createVisor } from './core/Visor.js';
 import { DOCUMENTS } from './story/lines.js';
 import { line } from './dialogue/index.js';
@@ -1260,6 +1261,9 @@ const creatureAI = createCreatureAI({
     // twice in a row on its own.
     if (caughtInFlight || transitionInFlight) return;
     caughtInFlight = true;
+    // Silent unless the director's STING.onStudyCatch is flipped: she is hauling
+    // you back, not killing you, and a death sting here undercuts the ending.
+    audioDirector.caught({ where: 'study' });
     script.run(async (s) => {
       try {
         s.do(() => {
@@ -1408,8 +1412,12 @@ const bedroom = createBedroomLevel({
   // of it (and goes into the hand), the planks keep the crowbar, the door keeps
   // its key.
   onBrassKeyUsed: () => consumeItem('brassKey'),
+  // Fired as the lockbox lid passes 70% -- a couple of seconds after the box
+  // was opened. Not if the planks have been pried in the meantime (G's skip
+  // can do that): that crowbar is already spent, and a second would sit in the
+  // hotbar for the rest of the run.
   onCrowbarFound: () => {
-    pickUpItem('crowbar');
+    if (!bedroom.refs.puzzleState.planksRemoved) pickUpItem('crowbar');
   },
   onCrowbarUsed: () => consumeItem('crowbar'),
   onBedroomKeyFound: () => {
@@ -1453,7 +1461,9 @@ const bedroom = createBedroomLevel({
   },
   onSafeOpened: () => {
     runBedroomHorrorEvent('safe-door-rattle', async (s) => {
-      if (!await s.wait(0.45)) return;
+      // Just after the lid lands, not in the middle of its creak -- the lid
+      // takes as long as its recording now (see LOCKBOX_OPEN_DURATION_SECONDS).
+      if (!await s.wait(bedroom.refs.lockboxOpenSeconds + 0.15)) return;
       s.do(() => {
         bedroom.refs.rattleDoor();
         audio.creak();
@@ -1503,6 +1513,8 @@ const bedroom = createBedroomLevel({
     bedroomHorrorScript.cancel();
     exitLevel('bedroom');
   },
+  onDoorOpening: (position) => audioDirector.door(position),
+  onLockboxOpening: (position) => audioDirector.lockbox(position),
 
   /**
    * The scratched floor message, and what it brings.
@@ -1629,9 +1641,58 @@ const cctvSeen = new Set();
 /** True while it is standing there, so the frame loop keeps it breathing. */
 let creatureStanding = false;
 
+/**
+ * How long the creature stays in view when a beat puts it somewhere -- Level 2
+ * and every level after it. Asked for at three seconds: long enough to be sure
+ * of what you saw, which the old 0.45 s flash never was.
+ */
+const CREATURE_LINGER_SECONDS = 3;
+
+/** The appearance under way: seconds left on the FRAME clock, and what to run when it goes. */
+let creatureLinger = null;
+/** Its stalking aura, from the audio director -- null when refused or not asked for. */
+let creatureStalkToken = null;
+
+/**
+ * Put the house creature at (x, z), facing the player unless told otherwise, for
+ * `linger` seconds -- null keeps it there until hideCreature(). With
+ * `stalkAudio`, its breathing plays from its body while it is there. Counted
+ * down in tick() on the frame clock, so the time it is seen is exact to a frame
+ * and a restart (activateLevel clears this) cannot leave a timer behind.
+ *
+ * The shared way in for any future level that shows it, so each one gets the
+ * three seconds and the sound without being told.
+ */
+function showCreatureAt({ x, z, yaw = null, linger = CREATURE_LINGER_SECONDS, stalkAudio = true, onGone = null }) {
+  creature.reset();
+  creature.setPosition(x, z);
+  creature.setYaw(yaw ?? Math.atan2(-(camera.position.x - x), -(camera.position.z - z)));
+  creature.setSpeed(0);
+  creature.visible = true;
+  creatureStanding = true;
+  audioDirector.endStalk(creatureStalkToken, 0.3);
+  // Asked here as well as inside the director: the aura is for a creature that
+  // is stalking, and nothing is while the backrooms hunter is running.
+  creatureStalkToken = stalkAudio && backroomsHunter.state === 'stopped'
+    ? audioDirector.startStalk({ follow: () => creature.position, linger })
+    : null;
+  creatureLinger = linger === null ? null : { remaining: linger, onGone };
+}
+
+function hideCreature() {
+  creature.visible = false;
+  creatureStanding = false;
+  creatureLinger = null;
+  audioDirector.endStalk(creatureStalkToken);
+  creatureStalkToken = null;
+}
+
 const hallwayBasement = createHallwayBasementLevel({
   showCaption,
   onExit: () => exitLevel('hallwayBasement'),
+  // Every press in the cleared branch calls onExit, and only the first one
+  // starts a transition -- so only that one gets a door.
+  onDoorOpening: (position) => { if (!transitionInFlight) audioDirector.door(position); },
   onSpark: () => audio.spark(),
   onTrolleyRoll: (level) => audio.setTrolleyRattle(level),
   // The crash. Level 2's creature is scripted rather than hunting, so nothing
@@ -1746,19 +1807,14 @@ const hallwayBasement = createHallwayBasementLevel({
         if (!await s.wait(0.7)) return;
         s.do(() => {
           // Where it stands after camera five -- the level owns the spot, so it
-          // moves with the lab if the room is ever resized again.
+          // moves with the lab if the room is ever resized again. For as long
+          // as the line takes, its aura looping, rather than a fixed linger.
           const CORNER = hallwayBasement.refs.creatureCorner;
-          creature.reset();
-          creature.setPosition(CORNER[0], CORNER[1]);
-          creature.setYaw(Math.atan2(-(camera.position.x - CORNER[0]), -(camera.position.z - CORNER[1])));
-          creature.setSpeed(0);
-          creature.visible = true;
-          creatureStanding = true;
+          showCreatureAt({ x: CORNER[0], z: CORNER[1], linger: null });
         });
         if (!await s.play(line('dialog_creature_corner'))) return;
         s.do(() => {
-          creature.visible = false;
-          creatureStanding = false;
+          hideCreature();
           hallwayBasement.refs.revealPool();
           // Back off: it has gone, and the room is only as bad as it was.
           audio.setBreathing(0.6);
@@ -1781,6 +1837,7 @@ const STUDY_GUARD_POINT = [2.5, 2.9];
 
 const study = createStudyLevel({
   showCaption,
+  onDoorOpening: (position) => audioDirector.door(position),
   // The study is the last room, so its exit is the ENDING rather than another
   // level. Unit 17 replaces this; until then it says so plainly instead of
   // silently doing nothing, which is what an unimplemented exit used to do.
@@ -1929,7 +1986,8 @@ itemMeshes.setTemplate('visor', study.refs.visorGroup);
 // activate it unarmed.
 const backrooms = createBackroomsLevel({
   showCaption,
-  onExit: (route) => transitionTo(route?.to ?? 'hallwayBasement')
+  onExit: (route) => transitionTo(route?.to ?? 'hallwayBasement'),
+  onDoorOpening: (position) => audioDirector.door(position)
 });
 sceneManager.register('backrooms', backrooms);
 
@@ -1974,6 +2032,28 @@ const backroomsHunter = createBackroomsHunter({
 
 /** Which level this crossing started from, or null when not crossing. */
 let backroomsFrom = null;
+
+/**
+ * Who plays what, when -- the doors, the candles, the static, the bed, the
+ * laughter and every sound the monster makes. See systems/AudioDirector.js;
+ * main.js only tells it the things only main.js knows.
+ */
+const audioDirector = createAudioDirector({
+  audio,
+  THREE,
+  // The player's own head -- never the third-person camera. The free camera
+  // takes the ears with it, which is what a clip recorded from it wants.
+  getListener: () => (freeCamera.isActive ? freeCamera.camera : camera),
+  player,
+  captions,
+  getLevel: () => ({ key: sceneManager.activeKey, level: sceneManager.active }),
+  isBusy: () => transitionInFlight || caughtInFlight || cutscene.isRunning,
+  hunter: backroomsHunter,
+  // The SECOND crossing is the one it hunts on, start delay and respawns included.
+  isHuntingCrossing: () => sceneManager.activeKey === 'backrooms' && backroomsFrom === 'hallwayBasement',
+  candleAnchors: bedroom.refs.candleAnchors,
+  basementRefs: hallwayBasement.refs
+});
 
 /**
  * Something trailing behind you in the corridor between levels.
@@ -2061,6 +2141,8 @@ let backroomsShadowVisible = false;
 let backroomsWalked = 0;
 /** backroomsWalked at the moment it last hid, for BACKROOMS_SHADOW_COOLDOWN. */
 let backroomsShadowHidAt = -Infinity;
+/** The shadow's stalking aura while it is up, from the audio director. */
+let backroomsShadowStalk = null;
 
 /** Sum of consecutive segment lengths -- how much corridor is actually recorded. */
 function pathLength(path) {
@@ -2097,6 +2179,8 @@ function resetBackroomsShadow() {
   // which is what GRACE is for. At 0 the two would add up and the opening wait
   // would silently be GRACE + COOLDOWN.
   backroomsShadowHidAt = -Infinity;
+  audioDirector.endStalk(backroomsShadowStalk, 0.3);
+  backroomsShadowStalk = null;
   if (backroomsShadowVisible) {
     okabe.visible = false;
     // Back to the default layer mask, or the AI chase / scripted placements
@@ -2155,6 +2239,8 @@ function updateBackroomsShadow(dt) {
       // Stamped on the way OUT, so the cooldown measures the gap between
       // sightings rather than the time since some arbitrary frame.
       backroomsShadowHidAt = backroomsWalked;
+      audioDirector.endStalk(backroomsShadowStalk);
+      backroomsShadowStalk = null;
     }
     return;
   }
@@ -2171,6 +2257,13 @@ function updateBackroomsShadow(dt) {
     // this is a glimpse, not something to confirm by checking the radar.
     okabe.setLayer(MAIN_ONLY);
     backroomsShadowVisible = true;
+    // It IS stalking you, on the first crossing -- so its aura comes with it,
+    // from its body, a fresh stretch of breath each time it surfaces. Never on
+    // the crossing the hunter hunts, where it can surface in the hunter's
+    // start delay or a respawn gap: the director refuses that too.
+    if (backroomsHunter.state === 'stopped' && backroomsFrom !== 'hallwayBasement') {
+      backroomsShadowStalk = audioDirector.startStalk({ follow: () => okabe.position, linger: null });
+    }
   }
   okabe.setPosition(found.x, found.z);
   // Faces the player, the same convention every other placement in this file
@@ -2253,21 +2346,20 @@ const bedroomStorm = new Storm({
       windowFlashArmed = false;
       windowFlashUsed = true;
       const wz = bedroom.refs.windowGroup.position.z;
-      creature.reset();
+      // For exactly the flash, not CREATURE_LINGER_SECONDS: this one is only
+      // ever there while the lightning is. Its aura gets the flash plus the
+      // usual second of tail.
+      const shownFor = bedroomStorm?.flashDuration || 0.2;
+      showCreatureAt({
+        x: -2.1,
+        z: wz - 0.9,
+        yaw: Math.PI, // faces back through the window, into the room
+        linger: shownFor,
+        onGone: hideWindowReveal
+      });
       creature.setCorrection(0);
-      creature.setPosition(-2.1, wz - 0.9);
-      creature.setYaw(Math.PI); // faces back through the window, into the room
-      creature.setSpeed(0);
-      creatureStanding = true;
-      creature.visible = true;
 
       windowRevealLight.intensity = WINDOW_REVEAL_INTENSITY;
-
-      const shownFor = bedroomStorm?.flashDuration || 0.2;
-      script.run(async (s) => {
-        if (!await s.wait(shownFor)) return;
-        s.do(hideWindowReveal);
-      });
     }
   },
   onBlow: () => {
@@ -2279,8 +2371,7 @@ const bedroomStorm = new Storm({
 
 /** Hides the window-flash figure and tears down its dedicated light -- see the note above. */
 function hideWindowReveal() {
-  creature.visible = false;
-  creatureStanding = false;
+  hideCreature();
   windowRevealLight.intensity = 0;
 }
 {
@@ -2336,31 +2427,30 @@ const TRANSITIONS = {
  */
 const ON_ENTER = {
   /**
-   * The hallway sighting. One strike, and it is standing at the far end.
+   * The hallway sighting. The storm catches, and it is standing at the far end.
    *
    * A running storm would make this a coin toss -- the flash has to land while
    * the player is looking down the corridor, and a random one usually will not.
-   * Firing the strike from the same script that places the creature is what
+   * Firing the lightning from the same script that places the creature is what
    * guarantees the player is shown the thing the level is about.
+   *
+   * It stays CREATURE_LINGER_SECONDS now, not 0.45 -- and since one strike is
+   * dark again in half a second, the lightning stutters for exactly as long as
+   * it stands there and goes out with it. The captions start on the strike
+   * instead of after it has gone, timed (dialogue/level2_basement.js) so the
+   * second line arrives as it vanishes.
    */
   hallwayBasement: () => {
     script.run(async (s) => {
       if (!await s.wait(1.6)) return;
       s.do(() => {
-        creature.reset();
-        creature.setPosition(0, 5.0);
-        // AT the player, worked out rather than written down. This was a
-        // hardcoded PI, which looks down +Z -- straight away from a player who
-        // stands at smaller z -- so the one-flash sighting showed its back.
-        creature.setYaw(Math.atan2(-(camera.position.x - 0), -(camera.position.z - 5.0)));
-        creature.setSpeed(0);
-        creature.visible = true;
-        hallwayBasement.refs.strike(0.55);
+        hallwayBasement.refs.stutter(CREATURE_LINGER_SECONDS);
+        // AT the player, worked out rather than written down -- showCreatureAt
+        // faces it at the camera. A hardcoded PI looked down +Z, straight away
+        // from a player who stands at smaller z, and showed its back.
+        showCreatureAt({ x: 0, z: 5.0 });
         audio.thunder();
       });
-      // Gone before the light is. It was only ever there for the flash.
-      if (!await s.wait(0.45)) return;
-      s.do(() => { creature.visible = false; });
       await s.play(line('dialog_hallway_sighting'));
     });
   },
@@ -2394,6 +2484,9 @@ const ON_ENTER = {
 function onHunterCaught() {
   if (caughtInFlight || transitionInFlight) return;
   caughtInFlight = true;
+  // First, so the sting lands on the catch and not on the caption after it --
+  // and inside the guard above, so it is exactly once per catch.
+  audioDirector.caught();
   script.run(async (s) => {
     try {
       s.do(() => {
@@ -2441,6 +2534,15 @@ function activateLevel(key, { lockMovement = false } = {}) {
   returnDroppedItems(key);
   setGlare(0); // the basement's overload wash must not follow the player into another level
   audio.setTrolleyRattle(0); // nor a trolley still rolling as they left
+  // Level 2 walks on metal; everywhere else on the default recording.
+  audio.setFootstepSurface(key);
+  // Stops the room being left's candles, static, laughter and monster cues --
+  // but not a door or the sting, which are meant to play across the fade.
+  audioDirector.onLevelActivated(key);
+  // An appearance in progress does not follow the player out. creatureAI.reset()
+  // below hides the body; the director has already cut its aura.
+  creatureLinger = null;
+  creatureStalkToken = null;
   const isBedroomRestraintActive = key === 'bedroom' && !level.refs.puzzleState.chainsEscaped;
   player.setLookBounds(isBedroomRestraintActive ? BEDROOM_RESTRAINED_LOOK_BOUNDS : null);
   interaction.setTargets(level.interactables);
@@ -2652,6 +2754,10 @@ function resetGame() {
   // is already running, so it can never stack a second copy.
   audio.setBreathing(BREATH_BASE_LEVEL);
   audio.startBreathing();
+  // Every director cue goes, the door and the sting included -- except the
+  // ambient bed, which is playing in the bedroom this lands in anyway, and is
+  // left unbroken for the same reason the breathing is.
+  audioDirector.reset();
   activateLevel('bedroom', { lockMovement: true });
 }
 
@@ -2874,16 +2980,33 @@ const CREDITS = [
     + 'left arm removed, wrist re-aligned, re-rigged for this project.',
   'All other models (bed, door, dresser, flashlight, creature) are generated '
     + 'from the Python scripts in blender/ -- see blender/build_*.py.',
-  'Wind, thunder and creaks are synthesised with the Web Audio API at runtime -- no audio files used for those.',
-  'Three audio files ship with the project, all in src/assets/audio: breathing.m4a, '
-    + 'walking_audio.mp3 and running_audio.mp3.',
-  // TODO: replace these lines with the real source, author and licence of each
-  // recording -- or delete a line if that one was recorded by the team.
-  // THIS IS NOT A FORMALITY. hands.glb above is CC-BY and the attribution
-  // beside it is what keeps using it legal; the same applies to anything here
-  // that came from a library. The game deploys publicly to GitHub Pages.
-  'Breathing loop -- [SOURCE / AUTHOR / LICENCE TO BE FILLED IN].',
-  'Footstep recordings (walking, running) -- [SOURCE / AUTHOR / LICENCE TO BE FILLED IN].',
+  'Wind, thunder, creaks and the footsteps heard past doors are synthesised with the Web Audio API at runtime.',
+  // One line per recording, saying where it came from and what licence the
+  // upload states -- src/assets/audio/SOURCES.md has the full table (URL, the
+  // cut used, the processing). THIS IS NOT A FORMALITY: hands.glb above is CC-BY
+  // and the attribution beside it is what keeps using it legal, and the game
+  // deploys publicly to GitHub Pages. "Licence not stated" means exactly that.
+  'Recordings, all in src/assets/audio (sources: SOURCES.md in that folder):',
+  'Breathing -- "Sound Effect - Man Freezing Breathing" by FUNBOON (YouTube). Licence not stated.',
+  'Distant laughter -- "Evil Laughing Woman Sound - Woman Laugh Sound Effect | Ver. 1" by Distorted Room '
+    + '(YouTube). The author asks for approval before use.',
+  'Monster breathing -- "Scary Sound Effect #3" by Best Sound Effects (YouTube): "Cthulhu growl" by '
+    + 'cyclon8472, freesound.org, Creative Commons 4.0 according to the upload.',
+  'CRT static -- "TV STATIC (4K 60FPS)" by The Fowl Owl (YouTube), CC BY.',
+  'Rain ambience -- "Night Rainstorm Over Quiet Town" by Cowboys in Rain (YouTube). Licence not stated.',
+  'Caught sting -- "BioShock 2 | Harvesting a Little Sister" uploaded by Bond Factory (YouTube); '
+    + 'game audio from BioShock 2 (2K Games).',
+  'Level 2 footsteps -- "Gmod/TF2 SFX - Metal Footsteps Sound Effect" by Autisticblood5 (YouTube); '
+    + 'game audio from Team Fortress 2 / Garry\'s Mod (Valve).',
+  'Candle -- "Candle flicker // free sound effects" by Macc III Audio & Digital Production (YouTube). '
+    + 'Licence not stated.',
+  'Lockbox -- "Chest Opening SOUND Effect" by SOUND Effects Public Domain (YouTube), released as public domain.',
+  'Door -- "Creepy Wooden Door Creaking Sound Effect" by Sound Around (YouTube), from freesound_community '
+    + 'via Pixabay; royalty-free per the upload.',
+  'Stalking breath -- "Scary Breathing And Heartbeat Sound Effects" by Scary Sound Effects (YouTube). '
+    + 'Licence not stated.',
+  'Hunter footsteps -- "CREEPY FOOTSTEPS (& RUNNING), HORROR SOUND EFFECT" by DARKLIT STUDIO (YouTube), CC BY.',
+  'Player footsteps (walking, running) and the trolley (rolling, crash) -- [SOURCE / AUTHOR / LICENCE TO BE FILLED IN].',
   'Game concept, story, world and code: the project team, for COMS3006A/COMS3025A.'
 ];
 /**
@@ -3189,6 +3312,10 @@ if (import.meta.env.DEV) {
     captions,
     documentUI,
     audio,
+    // audition(name), debug(), state, forceActive -- see docs/AUDIO.md.
+    audioDirector,
+    showCreatureAt,
+    hideCreature,
     gameState,
     get level() { return sceneManager.activeKey; }
   };
@@ -3563,6 +3690,15 @@ function tick() {
   // it is placed by a script -- but it still has to breathe, or a figure
   // standing in a corner reads as a statue rather than as something watching.
   if (creatureStanding) creature.update(dt);
+  // A scripted appearance's linger, on the frame clock -- see showCreatureAt().
+  if (creatureLinger) {
+    creatureLinger.remaining -= dt;
+    if (creatureLinger.remaining <= 0) {
+      const onGone = creatureLinger.onGone;
+      hideCreature();
+      onGone?.();
+    }
+  }
   creatureAI.update(dt);
   if (sceneManager.activeKey === 'backrooms') {
     // Never both: one rig, and the hunter owns it outright while it is running.
@@ -3667,6 +3803,10 @@ function tick() {
   // camera has actually left the head instead of on the frame the key is hit.
   if (freeCamera.isActive) postFX.setCamera(freeCamera.camera);
   else postFX.setCamera(thirdAmount > 0.001 ? thirdCam : camera);
+
+  // After everything that moves the player, the hunter and the creature, so
+  // the ears and every emitter are where this frame drew them.
+  audioDirector.update(dt);
 
   postFX.update(dt);
   // After everything that sets a light's intensity this frame, so a light that

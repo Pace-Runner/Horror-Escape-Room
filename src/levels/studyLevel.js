@@ -53,6 +53,9 @@ const ROOM_H = 3.0;
 export function createStudyLevel({
   showCaption = () => {},
   onExit = () => {},
+  // The front door starting to swing, with its world position. Not the later
+  // press that walks through it.
+  onDoorOpening = () => {},
   onExaminePinpad = () => {},
   onTakeVisor = () => {},
   onTakeGateKey = () => {},
@@ -746,6 +749,7 @@ export function createStudyLevel({
         doorState.open = true;
         // The doorway becomes walkable at the same moment it becomes open.
         setDoorSolid(false);
+        onDoorOpening(frontDoorSlabHit.getWorldPosition(new THREE.Vector3()));
         showCaption(line('dialog_front_door_opens'));
         return;
       }

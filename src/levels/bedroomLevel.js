@@ -12,6 +12,7 @@ import { addBaseboard } from '../world/trim.js';
 import { createRainGlassMaterial } from '../world/RainGlassMaterial.js';
 import { loadModel, applyTextureByMaterialName } from '../world/modelLoader.js';
 import { line } from '../dialogue/index.js';
+import { cueInfo } from '../world/audio/assets.js';
 import bedModelUrl from '../assets/models/bed.glb?url';
 import bedsideTableModelUrl from '../assets/models/bedside_table.glb?url';
 import bedsidePuzzleTableModelUrl from '../assets/models/bedside_puzzle_table.glb?url';
@@ -62,8 +63,37 @@ const PUZZLE_PHOTO_URLS = {
 // Preserve photo centers/heights and hitboxes; only correct the printed aspect.
 const PUZZLE_PHOTO_ASPECT_RATIO = 1122 / 1402;
 const PUZZLE_PHOTO_HEIGHT_METRES = 0.17;
-const LOCKBOX_OPEN_DURATION_SECONDS = 0.7;
+/**
+ * The lid takes exactly as long as its recording (sfx/lockbox_open -- see
+ * src/assets/audio/SOURCES.md), read from the MEASURED manifest and not from a
+ * decode, so a missing audio file can never change how long the box takes. The
+ * fallbacks are those same measured values, for a build without the manifest.
+ */
+const LOCKBOX_SOUND = cueInfo('lockbox_open');
+const LOCKBOX_OPEN_DURATION_SECONDS = LOCKBOX_SOUND?.duration ?? 4.74;
+/** Where in it the latch lets go (the last of its clicks) and the lid lands (the final knock). */
+const LOCKBOX_LATCH_SECONDS = LOCKBOX_SOUND?.events?.latchEnd ?? 1.05;
+const LOCKBOX_SETTLE_SECONDS = LOCKBOX_SOUND?.events?.settle ?? 4.28;
+/** How far the lid lifts while the latch is still working: cracked, not open. */
+const LOCKBOX_LATCH_LIFT = 0.04;
+/** The crowbar comes out once the lid is this far open -- not out of a closed box. */
+const LOCKBOX_REACH_AT = 0.7;
 const LOCKBOX_OPEN_ANGLE_RADIANS = -THREE.MathUtils.degToRad(85);
+
+/**
+ * Lid travel, 0..1, `t` seconds into the open, timed to the recording's own
+ * shape: the latch's clicks (to 1.05 s) only crack it, the long creak (1.05 to
+ * 4.28 s) is the lid swinging, eased in and out, and the knock at 4.28 is it
+ * landing on its stop. The old 1 - (1 - p)^3 was front-loaded -- stretched over
+ * nearly five seconds the lid would leap most of the way open and then creep.
+ */
+function lockboxLidTravel(t) {
+  if (t <= 0) return 0;
+  if (t < LOCKBOX_LATCH_SECONDS) return LOCKBOX_LATCH_LIFT * (t / LOCKBOX_LATCH_SECONDS);
+  if (t >= LOCKBOX_SETTLE_SECONDS) return 1;
+  const p = (t - LOCKBOX_LATCH_SECONDS) / (LOCKBOX_SETTLE_SECONDS - LOCKBOX_LATCH_SECONDS);
+  return LOCKBOX_LATCH_LIFT + (1 - LOCKBOX_LATCH_LIFT) * p * p * (3 - 2 * p);
+}
 
 // The GLB's authored detail faces local +Z, while the bedroom camera approaches
 // the doorway from local -Z. Mirroring only depth presents the detailed face to
@@ -268,6 +298,11 @@ export function createBedroomLevel({
   onFloorboardOpened = () => {},
   onDoorPlankRemoved = () => {},
   onDoorOpened = () => {},
+  // The instant the door starts to swing, with its world position -- for the
+  // creak. onDoorOpened is 600 ms later, when the swing hands over to the fade.
+  onDoorOpening = () => {},
+  // The instant the lockbox lid starts to move, with the box's world position.
+  onLockboxOpening = () => {},
   onExaminePhotos = () => {},
   onExaminePinpad = () => {},
   // The scratched floor message is a STORY beat, not just a caption: reading it
@@ -867,6 +902,11 @@ export function createBedroomLevel({
   bedGroup.position.set(BED_POSITION_X, 0, BED_POSITION_Z);
   group.add(bedGroup);
 
+  // The two candle flames, for their crackle: main.js's audio director reads a
+  // world position off each. Both are built in model-load callbacks, so each
+  // adds itself when it exists, and the sound starts when its candle does.
+  const candleAnchors = [];
+
   // Shared dark timber placeholder for the room's script-built furniture.
   // The imported bed carries its own refined, embedded materials.
   const frameMatWood = new THREE.MeshStandardMaterial({ color: 0x3c2c1e, roughness: 0.85 });
@@ -959,6 +999,7 @@ export function createBedroomLevel({
     shelfFlame = new THREE.Group();
     shelfFlame.position.y = 0.136;
     shelfCandle.add(shelfFlame);
+    candleAnchors.push(shelfFlame);
     shelfFlameMaterial = new THREE.MeshBasicMaterial({
       color: 0xffa347, transparent: true, opacity: 0.86,
       depthWrite: false, side: THREE.DoubleSide
@@ -1222,6 +1263,7 @@ export function createBedroomLevel({
         flameSide.rotation.y = Math.PI / 2;
         flame.add(flameFront, flameSide);
         model.add(flame);
+        candleAnchors.push(flame);
         const candleGlow = new THREE.PointLight(0xffa65a, 0.18, 0.9, 2);
         candleGlow.position.y = 0.43;
         model.add(candleGlow);
@@ -2748,6 +2790,7 @@ export function createBedroomLevel({
         puzzleState.doorUnlocked = true;
         puzzleState.hasBedroomKey = false;
         onBedroomKeyUsed();
+        onDoorOpening(doorSlab.getWorldPosition(new THREE.Vector3()));
         showCaption(line('dialog_door_opens'));
         // Enough of the hinge swing to read as a door opening, and no more.
         // This used to be 1400ms and cut straight to Level 2; now a 700ms fade
@@ -3095,6 +3138,8 @@ export function createBedroomLevel({
   // callbacks below remain authoritative. No reward pickup mesh is exposed.
   let boxOpened = false;
   let boxOpenElapsedSeconds = 0;
+  /** Whether the crowbar has gone into the hand yet -- see updateLockedBoxPresentation(). */
+  let crowbarHandedOver = false;
   let importedBoxHinge = null;
   const boxVisual = new THREE.Group();
   boxVisual.name = 'Level1_LockboxVisual';
@@ -3133,10 +3178,20 @@ export function createBedroomLevel({
   function updateLockedBoxPresentation(dt) {
     boxVisual.visible = puzzleState.photosArranged;
     if (boxOpened) boxOpenElapsedSeconds = Math.min(LOCKBOX_OPEN_DURATION_SECONDS, boxOpenElapsedSeconds + dt);
-    const progress = boxOpened ? boxOpenElapsedSeconds / LOCKBOX_OPEN_DURATION_SECONDS : 0;
-    const angle = LOCKBOX_OPEN_ANGLE_RADIANS * (1 - (1 - progress) ** 3);
+    const travel = boxOpened ? lockboxLidTravel(boxOpenElapsedSeconds) : 0;
+    const angle = LOCKBOX_OPEN_ANGLE_RADIANS * travel;
     fallbackBoxHinge.rotation.x = angle;
     if (importedBoxHinge) importedBoxHinge.rotation.x = angle;
+    // The glove reaches in once there is an opening to reach into. Fired from
+    // here, on the frame clock, rather than from the open itself: with a lid
+    // that takes most of five seconds the grab used to go into a closed box.
+    // The puzzle flags were already set when the box opened, so spamming E or
+    // restarting mid-lid is still safe -- reset() clears boxOpened, and with it
+    // any grant that had not happened yet.
+    if (boxOpened && !crowbarHandedOver && travel >= LOCKBOX_REACH_AT) {
+      crowbarHandedOver = true;
+      onCrowbarFound();
+    }
   }
 
   loadModel(antiqueLockboxModelUrl).then((chestModel) => {
@@ -3173,8 +3228,9 @@ export function createBedroomLevel({
         boxOpenElapsedSeconds = 0;
         puzzleState.hasBrassKey = false;
         onBrassKeyUsed();
+        // The crowbar is the box's from this moment; the HAND gets it at 70% lid.
         puzzleState.hasCrowbar = true;
-        onCrowbarFound();
+        onLockboxOpening(lockedBoxGroup.getWorldPosition(new THREE.Vector3()));
         onReadSafeTag();
         onSafeOpened();
       } else if (puzzleState.photosArranged) {
@@ -3233,6 +3289,10 @@ export function createBedroomLevel({
       bedroomKey,
       chain,
       doorSlab,
+      // For the audio director: where the candles burn, and how long the
+      // lockbox takes to open (main.js waits that long before the door rattles).
+      candleAnchors,
+      lockboxOpenSeconds: LOCKBOX_OPEN_DURATION_SECONDS,
       /**
        * Runs the "something moves past the door" beat once. Returns how long it
        * takes, so a script can wait exactly that long instead of guessing.
@@ -3329,6 +3389,7 @@ export function createBedroomLevel({
       boxHitbox.visible = true;
       boxOpened = false;
       boxOpenElapsedSeconds = 0;
+      crowbarHandedOver = false;
       updateLockedBoxPresentation(0);
       boxVisual.visible = false;
 

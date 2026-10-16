@@ -134,7 +134,12 @@ if (import.meta.env.DEV) {
 
 const WALL_RUNS = buildWallRuns();
 
-export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {} } = {}) {
+export function createBackroomsLevel({
+  showCaption = () => {},
+  onExit = () => {},
+  // The exit door starting to swing, with its world position.
+  onDoorOpening = () => {}
+} = {}) {
   const group = new THREE.Group();
   group.name = 'Level0_Backrooms';
   const interactables = [];
@@ -1281,6 +1286,7 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
         return;
       }
       opened = true;
+      onDoorOpening(doorSlab.getWorldPosition(new THREE.Vector3()));
       showCaption(line('dialog_exit_door_opens'));
       // The route is captured NOW, not read when the timer fires. Restarting
       // inside this delay calls setRoute(null), and a timer that read the live
