@@ -9,6 +9,7 @@
     "build": "vite build",
     "check:maze": "node scripts/check-maze.mjs",
     "check:okabe": "node scripts/check-okabe.mjs",
+    "check:audio": "node scripts/check-audio.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
