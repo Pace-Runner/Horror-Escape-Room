@@ -31,6 +31,10 @@ export function createDocumentUI({ onClose = () => {} } = {}) {
   const bodyEl = document.getElementById('document-body');
   const hintEl = document.getElementById('document-hint');
   const closeButton = document.getElementById('document-close');
+  const imageEl = document.getElementById('document-image');
+  // A picture changes the panel's height once it arrives, so the read check
+  // runs again then.
+  imageEl.addEventListener('load', () => requestAnimationFrame(checkRead));
 
   let open = false;
   let reachedEnd = false;
@@ -78,11 +82,19 @@ export function createDocumentUI({ onClose = () => {} } = {}) {
    * @param title    heading, or '' for an untitled scrap
    * @param body     one string, or an array of paragraphs
    * @param variant  'letter' (handwritten) | 'file' (typed carbon copy) |
-   *                 'note' (a scrap). Paper only -- no behaviour hangs off it.
+   *                 'note' (a scrap) | 'exhibit' (a picture or framed piece,
+   *                 shown large on a dark panel). Look only -- no behaviour
+   *                 hangs off it.
+   * @param image    optional picture URL, shown above the title
    * @param onRead   called once, when the bottom of the document is reached
    */
-  function open_({ title = '', body = '', variant = 'note', onRead } = {}) {
+  function open_({ title = '', body = '', variant = 'note', image = null, onRead } = {}) {
     const paragraphs = Array.isArray(body) ? body : String(body).split(/\n{2,}/);
+
+    imageEl.hidden = !image;
+    if (image) imageEl.src = image;
+    else imageEl.removeAttribute('src');
+    imageEl.alt = title;
 
     titleEl.textContent = title;
     titleEl.classList.toggle('visible', Boolean(title));

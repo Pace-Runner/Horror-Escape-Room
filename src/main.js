@@ -17,6 +17,7 @@ import { createBedroomLevel } from './levels/bedroomLevel.js';
 import { createHallwayBasementLevel } from './levels/hallwayBasementLevel.js';
 import { createStudyLevel } from './levels/studyLevel.js';
 import { createBackroomsLevel } from './levels/backroomsLevel.js';
+import { createUpstairsHallwayLevel } from './levels/upstairsHallwayLevel.js';
 import { createScreenFade, wait } from './core/ScreenFade.js';
 import { gameState, resetState, addItem, removeItem, ITEMS } from './core/GameState.js';
 import { createHeldItems } from './core/HeldItems.js';
@@ -1611,6 +1612,23 @@ const bedroom = createBedroomLevel({
 });
 sceneManager.register('bedroom', bedroom);
 
+// ---------- the upstairs hallway (between Level 1 and Level 2) ----------
+// The bedroom door opens onto it, and its stairs lead down to the basement --
+// see TRANSITIONS. Its framed pieces open full size in the document reader, so
+// they read whether captions are on or off.
+const upstairsHallway = createUpstairsHallwayLevel({
+  showCaption,
+  onInspect: async ({ title, body, art }) => {
+    const image = art ? await art.toImageUrl() : null;
+    player.unlock();
+    documentUI.open({ title, body, image, variant: 'exhibit' });
+  },
+  onExit: () => exitLevel('upstairsHallway'),
+  // The flash, then the thunder a moment later -- it is a few miles off.
+  onLightning: () => setTimeout(() => audio.thunder(), 350 + Math.random() * 900)
+});
+sceneManager.register('upstairsHallway', upstairsHallway);
+
 // ---------- level 1 hints ----------
 // H gives a hint for whichever bedroom puzzle the player is on, vaguer first
 // and more direct on each press; see core/HintSystem.js and
@@ -1676,9 +1694,22 @@ const basementHints = createRoomHints({
   allSolvedLine: 'dialog_hint_basement_all_solved'
 });
 
+// The hallway has no puzzle, only a way on, so its one "stage" never completes:
+// H always points at the stairs.
+const hallwayHints = createRoomHints({
+  stages: [{
+    id: 'stairs',
+    isComplete: () => false,
+    readHints: () => [line('dialog_hint_hallway_1'), line('dialog_hint_hallway_all_solved')]
+  }],
+  readProgress: () => ({}),
+  allSolvedLine: 'dialog_hint_hallway_all_solved'
+});
+
 /** Which rooms H gives hints in, keyed by level. Every other room says so plainly. */
 const HINTS_BY_LEVEL = {
   bedroom: bedroomHints,
+  upstairsHallway: hallwayHints,
   hallwayBasement: basementHints
 };
 
@@ -2404,6 +2435,7 @@ bedroom.group.add(rain.points);
 
 const LEVEL_OBJECTIVES = {
   bedroom: 'You wake up chained to the bed frame. Find a way free.',
+  upstairsHallway: 'Find a way downstairs.',
   hallwayBasement: 'Restore power in the basement, then get through the locked door.',
   study: 'Preview: the study and front door (Level 3 blockout).',
   backrooms: 'Find the way through.'
@@ -2411,6 +2443,9 @@ const LEVEL_OBJECTIVES = {
 
 const LEVEL_FOG = {
   bedroom: new THREE.FogExp2(0x05070a, 0.065),
+  // Thinner than the bedroom's, so the far end of the hall and the top of the
+  // stairs are a shape in the dark from the bedroom door rather than nothing.
+  upstairsHallway: new THREE.FogExp2(0x05070a, 0.05),
   hallwayBasement: new THREE.FogExp2(0x0a0c0a, 0.03),
   study: new THREE.FogExp2(0x0c0a06, 0.02),
   // A murky olive-brown rather than near-black: distant geometry fades into a
@@ -2428,7 +2463,10 @@ const LEVEL_FOG = {
 //   via: which registered level to pass through, or null for a direct cut
 //   to:  the level on the far side of the interstitial's exit door
 const TRANSITIONS = {
-  bedroom: { to: 'hallwayBasement', via: 'backrooms' },
+  // Straight out onto the upstairs hallway, and down its stairs to the
+  // basement. The backrooms are only the crossing from Level 2 to Level 3.
+  bedroom: { to: 'upstairsHallway', via: null },
+  upstairsHallway: { to: 'hallwayBasement', via: null },
   hallwayBasement: { to: 'study', via: 'backrooms' },
   study: { to: null, via: null }
 };
@@ -2438,6 +2476,15 @@ const TRANSITIONS = {
  * Keyed by level so activateLevel does not grow a switch statement.
  */
 const ON_ENTER = {
+  /** Out of the bedroom at last: the door shuts behind, and something moves below. */
+  upstairsHallway: () => {
+    script.run(async (s) => {
+      if (!await s.wait(0.6)) return;
+      s.do(() => audio.creak());
+      await s.play(line('dialog_hallway_enter'));
+    });
+  },
+
   /**
    * The hallway sighting. One strike, and it is standing at the far end.
    *
@@ -3104,6 +3151,7 @@ const CREDITS = [
   'Vite -- build tool used to produce the deployment bundle (MIT licence)',
   'Newspaper typefaces -- UnifrakturMaguntia (J. "Mach" Wust), Playfair Display (Claus Eggers Sørensen) '
     + 'and Old Standard TT (Alexey Kryukov), all SIL Open Font License 1.1, bundled via Fontsource (fontsource.org).',
+  'Handwriting typeface -- Caveat (Impallari Type), SIL Open Font License 1.1, bundled via Fontsource.',
   'All textures are generated procedurally on <canvas> at runtime -- no image assets used.',
   // CC-BY REQUIRES ATTRIBUTION AND THIS IS IT. hands.glb is the one piece of
   // third-party geometry in the project; everything else under
@@ -3384,6 +3432,8 @@ if (import.meta.env.DEV) {
     resetGame,
     // So a harness can run the clock out without waiting the whole limit.
     runTimer,
+    // So a harness can light a room the way a player carrying the torch sees it.
+    setFlashlight,
     hands,
     THREE,
     sceneManager,
@@ -3502,6 +3552,7 @@ if (import.meta.env.DEV) {
 /** Flavour, keyed by level, so the longest steps say what they are waiting on. */
 const LOAD_HINTS = {
   bedroom: 'entering the house...',
+  upstairsHallway: 'hanging the pictures...',
   hallwayBasement: 'feeling along the wall...',
   study: 'finding the study...',
   backrooms: 'the walls do not end...'

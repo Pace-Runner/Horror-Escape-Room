@@ -1321,6 +1321,48 @@ html, body {
   border: 1px solid #a09d92;
 }
 
+/* A picture or a framed piece held up to the light: the image large, on a dark
+   panel, with a line or two about it underneath. The panel widens to fit. */
+.document-exhibit {
+  width: min(920px, 92vw) !important;
+  max-height: 90vh !important;
+  padding: 22px 26px 22px !important;
+  background: linear-gradient(170deg, #17120d 0%, #0d0a07 100%);
+  color: #d9ccb0;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  border: 1px solid rgba(187, 145, 72, 0.4);
+  text-align: center;
+}
+
+.document-exhibit #document-title {
+  margin: 14px 0 8px;
+  color: #e8d9b4;
+}
+
+#document-image {
+  display: block;
+  max-width: 100%;
+  /* Small enough that picture, words and button fit without scrolling. */
+  max-height: 56vh;
+  margin: 0 auto;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+}
+
+.document-exhibit #document-close {
+  margin-top: 18px;
+}
+
+/* A picture fits on screen, so "there is more below" only ever overlaps it. */
+.document-exhibit ~ #document-hint {
+  display: none;
+}
+
+#document-image[hidden] {
+  display: none;
+}
+
 /* A torn scrap. Smaller, so it reads as something written in a hurry. */
 .document-note {
   background: linear-gradient(170deg, #e2dac4 0%, #d3c9ac 100%);

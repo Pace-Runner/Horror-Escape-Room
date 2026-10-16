@@ -20,8 +20,10 @@ endings. It delivers:
 - A dressed, puzzle-complete **Level 3** (study): the three-lock front
   door sequence, the visor mechanic, and the branching ending
   (release or contain).
-- An unguided **backrooms maze** between levels -- see its own section
-  below.
+- An **upstairs hallway** between Levels 1 and 2, dressed with story
+  pieces -- see its own section below.
+- An unguided **backrooms maze** between Levels 2 and 3 -- see its own
+  section below.
 - First-person movement and look (WASD + mouse, pointer-locked), with
   sprint/stamina, crouch, and collision against walls and furniture.
 - A raycast "examine" interaction system wired to every prop called
@@ -159,13 +161,43 @@ whenever it arrives.
 The level's power puzzle -- fuse, blackout, generator, breaker panel --
 has its own reference: `docs/LEVEL2_POWER_CHAIN.md`.
 
+### The upstairs hallway (`src/levels/upstairsHallwayLevel.js`)
+
+Between the bedroom and the basement: the storyline's "dark hallway ... a
+staircase going down". The bedroom door opens straight onto it and its
+stairs lead down into Level 2 (`TRANSITIONS` in `main.js`). No puzzle and
+no timer -- it is a walk with things worth stopping for.
+
+- **Built from the bedroom's own materials** -- the damask paper, the
+  floorboards, the cracked plaster, the rug, `door.glb`, the pendant, the
+  bedside table and lamp, the window frame and radiator. Nothing new is
+  downloaded, and it is plainly the same house.
+- **Every story piece is drawn on canvas** in `src/world/hallwayArt.js`,
+  at 1000-2000 px, with the game's own typefaces: a 1979 clipping about
+  the boy who wanted to stop the body giving up, the conversion drawings
+  with three rooms ringed, a note on the hall table, two children's heights
+  up the wall, a smashed mirror, the back of a frame labelled "The four of
+  us". The words are in `src/story/hallway.js`. Each piece opens full size
+  in `DocumentUI`'s `exhibit` view, so it reads with captions off.
+- **The rule the words keep** is the newspapers' rule: the hallway may name
+  Mark and Annabelle, a brother and sister who grew up here, but must never
+  say who is in the bedroom. The letter says that.
+- **Frames hang on cords from a picture rail**, each an extruded moulding
+  with a mount and a sheet of glass that catches the torch. Hitboxes are
+  separate invisible boxes, because `Interaction` raycasts non-recursively.
+- **Level space is world space**, as in the backrooms: the hall runs from
+  the bedroom door at z = 0 along +Z, and the enclosed staircase drops
+  beyond it between the same two walls, so there is no balustrade to walk
+  round. The top step is a collider; the stairs are the exit interaction.
+
 ### The backrooms corridor (`src/levels/backroomsLevel.js`)
 
-Not a numbered level -- it is the one space every level-to-level
-crossing passes through, and the reason `main.js` now owns a
-`TRANSITIONS` table instead of each level hardcoding where its own door
-leads. A level's exit callback says only `exitLevel('bedroom')`; the
-table decides that this means "through the corridor, then to Level 2".
+Not a numbered level -- it is the crossing from Level 2 to Level 3, and the
+reason `main.js` owns a `TRANSITIONS` table instead of each level
+hardcoding where its own door leads. A level's exit callback says only
+`exitLevel('hallwayBasement')`; the table decides that this means "through
+the corridor, then to the study". (It used to sit between Levels 1 and 2 as
+well; the upstairs hallway replaced it there.)
 
 - **One instance, re-armed per crossing.** `setRoute()` sets the
   destination *and* re-arms the exit door's one-shot guard, so
