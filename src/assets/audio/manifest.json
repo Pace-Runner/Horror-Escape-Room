@@ -1,0 +1,235 @@
+{
+  "assets": {
+    "laugh_distant": {
+      "file": "amb/laugh_distant.m4a",
+      "track": 1,
+      "sourceStart": 1.9,
+      "phrases": [
+        [
+          0,
+          2.1
+        ],
+        [
+          7.95,
+          9.85
+        ],
+        [
+          15.9,
+          18.2
+        ],
+        [
+          20.75,
+          24.75
+        ],
+        [
+          25.75,
+          27.4
+        ],
+        [
+          27.8,
+          31.3
+        ],
+        [
+          32.1,
+          37.85
+        ],
+        [
+          37.85,
+          39.2
+        ],
+        [
+          39.75,
+          42.5
+        ],
+        [
+          43.15,
+          44.75
+        ],
+        [
+          45.5,
+          50.6
+        ]
+      ],
+      "duration": 50.731,
+      "peakDb": -3.04,
+      "lufs": -24.9,
+      "truePeakDb": -3
+    },
+    "hunter_breath": {
+      "file": "monster/hunter_breath.m4a",
+      "track": 2,
+      "sourceStart": 0,
+      "runtimeLoop": {
+        "start": 0,
+        "end": 8,
+        "xfade": 0.25
+      },
+      "duration": 8.299,
+      "peakDb": -3.01,
+      "lufs": -21,
+      "truePeakDb": -3
+    },
+    "crt_static": {
+      "file": "sfx/crt_static.m4a",
+      "track": 4,
+      "sourceStart": 0.4,
+      "sourceLoopStart": 0.5,
+      "loop": {
+        "start": 0.15,
+        "end": 9.15,
+        "seam": {
+          "jump": 0.001719,
+          "medianStep": 0.130567,
+          "naturalStep": 0.00125,
+          "ratio": 0.01
+        }
+      },
+      "duration": 9.301,
+      "peakDb": -3.15,
+      "lufs": -13.1,
+      "truePeakDb": -3.2
+    },
+    "rain_bed": {
+      "file": "amb/rain_bed.m4a",
+      "track": 5,
+      "sourceStart": 30.5,
+      "sourceLoopStart": 31,
+      "loop": {
+        "start": 0.15,
+        "end": 300.15,
+        "seam": {
+          "jump": 0.003614,
+          "medianStep": 0.001961,
+          "naturalStep": 0.00225,
+          "ratio": 1.84
+        }
+      },
+      "duration": 300.309,
+      "peakDb": -3,
+      "lufs": -22.1,
+      "truePeakDb": -3
+    },
+    "caught_sting": {
+      "file": "sfx/caught_sting.m4a",
+      "track": 6,
+      "sourceStart": 8.71,
+      "duration": 5.013,
+      "peakDb": -2.94,
+      "lufs": -19.7,
+      "truePeakDb": -2.9
+    },
+    "breathing": {
+      "file": "breathing.m4a",
+      "track": 7,
+      "sourceStart": 1,
+      "sourceLoopStart": 1.52,
+      "loop": {
+        "start": 0.15,
+        "end": 12.08,
+        "seam": {
+          "jump": 0.003317,
+          "medianStep": 0.003448,
+          "naturalStep": 0.005801,
+          "ratio": 0.96
+        }
+      },
+      "duration": 12.245,
+      "peakDb": -3.34,
+      "lufs": -23.2,
+      "truePeakDb": -3.3
+    },
+    "steps_metal": {
+      "file": "foley/steps_metal.m4a",
+      "track": 8,
+      "sourceStart": 0.014,
+      "duration": 3.776,
+      "peakDb": -2.6,
+      "lufs": -28.6,
+      "truePeakDb": -2.6
+    },
+    "candle": {
+      "file": "amb/candle.m4a",
+      "track": 9,
+      "sourceStart": 0.5,
+      "sourceLoopStart": 1.177,
+      "loop": {
+        "start": 0.15,
+        "end": 20.15,
+        "seam": {
+          "jump": 0.000029,
+          "medianStep": 0.002074,
+          "naturalStep": 0.002245,
+          "ratio": 0.01
+        }
+      },
+      "duration": 20.309,
+      "peakDb": -3.07,
+      "lufs": -33.8,
+      "truePeakDb": -2.8
+    },
+    "lockbox_open": {
+      "file": "sfx/lockbox_open.m4a",
+      "track": 10,
+      "sourceStart": 0.102,
+      "events": {
+        "onsets": [
+          0.17,
+          0.31,
+          0.44,
+          0.67,
+          0.81,
+          0.93,
+          1.05,
+          4.28
+        ],
+        "latchEnd": 1.05,
+        "settle": 4.28
+      },
+      "duration": 4.736,
+      "peakDb": -2.78,
+      "lufs": -30.4,
+      "truePeakDb": -2.7
+    },
+    "door_open": {
+      "file": "sfx/door_open.m4a",
+      "track": 11,
+      "sourceStart": 2.069,
+      "duration": 3.413,
+      "peakDb": -3.08,
+      "lufs": -18.9,
+      "truePeakDb": -3.1
+    },
+    "stalk_breath": {
+      "file": "monster/stalk_breath.m4a",
+      "track": 12,
+      "sourceStart": 4.8,
+      "runtimeWindows": {
+        "from": 0.2,
+        "to": 11.2,
+        "length": 4,
+        "xfade": 0.25
+      },
+      "duration": 15.701,
+      "peakDb": -2.89,
+      "lufs": -19.4,
+      "truePeakDb": -2.9
+    },
+    "hunter_steps": {
+      "file": "monster/hunter_steps.m4a",
+      "track": 13,
+      "sourceStart": 4.897,
+      "sections": {
+        "walkStart": 0.06,
+        "walkEnd": 24.75,
+        "runStart": 27.74,
+        "runEnd": 30.47
+      },
+      "duration": 30.485,
+      "peakDb": -2.98,
+      "lufs": -25.2,
+      "truePeakDb": -3
+    }
+  },
+  "sampleRate": 48000,
+  "generatedBy": "scripts/audio/build.mjs"
+}

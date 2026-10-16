@@ -1,0 +1,142 @@
+{
+  "_comment": "Input to scripts/audio/build.mjs. Every time is in seconds of the SOURCE as downloaded. See docs/AUDIO.md for why each number has its value; src/assets/audio/SOURCES.md records the result.",
+  "sampleRate": 48000,
+  "sources": [
+    {
+      "name": "laugh_distant",
+      "track": 1,
+      "url": "https://www.youtube.com/watch?v=gstQeQVW848",
+      "out": "amb/laugh_distant.m4a",
+      "trim": [1.9, 53.2],
+      "autotrim": -60,
+      "peakDb": -3,
+      "kbps": 96,
+      "phrases": { "silenceDb": -50, "minGap": 0.35, "minLength": 1.2, "maxLength": 6.5 },
+      "note": "Eleven separate laughs split by silence. Shipped whole; the director plays one phrase at a time."
+    },
+    {
+      "name": "hunter_breath",
+      "track": 2,
+      "url": "https://www.youtube.com/watch?v=CrjPD3Fg3Wk",
+      "out": "monster/hunter_breath.m4a",
+      "trim": [0, 8.3],
+      "peakDb": -3,
+      "kbps": 96,
+      "runtimeLoop": { "start": 0, "end": 8.0, "xfade": 0.25 },
+      "note": "The user's 0-8 s loop, plus 0.3 s past it for the runtime seam builder."
+    },
+    {
+      "name": "crt_static",
+      "track": 4,
+      "url": "https://www.youtube.com/watch?v=wf2Ojwq4gYU",
+      "out": "sfx/crt_static.m4a",
+      "trim": [0.4, 9.9],
+      "peakDb": -3,
+      "kbps": 96,
+      "loop": { "start": 0.5, "length": 9.0, "xfade": 0.25, "pad": 0.15 },
+      "note": "Stationary noise (RMS flat to 0.1 dB across the clip), so any 9 s loops."
+    },
+    {
+      "name": "rain_bed",
+      "track": 5,
+      "url": "https://www.youtube.com/watch?v=QH-3GwAVI5o",
+      "download": { "sections": "*0-1500" },
+      "out": "amb/rain_bed.m4a",
+      "trim": [30.5, 336.0],
+      "peakDb": -3,
+      "kbps": 80,
+      "loop": { "start": 31, "length": 300, "xfade": 4, "pad": 0.15 },
+      "note": "11-hour video; only the first 25 min are fetched. 31 s is the start of the 5:00 window with the steadiest 3 s loudness (std 1.99 dB) and no silence."
+    },
+    {
+      "name": "caught_sting",
+      "track": 6,
+      "url": "https://www.youtube.com/watch?v=CfOU2Erb1b0",
+      "out": "sfx/caught_sting.m4a",
+      "trim": [8.71, 13.71],
+      "peakDb": -3,
+      "kbps": 96,
+      "fadeIn": 0.005,
+      "fadeOut": 0.6,
+      "note": "Starts 10 ms before the jump into the loudest stretch (8.72 s); capped at 5 s."
+    },
+    {
+      "name": "breathing",
+      "track": 7,
+      "url": "https://www.youtube.com/watch?v=AnXnuZk7A18",
+      "out": "breathing.m4a",
+      "trim": [1.0, 14.2],
+      "peakDb": -3,
+      "kbps": 96,
+      "loop": { "start": 1.52, "length": 11.93, "xfade": 0.25, "pad": 0.15 },
+      "note": "Two of the quietest inter-breath minima (1.52 s, 13.45 s), ten 1.19 s cycles apart."
+    },
+    {
+      "name": "steps_metal",
+      "track": 8,
+      "url": "https://www.youtube.com/watch?v=FZuRjlZqrrg",
+      "out": "foley/steps_metal.m4a",
+      "trim": [0, 4.03],
+      "autotrim": -60,
+      "peakDb": -3,
+      "kbps": 96,
+      "note": "Six footfalls, each a heel-and-toe pair 0.13 s apart."
+    },
+    {
+      "name": "candle",
+      "track": 9,
+      "url": "https://www.youtube.com/watch?v=dxbQYNy_k20",
+      "out": "amb/candle.m4a",
+      "trim": [0.5, 22.0],
+      "peakDb": -3,
+      "kbps": 96,
+      "loop": { "start": 1.0, "length": 20.0, "xfade": 0.3, "pad": 0.15, "quietSearch": 0.4 },
+      "note": "Crackle with no structure longer than a second, so 20 s loops without a recognisable repeat."
+    },
+    {
+      "name": "lockbox_open",
+      "track": 10,
+      "url": "https://www.youtube.com/watch?v=mMBHFswOBik",
+      "out": "sfx/lockbox_open.m4a",
+      "trim": [0, 5.03],
+      "autotrim": -60,
+      "peakDb": -3,
+      "kbps": 96,
+      "events": { "clusterGap": 0.5 },
+      "note": "Latch clicks, a long creak, then the lid settling. The lid animation is timed off these events."
+    },
+    {
+      "name": "door_open",
+      "track": 11,
+      "url": "https://www.youtube.com/watch?v=IX3wIor-4OY",
+      "out": "sfx/door_open.m4a",
+      "trim": [0, 5.5],
+      "autotrim": -60,
+      "peakDb": -3,
+      "kbps": 96
+    },
+    {
+      "name": "stalk_breath",
+      "track": 12,
+      "url": "https://www.youtube.com/watch?v=a9QCiMuyVjQ",
+      "out": "monster/stalk_breath.m4a",
+      "trim": [4.8, 20.5],
+      "peakDb": -3,
+      "kbps": 96,
+      "runtimeWindows": { "from": 5.0, "to": 16.0, "length": 4.0, "xfade": 0.25 },
+      "note": "Each appearance takes a fresh 4 s window starting in [0:05, 0:16] of the source, so it ends by 0:20."
+    },
+    {
+      "name": "hunter_steps",
+      "track": 13,
+      "url": "https://www.youtube.com/watch?v=3SUAdgqPv3E",
+      "out": "monster/hunter_steps.m4a",
+      "trim": [4.5, 37.0],
+      "autotrim": -60,
+      "peakDb": -3,
+      "kbps": 96,
+      "sections": { "runDensity": 4 },
+      "note": "Slow walk, a pause, then a run. Excerpts keep that order."
+    }
+  ]
+}
