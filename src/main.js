@@ -28,6 +28,7 @@ import { createDocumentUI } from './core/DocumentUI.js';
 import { createPostFX } from './world/Postprocessing.js';
 import { createHintSystem } from './core/HintSystem.js';
 import { BEDROOM_HINT_STAGES } from './levels/bedroomHints.js';
+import { BASEMENT_HINT_STAGES } from './levels/basementHints.js';
 import { enableSinglePassForFlatDecals, createDarkShadowSkipper, findShadowCastingLights } from './world/renderOptimizations.js';
 import { createCutsceneRunner } from './core/Cutscene.js';
 import { createNewspaper } from './core/Newspaper.js';
@@ -1590,17 +1591,42 @@ function alwaysShown(lines) {
     : { ...entry, always: true }));
 }
 
-const bedroomHints = createHintSystem({
+/**
+ * The hint system for one room. Every room shares the same delivery: through
+ * interaction.showCaption, not the local showCaption(), because the hint system
+ * needs its answer, which is false while a story sequence holds the caption.
+ * Every hint, the "press H" offer and the all-solved line go through here.
+ */
+function createRoomHints({ stages, readProgress, allSolvedLine }) {
+  return createHintSystem({
+    stages,
+    readProgress,
+    showCaption: (lines) => interaction.showCaption(alwaysShown(lines)),
+    readNudgeLines: () => line('dialog_hint_nudge'),
+    readAllSolvedLines: () => line(allSolvedLine),
+    onNudge: pulseHintKey
+  });
+}
+
+const bedroomHints = createRoomHints({
   stages: BEDROOM_HINT_STAGES,
   readProgress: readBedroomHintProgress,
-  // interaction.showCaption, not the local showCaption(): the hint system needs
-  // its answer, which is false while a story sequence holds the caption.
-  // Every hint, the "press H" offer and the all-solved line go through here.
-  showCaption: (lines) => interaction.showCaption(alwaysShown(lines)),
-  readNudgeLines: () => line('dialog_hint_nudge'),
-  readAllSolvedLines: () => line('dialog_hint_all_solved'),
-  onNudge: pulseHintKey
+  allSolvedLine: 'dialog_hint_all_solved'
 });
+
+// Read lazily: `hallwayBasement` is built further down, and progress is only
+// ever asked for during play.
+const basementHints = createRoomHints({
+  stages: BASEMENT_HINT_STAGES,
+  readProgress: () => hallwayBasement.refs.hintProgress,
+  allSolvedLine: 'dialog_hint_basement_all_solved'
+});
+
+/** Which rooms H gives hints in, keyed by level. Every other room says so plainly. */
+const HINTS_BY_LEVEL = {
+  bedroom: bedroomHints,
+  hallwayBasement: basementHints
+};
 
 /**
  * Pulses the on-screen hint key, so the "press H" offer points at something.
@@ -1613,9 +1639,10 @@ function pulseHintKey() {
   hintKeyEl.classList.add('nudge');
 }
 
-/** The H key: a hint in the bedroom, and a plain answer anywhere else. */
+/** The H key: a hint in a room that has them, and a plain answer anywhere else. */
 function showHint() {
-  if (sceneManager.activeKey === 'bedroom') bedroomHints.showNextHint();
+  const roomHints = HINTS_BY_LEVEL[sceneManager.activeKey];
+  if (roomHints) roomHints.showNextHint();
   else showCaption(alwaysShown(line('dialog_hint_unavailable')));
 }
 
@@ -2470,7 +2497,7 @@ function activateLevel(key, { lockMovement = false } = {}) {
   // decal among them should get the same single-pass draw.
   enableSinglePassForFlatDecals(level.group);
   // The on-screen hint key, only where H actually gives hints.
-  hintKeyEl.classList.toggle('visible', key === 'bedroom');
+  hintKeyEl.classList.toggle('visible', key in HINTS_BY_LEVEL);
   scene.fog = LEVEL_FOG[key] ?? null;
   objectiveEl.textContent = LEVEL_OBJECTIVES[key] ?? '';
   // Hard-cancel rather than just hiding the box: a queued sequence would
@@ -2651,7 +2678,7 @@ const INTERLUDES = {
 
 // ---------- game reset (restart without page refresh) ----------
 function resetGame() {
-  bedroomHints.reset();
+  for (const roomHints of Object.values(HINTS_BY_LEVEL)) roomHints.reset();
   // A restart from the pause menu can land mid-fade; without this the freshly
   // reset bedroom would come up behind a black overlay that never lifts.
   abortTransition();
@@ -3619,10 +3646,11 @@ function tick() {
   if (sceneManager.activeKey === 'bedroom') {
     bedroomStorm.update(dt);
     rain.update(dt);
-    // Only while actually playing: a paused game is not a stuck player.
-    // Nor is one reading the front page laid over the room.
-    if (player.isLocked && !newspaperView.isOpen) bedroomHints.update(dt);
   }
+  // Only while actually playing: a paused game is not a stuck player, nor is
+  // one reading the front page laid over the room.
+  const isPlaying = player.isLocked && !newspaperView.isOpen;
+  if (isPlaying) HINTS_BY_LEVEL[sceneManager.activeKey]?.update(dt);
   captions.update(dt);
   // Only while it is actually on screen. The AI is not driving it in Level 2 --
   // it is placed by a script -- but it still has to breathe, or a figure

@@ -256,3 +256,32 @@ export const dialog_trolley_crash = [
   ["The trolley goes over. Steel and glass across the concrete, loud enough to fill the whole basement.", "level2/trolley_crash_1.m4a"],
   ["Then nothing. If anything else is down here, it heard that.", "level2/trolley_crash_2.m4a"]
 ];
+
+// ---- hints (the H key) ------------------------------------------------------
+// Shown one at a time, vaguest first; pressing H again on the same puzzle gives
+// the next, more direct one. Hints always show, even with captions turned off.
+// The order they are asked about is set in src/levels/basementHints.js.
+
+export const dialog_hint_basement_all_solved = ["Nothing left to work out down here. Get through the metal door.", ""];
+
+export const dialog_hint_fuse_1 = ["Nothing down here has power. Find the fuse box, and the note about it on the wall.", ""];
+export const dialog_hint_fuse_2 = ["The maintenance log wants the correct rating only. Four fuses lie loose on the workbench -- the wrong ones blow or burn the line.", ""];
+export const dialog_hint_fuse_3 = ["Open the fuse box cover and seat the 30A fuse in the empty slot.", ""];
+
+export const dialog_hint_go_to_door_1 = ["The lights are back. The metal door at the far end of the lab is the way out.", ""];
+export const dialog_hint_go_to_door_2 = ["Walk up to the metal door and try it.", ""];
+
+export const dialog_hint_generator_1 = ["Someone threw the main. The generator in the corner has to be started again.", ""];
+export const dialog_hint_generator_2 = ["The note above the generator's controls gives the restart order. Its green lamps show how far you have got.", ""];
+export const dialog_hint_generator_3 = ["Fuel valve, then prime, then the starter. Keep pulling the starter until it catches.", ""];
+
+export const dialog_hint_breakers_1 = ["The generator is running, but the power goes nowhere yet. Find the breaker panel and its load chart.", ""];
+export const dialog_hint_breakers_2 = ["The panel only carries 60A. Switch on just the circuits you need to get out, then push the main lever up.", ""];
+export const dialog_hint_breakers_3 = ["Lift the cover, switch on DOOR, CCTV and LIGHTING only -- leave LOCKS and VENT off -- then push the main lever on the side up.", ""];
+
+export const dialog_hint_code_1 = ["The door has power, but a lockout holds it. Read the note taped to it.", ""];
+export const dialog_hint_code_2 = ["The note means the study's front door. Switch on the monitor (the button under the screen) and use the remote to find the study camera.", ""];
+export const dialog_hint_code_3 = ["On the study camera, count the raised panels in each row of the door, top row first. That is the code.", ""];
+export const dialog_hint_code_4 = ["The code is {code}. Enter it at the metal door.", ""];
+
+export const dialog_hint_basement_exit_1 = ["The lockout is off. Open the metal door.", ""];
