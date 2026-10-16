@@ -20,6 +20,7 @@ import {
   createSwitchLabelTexture
 } from '../world/textures.js';
 import { loadModel } from '../world/modelLoader.js';
+import labDoorModelUrl from '../assets/models/lab_door.glb?url';
 import fuseBoxModelUrl from '../assets/models/fuse_box.glb?url';
 import fuseModelUrl from '../assets/models/fuse.glb?url';
 import crtMonitorModelUrl from '../assets/models/crt_monitor.glb?url';
@@ -76,6 +77,13 @@ const LAB_W = 8 * LAB_SCALE;
 const LAB_D = 6.5 * LAB_SCALE;
 const LAB_H = 3.2;
 const LAB_Z = HALL_LEN + LAB_D / 2 + 0.2;
+/**
+ * The steel double doors between the hallway and the lab (lab_door.glb).
+ * Mirrors blender/build_lab_door.py: the clear opening's half-width and
+ * height, the frame's outside, and how far in front of its wall the leaves'
+ * pivots stand. The frame's back sits on the hallway's end, z = HALL_LEN.
+ */
+const LAB_DOOR = { openHalf: 0.904, openH: 2.104, frameHalf: 0.994, frameTop: 2.194, pivotOffset: 0.06 };
 
 /**
  * The metal door at the far end. Up here with the room dimensions rather than
@@ -669,8 +677,10 @@ export function createHallwayBasementLevel({
    * Now: two segments with a doorway between them the width of the hallway, a
    * lintel over it, and colliders on both segments so the wall is real.
    */
-  const DOORWAY_W = HALL_W;
-  const DOORWAY_H = 2.15;
+  // Cut to the lab doors' opening, plus a little each side so a leaf swung
+  // right round into the lab clears the reveal.
+  const DOORWAY_W = (LAB_DOOR.openHalf + 0.02) * 2;
+  const DOORWAY_H = LAB_DOOR.openH;
   const jambW = (LAB_W - DOORWAY_W) / 2;
   for (const side of [-1, 1]) {
     const x = side * (DOORWAY_W / 2 + jambW / 2);
@@ -778,6 +788,246 @@ export function createHallwayBasementLevel({
   threshold.position.set(0, 0.001, (HALL_LEN + (LAB_Z - LAB_D / 2)) / 2 - 0.025);
   threshold.receiveShadow = true;
   group.add(threshold);
+
+  /**
+   * The lab doors: a pair of double-acting steel doors with lime laser-safety
+   * glass (lab_door.glb, blender/build_lab_door.py), set in the end of the
+   * hallway where it meets the lab. The hallway's end is walled up round
+   * their frame, and the 0.2 m between that and the lab's entrance wall is
+   * lined like the depth of a real wall.
+   *
+   * They swing both ways on sprung hinges. From the hallway they are easy: E
+   * pushes them open and they stay, E again lets them go and they flap shut.
+   * Walk on into the lab and they are let go behind you. From the lab side
+   * they fight back -- each E only shoves them a little against a heavy
+   * spring, and it takes a quick, sustained run of presses to force them far
+   * enough to give. Shut, they are solid; there is a collider across them.
+   */
+  {
+    const piece = (x0, x1, y0, y1) => {
+      const cx = (x0 + x1) / 2;
+      const geometry = new THREE.PlaneGeometry(x1 - x0, y1 - y0).translate(-cx, (y0 + y1) / 2, 0);
+      // UVs as if this were part of one whole end wall, like the far one.
+      const position = geometry.attributes.position;
+      const uv = geometry.attributes.uv;
+      for (let i = 0; i < uv.count; i++) {
+        uv.setXY(i, (position.getX(i) + HALL_W / 2) / HALL_W, position.getY(i) / HALL_H);
+      }
+      const mesh = new THREE.Mesh(geometry, hallWallMat);
+      mesh.position.set(0, 0, HALL_LEN / 2);
+      // Facing back down the hallway; turning it mirrors x, hence the -cx.
+      mesh.rotation.y = Math.PI;
+      mesh.receiveShadow = true;
+      hallway.add(mesh);
+    };
+    piece(-HALL_W / 2, -LAB_DOOR.frameHalf, 0, HALL_H);
+    piece(LAB_DOOR.frameHalf, HALL_W / 2, 0, HALL_H);
+    piece(-LAB_DOOR.frameHalf, LAB_DOOR.frameHalf, LAB_DOOR.frameTop, HALL_H);
+    for (const side of [-1, 1]) {
+      const inner = side * LAB_DOOR.openHalf;
+      const outer = side * HALL_W / 2;
+      colliders.push({ minX: Math.min(inner, outer), maxX: Math.max(inner, outer), minZ: HALL_LEN - 0.14, maxZ: HALL_LEN + 0.1 });
+    }
+
+    // The reveal, between the hallway's end and the lab's entrance wall.
+    const revealDepth = (LAB_Z - LAB_D / 2) - HALL_LEN;
+    const revealZ = -LAB_D / 2 - revealDepth / 2;
+    for (const side of [-1, 1]) {
+      const cheek = new THREE.Mesh(wallGeometry(revealDepth, DOORWAY_H), labWallMat);
+      cheek.position.set(side * DOORWAY_W / 2, DOORWAY_H / 2, revealZ);
+      cheek.rotation.y = -side * Math.PI / 2;
+      lab.add(cheek);
+    }
+    const soffit = new THREE.Mesh(wallGeometry(DOORWAY_W, revealDepth), labWallMat);
+    soffit.position.set(0, DOORWAY_H, revealZ);
+    soffit.rotation.x = Math.PI / 2;
+    lab.add(soffit);
+  }
+
+  const labDoorHost = new THREE.Group();
+  labDoorHost.name = 'LabDoors';
+  labDoorHost.position.set(0, 0, HALL_LEN);
+  // The model's front is its +Z; turned to face down the hallway.
+  labDoorHost.rotation.y = Math.PI;
+  group.add(labDoorHost);
+
+  /**
+   * One hitbox per leaf, made now so they are in `interactables` before the
+   * level is first shown, and moved onto the leaves when the model arrives --
+   * so the prompt follows a leaf as it swings, and an open doorway is not
+   * still covered by an invisible door. Until then they stand where the shut
+   * leaves will be, in the model's own frame.
+   */
+  const LAB_DOOR_LEAF_CENTRE_X = 0.45;
+  const LAB_DOOR_LEAF_CENTRE_Y = LAB_DOOR.openH / 2;
+  const labDoorHitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+  const labDoorHits = new Map([['labDoorLeafLeft', 1], ['labDoorLeafRight', -1]].map(([name, sign]) => {
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(0.88, LAB_DOOR.openH - 0.05, 0.14), labDoorHitMat);
+    hit.position.set(-sign * (LAB_DOOR.openHalf - 0.01 - LAB_DOOR_LEAF_CENTRE_X), LAB_DOOR_LEAF_CENTRE_Y, LAB_DOOR.pivotOffset);
+    hit.userData.interact = { label: 'Push the doors open', onInteract: () => useLabDoors() };
+    labDoorHost.add(hit);
+    interactables.push(hit);
+    return [name, hit];
+  }));
+
+  const labLeaves = [];
+  loadModel(labDoorModelUrl).then((model) => {
+    model.traverse((child) => {
+      if (!child.isMesh) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+      if (child.material.name === 'LabDoorGlass') {
+        // Laser-safety glass: tinted lime, but clear enough to see the room
+        // beyond -- the glow is kept faint, since an emissive pane hazes over
+        // whatever is behind it.
+        child.material = new THREE.MeshStandardMaterial({
+          color: 0xa6d12a,
+          emissive: 0x4d6a08,
+          emissiveIntensity: 0.12,
+          roughness: 0.05,
+          transparent: true,
+          opacity: 0.32,
+          depthWrite: false
+        });
+        child.castShadow = false;
+      } else if (child.material.name === 'LabDoorSteel') {
+        // Kept only half metallic, as the shelving is: nothing here for a true
+        // metal to reflect, and at full it renders near black.
+        child.material.metalness = 0.55;
+        child.material.roughness = 0.32;
+      }
+    });
+    // +1 turns the left leaf away from the model's front -- into the lab; the
+    // right leaf mirrors it.
+    for (const [name, sign] of [['labDoorLeafLeft', 1], ['labDoorLeafRight', -1]]) {
+      const node = model.getObjectByName(name);
+      if (!node) continue;
+      labLeaves.push({ node, sign, rest: node.rotation.y, angle: 0, speed: 0 });
+      const hit = labDoorHits.get(name);
+      hit.position.set(sign * LAB_DOOR_LEAF_CENTRE_X, LAB_DOOR_LEAF_CENTRE_Y, 0);
+      node.add(hit);
+    }
+    labDoorHost.add(model);
+  }).catch((err) => console.error('[lab] lab_door.glb failed to load', err));
+
+  /**
+   * The leaves are springs: an angle and a speed each, positive into the lab.
+   * Held, they are driven stiffly to openAngle; free, a soft spring pulls them
+   * shut and lets them overshoot. From the lab side the spring is a heavy,
+   * overdamped one that each shove only dents: about four presses a second,
+   * kept up for three seconds, forces them past giveAngle, and anything slower
+   * never does.
+   */
+  const LAB_DOOR_SWING = {
+    openAngle: 1.35, heldStiffness: 30, heldDamping: 8,
+    stiffness: 10, damping: 1.4,
+    heavyStiffness: 4, heavyDamping: 6, shove: 1.2, giveAngle: 0.95,
+    passableAngle: 0.9, maxAngle: 1.45
+  };
+  const labDoorPivotZ = HALL_LEN - LAB_DOOR.pivotOffset;
+  /** This far into the lab, doors opened from the hallway are let go behind the player. */
+  const LAB_DOOR_SHUT_BEHIND_Z = labDoorPivotZ + 1.3;
+  /** And this far, doors forced from the lab side are. */
+  const LAB_DOOR_FORCED_RELEASE_Z = labDoorPivotZ + 2.5;
+  /** 0 free on their springs; +1 held open into the lab; -1 held open toward the hallway. */
+  let labDoorHeld = 0;
+  /** -1 on the hallway side of the doors, +1 on the lab side; refreshed every frame. */
+  let labDoorPlayerSide = -1;
+  let labDoorHeavyHintShown = false;
+  // Across the doorway while the doors are shut; parked out of the way while
+  // they stand open far enough to walk through.
+  const LAB_DOOR_COLLIDER_SHUT = { minZ: labDoorPivotZ - 0.06, maxZ: labDoorPivotZ + 0.06 };
+  const labDoorCollider = { minX: -LAB_DOOR.openHalf, maxX: LAB_DOOR.openHalf, ...LAB_DOOR_COLLIDER_SHUT };
+  colliders.push(labDoorCollider);
+
+  function useLabDoors() {
+    if (labDoorHeld !== 0) {
+      labDoorHeld = 0;
+      return;
+    }
+    if (labDoorPlayerSide < 0) {
+      labDoorHeld = 1;
+      return;
+    }
+    if (!labDoorHeavyHintShown) {
+      labDoorHeavyHintShown = true;
+      showCaption(line('dialog_lab_doors_heavy'));
+    }
+    for (const leaf of labLeaves) leaf.speed -= LAB_DOOR_SWING.shove * (0.9 + Math.random() * 0.2);
+  }
+
+  function labDoorLabel() {
+    if (labDoorHeld !== 0) return labDoorPlayerSide < 0 ? 'Close the doors' : 'Let the doors go';
+    return labDoorPlayerSide < 0 ? 'Push the doors open' : 'Force the doors (keep pressing)';
+  }
+
+  function updateLabDoors(dt, playerPosition) {
+    const swing = LAB_DOOR_SWING;
+    let inDoorway = false;
+    if (playerPosition) {
+      labDoorPlayerSide = playerPosition.z > labDoorPivotZ ? 1 : -1;
+      // Only once they are open: leaning on them shut must not count, or
+      // walking into them would open them.
+      const isOpen = labDoorCollider.minZ !== LAB_DOOR_COLLIDER_SHUT.minZ;
+      inDoorway = isOpen && Math.abs(playerPosition.x) < LAB_DOOR.openHalf + 0.1 && Math.abs(playerPosition.z - labDoorPivotZ) < 0.55;
+      if (labDoorHeld === 1 && playerPosition.z > LAB_DOOR_SHUT_BEHIND_Z) labDoorHeld = 0;
+      if (labDoorHeld === -1 && playerPosition.z > LAB_DOOR_FORCED_RELEASE_Z) labDoorHeld = 0;
+    }
+    const label = labDoorLabel();
+    for (const hit of labDoorHits.values()) hit.userData.interact.label = label;
+
+    const meanAngle = labLeaves.reduce((sum, leaf) => sum + leaf.angle, 0) / Math.max(1, labLeaves.length);
+    // Forced far enough from the lab side, they give, and are held open.
+    if (labDoorHeld === 0 && labDoorPlayerSide > 0 && meanAngle < -swing.giveAngle) labDoorHeld = -1;
+
+    let target = labDoorHeld * swing.openAngle;
+    let stiffness = swing.stiffness;
+    let damping = swing.damping;
+    if (labDoorHeld !== 0) {
+      stiffness = swing.heldStiffness;
+      damping = swing.heldDamping;
+    } else if (inDoorway) {
+      // Never shut on the player: standing in the doorway holds them open
+      // whichever way they already lean.
+      target = Math.sign(meanAngle || 1) * swing.openAngle;
+      stiffness = swing.heldStiffness;
+      damping = swing.heldDamping;
+    }
+    // Heavy only while being shoved toward the hallway from the lab side, so
+    // they still swing shut behind the player rather than creeping to.
+    const isHeavy = labDoorHeld === 0 && !inDoorway && labDoorPlayerSide > 0;
+    const step = Math.min(dt, 1 / 30);
+    for (const leaf of labLeaves) {
+      const heavy = isHeavy && leaf.angle <= 0;
+      const k = heavy ? swing.heavyStiffness : stiffness;
+      const c = heavy ? swing.heavyDamping : damping;
+      leaf.speed += (-k * (leaf.angle - target) - c * leaf.speed) * step;
+      leaf.angle += leaf.speed * step;
+      if (Math.abs(leaf.angle) > swing.maxAngle) {
+        leaf.angle = Math.sign(leaf.angle) * swing.maxAngle;
+        leaf.speed = 0;
+      }
+      leaf.node.rotation.y = leaf.rest + leaf.sign * leaf.angle;
+    }
+
+    const passable = labLeaves.length > 0 && labLeaves.every((leaf) => Math.abs(leaf.angle) > swing.passableAngle);
+    if (passable || inDoorway) {
+      labDoorCollider.minZ = labDoorCollider.maxZ = -1000;
+    } else {
+      Object.assign(labDoorCollider, LAB_DOOR_COLLIDER_SHUT);
+    }
+  }
+
+  function resetLabDoors() {
+    labDoorHeld = 0;
+    labDoorHeavyHintShown = false;
+    Object.assign(labDoorCollider, LAB_DOOR_COLLIDER_SHUT);
+    for (const leaf of labLeaves) {
+      leaf.angle = 0;
+      leaf.speed = 0;
+      leaf.node.rotation.y = leaf.rest;
+    }
+  }
 
   // flickering fluorescent strip lights
   const fixturesGroup = new THREE.Group();
@@ -4026,6 +4276,7 @@ export function createHallwayBasementLevel({
      */
     reset() {
       powerStage = POWER_STAGE.DEAD;
+      resetLabDoors();
       puzzleState.heldFuse = null;
       puzzleState.slotFuse = null;
       puzzleState.overloaded = false;
@@ -4122,6 +4373,7 @@ export function createHallwayBasementLevel({
     update(dt, playerPosition) {
       const elapsed = (this._t = (this._t ?? 0) + dt);
       dynamics.forEach((d) => d.update(dt, elapsed));
+      updateLabDoors(dt, playerPosition);
 
       // The blackout. Gated on LIT, so it cannot fire before the 30A fuse has
       // given the player something to lose, and cannot fire twice.

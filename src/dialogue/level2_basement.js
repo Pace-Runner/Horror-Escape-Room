@@ -54,6 +54,9 @@ export const dialog_restraints = [
   ["Whatever was strapped into this chair did not need a key.", "level2/restraints_2.m4a"]
 ];
 
+// The first shove at the lab doors from the lab side, where they fight back.
+export const dialog_lab_doors_heavy = ["They barely move from this side. Something is pushing back. Keep shoving.", "level2/lab_doors_heavy.m4a"];
+
 export const dialog_power_restored = [
   ["Lights come up in stages down the room.", "level2/power_restored_1.m4a", 3.4],
   ["The monitor on the desk has power now. The door at the far end does not.", "level2/power_restored_2.m4a"]
