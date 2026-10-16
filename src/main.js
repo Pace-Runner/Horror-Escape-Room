@@ -1578,12 +1578,25 @@ function readBedroomHintProgress() {
   };
 }
 
+/**
+ * Marks lines as help rather than dialogue, so they show even with captions
+ * turned off in Settings. A player who switched captions off still pressed H
+ * because they wanted a hint -- hiding the answer made the key look broken.
+ */
+function alwaysShown(lines) {
+  const list = Array.isArray(lines) ? lines : [lines];
+  return list.map((entry) => (typeof entry === 'string'
+    ? { text: entry, always: true }
+    : { ...entry, always: true }));
+}
+
 const bedroomHints = createHintSystem({
   stages: BEDROOM_HINT_STAGES,
   readProgress: readBedroomHintProgress,
   // interaction.showCaption, not the local showCaption(): the hint system needs
   // its answer, which is false while a story sequence holds the caption.
-  showCaption: (lines) => interaction.showCaption(lines),
+  // Every hint, the "press H" offer and the all-solved line go through here.
+  showCaption: (lines) => interaction.showCaption(alwaysShown(lines)),
   readNudgeLines: () => line('dialog_hint_nudge'),
   readAllSolvedLines: () => line('dialog_hint_all_solved'),
   onNudge: pulseHintKey
@@ -1603,7 +1616,7 @@ function pulseHintKey() {
 /** The H key: a hint in the bedroom, and a plain answer anywhere else. */
 function showHint() {
   if (sceneManager.activeKey === 'bedroom') bedroomHints.showNextHint();
-  else showCaption(line('dialog_hint_unavailable'));
+  else showCaption(alwaysShown(line('dialog_hint_unavailable')));
 }
 
 // Screen-space half of the basement's overload glare. The level drives the
@@ -2965,7 +2978,8 @@ creditsCloseBtn.addEventListener('click', () => {
 // before ever clicking "begin" still hears/feels the right values from their
 // very first frame.
 const SETTINGS_STORAGE_KEY = 'dontLetItOut.settings';
-const DEFAULT_SETTINGS = { volume: 50, sensitivity: 100, captions: true };
+// Captions start off: hints (H) and the front pages still show either way.
+const DEFAULT_SETTINGS = { volume: 50, sensitivity: 100, captions: false };
 
 function loadSettings() {
   try {

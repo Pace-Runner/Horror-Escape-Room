@@ -189,8 +189,16 @@ export class CaptionSequencer {
    */
   setEnabled(enabled) {
     this.enabled = enabled;
-    if (!enabled) this.el.classList.remove('visible');
-    else if (this._phase === 'hold' || this._phase === 'in') this.el.classList.add('visible');
+    const onScreen = this._phase === 'hold' || this._phase === 'in';
+    this.el.classList.toggle('visible', onScreen && this._shows(this._line));
+  }
+
+  /**
+   * Whether a line is drawn. A line marked `always` (a hint the player asked
+   * for with H) is help, not dialogue, and shows even with captions off.
+   */
+  _shows(line) {
+    return this.enabled || Boolean(line?.always);
   }
 
   update(dt) {
@@ -236,7 +244,7 @@ export class CaptionSequencer {
     // Set before the class flips, so the browser uses this duration for the
     // transition it is about to start rather than the previous one.
     this.el.style.transitionDuration = `${isSequence ? SWAP_FADE : FADE}s`;
-    if (this.enabled) this.el.classList.add('visible');
+    if (this._shows(line)) this.el.classList.add('visible');
     this.onLineStart?.(line);
   }
 
