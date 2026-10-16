@@ -990,27 +990,25 @@ export function createUpstairsHallwayLevel({
   group.add(ambient);
 
   /**
-   * The bedroom's pendant, twice down the ceiling. The near one is steady and
-   * casts; the far one is failing, which is the "unstable electricity" the
-   * storyline describes and gives the end of the hall its unease.
+   * One ceiling light, the bedroom's pendant, halfway down the hall. It has to
+   * reach both ends on its own, so it throws further than the bedroom's; the
+   * table lamp warms the bedroom end and the cold glow from the passage marks
+   * the stairs. It casts, and it is failing -- the "unstable electricity" the
+   * storyline describes, so the hall dips into the dark now and then.
    */
   const pendants = [
-    { z: 2.9, intensity: 0.85, casts: true, failing: false },
-    { z: 7.9, intensity: 0.6, casts: false, failing: true },
-    // Over the stairwell: the light to walk toward, and the only thing that
-    // lights the treads from above.
-    { z: 12.2, intensity: 1.35, casts: false, failing: false, decay: 1.25 }
+    { z: 5.6, intensity: 1.15, casts: true, failing: true, decay: 1.45, distance: 9.5 }
   ].map((spec) => {
     const anchor = new THREE.Group();
     anchor.position.set(0, HALL_H - 0.0225, spec.z);
     group.add(anchor);
-    const light = new THREE.PointLight(0xffb347, spec.intensity, 7.5, spec.decay ?? 1.6);
+    const light = new THREE.PointLight(0xffb347, spec.intensity, spec.distance ?? 7.5, spec.decay ?? 1.6);
     light.position.y = -0.5;
     if (spec.casts) {
       light.castShadow = true;
       light.shadow.mapSize.set(512, 512);
       light.shadow.camera.near = 0.08;
-      light.shadow.camera.far = 8;
+      light.shadow.camera.far = 10;
       light.shadow.bias = -0.0015;
     }
     anchor.add(light);
@@ -1037,7 +1035,9 @@ export function createUpstairsHallwayLevel({
    */
   // Set well back from the doorway, so the passage wall the player can see
   // falls off toward them instead of being lit flat like a card.
-  const belowGlow = new THREE.PointLight(0x7f97a8, 2.2, 5.2, 1.8);
+  // Brighter than it would need to be with a light over the stairs: with the
+  // hall down to one pendant, this is what shows the way down.
+  const belowGlow = new THREE.PointLight(0x7f97a8, 3.2, 6.2, 1.7);
   belowGlow.position.set(RIGHT_X + 1.05, STAIR_BOTTOM_Y + 1.7, TURN.z);
   group.add(belowGlow);
 
@@ -1092,11 +1092,12 @@ export function createUpstairsHallwayLevel({
       glassMaterial.uniforms.uFlash.value = flash;
       skyMat.color.setRGB(0.002 + flash * 0.35, 0.003 + flash * 0.4, 0.006 + flash * 0.55);
 
-      // The failing pendant stutters.
+      // The pendant is failing, but it is the only light: it hums near full
+      // and dips now and then, rather than strobing the whole hall.
       flickerTimer -= dt;
       if (flickerTimer <= 0) {
-        flickerTimer = 0.05 + Math.random() * (Math.random() < 0.15 ? 0.6 : 0.2);
-        flickerLevel = Math.random() < 0.12 ? 0.15 + Math.random() * 0.3 : 0.85 + Math.random() * 0.15;
+        flickerTimer = 0.06 + Math.random() * 0.25;
+        flickerLevel = Math.random() < 0.035 ? 0.3 + Math.random() * 0.3 : 0.9 + Math.random() * 0.1;
       }
       for (const pendant of pendants) {
         pendant.light.intensity = pendant.base * (pendant.failing ? flickerLevel : 1);
