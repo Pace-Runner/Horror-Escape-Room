@@ -29,8 +29,10 @@ endings. It delivers:
 - A fog-of-war overview minimap for the backrooms, and a radar-style
   follow minimap everywhere else.
 - One custom GLSL shader (the basement CCTV monitor's static).
-- Procedural textures and synthesised audio, so the binary assets are
-  few enough to list: the `.glb` models and the audio clips. All but one
+- Procedural textures and synthesised wind and thunder, so the binary
+  assets are few enough to list: the `.glb` models and the audio
+  recordings (each one's source and licence is in
+  `src/assets/audio/SOURCES.md`). All but one
   model is generated from a script in `blender/` and needs no credit.
   The exception is `hands.glb`, which is third-party (`First Person hands
   rigged` by davidfischer, Sketchfab, **CC BY 4.0**) and therefore DOES
@@ -318,14 +320,14 @@ table decides that this means "through the corridor, then to Level 2".
 - `src/world/Rain.js` is a small recycled-particle system sitting just
   outside the bedroom window.
 - `src/world/AudioEngine.js` synthesises a low wind drone, a thunder
-  hit (fired every lightning flash), and a creak/footstep cue -- all
-  generated with the Web Audio API rather than loaded from files. The
-  one loaded sound is the breathing loop, on its own gain node, played
-  through a looping `AudioBufferSourceNode` (the only reliably gapless
-  option) inside a measured `loopStart`/`loopEnd` window. It runs for
-  the whole session once audio is unlocked; only its intensity answers
-  to the story beats. See the README for the loop-window numbers and
-  what happens when the file is missing.
+  hit (fired every lightning flash), and a creak/footstep cue with the
+  Web Audio API. Everything else is a recording: the breathing loop (on
+  its own gain node, a looping `AudioBufferSourceNode` inside a measured
+  window, running the whole session with only its intensity answering to
+  the story), the player's footsteps, and the cues
+  `src/systems/AudioDirector.js` places in 3D -- doors, candles, the
+  CRT's static, the rain bed, distant laughter and everything the monster
+  makes. See `docs/AUDIO.md`.
 - `src/world/StaticScreenMaterial.js` is a custom `ShaderMaterial`
   (hand-written vertex + fragment stages, not a built-in material)
   used on the basement CCTV monitor. `uTime` is advanced every frame
