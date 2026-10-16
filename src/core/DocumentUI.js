@@ -55,6 +55,11 @@ export function createDocumentUI({ onClose = () => {} } = {}) {
 
   panel.addEventListener('scroll', checkRead);
   closeButton.addEventListener('click', () => close());
+  // Right-click puts it down, like E does -- instead of the browser's menu.
+  view.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    close();
+  });
 
   window.addEventListener('keydown', (e) => {
     if (!open) return;

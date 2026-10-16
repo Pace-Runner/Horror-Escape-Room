@@ -2896,6 +2896,22 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyC' && !transitionInFlight) toggleCredits(true);
 });
 
+// ---------- right-click = E ----------
+// For players who play with the mouse: right-click uses whatever the crosshair
+// is on, exactly like E. Only while the game has the mouse -- on a menu or a
+// pop-up the mouse is the menu's -- and never in the free camera, which is
+// for filming. While a newspaper is up, that page takes the click instead.
+window.addEventListener('mousedown', (e) => {
+  if (e.button !== 2 || !player.isLocked || freeCamera.isActive || newspaperView.isOpen) return;
+  e.preventDefault();
+  interaction.interact();
+});
+// No browser right-click menu over the game itself.
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+window.addEventListener('contextmenu', (e) => {
+  if (player.isLocked) e.preventDefault();
+});
+
 // ---------- restart confirm (R) ----------
 // R sits right next to the movement keys, so a stray press used to wipe the
 // whole run with no warning. It now asks first. The pointer is released so the

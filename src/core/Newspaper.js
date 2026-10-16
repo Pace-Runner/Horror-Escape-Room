@@ -353,7 +353,8 @@ export function createNewspaper({ root, onShow = null }) {
     if (!accepts()) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    if (event.button === 0 && canContinue()) close(true);
+    // Left or right click: right-click does everything E does.
+    if ((event.button === 0 || event.button === 2) && canContinue()) close(true);
   }, true);
 
   return {
