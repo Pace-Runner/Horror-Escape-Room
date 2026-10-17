@@ -1,109 +1,89 @@
 /**
  * Validate the backrooms maze without a browser.  `npm run check:maze`
  *
- * This exists because the maze is 48 hand-authored corridors and the only thing
- * that used to check them was a boot-time assertion that counted junctions --
- * it could tell you the count was wrong but not which pair was at fault, and a
- * disconnected corridor plus an accidental loop cancelled out and passed it
- * silently.
+ * The maze is the team's drawing, transcribed wall by wall into GRID in
+ * src/levels/backroomsMaze.js and turned into corridor rectangles by
+ * buildMaze(). This checks the result can actually be played: both crossings
+ * reach their exits, nothing touches that the drawing keeps apart, every wall
+ * is thick enough to stop lamp light, every room is a room and every interior
+ * room has its two doorways.
  *
- * It runs in plain node because src/levels/backroomsMaze.js imports nothing
- * from three. That is the whole reason the maze data was split out of the
- * level: a layout mistake should fail a command, not a playthrough.
- *
+ * It runs in plain node because backroomsMaze.js imports nothing from three.
  * Exit code is non-zero on any fault, so it gates the build in CI.
  */
-import { LEGS, validateMaze, reportMaze } from '../src/levels/backroomsMaze.js';
+import { GRID, DIMS, buildMaze, validateMaze, reportMaze } from '../src/levels/backroomsMaze.js';
 
 const errors = reportMaze();
 
 /**
  * SELF-TEST: prove the validator can still say no.
  *
- * A green check is worth nothing unless it is capable of going red, and every
- * rule below is one somebody could quietly break while editing the layout. Each
- * case breaks the maze in one specific way and asserts the report NAMES it --
- * matching on the message, because being told which pair of corridors is at
- * fault is the entire point of this file over the assertion it replaced.
- *
- * Costs about a millisecond, so it runs every time rather than behind a flag.
+ * A green check is worth nothing unless it can go red. Each case breaks a COPY
+ * of the maze in one specific way -- the drawing, the dimensions, or the
+ * generated legs -- and asserts the report NAMES the fault.
  */
+const clone = (v) => JSON.parse(JSON.stringify(v));
 const CASES = [
   {
-    name: 'an accidental loop (a dead end that rejoins the route)',
-    // Slide a deep decoy onto the route corridor it runs parallel to. This is
-    // the failure that matters most: it turns a guaranteed dead end into a
-    // shortcut and breaks the one promise the level makes.
-    break: (L) => { L.d4a = { ...L.d4a, at: 33.6, from: -22.4, to: 1.6 }; },
-    expect: /overlap .* without being joined/
+    name: 'the first crossing walled off from Door 1',
+    grid: (g) => { g.vWalls[6].push(0); g.hWalls[1].push(5); },
+    expect: /first crossing cannot reach its exit/
   },
   {
-    name: 'a detached corridor',
-    break: (L) => { L.d2c = { ...L.d2c, parent: 'd2c' }; },
-    expect: /loops back through|unreachable from/
+    name: 'an interior room given a third doorway',
+    grid: (g) => { g.rooms.C.doors.push([2, 3]); },
+    expect: /room C is inside the maze but has 3 doorway/
   },
   {
-    name: 'a corridor that no longer reaches its parent (R1)',
-    break: (L) => { L.d1a = { ...L.d1a, from: L.d1a.from + 2.4 }; },
-    expect: /R1: d1a never reaches EW1's centre-line/
+    name: 'an interior room left with only one doorway',
+    grid: (g) => { g.rooms.BL.doors.pop(); },
+    expect: /room BL is inside the maze but has 1 doorway/
   },
   {
-    name: 'a corridor hanging off the end of its parent (R2)',
-    break: (L) => { L.sA = { ...L.sA, at: L.NS1.to + 4.0 }; },
-    expect: /R2: sA hangs .* off the end of NS1/
+    name: 'a doorway onto a cell its room does not touch',
+    grid: (g) => { g.rooms.C.doors.push([0, 9]); },
+    expect: /cell \(0,9\) does not touch room C/
   },
   {
-    name: 'a wall too thin to stop lamp light (MIN_WALL)',
-    break: (L) => { L.d3a = { ...L.d3a, at: L.d3a.at - 0.8 }; },
+    name: 'walls too thin to stop lamp light (MIN_WALL)',
+    dims: (d) => ({ ...d, PITCH: 4.6, ROOM_GROW: 0 }),
     expect: /apart, under MIN_WALL/
   },
   {
-    name: 'a rect edge off the 0.1 grid, which breaks the wall-run proof',
-    break: (L) => { L.EW1 = { ...L.EW1, w: 3.25 }; },
-    expect: /not a multiple of 0.1/
+    name: 'a room shrunk to corridor width',
+    dims: (d) => ({ ...d, ROOM_GROW: 0 }),
+    expect: /is a room but is 3.2 m across, no wider than a corridor/
   },
   {
-    name: 'a route annotation that disagrees with the derived route',
-    break: (L) => { L.sF = { ...L.sF, kind: 'route' }; },
-    expect: /annotated kind:'route' but is not on the derived route/
-  },
-  {
-    name: 'the loops quietly gone, leaving one forced path to the exit again',
-    // THE CASE THAT MOTIVATED THE RULE. Drop d4a's links and pull it back off
-    // the route corridors it now joins, and the maze is a tree again -- which
-    // every other rule in this file is perfectly happy with. Only the bypass
-    // count notices that there is suddenly only one way through.
-    break: (L) => { L.d4a = { ...L.d4a, to: -8.0, links: undefined }; delete L.d2c.links; },
-    expect: /route leg\(s\) can be missed out/
-  },
-  {
-    name: 'a link that no longer reaches what it claims to join',
-    break: (L) => { L.d4a = { ...L.d4a, to: -8.0 }; },
-    expect: /d4a and (EW5|NS6) .* apart, under MIN_WALL|junction is .* at its narrowest/
-  },
-  {
-    name: 'a room hung straight off a corridor, so its whole side is the doorway',
-    break: (L) => { L.RA = { ...L.RA, parent: 'EW1' }; },
-    expect: /is a room but hangs off EW1, which is not a neck/
-  },
-  {
-    name: 'a neck widened to a corridor, so the entrance stops being a doorway',
-    break: (L) => { L.nA = { ...L.nA, w: 3.2 }; },
+    name: 'a doorway widened to a corridor, so it stops being a doorway',
+    dims: (d) => ({ ...d, NECK_W: 3.2 }),
     expect: /is a neck but is 3.2 m across/
   },
   {
-    name: 'a room shrunk to corridor width, which is a corridor',
-    break: (L) => { L.RB = { ...L.RB, w: 3.2 }; },
-    expect: /is a room but is 3.2 m across, no wider than a corridor/
+    name: 'a rect edge off the 0.1 grid, which breaks the wall-run proof',
+    maze: (m) => { m.legs.offgrid = { ...Object.values(m.legs)[0], w: 3.25 }; },
+    expect: /not a multiple of 0.1/
+  },
+  {
+    name: 'two corridors touching where the drawing has a wall',
+    // A stray corridor laid across two that the drawing keeps apart.
+    maze: (m) => { m.legs.stray = { axis: 'z', at: 4.8, from: -1.6, to: 8.0, w: 3.2, kind: 'decoy', parent: null }; },
+    expect: /overlap .* without being joined/
   }
 ];
 
 let broken = 0;
 console.log('\n--- validator self-test ------------------------------------------');
 for (const c of CASES) {
-  const legs = { ...LEGS };
-  c.break(legs);
-  const { errors: got } = validateMaze(legs);
+  const grid = clone(GRID);
+  c.grid?.(grid);
+  const dims = c.dims ? c.dims({ ...DIMS }) : DIMS;
+  const maze = buildMaze(grid, dims);
+  if (c.maze) {
+    maze.legs = { ...maze.legs };
+    c.maze(maze);
+  }
+  const { errors: got } = validateMaze(maze);
   const hit = got.find((e) => c.expect.test(e));
   if (hit) {
     console.log(`  caught   ${c.name}`);

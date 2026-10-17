@@ -190,9 +190,13 @@ const RUN_STEP_URL = Object.values(RUN_STEP_FILES)[0] ?? null;
  * refractory the slicer cut its six footfalls into eleven half-steps and the
  * shuffle played a lone toe as often as a step. 250 ms is longer than heel to
  * toe and well under the 0.65 s between footfalls.
+ *
+ * The backrooms walk on their damp carpet (foley/steps_carpet: Kenney's five
+ * CC0 carpet steps, joined 0.45 s apart so the slicer cuts them back out).
  */
 const STEP_SURFACES = {
-  hallwayBasement: { cue: 'steps_metal', refractorySeconds: 0.25 }
+  hallwayBasement: { cue: 'steps_metal', refractorySeconds: 0.25 },
+  backrooms: { cue: 'steps_carpet' }
 };
 
 /**

@@ -1399,7 +1399,14 @@ const LIMP_MAN = 0.3;
  * body. Anything else
  * falls back to the monster, loudly.
  */
-export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 'monster' } = {}) {
+/**
+ * @param scale  the whole figure, uniformly. The monster wears 1.15 (main.js).
+ *   Applied to `root`, so the IK and every boot check still run in the rig's
+ *   own unscaled space; the only thing that has to know is the gait clock,
+ *   because a bigger body covers scale x the ground per stride -- see
+ *   worldStride().
+ */
+export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 'monster', scale = 1 } = {}) {
   if (!GAITS[gait]) {
     console.error(`OkabeCreature: unknown gait "${gait}", using "monster".`);
     gait = 'monster';
@@ -1408,6 +1415,7 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
   group.name = 'okabe';
 
   const root = new THREE.Group();
+  root.scale.setScalar(scale);
   group.add(root);
 
   let skin = null;              // the SkinnedMeshes (one per material)
@@ -1564,8 +1572,14 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
     hipLift = (knee ? knee.length() * (STRETCH.leg - 1) : 0)
       + (ankle ? ankle.length() * (STRETCH.knee - 1) : 0);
 
+    // Measured at unit scale: `height` is the rig's own, and the getter
+    // applies the figure's scale once.
+    root.scale.setScalar(1);
+    root.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(scene);
     height = box.max.y - box.min.y;
+    root.scale.setScalar(scale);
+    root.updateMatrixWorld(true);
     unbakeChainOffset();
     applyCorrection();
     // Once per FILE, not once per figure: the sweep runs every profile
@@ -2216,6 +2230,11 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
    * frame -- disagree and the feet move at a different speed from the body,
    * which is the whole failure this rewrite exists to remove.
    */
+  /** Metres of FLOOR per stride: strideNow() is in the rig's own (unscaled) space. */
+  function worldStride() {
+    return strideNow() * scale;
+  }
+
   function strideNow() {
     if (!legRig) return STRIDE;
     const prof = GAITS[gaitName];
@@ -2455,7 +2474,7 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
     // figure feels none.
     const xL = frac(phase - limp.lag * limpAmt);
     const xR = frac(phase + 0.5);
-    const cyc = speed / stride;
+    const cyc = speed / (stride * scale);
     const badHit = g(limp.impact);
     const hitHips = walking * footfall(xL, xR, badHit, IMPACT_DELAY.hips, cyc);
     const hitSpine = walking * footfall(xL, xR, badHit, IMPACT_DELAY.spine, cyc);
@@ -2967,7 +2986,7 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
      * today, so nothing is wrong yet; whoever hangs a sightline off it should
      * either accept that or ask the hips where they actually are.
      */
-    get height() { return THREE.MathUtils.lerp(MONSTER_HEIGHT, height, correction); },
+    get height() { return THREE.MathUtils.lerp(MONSTER_HEIGHT, height, correction) * scale; },
     get visible() { return visible; },
     set visible(v) { visible = v; group.visible = v; },
     update(dt) {
@@ -2988,7 +3007,7 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
       // Driven by DISTANCE, not by time, so the feet keep up with the body.
       // Wrapped, because every use of it is periodic in TAU and an hour of
       // walking is otherwise a phase in the tens of thousands.
-      gaitPhase = (gaitPhase + (speed / strideNow()) * TAU * dt) % TAU;
+      gaitPhase = (gaitPhase + (speed / worldStride()) * TAU * dt) % TAU;
       // Exponential rather than linear, and framerate-independent: a linear
       // approach crosses the target and jitters on it at small dt.
       const tau = Math.abs(peekTarget) > Math.abs(peekNow) ? PEEK_OUT_TAU : PEEK_BACK_TAU;

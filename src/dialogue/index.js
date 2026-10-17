@@ -68,7 +68,9 @@ function toLine(entry, key) {
     return null;
   }
   const [text, voice, duration] = entry;
-  const out = { text };
+  // The key travels with the line, so the voice hook can tell WHICH line is
+  // starting (the "hold the right item" lines get a spoken reaction).
+  const out = { text, key };
   if (voice) out.voice = voice;
   if (typeof duration === 'number') out.duration = duration;
   return out;
@@ -104,6 +106,34 @@ export function line(key, vars) {
     }
   }
   return out;
+}
+
+/**
+ * Picks among several takes of one moment -- `dialog_dead_end_1`, `_2`, `_3` --
+ * so a repeated beat is not the same sentence every time.
+ *
+ *   const pick = linePicker(['dialog_a', 'dialog_b', 'dialog_c']);
+ *   captions.play(line(pick()));
+ *
+ * 'random' never picks the same key twice in a row. 'sequence' plays them in
+ * order once, then carries on at random -- for beats that should escalate the
+ * first few times (being caught, coming round) before they start repeating.
+ * Pass a narrower list to pick() to choose only among some of them.
+ */
+export function linePicker(keys, { order = 'random' } = {}) {
+  let last = null;
+  let next = 0;
+  const pick = (among = keys) => {
+    if (order === 'sequence' && next < keys.length) {
+      last = keys[next++];
+      return last;
+    }
+    const options = among.length > 1 ? among.filter((k) => k !== last) : among;
+    last = options[Math.floor(Math.random() * options.length)];
+    return last;
+  };
+  pick.reset = () => { last = null; next = 0; };
+  return pick;
 }
 
 /** True if a dialogue entry exists, for the few places a line is optional. */

@@ -65,13 +65,61 @@ function run(cmd, cmdArgs, input) {
 function cachedSource(name) {
   const dir = join(cacheDir, name);
   if (!existsSync(dir)) return null;
-  const file = readdirSync(dir).find((f) => f.startsWith('src.') && !f.endsWith('.part'));
+  const file = readdirSync(dir).find((f) => /^src(_1)?\./.test(f) && !f.endsWith('.part'));
   return file ? join(dir, file) : null;
 }
 
-function download(src) {
+/** Every member file of a zip-sourced entry, in order. */
+function cachedMembers(name) {
+  const dir = join(cacheDir, name);
+  return readdirSync(dir).filter((f) => /^src_\d+\./.test(f))
+    .sort((a, b) => parseInt(a.slice(4), 10) - parseInt(b.slice(4), 10))
+    .map((f) => join(dir, f));
+}
+
+const UA = 'HorrorEscapeRoom-audio-build/1.0 (https://github.com/Pace-Runner/Horror-Escape-Room)';
+
+/** A plain HTTP GET to a file. Freesound previews, Wikimedia Commons originals, zip packs. */
+async function fetchTo(url, file) {
+  const res = await fetch(url, { headers: { 'User-Agent': UA } });
+  if (!res.ok) throw new Error(`GET ${url}: HTTP ${res.status}`);
+  writeFileSync(file, Buffer.from(await res.arrayBuffer()));
+}
+
+/**
+ * Members of a zip pack (Kenney's CC0 packs). The pack is fetched once into
+ * <cache>/_zips and the members are pulled out with Windows' own tar.exe
+ * (bsdtar, which reads zips; Git Bash's GNU tar does not) or with unzip
+ * elsewhere. Each member lands as src_<n>.<ext>.
+ */
+async function fromZip(src, dir) {
+  const { zip, members } = src.download;
+  const zips = join(cacheDir, '_zips');
+  mkdirSync(zips, { recursive: true });
+  const zipFile = join(zips, zip.split('/').pop());
+  if (!existsSync(zipFile)) await fetchTo(zip, zipFile);
+  const out = join(zips, zipFile.split(/[\\/]/).pop().replace(/\.zip$/, ''));
+  mkdirSync(out, { recursive: true });
+  if (process.platform === 'win32') {
+    run(join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe'), ['-xf', zipFile, '-C', out, ...members]);
+  } else {
+    run('unzip', ['-o', '-q', zipFile, ...members, '-d', out]);
+  }
+  members.forEach((m, i) => {
+    const ext = m.split('.').pop();
+    writeFileSync(join(dir, `src_${i + 1}.${ext}`), readFileSync(join(out, m)));
+  });
+}
+
+async function download(src) {
   const dir = join(cacheDir, src.name);
   mkdirSync(dir, { recursive: true });
+  if (src.download?.zip) { await fromZip(src, dir); return; }
+  if (src.download?.direct) {
+    const ext = src.url.split('?')[0].split('.').pop();
+    await fetchTo(src.url, join(dir, `src.${ext}`));
+    return;
+  }
   const dl = ['--no-playlist', '-f', 'bestaudio', '-o', join(dir, 'src.%(ext)s')];
   if (process.env.FFMPEG) dl.push('--ffmpeg-location', process.env.FFMPEG);
   if (src.download?.sections) dl.push('--download-sections', src.download.sections);
@@ -84,10 +132,14 @@ function download(src) {
  * output-side -to after an input-side -ss counts from the seek point, so it
  * silently becomes a duration. `highpass` is for SOURCES only -- run over an
  * encoded file being measured, the filter's own ringing inflates the peak.
+ * No -ss at all when reading from 0: on AAC even `-ss 0` skips the first
+ * frame (~21 ms), which on a short one-shot is the whole transient (a water
+ * drop measured -13 dBFS for a file peaking at -3).
  */
 function decode(file, from, to, { highpass = false } = {}) {
   const filter = highpass ? ['-af', 'highpass=f=20'] : [];
-  const out = run(FFMPEG, ['-v', 'error', '-ss', String(from), '-to', String(to), '-i', file,
+  const seek = from > 0 ? ['-ss', String(from)] : [];
+  const out = run(FFMPEG, ['-v', 'error', ...seek, '-to', String(to), '-i', file,
     '-ac', '1', '-ar', String(SR), ...filter, '-f', 'f32le', '-']).stdout;
   return new Float32Array(out.buffer, out.byteOffset, out.length / 4).slice();
 }
@@ -261,7 +313,7 @@ for (const src of config.sources) {
   if (only && !only.includes(src.name)) continue;
   let file = cachedSource(src.name);
   if (!file && flag('--download')) {
-    download(src);
+    await download(src);
     file = cachedSource(src.name);
   }
   if (!file) {
@@ -269,8 +321,33 @@ for (const src of config.sources) {
     continue;
   }
 
-  let x = decode(file, src.trim[0], src.trim[1], { highpass: true });
-  let trimStart = src.trim[0];
+  const trim = src.trim ?? [0, 1e6];
+  let x;
+  if (src.download?.zip && src.download.members.length > 1) {
+    // Several one-shots joined with a gap between each -- a footstep set the
+    // engine's slicer cuts back apart, one footfall per slice.
+    const gap = new Float32Array(Math.round((src.download.gap ?? 0.5) * SR));
+    // Each one to the same peak first: the slicer only cuts at transients over
+    // 18% of the FILE's peak, and Kenney's quietest carpet step sat under that.
+    const parts = cachedMembers(src.name).flatMap((f) => {
+      const one = decode(f, 0, 1e6, { highpass: true });
+      const [a, b] = autotrim(one, -50);
+      const cut = one.slice(a, b);
+      const g = 1 / (peakOf(cut) || 1);
+      for (let i = 0; i < cut.length; i++) cut[i] *= g;
+      return [cut, gap];
+    });
+    // And a lead-in, so the first step has a rise for the slicer to find --
+    // starting on sample 0 it was never counted. (Such a source must not also
+    // ask for `autotrim`, which would take the lead-in straight back off.)
+    parts.unshift(gap);
+    x = new Float32Array(parts.reduce((n, p) => n + p.length, 0));
+    let o = 0;
+    for (const p of parts) { x.set(p, o); o += p.length; }
+  } else {
+    x = decode(file, trim[0], trim[1], { highpass: true });
+  }
+  let trimStart = trim[0];
   if (src.autotrim !== undefined) {
     const [a, b] = autotrim(x, src.autotrim);
     trimStart += a / SR;

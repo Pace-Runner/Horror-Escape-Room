@@ -44,18 +44,24 @@ reasoning behind the scenegraph hierarchy.
   door). The three-lock sequence (keyed deadbolt, combination pin-pad,
   and a containment lock gated on the visor), the visor mechanic, and
   the branching ending (release or contain) are all implemented.
+- **The bedroom and the upstairs hallway are one space**: the hallway is
+  built onto the bedroom's door, so when it opens there is no fade or load
+  -- you walk through, the door shuts behind you, and the thing is already
+  standing at the end of the hall.
 - **The backrooms corridor -- the space between levels**: leaving a
   level no longer cuts straight to the next one. The screen fades to
   black and you come up in a short, wrong-feeling yellow corridor --
   damp wallpaper, a drop ceiling, mostly-dead fluorescents -- and it
-  is a warren, unguided. The route turns seven times, and each turn is a
-  T-junction where carrying straight on is the mistake; several decoys
-  fork, so a wrong turn can offer a choice of its own and one dead end
-  sits two wrong turns deep. But the corridor graph is a tree, so every
-  wrong turn is a guaranteed dead end rather than a shortcut. About
-  54 m, roughly 27 seconds if you never take one. Nothing marks the
-  route -- no arrows, no signage -- so it is found (or lost) on sight
-  alone. The way you came in has wallpaper running straight across it.
+  is a warren, unguided. The layout is the team's own 10 x 10 grid maze,
+  transcribed wall by wall into `GRID` in `src/levels/backroomsMaze.js`
+  (6.4 m per cell), with five larger rooms; the two inside the maze have
+  a door frame to come in by and another to leave by. It is crossed
+  twice: down the upstairs hallway's stairs, in at the bottom and out of
+  Door 1 at the top to Level 2 (~131 m); then from Level 2, in low on the
+  right-hand wall and out of Door 2, inside the central room, to Level 3
+  (~107 m). Nothing marks the route -- no arrows, no signage -- so it is
+  found (or lost) on sight alone. The way you came in has wallpaper
+  running straight across it. `npm run check:maze` validates the layout.
 - **A radar-style mini-map**, top-right of the HUD: a live top-down view
   centred on the player, showing nearby geometry and a facing arrow. It
   is lit by its own private light rather than the room's actual (and

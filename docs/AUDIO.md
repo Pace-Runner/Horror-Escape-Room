@@ -44,8 +44,9 @@ All are pre-master; the default master is 0.5.
 
 | # | Cue | Plays | Spatial | Level (measured) |
 |---|-----|-------|---------|------------------|
-| 1 | `laugh_distant`, one laugh phrase at a time, never one of the last two, 80 ms fades, plus the echo send | Levels 1–3, first ≥75 s after entry, then every 90–180 s (L1) / 60–150 (L2) / 75–160 (L3). Defers 10–20 s while a caption, cutscene, transition, catch, hunter or monster cue (or ≤20 s after one) is active | Random bearing (never within 30° of the last), 9–22 m away, 1.2–2.2 m up. Through a wall: −6 dB and a 900 Hz low-pass. In the open: 3.5 kHz darkening to ≈2 kHz at 22 m. Equal-power, inverse, ref 3 | −26.0 dBFS at 15 m |
-| 2 | `hunter_breath`: the user's 0–8 s, seamed at runtime | Backrooms, hunter in **chase only**. Kept running muted through chase/hunt flips, so it never restarts from the top; 0.25 s in, 0.9 s out, 60 ms cut on catch or stop | Follows the hunter at 1.5 m. HRTF, **linear**, ref 2.5, max 14 | −14.0 at ≤2.5 m, silent at 14 m |
+| 1 | `laugh_distant`, one laugh phrase at a time, never one of the last two, 80 ms fades, plus a heavy echo send (0.6) | **The backrooms only** (moved out of the house, 2026-10-17). First ≥20 s after entry, then every 30–70 s. Defers 6–12 s while a caption, cutscene, transition or catch is active, while the hunter is **chasing**, ≤20 s after a chase or stalk cue, ≤4 s after its footsteps. It does not wait for the hunter to be gone (it never is) | Random bearing (never within 30° of the last), 12–30 m away in the maze, 1.2–2.2 m up. Through a wall: −6 dB and a 900 Hz low-pass. In the open: 3.5 kHz darkening to ≈2 kHz at 30 m. Equal-power, inverse, ref 3 | −26.0 dBFS at 15 m |
+| 2 | `hunter_breath`: the user's 0–8 s, seamed at runtime | Backrooms, hunter in **chase only**. Kept running muted through chase/hunt flips, so it never restarts from the top; 0.25 s in, 0.9 s out, 60 ms cut on catch or stop | Follows the hunter at 1.5 m. HRTF, **linear**, ref 2.5, max 18 | **−8.5** at ≤2.5 m (raised 5.5 dB, 2026-10-17), silent at 18 m |
+| 3 | `annabelle_singing`: "Daisy Bell", sung through, then a 3–7 s pause, then again (not looped) | Upstairs hallway, from 1.5 s after entry; fades over 1.5 s on leaving | Behind the bathroom door (`singingAnchor`, 1.4 m into the room). Equal-power, inverse, ref 1.5, rolloff 1.4: ≈ −18 dB from the bedroom door, growing the whole hall. Low-pass 1.1 kHz far → 2.4 kHz at the door, so it gets clearer as well as louder | −24 at 1.5 m |
 | 4 | `crt_static` | Level 2 from entry until `powerStage === 'routed'`, then fades over 0.6 s and stays off; back after R. Level = 0.3 + 0.7 × the tube's `uPower` | At `monitorBody`. Equal-power, inverse, ref 0.8, rolloff 1.6, ramped out from 8 to 10 m | −30.2 at 1 m at full picture |
 | 5 | `rain_bed`, a 5:00 loop | Levels 1 and 3, 3 s in and 2.5 s out. Level 1 starts at the top, Level 3 at a random point. Survives R | 2D, ambience bus | −33 dBFS peak (≈ −52 LUFS) |
 | 6 | `caught_sting` | Exactly once per backrooms catch, first thing in `onHunterCaught`. Not on the study's Annabelle catch (`STING.onStudyCatch`). Cuts 2 and 13; ducks the bed and breathing 12 dB for its length, then a 1.5 s release | 2D, SFX bus | −8.0 |
@@ -61,18 +62,19 @@ All are pre-master; the default master is 0.5.
 
 | Situation | 12 stalk | 2 breathing | 13 steps | 1 laughter | 6 sting |
 |---|---|---|---|---|---|
-| House appearance | yes | – | – | held 20 s | – |
-| Backrooms, 1st crossing, shadow visible | yes | – | – | – | – |
-| Backrooms, hunter `search` / `hunt` | **never** | muted | yes | – | – |
+| House appearance | yes | – | – | – | – |
+| Backrooms, 1st crossing, shadow visible (no longer reachable: Level 1 now opens onto the upstairs hallway) | yes | – | – | – | – |
+| Backrooms, hunter `search` / `hunt` | **never** | muted | yes | yes, between its footsteps | – |
 | Backrooms, hunter `chase` | **never** | yes | fades | – | – |
 | Caught | cut | cut | cut | – | yes |
 
-| Level | Bed | Candles | Static | Step set | Laughter |
-|---|---|---|---|---|---|
-| `bedroom` | yes | yes | – | default | yes |
-| `hallwayBasement` | – | – | until `routed` | metal | yes |
-| `study` | yes | – | – | default | yes |
-| `backrooms` | – | – | – | default | – |
+| Level | Bed | Candles | Static | Singing | Step set | Laughter |
+|---|---|---|---|---|---|---|
+| `bedroom` | yes | yes | – | – | default | – |
+| `upstairsHallway` | – | – | – | yes | default | – |
+| `hallwayBasement` | – | – | until `routed` | – | metal | – |
+| `study` | yes | – | – | – | default | – |
+| `backrooms` | – | – | – | – | default | yes |
 
 At most one scare cue (1, 12, 13) plays at a time.
 
@@ -135,27 +137,72 @@ Offline (ffmpeg / numpy), and in headless Chrome 155 against `npm run dev`:
 - **Level 2 sighting:** visible 3.0 s ± 1 frame on the game's frame clock (it vanishes on the frame caption line 2 starts, at 2.98 s). Frames rendered at ≈0.2, 1, 2 and 2.9 s show it lit throughout; the frame after shows the empty corridor.
 - **Lockbox:** the lid reaches 4% at the latch (1.05 s) and lands at 4.28 s. The crowbar reaches the hand at 70.3% travel (3.08 s); the glove is still empty at 60%.
 
-## Deferred: Track 3, Annabelle singing
+## Laughter in the maze
 
-The user's spec:
+Each laugh is pinned to a point inside one of the maze's corridors
+(`backroomsRefs.corridors`), 12–30 m off and never from the last one's
+direction. It is HRTF-panned, so it is in front of or behind you as well as to
+one side, and is quieter and duller through walls. The shared echo is mono, so
+its send is down from 0.6 to 0.22: at 0.6 the echo was as loud as the laugh and
+washed out where it came from. It plays on both crossings. On the first it
+comes 8 s in and waits only 4 s after the trailing shadow's breathing
+(`LAUGH.firstCrossing`).
 
-> "this will be part of the new hallway after you exit level 1, Anabelle can be
-> heard singing at the end of the hallway possibly behind the door, the hallway
-> will be strangely long and the audio of Annabelle singing will get louder. IF
-> THE HALLWAY ISNT IN THE GAME DO NOT ADD YET"
+## Track 3, Annabelle singing
 
-Source: <https://www.youtube.com/watch?v=lsWNnvJY6No>.
+Where she sings is where the player has to go (`SINGING.places` in
+`AudioDirector.js`):
 
-As of `d0662e4` that hallway does not exist. Level 2's hallway is
-`HALL_LEN = 5.5` m, the transition after Level 1 is the backrooms, and no branch
-or code mentions singing. So nothing was added and the file was not downloaded.
+- **Upstairs hallway:** down the stairs, round the turn, at the end of the
+  passage they lead to (`refs.singingAnchor`). Never loud in the hall: about
+  −40 dBFS at the bedroom door and −32 at the top of the stairs (25% up on the
+  first pass, at the user's ask), below and ahead of you, darkened to 0.9–1.8 kHz. (It used to come
+  from behind the bathroom door; the user moved it, 2026-10-17.)
+- **Backrooms:** at the exit door the current crossing needs
+  (`refs.exitDoorPosition`), −22 dBFS at 2 m, about −36 at 20 m and −42 at
+  40 m, closing in to 700 Hz with distance, so it is a thread to follow from
+  anywhere in the maze.
 
-When the hallway exists, the generic emitter covers it:
+Sung through, a 3–7 s pause, then again.
 
-- a looped `createEmitter` at the far door
-- the `inverse` law for the swell
-- a director-side range ramp for "only audible from partway down"
-- `setLowpass` around 900 Hz while the door is shut, opened up when it opens
+## Free sound effects (tracks 101+)
+
+Added 2026-10-17: 47 CC0 / public-domain clips for the objects in the per-level
+audio-needs docs, fetched and cut by `build.mjs` like every other track (the
+sources, authors, licences and cuts are in `src/assets/audio/SOURCES.md`).
+`build.mjs` grew two download kinds for them: `download.direct` (a plain URL:
+Freesound's HQ preview, a Wikimedia Commons file) and `download.zip` (members
+of a Kenney pack, joined `gap` seconds apart when there are several).
+
+**One-shots** are `AudioDirector.sfx(name, { position, gainDb, near, spans })`,
+specced in the `SFX` table as "`peakDb` at `at` metres" like the cues: with a
+`position` and an `at` it plays from there through an inverse panner, otherwise
+flat. `variants` picks a file, never the last one twice; `rate` jitters the
+pitch. It returns null when the file is not decoded, so the four effects the
+game used to synthesise keep their synth as a fallback (`creak()`, `thunder()`,
+`spark()`, `paperRustle()` in main.js). Levels report sounds by name through
+an `onSfx` callback (bedroom, hallwayBasement, study) and never touch audio.
+
+| Where | What plays |
+|---|---|
+| Everywhere | Keypad presses, wrong code, accept (`PinPadUI` `onKey` / `onWrong` / `onGranted`). House creaks: two recorded creaks. Thunder: five strikes from one storm recording, darkened to 1.6 kHz; the Level 2 sighting strike is `near` (6 kHz) |
+| Level 1 | Lock-pick on the cuff, the chain dropping when it opens, keys picked up, the drawer, a photo, the floorboard, the planks prised off, the door rattling (when tried locked, and in the safe and plank beats), the key turning, the chair scrape |
+| Upstairs hallway | Rain against the window (`refs.windowAnchor`, a loop), each of the three locked doors rattling where it stands. The stairs are walked now (`groundAt`), so the player's own footsteps take them down. On arrival the creature rushes the player in the dark (main.js `startHallwayRush`): the light dying (`power_down`), synthesised running steps, a gasp when it vanishes |
+| Level 2 | Generator idle on the generator whenever it runs, and running down at the blackout. Tube hum from the nearest tube, as loud as `powerLevel`. The fuse click and the tubes striking. Breakers on/off, the fuse-box and breaker cover latches, the monitor switch, generator controls, a failed pull coughing out. The main lever at the blackout and at routing, the room powering down, the panel trip, an overload buzz riding the white-out (`director.glare()`), a CCTV glitch per feed, and the metal door instead of the wooden creak |
+| Backrooms | Carpet footsteps (`STEP_SURFACES.backrooms`). Lamp hum from the nearest lamp, as lit as it is, so it dips with each flicker, outage and blackout and stops when the exit door takes the lamps down. The wrong crossing's exit door rattles. Drips from the ceiling every 5–14 s. A gasp when the hunter first sees you (at most every 25 s). A sniff where it gives up looking, within 18 m (at most every 30 s) |
+| Level 3 | Each front-door lock as itself (deadbolt; padlock for the combination; latch for containment), the visor taken, put on and off, keys, the fence gate rattling while locked and swinging open, three deadbolts thrown in the contained ending |
+
+`npm run check:audio` reads the `SFX` table and every `sfx(...)` / `onSfx(...)`
+call in main.js and the levels: a name the table does not define is a fault
+(at runtime it would just be silent), and so is a table entry whose file is
+not in the manifest. Two self-tests prove it can fail.
+
+Verified in headless Chrome: all 59 effect files decode, every effect plays,
+thunder never repeats a strike back to back, the generator runs from the start
+of Level 2 and fades out on leaving, the buzz follows glare, rain plays at the
+hallway window, the carpet set slices into 5 steps, six drips land in 60 s,
+and the gasp and sniff fire on the hunter's chase → hunt → search. Levels are
+derived, not yet heard: see the listening checklist.
 
 ## Listening checklist (needs a human ear)
 
@@ -174,13 +221,18 @@ In the dev build, `window.__game.audioDirector` has these hooks:
 | Breathing | Anywhere; it is always on | No click or gulp every 11.9 s at the loop seam. Level 1 should read as background; the door beats (0.72) and Level 2 blackout (0.9) should read as close. It is a cold, shivering breath now, not the old one: is that the character you want? |
 | Rain bed | Level 1, then Level 3 | Sits under the wind, under every caption. No seam at the 5:00 wrap (or 3 s after reaching Level 3 at a random point). Its thunder is not synced to the lightning; does that bother you? |
 | Candles | Bedroom, walk to the headboard shelf and the vanity | Crackle only within a couple of metres; the two do not sound like one candle |
-| Laughter | Any house level, `audioDirector.scheduleLaughIn(1)` | Reads as "elsewhere in the house": distant, dull through walls, an echo tail that is not cut off. Never louder than a voice line |
+| Laughter | The backrooms, `audioDirector.scheduleLaughIn(1)` | Somewhere else in the maze: distant, dull through walls, mostly echo. Never louder than a voice line, never during a chase |
+| Annabelle singing | Upstairs hallway: walk from the bedroom door down the stairs; then each backrooms crossing | Faint at the bedroom door, growing toward the stairs and clearly below you; in the maze, faintly somewhere, leading to the exit door |
 | Static | Level 2 from entry; switch the monitor on after the 30A fuse | Faint from the dead tube, swelling as the CRT warms, gone once the breakers route. Does not mask captions at the desk |
 | Metal steps | Walk in Level 2; then sprint and crouch | One clean footfall per step (heel and toe together), no lone toe-clicks. Sprint should still be the old run |
 | Door | Each of the four doors (or `audition('door_open')`) | Starts as the door moves; the 3.4 s tail is longer than the visible swing, so decide whether to trim it |
 | Lockbox | Solve the corkboard, open the box with the brass key | Latch clicks, then the creak as the lid swings, the knock as it lands. Does the motion match? The crowbar arrives as the lid is mostly open |
 | Stalk aura | Level 2 entry (hallway sighting), camera five (corner), the first backrooms crossing (trailing shadow), the Level 1 window flash | Comes from the body, not the screen centre; each appearance a different stretch of breathing; never in the hunting crossing |
-| Hunter breathing | Backrooms, second crossing; let it see you | Silent beyond ~14 m, swelling as it closes, fading when it loses you, never restarting from the top on re-sighting |
+| Hunter breathing | Backrooms; let it see you | Silent beyond ~18 m, swelling as it closes and loud right on you, fading when it loses you, never restarting from the top on re-sighting |
 | Hunter steps | Same crossing; stay out of sight | Random walking, sometimes into running, directionally honest across the maze; stops when it sees you |
 | Caught sting | Let it catch you | Lands on the catch, not after the caption. Is 8.71 s into the source the right moment? The rest of the mix drops under it and comes back |
 | Volume and pause | Settings slider, Esc | Every cue scales; everything freezes and resumes together |
+| Free sound effects | `audioDirector.sfx(name)` for any `SFX` entry, flat; or play through | Each one's level against its neighbours: keypad clicks quiet, the main lever and power-down the loudest things in Level 2 short of the sting, thunder big but under captions. Retune with `peakDb` in `SFX` |
+| Generator and tubes | Level 2 from entry; then restore the lights | The engine is the room's floor until the blackout and runs down when the main goes; the tubes' hum fades in with the lights and is felt rather than heard |
+| Rain on glass | Upstairs hallway, walk past the window | Comes from the window, not the whole hall; no seam at the 70 s wrap |
+| Backrooms | Walk the maze | Carpet underfoot that does not sound like a shuffle of five; drips somewhere overhead, not on every corner; the gasp on being seen; a sniff when it loses you nearby |

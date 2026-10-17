@@ -69,6 +69,15 @@
       "lufs": -21,
       "truePeakDb": -3
     },
+    "annabelle_singing": {
+      "file": "amb/annabelle_singing.m4a",
+      "track": 3,
+      "sourceStart": 0.4,
+      "duration": 49.779,
+      "peakDb": -3,
+      "lufs": -18.5,
+      "truePeakDb": -3
+    },
     "crt_static": {
       "file": "sfx/crt_static.m4a",
       "track": 4,
@@ -156,7 +165,7 @@
         "start": 0.15,
         "end": 20.15,
         "seam": {
-          "jump": 0.000029,
+          "jump": 2.9e-05,
           "medianStep": 0.002074,
           "naturalStep": 0.002245,
           "ratio": 0.01
@@ -227,6 +236,464 @@
       "duration": 30.485,
       "peakDb": -2.98,
       "lufs": -25.2,
+      "truePeakDb": -3
+    },
+    "door_locked_rattle": {
+      "file": "sfx/door_locked_rattle.m4a",
+      "track": 101,
+      "sourceStart": 0.015,
+      "duration": 2.585,
+      "peakDb": -2.92,
+      "lufs": -22.5,
+      "truePeakDb": -2.7
+    },
+    "metal_door_open": {
+      "file": "sfx/metal_door_open.m4a",
+      "track": 102,
+      "sourceStart": 1.6,
+      "duration": 3.7,
+      "peakDb": -2.98,
+      "lufs": -21.1,
+      "truePeakDb": -3
+    },
+    "latch": {
+      "file": "sfx/latch.m4a",
+      "track": 105,
+      "sourceStart": 0,
+      "duration": 0.261,
+      "peakDb": -3.02,
+      "lufs": -70,
+      "truePeakDb": -2.6
+    },
+    "metal_click": {
+      "file": "sfx/metal_click.m4a",
+      "track": 106,
+      "sourceStart": 0,
+      "duration": 0.426,
+      "peakDb": -3.15,
+      "lufs": -26.7,
+      "truePeakDb": -3.1
+    },
+    "deadbolt_open": {
+      "file": "sfx/deadbolt_open.m4a",
+      "track": 107,
+      "sourceStart": 0,
+      "duration": 1.485,
+      "peakDb": -3.06,
+      "lufs": -30.7,
+      "truePeakDb": -2.7
+    },
+    "padlock_open": {
+      "file": "sfx/padlock_open.m4a",
+      "track": 108,
+      "sourceStart": 0.043,
+      "duration": 4.361,
+      "peakDb": -3.21,
+      "lufs": -22.2,
+      "truePeakDb": -3
+    },
+    "gate_open": {
+      "file": "sfx/gate_open.m4a",
+      "track": 109,
+      "sourceStart": 0,
+      "duration": 4.5,
+      "peakDb": -3.08,
+      "lufs": -15.4,
+      "truePeakDb": -3.1
+    },
+    "gate_locked": {
+      "file": "sfx/gate_locked.m4a",
+      "track": 110,
+      "sourceStart": 0.181,
+      "duration": 3.56,
+      "peakDb": -3.32,
+      "lufs": -27.1,
+      "truePeakDb": -2.8
+    },
+    "keypad_press": {
+      "file": "sfx/keypad_press.m4a",
+      "track": 111,
+      "sourceStart": 0,
+      "duration": 0.04,
+      "peakDb": -2.99,
+      "lufs": -70,
+      "truePeakDb": -3
+    },
+    "keypad_wrong": {
+      "file": "sfx/keypad_wrong.m4a",
+      "track": 112,
+      "sourceStart": 0,
+      "duration": 0.104,
+      "peakDb": -2.95,
+      "lufs": -70,
+      "truePeakDb": -3
+    },
+    "keypad_accept": {
+      "file": "sfx/keypad_accept.m4a",
+      "track": 113,
+      "sourceStart": 0,
+      "duration": 0.539,
+      "peakDb": -3.03,
+      "lufs": -15,
+      "truePeakDb": -3
+    },
+    "switch_click": {
+      "file": "sfx/switch_click.m4a",
+      "track": 114,
+      "sourceStart": 0,
+      "duration": 0.294,
+      "peakDb": -2.97,
+      "lufs": -70,
+      "truePeakDb": -2.9
+    },
+    "visor_on": {
+      "file": "sfx/visor_on.m4a",
+      "track": 115,
+      "sourceStart": 0,
+      "duration": 0.258,
+      "peakDb": -2.98,
+      "lufs": -70,
+      "truePeakDb": -3
+    },
+    "visor_off": {
+      "file": "sfx/visor_off.m4a",
+      "track": 116,
+      "sourceStart": 0,
+      "duration": 0.258,
+      "peakDb": -2.94,
+      "lufs": -70,
+      "truePeakDb": -2.9
+    },
+    "cctv_glitch": {
+      "file": "sfx/cctv_glitch.m4a",
+      "track": 117,
+      "sourceStart": 0,
+      "duration": 0.184,
+      "peakDb": -2.99,
+      "lufs": -70,
+      "truePeakDb": -2.8
+    },
+    "breaker_on": {
+      "file": "sfx/breaker_on.m4a",
+      "track": 118,
+      "sourceStart": 0,
+      "duration": 0.542,
+      "peakDb": -3,
+      "lufs": -23.2,
+      "truePeakDb": -2.6
+    },
+    "breaker_off": {
+      "file": "sfx/breaker_off.m4a",
+      "track": 119,
+      "sourceStart": 0,
+      "duration": 0.73,
+      "peakDb": -3.22,
+      "lufs": -22.5,
+      "truePeakDb": -2.7
+    },
+    "main_lever": {
+      "file": "sfx/main_lever.m4a",
+      "track": 120,
+      "sourceStart": 0,
+      "duration": 1.762,
+      "peakDb": -2.88,
+      "lufs": -21,
+      "truePeakDb": -2.5
+    },
+    "spark_pop": {
+      "file": "sfx/spark_pop.m4a",
+      "track": 121,
+      "sourceStart": 0,
+      "duration": 0.171,
+      "peakDb": -3,
+      "lufs": -70,
+      "truePeakDb": -2.6
+    },
+    "panel_trip": {
+      "file": "sfx/panel_trip.m4a",
+      "track": 122,
+      "sourceStart": 0.135,
+      "duration": 2.203,
+      "peakDb": -3.92,
+      "lufs": -31.9,
+      "truePeakDb": -3
+    },
+    "tubes_start": {
+      "file": "sfx/tubes_start.m4a",
+      "track": 123,
+      "sourceStart": 0,
+      "duration": 3,
+      "peakDb": -2.92,
+      "lufs": -26,
+      "truePeakDb": -2.6
+    },
+    "power_down": {
+      "file": "sfx/power_down.m4a",
+      "track": 124,
+      "sourceStart": 0.1,
+      "duration": 4.226,
+      "peakDb": -3,
+      "lufs": -11.9,
+      "truePeakDb": -3
+    },
+    "generator_stop": {
+      "file": "sfx/generator_stop.m4a",
+      "track": 125,
+      "sourceStart": 0,
+      "duration": 4.539,
+      "peakDb": -2.96,
+      "lufs": -20.1,
+      "truePeakDb": -2.9
+    },
+    "overload_buzz": {
+      "file": "amb/overload_buzz.m4a",
+      "track": 126,
+      "sourceStart": 0.2,
+      "sourceLoopStart": 0.3,
+      "loop": {
+        "start": 0.15,
+        "end": 4.65,
+        "seam": {
+          "jump": 0.002587,
+          "medianStep": 0.016166,
+          "naturalStep": 0.004923,
+          "ratio": 0.16
+        }
+      },
+      "duration": 4.8,
+      "peakDb": -3.09,
+      "lufs": -17.5,
+      "truePeakDb": -3.1
+    },
+    "tube_hum": {
+      "file": "amb/tube_hum.m4a",
+      "track": 127,
+      "sourceStart": 0.5,
+      "sourceLoopStart": 1,
+      "loop": {
+        "start": 0.15,
+        "end": 20.15,
+        "seam": {
+          "jump": 0.020226,
+          "medianStep": 0.016121,
+          "naturalStep": 0.033705,
+          "ratio": 1.25
+        }
+      },
+      "duration": 20.3,
+      "peakDb": -3.12,
+      "lufs": -15.3,
+      "truePeakDb": -3.1
+    },
+    "generator_idle": {
+      "file": "amb/generator_idle.m4a",
+      "track": 128,
+      "sourceStart": 0.3,
+      "sourceLoopStart": 0.5,
+      "loop": {
+        "start": 0.15,
+        "end": 8.15,
+        "seam": {
+          "jump": 0.008524,
+          "medianStep": 0.003964,
+          "naturalStep": 0.008884,
+          "ratio": 2.15
+        }
+      },
+      "duration": 8.3,
+      "peakDb": -2.97,
+      "lufs": -16.3,
+      "truePeakDb": -3
+    },
+    "thunder_1": {
+      "file": "amb/thunder_1.m4a",
+      "track": 129,
+      "sourceStart": 4.6,
+      "duration": 12.9,
+      "peakDb": -3.09,
+      "lufs": -25.6,
+      "truePeakDb": -3.1
+    },
+    "thunder_2": {
+      "file": "amb/thunder_2.m4a",
+      "track": 130,
+      "sourceStart": 34.4,
+      "duration": 6.59,
+      "peakDb": -3.09,
+      "lufs": -23.4,
+      "truePeakDb": -3.1
+    },
+    "thunder_3": {
+      "file": "amb/thunder_3.m4a",
+      "track": 131,
+      "sourceStart": 51.6,
+      "duration": 6.4,
+      "peakDb": -3.01,
+      "lufs": -25.4,
+      "truePeakDb": -3
+    },
+    "thunder_4": {
+      "file": "amb/thunder_4.m4a",
+      "track": 132,
+      "sourceStart": 66.6,
+      "duration": 14.378,
+      "peakDb": -3.05,
+      "lufs": -25.8,
+      "truePeakDb": -3
+    },
+    "thunder_5": {
+      "file": "amb/thunder_5.m4a",
+      "track": 133,
+      "sourceStart": 87.6,
+      "duration": 13.9,
+      "peakDb": -3.08,
+      "lufs": -22.9,
+      "truePeakDb": -3.1
+    },
+    "rain_glass": {
+      "file": "amb/rain_glass.m4a",
+      "track": 134,
+      "sourceStart": 0.5,
+      "sourceLoopStart": 2,
+      "loop": {
+        "start": 0.15,
+        "end": 70.15,
+        "seam": {
+          "jump": 0.003505,
+          "medianStep": 0.003284,
+          "naturalStep": 0.004152,
+          "ratio": 1.07
+        }
+      },
+      "duration": 70.3,
+      "peakDb": -3.29,
+      "lufs": -27.7,
+      "truePeakDb": -3.2
+    },
+    "drawer_open": {
+      "file": "sfx/drawer_open.m4a",
+      "track": 135,
+      "sourceStart": 0.202,
+      "duration": 1.548,
+      "peakDb": -2.99,
+      "lufs": -17.5,
+      "truePeakDb": -3
+    },
+    "planks_pry": {
+      "file": "sfx/planks_pry.m4a",
+      "track": 137,
+      "sourceStart": 0,
+      "duration": 0.888,
+      "peakDb": -2.98,
+      "lufs": -23,
+      "truePeakDb": -3
+    },
+    "wood_creak": {
+      "file": "sfx/wood_creak.m4a",
+      "track": 138,
+      "sourceStart": 0.007,
+      "duration": 0.987,
+      "peakDb": -3.07,
+      "lufs": -28.1,
+      "truePeakDb": -3.1
+    },
+    "chair_scrape": {
+      "file": "sfx/chair_scrape.m4a",
+      "track": 139,
+      "sourceStart": 0.016,
+      "duration": 1.647,
+      "peakDb": -2.98,
+      "lufs": -18.4,
+      "truePeakDb": -3
+    },
+    "keys_pickup": {
+      "file": "sfx/keys_pickup.m4a",
+      "track": 140,
+      "sourceStart": 0.354,
+      "duration": 1.198,
+      "peakDb": -3.14,
+      "lufs": -26.1,
+      "truePeakDb": -2.9
+    },
+    "paper": {
+      "file": "sfx/paper.m4a",
+      "track": 141,
+      "sourceStart": 0.015,
+      "duration": 3.355,
+      "peakDb": -2.98,
+      "lufs": -21.4,
+      "truePeakDb": -3
+    },
+    "chain_drop": {
+      "file": "sfx/chain_drop.m4a",
+      "track": 142,
+      "sourceStart": 0,
+      "duration": 2.4,
+      "peakDb": -3.28,
+      "lufs": -19.1,
+      "truePeakDb": -3.2
+    },
+    "lockpick": {
+      "file": "sfx/lockpick.m4a",
+      "track": 143,
+      "sourceStart": 45.037,
+      "duration": 3.363,
+      "peakDb": -3.66,
+      "lufs": -26.4,
+      "truePeakDb": -3
+    },
+    "hinge_creak": {
+      "file": "sfx/hinge_creak.m4a",
+      "track": 144,
+      "sourceStart": 0.02,
+      "duration": 0.641,
+      "peakDb": -2.96,
+      "lufs": -17.6,
+      "truePeakDb": -3
+    },
+    "cloth": {
+      "file": "sfx/cloth.m4a",
+      "track": 145,
+      "sourceStart": 0,
+      "duration": 0.661,
+      "peakDb": -3.35,
+      "lufs": -25.6,
+      "truePeakDb": -3.3
+    },
+    "gasp": {
+      "file": "sfx/gasp.m4a",
+      "track": 148,
+      "sourceStart": 0.002,
+      "duration": 0.945,
+      "peakDb": -3.16,
+      "lufs": -20.3,
+      "truePeakDb": -3.1
+    },
+    "sniff": {
+      "file": "monster/sniff.m4a",
+      "track": 149,
+      "sourceStart": 0,
+      "duration": 2.305,
+      "peakDb": -3.05,
+      "lufs": -19.6,
+      "truePeakDb": -3
+    },
+    "drip": {
+      "file": "sfx/drip.m4a",
+      "track": 150,
+      "sourceStart": 0,
+      "duration": 0.19,
+      "peakDb": -3.01,
+      "lufs": -70,
+      "truePeakDb": -3
+    },
+    "steps_carpet": {
+      "file": "foley/steps_carpet.m4a",
+      "track": 151,
+      "sourceStart": 0,
+      "duration": 3.214,
+      "peakDb": -3,
+      "lufs": -28,
       "truePeakDb": -3
     }
   },

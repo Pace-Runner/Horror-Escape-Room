@@ -2,7 +2,12 @@
 // over the code/length so any lock in the game can reuse it (open() takes
 // both) rather than each puzzle rolling its own keypad DOM/logic -- the
 // bedroom's lamp-drawer lock is the first caller (see bedroomLevel.js).
-export function createPinPadUI({ onClose = () => {} } = {}) {
+// `onWrong` fires once per wrong code, for whichever lock is open -- the host
+// has the player react to it (see main.js). `onKey` and `onGranted` are for
+// the host's key clicks and the accept tone; the keypad has no audio of its own.
+export function createPinPadUI({
+  onClose = () => {}, onWrong = () => {}, onKey = () => {}, onGranted = () => {}
+} = {}) {
   const view = document.getElementById('pinpad-view');
   const display = document.getElementById('pinpad-display');
   const grid = document.getElementById('pinpad-grid');
@@ -31,6 +36,7 @@ export function createPinPadUI({ onClose = () => {} } = {}) {
     busy = true;
     if (entered === expectedCode) {
       view.classList.add('granted');
+      onGranted();
       setTimeout(() => {
         view.classList.remove('granted');
         const cb = onSolvedCallback;
@@ -41,6 +47,7 @@ export function createPinPadUI({ onClose = () => {} } = {}) {
       }, 500);
     } else {
       view.classList.add('denied');
+      onWrong();
       setTimeout(() => {
         view.classList.remove('denied');
         entered = '';
@@ -53,6 +60,7 @@ export function createPinPadUI({ onClose = () => {} } = {}) {
   function pressDigit(d) {
     if (busy || !open || entered.length >= length) return;
     entered += d;
+    onKey();
     renderDisplay();
     if (entered.length === length) checkCode();
   }

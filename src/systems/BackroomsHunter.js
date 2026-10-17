@@ -42,15 +42,15 @@ import { LEGS, CORRIDORS, neighbours, crossPoint, legMid } from '../levels/backr
  *
  * The chase speed is defined as a RELATION, not a number:
  *
- *     CHASE_SPEED = SPRINT_SPEED / 1.5
+ *     CHASE_SPEED = SPRINT_SPEED / CHASE_RATIO   (1.5 / 1.3, about 1.15)
  *
- * so a sprinting player is always exactly 1.5x faster and can always break
- * away. That is the whole tension, and it is circular on purpose -- sprinting
+ * so a sprinting player is always a little faster and can always break
+ * away -- just. That is the whole tension, and it is circular on purpose -- sprinting
  * is the only thing that outruns it AND the only thing that tells it where you
  * are. Stamina (6.5 s, regenerating at 0.55/s in PointerLockPlayer) is what
  * stops that being a free answer.
  *
- * Note what this implies and do not "fix" it: at 2.35 m/s it is FASTER than
+ * Note what this implies and do not "fix" it: at 3.06 m/s it is FASTER than
  * your walk of 2.015. Once it can see you, walking is not an escape. Only
  * sprinting is, and sprinting is how it found you.
  *
@@ -80,19 +80,46 @@ import { LEGS, CORRIDORS, neighbours, crossPoint, legMid } from '../levels/backr
 const BODY_RADIUS = 0.35;
 
 /**
- * 2.353 m/s. Derived, never typed: the spec is the RATIO.
+ * 3.06 m/s. Derived, never typed: the spec is the RATIO. It was a third
+ * slower than your sprint; the user asked for it 30% faster (2026-10-17), so
+ * a sprint now only just outruns it -- 1.15x, not 1.5x. Still escapable,
+ * barely, which is the point.
  */
-export const CHASE_SPEED = SPRINT_SPEED / 1.5;
+const CHASE_RATIO = 1.5 / 1.3;
+export const CHASE_SPEED = SPRINT_SPEED / CHASE_RATIO;
 
 /**
  * Searching is slower than your walk, so a player who stays quiet can always
  * open distance. If this matched the chase speed the quiet option would not be
  * an option -- it would just be a slower way to be caught.
  */
-const SEARCH_SPEED = WALK_SPEED * 0.72;
+const SEARCH_SPEED = WALK_SPEED * 0.85;
 
-/** Unobstructed distance at which it sees you. Corridors run much longer than this. */
-const SIGHT_RANGE = 13.0;
+/**
+ * Unobstructed distance at which it sees you. Was 13 m; the maze grew to 6.4 m
+ * cells and corridors several cells long, and at 13 it could stand at one end
+ * of a corridor you were crossing and not see you.
+ */
+const SIGHT_RANGE = 18.0;
+
+/**
+ * IT HEARS FOOTSTEPS CLOSE BY. Sprinting is heard anywhere (see the header);
+ * plain walking within this many metres gives you away too, crouching never.
+ * Without it a player could stroll round a corner past it with impunity.
+ */
+const HEAR_WALK = 7.0;
+
+/**
+ * IT DRIFTS TOWARD YOU. Searching, it picks its next corridor near where you
+ * are this often (the rest are anywhere), and "near" is within this radius
+ * of you. It still does not KNOW where you are -- it wanders your way, which
+ * in a maze this size is the difference between a hunter and a screensaver.
+ */
+const DRIFT_SHARE = 0.6;
+const DRIFT_RADIUS = 20.0;
+
+/** Re-plan a hunt toward fresh noise at most this often, seconds. */
+const HUNT_REPLAN = 1.0;
 
 /**
  * How far to the side to look for a sightline the creature has not got, in
@@ -130,7 +157,7 @@ const PEEK_HOLD_MIN = 1.4;
 const PEEK_HOLD_MAX = 2.6;
 const PEEK_COOLDOWN = 9.0;
 /** Once it has seen you it keeps coming for this long after losing sight. */
-const SIGHT_MEMORY = 2.5;
+const SIGHT_MEMORY = 4.0;
 
 /** How close counts as reaching you. Same as CreatureAI's CONTACT_RANGE. */
 const CONTACT_RANGE = 0.85;
@@ -303,15 +330,28 @@ export function createBackroomsHunter({
   let peekCool = 0;             // so it does not do it at every corner of one wall
   let stallFor = 0;
   const stallFrom = { x: 0, z: 0 };
+  let huntPlannedFor = null;    // the corridor the current hunt path leads to
+  let huntReplanIn = 0;
 
   function setPath(target) {
     waypoints = pathBetween(pos, target);
   }
 
-  /** A corridor to wander to that is not the one it is already standing in. */
+  /**
+   * A corridor to wander to that is not the one it is already standing in --
+   * most of the time one near the player (DRIFT_SHARE).
+   */
   function pickWanderTarget() {
     const here = legAt(pos.x, pos.z);
-    const names = Object.keys(LEGS).filter((n) => n !== here);
+    let names = Object.keys(LEGS).filter((n) => n !== here);
+    if (Math.random() < DRIFT_SHARE) {
+      const p = getPlayer();
+      const near = names.filter((n) => {
+        const m = legMid(n);
+        return Math.hypot(m.x - p.x, m.z - p.z) <= DRIFT_RADIUS;
+      });
+      if (near.length) names = near;
+    }
     const pick = names[Math.floor(Math.random() * names.length)];
     return legMid(pick);
   }
@@ -568,10 +608,14 @@ export function createBackroomsHunter({
       // --- what it knows ---------------------------------------------------
       if (seen) {
         sawFor = SIGHT_MEMORY;
+        // Where it last SAW you is where it goes when it loses you -- not
+        // straight back to wandering, which is what made breaking line of
+        // sight round any corner a guaranteed escape.
+        heard = { x: player.x, z: player.z };
       } else if (sawFor > 0) {
         sawFor -= dt;
       }
-      if (player.sprinting) {
+      if (player.sprinting || (player.walking && dist <= HEAR_WALK)) {
         // Noise. It does not matter whether it can see you.
         heard = { x: player.x, z: player.z };
       }
@@ -631,7 +675,18 @@ export function createBackroomsHunter({
         setPath({ x: player.x, z: player.z });
         advance(dt, CHASE_SPEED, TURN_RATE_CHASE);
       } else if (state === 'hunt') {
-        if (wasState !== 'hunt' || !waypoints.length) setPath(heard);
+        // RE-PLANNED AS THE NOISE MOVES. It used to path to the first place it
+        // heard you and never update, so a player sprinting about led it to a
+        // stale spot, it "arrived", found nothing and gave up -- the reason it
+        // could never find someone running round the maze.
+        huntReplanIn -= dt;
+        const heardLeg = legAt(heard.x, heard.z);
+        if (wasState !== 'hunt' || !waypoints.length
+          || (heardLeg !== huntPlannedFor && huntReplanIn <= 0)) {
+          setPath(heard);
+          huntPlannedFor = heardLeg;
+          huntReplanIn = HUNT_REPLAN;
+        }
         const arrived = advance(dt, CHASE_SPEED, TURN_RATE_CHASE);
         if (arrived || Math.hypot(heard.x - pos.x, heard.z - pos.z) < SEARCH_ARRIVED) {
           // It got where it last heard you and you are not there. This is the
@@ -709,8 +764,8 @@ export function createBackroomsHunter({
 // Warn, do not throw -- the same rule CreatureAI.js uses at the bottom of its
 // file. A bad number should cost a console line, not the whole app.
 
-if (Math.abs(SPRINT_SPEED / CHASE_SPEED - 1.5) > 1e-6) {
-  console.error('BackroomsHunter: the sprint/chase ratio is no longer 1.5 '
+if (Math.abs(SPRINT_SPEED / CHASE_SPEED - CHASE_RATIO) > 1e-6 || SPRINT_SPEED <= CHASE_SPEED) {
+  console.error(`BackroomsHunter: the sprint/chase ratio is no longer ${CHASE_RATIO.toFixed(3)} `
     + `(${(SPRINT_SPEED / CHASE_SPEED).toFixed(3)}). A sprinting player must always `
     + 'be able to break away, or the only counter-play is gone.');
 }

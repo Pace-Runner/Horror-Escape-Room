@@ -11,7 +11,7 @@ import {
 import { addBaseboard } from '../world/trim.js';
 import { createRainGlassMaterial } from '../world/RainGlassMaterial.js';
 import { loadModel, applyTextureByMaterialName } from '../world/modelLoader.js';
-import { line } from '../dialogue/index.js';
+import { line, linePicker } from '../dialogue/index.js';
 import { cueInfo } from '../world/audio/assets.js';
 import bedModelUrl from '../assets/models/bed.glb?url';
 import bedsideTableModelUrl from '../assets/models/bedside_table.glb?url';
@@ -309,7 +309,10 @@ export function createBedroomLevel({
   // is what brings the thing past the door. The level reports the read and
   // main.js decides what happens, the same split every other callback here uses.
   onReadMessage = () => {},
-  onExaminePolaroid = () => {}
+  onExaminePolaroid = () => {},
+  // A sound effect by name (AudioDirector's SFX) -- the level has no audio of
+  // its own, so it says what made a noise and main.js plays it.
+  onSfx = () => {}
 } = {}) {
   const group = new THREE.Group();
   group.name = 'Level1_Bedroom';
@@ -511,6 +514,20 @@ export function createBedroomLevel({
     hallwayVoid.position.set(DOOR_POSITION_X, doorwayHeightMetres / 2, ROOM_D / 2 + 0.26);
     hallwayVoid.rotation.y = Math.PI;
     structure.add(hallwayVoid);
+    doorwayVoid = hallwayVoid;
+  }
+  /** The black card in the doorway, hidden while the real hallway stands behind it. */
+  let doorwayVoid = null;
+  /** Open: the doorway can be walked through and seen through. Closed: as built. */
+  function setDoorwayOpen(open) {
+    // The wall's plug AND the closed door's own footprint: either alone and
+    // the doorway is still solid.
+    for (const blocker of doorwayBlockers) {
+      const i = colliders.indexOf(blocker);
+      if (open && i >= 0) colliders.splice(i, 1);
+      if (!open && i < 0) colliders.push(blocker);
+    }
+    if (doorwayVoid) doorwayVoid.visible = !open;
   }
 
   // back wall (has the window), front wall (has the door), right wall
@@ -599,11 +616,19 @@ export function createBedroomLevel({
     }).catch((error) => console.warn('Bedroom hollow visual could not load:', error));
   }
 
+  const doorwayPlug = { minX: DOOR_POSITION_X - 0.5, maxX: DOOR_POSITION_X + 0.5, minZ: ROOM_D / 2 - 0.15, maxZ: ROOM_D / 2 + 0.1 };
+  /** Everything that closes the doorway: setDoorwayOpen takes them all out. */
+  const doorwayBlockers = [doorwayPlug];
   colliders.push(
     { minX: -ROOM_W / 2 - 0.1, maxX: -ROOM_W / 2 + 0.15, minZ: -ROOM_D / 2, maxZ: ROOM_D / 2 },
     { minX: ROOM_W / 2 - 0.15, maxX: ROOM_W / 2 + 0.1, minZ: -ROOM_D / 2, maxZ: ROOM_D / 2 },
     { minX: -ROOM_W / 2, maxX: ROOM_W / 2, minZ: -ROOM_D / 2 - 0.1, maxZ: -ROOM_D / 2 + 0.15 },
-    { minX: -ROOM_W / 2, maxX: ROOM_W / 2, minZ: ROOM_D / 2 - 0.15, maxZ: ROOM_D / 2 + 0.1 }
+    // The door wall, either side of the doorway, and the doorway itself as a
+    // plug that comes out while the door stands open (setDoorwayOpen): the
+    // upstairs hallway is built onto the other side of it, one space.
+    { minX: -ROOM_W / 2, maxX: DOOR_POSITION_X - 0.5, minZ: ROOM_D / 2 - 0.15, maxZ: ROOM_D / 2 + 0.1 },
+    { minX: DOOR_POSITION_X + 0.5, maxX: ROOM_W / 2, minZ: ROOM_D / 2 - 0.15, maxZ: ROOM_D / 2 + 0.1 },
+    doorwayPlug
   );
 
   addBaseboard(structure, {
@@ -1327,6 +1352,8 @@ export function createBedroomLevel({
   doorHinge.position.set(-0.5, 1.0, 0.025);
   doorFrame.add(doorHinge);
   const doorOpenSwing = Math.PI / 2;
+  /** Set once the player is through: the open door swings shut behind them (shutDoor). */
+  let doorShutBehind = false;
   const doorRattleDurationSeconds = 0.28;
   const doorRattleAmplitudeRadians = 0.045;
   let doorRattleRemainingSeconds = 0;
@@ -1542,10 +1569,13 @@ export function createBedroomLevel({
   };
   interactables.push(polaroid);
 
-  colliders.push({
+  // The closed door. It comes out with the wall's plug (setDoorwayOpen).
+  const closedDoorCollider = {
     minX: doorFrame.position.x - 0.6, maxX: doorFrame.position.x + 0.6,
     minZ: doorFrame.position.z - 0.1, maxZ: doorFrame.position.z + 0.15
-  });
+  };
+  colliders.push(closedDoorCollider);
+  doorwayBlockers.push(closedDoorCollider);
 
   // ---------- hero wallpaper tear beside the door ----------
   // Use the supplied tears' real colour, dark interior and irregular alpha.
@@ -2755,6 +2785,21 @@ export function createBedroomLevel({
   group.add(bedroomKeyHitbox);
 
   interactables.push(doorSlab);
+
+  /**
+   * Trying the door while it is still locked. The first try in each state says
+   * what is wrong with it (the planks, then the missing key); every try after
+   * that is the player muttering one of the "still locked" takes, at random and
+   * never the same twice running -- the same sentence on every press of E is a
+   * recording, not a person. Only the takes that make sense now are offered:
+   * the one about the planks while they are on, the one about the key once
+   * they are off.
+   */
+  const lockedTries = { planks: 0, key: 0 };
+  const pickLockedLine = linePicker([
+    'dialog_open_door_locked_1', 'dialog_open_door_locked_2', 'dialog_open_door_locked_3'
+  ]);
+
   doorSlab.userData.interact = {
     label: 'Open door',
     onInteract: () => {
@@ -2774,11 +2819,17 @@ export function createBedroomLevel({
           onDoorPlankRemoved();
           showCaption(line('dialog_door_planks_pried_off'));
         } else {
-          showCaption(line('dialog_door_planks_examine'));
+          onSfx('door_locked_rattle');
+          showCaption(line(lockedTries.planks++ === 0
+            ? 'dialog_door_planks_examine'
+            : pickLockedLine(['dialog_open_door_locked_1', 'dialog_open_door_locked_2'])));
         }
       } else if (!puzzleState.doorUnlocked) {
         if (!puzzleState.hasBedroomKey) {
-          showCaption(line('dialog_door_locked_needs_key'));
+          onSfx('door_locked_rattle');
+          showCaption(line(lockedTries.key++ === 0
+            ? 'dialog_door_locked_needs_key'
+            : pickLockedLine(['dialog_open_door_locked_1', 'dialog_open_door_locked_3'])));
           return;
         }
         if (!isHolding('bedroomKey')) {
@@ -3264,6 +3315,11 @@ export function createBedroomLevel({
     // level omits spawnPitch and is unaffected.
     spawnPitch: -0.30,
     refs: {
+      /** The door, world space: where the upstairs hallway is built on. */
+      doorway: { x: DOOR_POSITION_X, z: ROOM_D / 2 },
+      setDoorwayOpen,
+      /** The open door swings shut (the player has gone through). */
+      shutDoor() { doorShutBehind = true; },
       bedExitPosition: [BED_POSITION_X, BED_EXIT_POSITION_Z],
       bedsideTableCollider,
       disturbChair,
@@ -3323,6 +3379,9 @@ export function createBedroomLevel({
       exitTimer = null;
       clearTimeout(freeTimer);
       freeTimer = null;
+      lockedTries.planks = 0;
+      lockedTries.key = 0;
+      pickLockedLine.reset();
 
       paperclip.visible = true;
       paperclipHitbox.visible = true;
@@ -3410,6 +3469,8 @@ export function createBedroomLevel({
 
       resetDoorPlankPresentation();
       doorHinge.rotation.y = 0;
+      doorShutBehind = false;
+      setDoorwayOpen(false);
       doorRattleRemainingSeconds = 0;
 
       doorPass.active = false;
@@ -3560,7 +3621,7 @@ export function createBedroomLevel({
         ? Math.sin(doorRattlePhase * Math.PI * 3) * doorRattleAmplitudeRadians * (1 - doorRattlePhase)
         : 0;
       doorRattleRemainingSeconds = Math.max(0, doorRattleRemainingSeconds - dt);
-      const targetDoorRotY = (puzzleState.doorUnlocked ? doorOpenSwing : 0) + doorRattleOffset;
+      const targetDoorRotY = (puzzleState.doorUnlocked && !doorShutBehind ? doorOpenSwing : 0) + doorRattleOffset;
       doorHinge.rotation.y += (targetDoorRotY - doorHinge.rotation.y) * Math.min(1, dt * 3);
 
       // The planks remain puzzle-state-driven: this is presentation only. A

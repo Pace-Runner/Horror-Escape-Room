@@ -88,35 +88,99 @@ const STATIC = {
 };
 
 /**
- * Track 1. -26 dBFS at 15 m -- quieter than any voice line by 20 dB, and it
- * waits for captions anyway. inverse ref 3 makes 9 m -21.5 and 22 m -29.3.
+ * Track 1. The backrooms ONLY now -- the user moved it out of the house: a
+ * woman laughing somewhere in the maze, never where you are, and heard mostly
+ * as its echo off the corridors.
+ *
+ * -26 dBFS at 15 m, quieter than any voice line by 20 dB, and it waits for
+ * captions anyway. inverse ref 3 makes 12 m -24 and 30 m -32: always somewhere
+ * else in the maze, never at the next corner. The echo send is nearly double
+ * the house's old 0.35, so in the long hard corridors the reflections carry as
+ * much of it as the laugh itself.
+ *
+ * It shares the maze with the hunter, so it does not wait for the hunter to be
+ * gone (it never is): only for its chase, and for its own footsteps to finish.
  */
 const LAUGH = {
   cue: 'laugh_distant', peakDb: -26, at: 15,
-  panner: { model: 'equalpower', distanceModel: 'inverse', refDistance: 3, rolloff: 1 },
-  gapByLevel: { bedroom: [90, 180], hallwayBasement: [60, 150], study: [75, 160] },
-  firstAfter: 75, defer: [10, 20], distance: [9, 22], height: [1.2, 2.2],
+  // HRTF, so it is in FRONT of or BEHIND you as well as left or right -- the
+  // equal-power panner only ever said which ear, and with a heavy echo on top
+  // the laugh read as coming from nowhere. Trimmed for HRTF's presence lift.
+  panner: { model: 'HRTF', distanceModel: 'inverse', refDistance: 3, rolloff: 1 },
+  hrtfTrimDb: -3,
+  gapByLevel: { backrooms: [30, 70] },
+  firstAfter: 20, defer: [6, 12], distance: [12, 30], height: [1.2, 2.2],
   // Never within 30 degrees of where the last one came from.
   minTurn: Math.PI / 6,
   // A wall between it and the player: -6 dB and most of the top gone.
   occludedDb: -6, occludedLowpass: 900,
-  // Clear line: 3.5 kHz at 9 m, darkening to ~2 kHz at 22 m.
+  // Clear line: 3.5 kHz at 12 m, darkening to ~2 kHz at 30 m.
   clearLowpass: 3500, darkenExponent: 0.63,
-  fade: 0.08, echoSend: 0.35,
-  // Quiet this long after any monster cue, so a laugh never lands on a sighting.
+  // The echo is mono and unpanned: at 0.6 it was as loud as the laugh and
+  // smeared away where it was. 0.22 keeps the corridors' ring without that.
+  fade: 0.08, echoSend: 0.22,
+  // Quiet this long after the hunter last chased you or the aura last played,
+  // so a laugh never lands on top of the thing that is actually there...
   monsterQuiet: 20,
+  // ...and this long after its footsteps stopped, so the two scares alternate
+  // rather than one following straight on from the other.
+  stepsQuiet: 4,
   // Used only if the manifest has no phrase list for the file.
-  excerpt: [3, 6]
+  excerpt: [3, 6],
+  // The FIRST crossing has no hunter, only the trailing shadow -- and its
+  // breathing kept the 20 s monster quiet topped up, so the laugh almost never
+  // got in. There it comes early and only waits a few seconds after the aura.
+  firstCrossing: { firstAfter: 8, monsterQuiet: 4 }
 };
 
 /**
- * Track 2. -14 dBFS at <= 2.5 m: under the sting (-8) and the loudest story
- * breath's neighbourhood. LINEAR, so it is genuinely silent beyond 14 m (the
- * hunter's own BREATH_FAR) and rises monotonically to full at 2.5.
+ * Track 3. Annabelle, singing -- and where she is, is where to go.
+ *
+ *   upstairsHallway  Down the stairs, round the turn into the passage at their
+ *                    foot (upstairsHallwayLevel's singingAnchor). Never loud
+ *                    in the hall: -30 dBFS at 5 m, the top of the stairs, and
+ *                    with inverse ref 1.5 / rolloff 1.4 about -40 at the
+ *                    bedroom door, 14 m off -- slightly there on arrival,
+ *                    growing the whole way down, and below and ahead of you, so
+ *                    it is plain she is down the stairs. Round a corner, so dark:
+ *                    900 Hz from the far end, 1.8 kHz at the top of the stairs.
+ *   backrooms        At the exit door this crossing needs (backroomsLevel's
+ *                    exitDoorPosition): a thread to follow through the maze.
+ *                    -22 dBFS at 2 m; inverse ref 4 keeps her -36 at 20 m and
+ *                    -42 at 40 m, so she is faintly somewhere from anywhere in
+ *                    it, and the top closes in with distance, 2.6 kHz near the
+ *                    door to 700 Hz at 40 m.
+ *
+ * Sung through, then a pause, then again -- see updateSinging.
+ */
+const SINGING = {
+  cue: 'annabelle_singing', firstAfter: 1.5, gap: [3, 7], fadeIn: 1.2, fadeOut: 1.5,
+  places: {
+    upstairsHallway: {
+      // Both 25% (+1.9 dB) up on the first pass, at the user's ask.
+      peakDb: -30.1, at: 5,
+      panner: { model: 'equalpower', distanceModel: 'inverse', refDistance: 1.5, rolloff: 1.4 },
+      nearLowpass: 1800, farLowpass: 900, nearFrom: 5, farFrom: 14
+    },
+    backrooms: {
+      peakDb: -22.1, at: 2,
+      panner: { model: 'equalpower', distanceModel: 'inverse', refDistance: 4, rolloff: 1 },
+      nearLowpass: 2600, farLowpass: 700, nearFrom: 2, farFrom: 40
+    }
+  }
+};
+
+/**
+ * Track 2. -8.5 dBFS at <= 2.5 m: raised 5.5 dB from the first pass's -14 at
+ * the user's ask, so up close it is the loudest continuous thing in the game --
+ * level with the sting (-8), which cuts it on a catch anyway. LINEAR, so it
+ * still rises monotonically to full at 2.5 m and is genuinely silent past
+ * maxDistance -- 22 m, past the 18 m it can now see you at (BackroomsHunter's
+ * SIGHT_RANGE), so the breath is on you a moment before it is.
  */
 const HUNTER_BREATH = {
-  cue: 'hunter_breath', peakDb: -14, at: 2.5, y: 1.5,
-  panner: { model: 'HRTF', distanceModel: 'linear', refDistance: 2.5, maxDistance: 14, rolloff: 1 },
+  cue: 'hunter_breath', peakDb: -8.5, at: 2.5, y: 1.5,
+  panner: { model: 'HRTF', distanceModel: 'linear', refDistance: 2.5, maxDistance: 22, rolloff: 1 },
   // setTargetAtTime reaches 95% in three time constants.
   fadeIn: 0.25, fadeOut: 0.9, cut: 0.06
 };
@@ -176,6 +240,108 @@ const LOCKBOX = {
   panner: { model: 'equalpower', distanceModel: 'inverse', refDistance: 0.8, rolloff: 1.2 }
 };
 
+/**
+ * THE FREE SOUND EFFECTS (tracks 101+; sources, authors and licences in
+ * src/assets/audio/SOURCES.md). Same contract as the cues above: `peakDb` at
+ * `at` metres when the sound is out in the room, through SFX_PANNER. With no
+ * `at` it is flat and centred -- something in the player's own hands. Pinned
+ * against the synthesised effects they stand in for: the old creak peaked
+ * around -20 dBFS, the spark -15, the paper -25.
+ *
+ *   variants  one of several files, never the same one twice running
+ *   rate      [lo, hi] playback-rate jitter, so a repeated sound is not a loop
+ *   duration  play only the first this-many seconds (with a short fade)
+ */
+const SFX_PANNER = { model: 'equalpower', distanceModel: 'inverse', refDistance: 1.5, rolloff: 1 };
+const SFX = {
+  // In the hands.
+  keys_pickup: { peakDb: -22 },
+  drawer_open: { peakDb: -20 },
+  door_locked_rattle: { peakDb: -18, at: 1.2, rate: [0.94, 1.06] },
+  paper: { peakDb: -26, duration: 1.3 },
+  lockpick: { peakDb: -24 },
+  planks_pry: { peakDb: -15, rate: [0.92, 1.05] },
+  padlock_open: { peakDb: -20 },
+  deadbolt_open: { peakDb: -18 },
+  latch: { peakDb: -20 },
+  metal_click: { peakDb: -22 },
+  keypad_press: { peakDb: -26, rate: [0.94, 1.06] },
+  keypad_wrong: { peakDb: -22 },
+  keypad_accept: { peakDb: -22 },
+  switch_click: { peakDb: -20, rate: [0.95, 1.05] },
+  visor_on: { peakDb: -24 },
+  visor_off: { peakDb: -26 },
+  cctv_glitch: { peakDb: -24, rate: [0.9, 1.1] },
+  breaker_on: { peakDb: -17, rate: [0.96, 1.04] },
+  breaker_off: { peakDb: -18, rate: [0.96, 1.04] },
+  main_lever: { peakDb: -13 },
+  chain_drop: { peakDb: -18 },
+  gate_open: { peakDb: -15 },
+  gate_locked: { peakDb: -18 },
+  cloth: { peakDb: -28 },
+  gasp: { peakDb: -17 },
+  // In the room.
+  metal_door_open: { peakDb: -14, at: 1.5 },
+  chair_scrape: { peakDb: -20, at: 2.5 },
+  spark: { peakDb: -14, at: 1.5, variants: ['spark_pop'], rate: [0.9, 1.15] },
+  panel_trip: { peakDb: -14, at: 1.5 },
+  tubes_start: { peakDb: -24, at: 2 },
+  power_down: { peakDb: -13, at: 3 },
+  generator_stop: { peakDb: -15, at: 2 },
+  creak: { peakDb: -21, variants: ['wood_creak', 'hinge_creak'], rate: [0.88, 1.1] },
+  sniff: { peakDb: -20, at: 2 },
+  drip: { peakDb: -32, at: 2, rate: [0.85, 1.2] },
+  // A few miles off: the full strike, darkened. `near` in sfx() takes the top off less.
+  thunder: {
+    peakDb: -13, lowpass: 1600, nearLowpass: 6000,
+    variants: ['thunder_1', 'thunder_2', 'thunder_3', 'thunder_4', 'thunder_5']
+  }
+};
+
+/**
+ * Loops that sit on something in a level and follow its state rather than a
+ * schedule. The inverse law's tail never reaches silence, so each fades out
+ * between `fadeFrom` and `silentBy` like the candles.
+ *
+ *   generator  Level 2's generator, whenever its engine is turning over
+ *   tubes      Level 2's fluorescents while they have power, and the backrooms'
+ *              lamps as lit as each one is -- heard from the nearest fixture
+ *   glare      the overload buzz: rides the white-out an over-rated fuse or a
+ *              tripped panel puts on the screen
+ *   rain       against the upstairs hallway's one window
+ */
+const GENERATOR = {
+  cue: 'generator_idle', peakDb: -21, at: 1.5, y: 0.5, fadeIn: 0.8, fadeOut: 0.4,
+  panner: { model: 'equalpower', distanceModel: 'inverse', refDistance: 1, rolloff: 1.2 },
+  fadeFrom: 14, silentBy: 20
+};
+const TUBES = {
+  cue: 'tube_hum', peakDb: -36, at: 1.5,
+  panner: { model: 'equalpower', distanceModel: 'inverse', refDistance: 1, rolloff: 1 },
+  fadeFrom: 12, silentBy: 18, rise: 0.4
+};
+const GLARE = { cue: 'overload_buzz', peakDb: -16, rise: 0.04, fall: 0.25 };
+const RAIN_GLASS = {
+  cue: 'rain_glass', peakDb: -30, at: 1, level: 'upstairsHallway', fadeIn: 2, fadeOut: 1.5,
+  panner: { model: 'equalpower', distanceModel: 'inverse', refDistance: 1, rolloff: 1 }
+};
+
+/** The player's breath catching when the hunter first sees them, at most this often. */
+const GASP_EVERY = 25;
+
+/**
+ * It has lost you, and it sniffs for you -- at most this often, and only when
+ * it is near enough to be heard doing it: past that it is a sound from nowhere.
+ */
+const SNIFF_EVERY = 30;
+const SNIFF_WITHIN = 18;
+
+/**
+ * Water dripping somewhere in the backrooms' ceiling tiles: one drop every
+ * `gap` seconds, `distance` metres off in a random direction at ceiling height.
+ */
+const DRIPS = { level: 'backrooms', gap: [5, 14], distance: [4, 11], y: 2.6 };
+
 // ---------------------------------------------------------------------------
 
 const dbToGain = (db) => 10 ** (db / 20);
@@ -225,17 +391,32 @@ export function createAudioDirector({
   candleAnchors = [],
   /** hallwayBasement.refs, for the CRT's position, power and the power stage. */
   basementRefs = null,
+  /** upstairsHallway.refs, for where Annabelle is singing. */
+  hallwayRefs = null,
+  /** backrooms.refs, for its lamps' hum and the exit door Annabelle sings at. */
+  backroomsRefs = null,
   THREE
 }) {
   const v = new THREE.Vector3();
   const listenerPos = new THREE.Vector3();
   const listenerFwd = new THREE.Vector3();
+  const tubePos = new THREE.Vector3();
 
   const gains = {
     bed: levelFor(BED), candle: levelFor(CANDLE), static: levelFor(STATIC), laugh: levelFor(LAUGH),
     hunterBreath: levelFor(HUNTER_BREATH), hunterSteps: levelFor(HUNTER_STEPS),
-    stalk: levelFor(STALK), sting: levelFor(STING), door: levelFor(DOOR), lockbox: levelFor(LOCKBOX)
+    stalk: levelFor(STALK), sting: levelFor(STING), door: levelFor(DOOR), lockbox: levelFor(LOCKBOX),
+    singingHallway: levelFor({ cue: SINGING.cue, ...SINGING.places.upstairsHallway }),
+    singingBackrooms: levelFor({ cue: SINGING.cue, ...SINGING.places.backrooms }),
+    generator: levelFor(GENERATOR), tubes: levelFor(TUBES),
+    glare: levelFor(GLARE), rainGlass: levelFor(RAIN_GLASS)
   };
+  /** Per file, not per effect: two variants recorded at different levels still land on the same target. */
+  const sfxGain = (name, file) => {
+    const spec = SFX[name];
+    return levelFor({ ...spec, cue: file, at: spec.at ?? 1, panner: spec.at ? SFX_PANNER : null });
+  };
+  const sfxLast = {};
 
   /** The director's clock: seconds of actual play. */
   let clock = 0;
@@ -256,7 +437,24 @@ export function createAudioDirector({
   const steps = { cue: null, nextAt: Infinity, wasSearching: false };
   const stalk = { cue: null, token: 0, follow: null, endsAt: Infinity, bag: [], lastStart: null, window: null };
   let lastMonsterAt = -Infinity;
+  let lastStepsAt = -Infinity;
+  /**
+   * `from`: set by startSinging() -- the hallway's singing, which starts once
+   * the rush is over while the player may still be in the bedroom looking
+   * through the open door, and carries on unbroken as they walk into the hall.
+   */
+  const singing = { cue: null, nextAt: Infinity, from: null };
   let lockboxCue = null;
+  let generatorCue = null;
+  let tubesCue = null;
+  let glareCue = null;
+  let glareLevel = 0;
+  let rainGlassCue = null;
+  let lastGaspAt = -Infinity;
+  let wasChasing = false;
+  let lastSniffAt = -Infinity;
+  let hunterWas = null;
+  let nextDripAt = Infinity;
   /** DEV auditions still playing: { emitter, until } in context seconds. */
   const auditions = new Set();
 
@@ -354,15 +552,184 @@ export function createAudioDirector({
     staticCue.setGain(gains.static * (STATIC.floor + (1 - STATIC.floor) * power) * reach, 0.08);
   }
 
+  /** A looping cue started silent at `pos`, its loop window from the manifest, from a random point in it. */
+  function startLoop(spec, bus, pos, fadeIn = spec.fadeIn ?? 0.5) {
+    const loop = cueInfo(spec.cue)?.loop ?? { start: 0, end: 0 };
+    return play(spec.cue, bus, {
+      loop: true, loopStart: loop.start, loopEnd: loop.end,
+      offset: loop.end ? rand(loop.start, loop.end) : 0,
+      gain: 0, fadeIn, panner: spec.panner ?? null, position: pos ? [pos.x, pos.y, pos.z] : null
+    });
+  }
+
+  /**
+   * Level 2's generator, whenever the engine is turning over -- which is every
+   * stage but the blackout. When the main is thrown it does not just stop: it
+   * runs down (generator_stop) where it stands.
+   */
+  function updateGenerator() {
+    const g = basementRefs?.generator;
+    if (levelKey !== 'hallwayBasement' || !g) return;
+    g.getWorldPosition(v);
+    v.y += GENERATOR.y;
+    const running = basementRefs.generatorRunning;
+    if (!running && generatorCue) {
+      generatorCue = stopCue(generatorCue, GENERATOR.fadeOut);
+      director.sfx('generator_stop', { position: v });
+      return;
+    }
+    if (running && !generatorCue) generatorCue = startLoop(GENERATOR, 'amb', v);
+    if (!generatorCue) return;
+    const reach = rangeFade(listenerPos.distanceTo(v), GENERATOR.fadeFrom, GENERATOR.silentBy);
+    generatorCue.setGain(gains.generator * reach, 0.2);
+  }
+
+  /**
+   * Fluorescent hum, heard from whichever fixture is nearest and as loud as it
+   * is lit: the lab's tubes follow its power ramp; each backrooms lamp follows
+   * its own flicker, outages and blackouts -- so when the exit door takes every
+   * lamp down, "the humming stops all at once" is literally true.
+   */
+  function updateTubes() {
+    const lab = levelKey === 'hallwayBasement';
+    const tubes = lab ? basementRefs?.fluorescents : levelKey === 'backrooms' ? backroomsRefs?.lamps : null;
+    if (!tubes?.length) return;
+    let best = Infinity;
+    let nearest = null;
+    const near = tubePos;
+    for (const tube of tubes) {
+      tube.light.getWorldPosition(v);
+      const d = listenerPos.distanceTo(v);
+      if (d < best) { best = d; near.copy(v); nearest = tube; }
+    }
+    const power = lab
+      ? basementRefs.powerLevel ?? 0
+      : Math.min(1, nearest.light.intensity / (nearest.base || 1));
+    if (!tubesCue && power > 0.01) tubesCue = startLoop(TUBES, 'amb', near, 0);
+    if (!tubesCue) return;
+    tubesCue.setPosition(near.x, near.y, near.z, 0.3);
+    tubesCue.setGain(gains.tubes * power * rangeFade(best, TUBES.fadeFrom, TUBES.silentBy), TUBES.rise);
+  }
+
+  /** The overload buzz, riding the white-out. Flat: it is the whole room. */
+  function updateGlare() {
+    if (glareLevel > 0.01 && !glareCue) glareCue = startLoop(GLARE, 'sfx', null, 0);
+    if (!glareCue) return;
+    const g = gains.glare * Math.min(1, glareLevel * 1.4);
+    glareCue.setGain(g, glareLevel > 0.01 ? GLARE.rise : GLARE.fall);
+    if (glareLevel <= 0.01 && glareCue.level < 1e-3) glareCue = stopCue(glareCue, 0.05);
+  }
+
+  /** Rain against the upstairs hallway's window. */
+  function updateRainGlass() {
+    const anchor = hallwayRefs?.windowAnchor;
+    if (levelKey !== RAIN_GLASS.level || !anchor) return;
+    anchor.getWorldPosition(v);
+    if (!rainGlassCue) {
+      rainGlassCue = startLoop(RAIN_GLASS, 'amb', v);
+      rainGlassCue?.setGain(gains.rainGlass, 0);
+    }
+  }
+
+  /** The hunter has just seen them: the player's breath catches. */
+  function updateGasp() {
+    const chasing = levelKey === 'backrooms' && hunter.state === 'chase';
+    if (chasing && !wasChasing && clock - lastGaspAt > GASP_EVERY && isRunning()) {
+      if (director.sfx('gasp')) lastGaspAt = clock;
+    }
+    wasChasing = chasing;
+  }
+
+  /**
+   * It has got to where it last saw or heard you, and you are not there: it
+   * goes back to searching, and sniffs for you where it stands.
+   */
+  function updateSniff() {
+    const state = levelKey === 'backrooms' ? hunter.state : null;
+    if ((hunterWas === 'chase' || hunterWas === 'hunt') && state === 'search' &&clock - lastSniffAt > SNIFF_EVERY && isRunning()) {
+      const p = hunter.position;
+      const near = Math.hypot(p.x - listenerPos.x, p.z - listenerPos.z) <= SNIFF_WITHIN;
+      if (near && director.sfx('sniff', { position: { x: p.x, y: 1.5, z: p.z } })) lastSniffAt = clock;
+    }
+    hunterWas = state;
+  }
+
+  function updateDrips() {
+    if (levelKey !== DRIPS.level || clock < nextDripAt) return;
+    nextDripAt = clock + rand(DRIPS.gap[0], DRIPS.gap[1]);
+    if (!isRunning()) return;
+    const a = Math.random() * Math.PI * 2;
+    const d = rand(DRIPS.distance[0], DRIPS.distance[1]);
+    director.sfx('drip', { position: { x: listenerPos.x + Math.sin(a) * d, y: DRIPS.y, z: listenerPos.z + Math.cos(a) * d } });
+  }
+
+  // ---------- Annabelle, singing where you need to go ----------
+
+  /** Which SINGING.places entry is singing now, or null. */
+  function singingPlace() {
+    if (levelKey === 'backrooms') return 'backrooms';
+    if ((levelKey === 'upstairsHallway' || levelKey === 'bedroom') && singing.from === 'upstairsHallway') return 'upstairsHallway';
+    return null;
+  }
+
+  /** Where she is, or null when she does not sing here. */
+  function singingAt() {
+    const placeKey = singingPlace();
+    if (placeKey === 'upstairsHallway') {
+      const anchor = hallwayRefs?.singingAnchor;
+      return anchor ? anchor.getWorldPosition(v) : null;
+    }
+    if (placeKey === 'backrooms') {
+      const p = backroomsRefs?.exitDoorPosition;
+      return p ? v.set(p.x, p.y, p.z) : null;
+    }
+    return null;
+  }
+
+  /**
+   * Sung through, a few seconds' pause, then again from the top, for as long
+   * as the player is there. Not a loop: stitched end-to-start the song
+   * restarts mid-breath, and a person who stops and starts again is what makes
+   * it someone rather than a recording.
+   */
+  function updateSinging() {
+    const placeKey = singingPlace();
+    const place = placeKey && SINGING.places[placeKey];
+    const at = place && singingAt();
+    if (!at) return;
+    if (singing.cue && !singing.cue.alive) {
+      singing.cue = null;
+      singing.nextAt = clock + rand(SINGING.gap[0], SINGING.gap[1]);
+    }
+    if (!singing.cue && clock >= singing.nextAt && isRunning()) {
+      singing.cue = play(SINGING.cue, 'amb', {
+        gain: placeKey === 'backrooms' ? gains.singingBackrooms : gains.singingHallway,
+        fadeIn: SINGING.fadeIn, panner: place.panner,
+        position: [at.x, at.y, at.z], lowpass: place.farLowpass
+      });
+      // Not decoded yet: look again shortly rather than every frame.
+      if (!singing.cue) singing.nextAt = clock + 1;
+    }
+    if (singing.cue) {
+      // The backrooms door changes with the crossing; follow it.
+      singing.cue.setPosition(at.x, at.y, at.z, 0);
+      // Clearer, not only louder, the nearer she is.
+      const d = listenerPos.distanceTo(at);
+      const t = Math.min(1, Math.max(0, (d - place.nearFrom) / (place.farFrom - place.nearFrom)));
+      singing.cue.setLowpass(place.nearLowpass * (place.farLowpass / place.nearLowpass) ** t, 0.2);
+    }
+  }
+
   // ---------- laughter ----------
 
   function laughBlocked() {
     return !isRunning()
       || captions.isPlaying || captions.isVisible
       || player.cinematic || isBusy()
-      || laugh.cue?.alive || stalk.cue?.alive || steps.cue?.alive || hunterBreath?.alive
-      || clock - lastMonsterAt < LAUGH.monsterQuiet
-      || isHunterRunning();
+      || laugh.cue?.alive || stalk.cue?.alive || steps.cue?.alive
+      || hunter.state === 'chase'
+      || clock - lastMonsterAt < (isHuntingCrossing() ? LAUGH.monsterQuiet : LAUGH.firstCrossing.monsterQuiet)
+      || clock - lastStepsAt < LAUGH.stepsQuiet;
   }
 
   function scheduleLaugh(after) {
@@ -386,16 +753,34 @@ export function createAudioDirector({
     return { offset: rand(0, total - length), duration: length };
   }
 
-  function playLaugh() {
+  /**
+   * A point IN the maze -- inside one of its corridors -- 12-30 m off and not
+   * from where the last laugh came. A bare random bearing landed as often as
+   * not in the solid between corridors, or outside the maze altogether.
+   */
+  function laughSpot() {
+    const rects = Object.values(backroomsRefs?.corridors ?? {});
+    for (let i = 0; i < 60 && rects.length; i++) {
+      const [x0, x1, z0, z1] = rects[Math.floor(Math.random() * rects.length)];
+      const x = rand(x0, x1), z = rand(z0, z1);
+      const d = Math.hypot(x - listenerPos.x, z - listenerPos.z);
+      if (d < LAUGH.distance[0] || d > LAUGH.distance[1]) continue;
+      const bearing = Math.atan2(x - listenerPos.x, z - listenerPos.z);
+      if (laugh.lastBearing !== null && Math.abs(wrapAngle(bearing - laugh.lastBearing)) < LAUGH.minTurn) continue;
+      return { x, z, d, bearing };
+    }
     let bearing = 0;
     for (let i = 0; i < 12; i++) {
       bearing = Math.random() * Math.PI * 2;
       if (laugh.lastBearing === null || Math.abs(wrapAngle(bearing - laugh.lastBearing)) >= LAUGH.minTurn) break;
     }
-    laugh.lastBearing = bearing;
     const d = rand(LAUGH.distance[0], LAUGH.distance[1]);
-    const x = listenerPos.x + Math.sin(bearing) * d;
-    const z = listenerPos.z + Math.cos(bearing) * d;
+    return { x: listenerPos.x + Math.sin(bearing) * d, z: listenerPos.z + Math.cos(bearing) * d, d, bearing };
+  }
+
+  function playLaugh() {
+    const { x, z, d, bearing } = laughSpot();
+    laugh.lastBearing = bearing;
     const y = rand(LAUGH.height[0], LAUGH.height[1]);
     // "Elsewhere in the house": through a wall is quieter and duller; in the
     // open it is only distance-dark.
@@ -497,7 +882,8 @@ export function createAudioDirector({
       steps.cue = null;
       steps.nextAt = clock + rand(HUNTER_STEPS.gap[0], HUNTER_STEPS.gap[1]);
     }
-    if (!steps.cue && clock >= steps.nextAt && isRunning()) {
+    // One scare at a time: a laugh still echoing holds the footsteps back.
+    if (!steps.cue && clock >= steps.nextAt && isRunning() && !laugh.cue?.alive) {
       playHunterSteps();
       // Not loaded yet: try again after a normal gap rather than every frame.
       if (!steps.cue) steps.nextAt = clock + rand(HUNTER_STEPS.gap[0], HUNTER_STEPS.gap[1]);
@@ -510,7 +896,9 @@ export function createAudioDirector({
       steps.cue.setGain(gains.hunterSteps * rangeFade(d, HUNTER_STEPS.fadeFrom, HUNTER_STEPS.silentBy), 0.1);
       const t = Math.min(1, Math.max(0, (d - HUNTER_STEPS.panner.refDistance) / (HUNTER_STEPS.silentBy - HUNTER_STEPS.panner.refDistance)));
       steps.cue.setLowpass(HUNTER_STEPS.nearLowpass * (HUNTER_STEPS.farLowpass / HUNTER_STEPS.nearLowpass) ** t, 0.1);
-      lastMonsterAt = clock;
+      // Its own clock, not lastMonsterAt: the footsteps come every 7-18 s, and
+      // a 20 s quiet after each would keep the laughter out of the maze for good.
+      lastStepsAt = clock;
     }
   }
 
@@ -561,7 +949,7 @@ export function createAudioDirector({
 
   // ---------- teardown ----------
 
-  function cutLevelCues() {
+  function cutLevelCues({ keepSinging = false } = {}) {
     candles.forEach((c) => c.stop(CANDLE.fadeOut));
     candles.clear();
     staticCue = stopCue(staticCue, 0.1);
@@ -574,6 +962,18 @@ export function createAudioDirector({
     steps.nextAt = Infinity;
     steps.wasSearching = false;
     lockboxCue = stopCue(lockboxCue, 0.1);
+    // Out of the room she is singing in: it goes, but not as a cut. Not when
+    // walking from the bedroom into the hall she is already singing below.
+    if (!keepSinging) {
+      singing.cue = stopCue(singing.cue, SINGING.fadeOut);
+      singing.nextAt = Infinity;
+    }
+    generatorCue = stopCue(generatorCue, 0.3);
+    tubesCue = stopCue(tubesCue, 0.3);
+    glareCue = stopCue(glareCue, 0.1);
+    glareLevel = 0;
+    rainGlassCue = stopCue(rainGlassCue, RAIN_GLASS.fadeOut);
+    wasChasing = false;
   }
 
   const director = {
@@ -591,15 +991,22 @@ export function createAudioDirector({
 
     /** Called by activateLevel(), the one place that serves real exits, debug jumps and restarts. */
     onLevelActivated(key) {
-      cutLevelCues();
+      const keepSinging = key === 'upstairsHallway' && singing.from === 'upstairsHallway';
+      if (key !== 'upstairsHallway' && key !== 'bedroom') singing.from = null;
+      cutLevelCues({ keepSinging });
       // One-shots that belong to the room being left go; the ones that are
       // meant to span the fade (a door, the sting) are left to finish.
       for (const entry of live) {
+        if (keepSinging && entry.emitter === singing.cue) continue;
         if (!entry.spans && entry.emitter !== bed) entry.emitter.stop(0.1);
       }
       levelKey = key;
       laugh.recent = [];
-      scheduleLaugh(LAUGH.firstAfter);
+      scheduleLaugh(key === 'backrooms' && !isHuntingCrossing() ? LAUGH.firstCrossing.firstAfter : LAUGH.firstAfter);
+      // The hallway's singing is started by startSinging(), after the rush.
+      if (key === 'backrooms') singing.nextAt = clock + SINGING.firstAfter;
+      nextDripAt = key === DRIPS.level ? clock + rand(DRIPS.gap[0], DRIPS.gap[1]) : Infinity;
+      hunterWas = null;
       ensureBed();
     },
 
@@ -618,6 +1025,9 @@ export function createAudioDirector({
       laugh.lastBearing = null;
       laugh.recent = [];
       lastMonsterAt = -Infinity;
+      lastGaspAt = -Infinity;
+      lastSniffAt = -Infinity;
+      singing.from = null;
     },
 
     /** Once a frame, after everything that moves the player or the monster. */
@@ -632,6 +1042,14 @@ export function createAudioDirector({
       ensureBed();
       updateCandles();
       updateStatic();
+      updateSinging();
+      updateGenerator();
+      updateTubes();
+      updateGlare();
+      updateRainGlass();
+      updateGasp();
+      updateSniff();
+      updateDrips();
       updateLaugh();
       updateHunterBreath();
       updateHunterSteps();
@@ -641,6 +1059,57 @@ export function createAudioDirector({
         if (!a.emitter.alive) auditions.delete(a);
         else if (audio.ctx.currentTime >= a.until) { a.emitter.stop(0.5); auditions.delete(a); }
       }
+    },
+
+    /**
+     * One of the free sound effects (SFX above). Returns the emitter, or null
+     * when the file is not in the build or not decoded yet -- so a caller with
+     * a synthesised stand-in can write `director.sfx('creak') || audio.creak()`.
+     *
+     * @param opts.position  {x, y, z} for a sound out in the room; omitted, an
+     *                       effect with an `at` plays flat like a hand-held one
+     * @param opts.gainDb    on top of the effect's own level
+     * @param opts.near      thunder only: close, so less of the top is gone
+     * @param opts.spans     let it finish across a level change
+     */
+    sfx(name, { position = null, gainDb = 0, near = false, spans = false } = {}) {
+      const spec = SFX[name];
+      if (!spec || !audio.ctx) return null;
+      const files = spec.variants ?? [name];
+      const ready = files.filter((f) => audio.cueBuffers.has(f));
+      if (!ready.length) {
+        audio.cue(files[0]); // says once, in the console, why it is silent
+        return null;
+      }
+      const fresh = ready.length > 1 ? ready.filter((f) => f !== sfxLast[name]) : ready;
+      const file = fresh[Math.floor(Math.random() * fresh.length)];
+      sfxLast[name] = file;
+      const spatial = !!(position && spec.at);
+      const level = sfxGain(name, file) * dbToGain(gainDb);
+      return play(file, 'sfx', {
+        gain: spatial ? level : (spec.at ? level * distanceGain(SFX_PANNER, spec.at) * PAN_CENTRE : level),
+        fadeIn: 0.004,
+        duration: spec.duration ?? null, fadeOut: spec.duration ? 0.25 : 0.08,
+        playbackRate: spec.rate ? rand(spec.rate[0], spec.rate[1]) : 1,
+        lowpass: name === 'thunder' ? (near ? spec.nearLowpass : spec.lowpass) : null,
+        panner: spatial ? SFX_PANNER : null,
+        position: spatial ? [position.x, position.y, position.z] : null
+      }, { spans });
+    },
+
+    /**
+     * Annabelle starts singing down the stairs -- now, faintly, wherever the
+     * player is (the bedroom with its door open, or the hall). main.js calls
+     * it when the hallway rush is over and the light is back.
+     */
+    startSinging() {
+      singing.from = 'upstairsHallway';
+      if (!singing.cue) singing.nextAt = clock;
+    },
+
+    /** The screen-space white-out, 0..1, each frame it changes -- the overload buzz rides it. */
+    glare(level) {
+      glareLevel = level;
     },
 
     /** A door starts to swing. It finishes across the level fade. */
@@ -723,7 +1192,8 @@ export function createAudioDirector({
       const specs = {
         laugh_distant: LAUGH, hunter_breath: HUNTER_BREATH, crt_static: STATIC, rain_bed: BED,
         caught_sting: STING, candle: CANDLE, lockbox_open: LOCKBOX, door_open: DOOR,
-        stalk_breath: STALK, hunter_steps: HUNTER_STEPS
+        stalk_breath: STALK, hunter_steps: HUNTER_STEPS, annabelle_singing: { cue: SINGING.cue, ...SINGING.places.upstairsHallway },
+        generator_idle: GENERATOR, tube_hum: TUBES, overload_buzz: GLARE, rain_glass: RAIN_GLASS
       };
       const spec = specs[name];
       if (!spec) return Object.keys(specs);
@@ -762,6 +1232,7 @@ export function createAudioDirector({
         level: levelKey, clock: +clock.toFixed(2), running: isRunning(),
         laughNextAt: +laugh.nextAt.toFixed(2), stepsNextAt: +steps.nextAt.toFixed(2),
         hunter: hunter.state, stalkWindow: stalk.window ?? null, staticDone,
+        singingNextAt: +singing.nextAt.toFixed(2), singing: !!singing.cue?.alive,
         lastMonsterAt: +lastMonsterAt.toFixed(2)
       };
     },

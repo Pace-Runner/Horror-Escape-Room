@@ -23,7 +23,13 @@ export class SceneManager {
     return this.levels.get(key) ?? null;
   }
 
-  activate(key, player) {
+  /**
+   * @param {object} [opts]
+   * @param {boolean} [opts.seamless] - walked into, not loaded: the room being
+   *   left stays drawn and the player stays exactly where they are (the
+   *   bedroom and the upstairs hallway are one space -- see main.js).
+   */
+  activate(key, player, { seamless = false } = {}) {
     const level = this.levels.get(key);
     // Returns null rather than a bare `return` on a bad key: the caller reads
     // level.interactables straight away, so silently returning undefined was a
@@ -33,17 +39,19 @@ export class SceneManager {
       console.warn(`SceneManager.activate: no level registered under "${key}"`);
       return null;
     }
-    if (this.activeKey) {
+    if (this.activeKey && !seamless) {
       this.levels.get(this.activeKey).group.visible = false;
     }
     this.activeKey = key;
     level.group.visible = true;
     player.setColliders(level.colliders);
+    // Only the upstairs hallway has a floor that is not flat (its stairs).
+    player.setGround?.(level.groundAt ?? null);
     // One call, rather than teleporting and then reaching in to write
     // player.controls.object.rotation from out here. That bypassed the look
     // state the player owns and silently zeroed pitch, so a level jump both
     // snapped the view level and handed the hands a bogus one-frame look delta.
-    player.spawn(level.spawn[0], level.spawn[1], level.spawnYaw ?? 0, level.spawnPitch ?? 0);
+    if (!seamless) player.spawn(level.spawn[0], level.spawn[1], level.spawnYaw ?? 0, level.spawnPitch ?? 0);
     return level;
   }
 

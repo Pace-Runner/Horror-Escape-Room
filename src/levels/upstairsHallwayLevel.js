@@ -144,17 +144,30 @@ function setWorldUVs(mesh, mapping) {
  *   hold a framed piece up to read it (main.js opens DocumentUI).
  * @param {() => void} callbacks.onExit - the stairs were taken.
  * @param {() => void} callbacks.onLightning - a flash; main.js plays the thunder.
+ * @param {(name: string, opts?: object) => void} callbacks.onSfx - a sound effect by
+ *   name (AudioDirector's SFX) with its world `position`; the level has no audio.
+ * @param {{x: number, z: number}} origin - where the hall's doorway stands in the
+ *   world. The bedroom's door, so the two rooms are one space with no load
+ *   between them. Everything below is built about (0, 0) and moved there
+ *   once, at the end: the group, and every world-space thing handed out --
+ *   colliders, spawn, groundAt, the trigger, refs.farEnd.
  */
 export function createUpstairsHallwayLevel({
   showCaption = () => {},
   onInspect = () => {},
   onExit = () => {},
-  onLightning = () => {}
+  onLightning = () => {},
+  onSfx = () => {},
+  origin = { x: 0, z: 0 }
 } = {}) {
   const group = new THREE.Group();
   group.name = 'Level1_5_UpstairsHallway';
   const interactables = [];
   const colliders = [];
+  /** The bedroom doorway's collider; out of `colliders` while the door stands open. */
+  const doorwayPlug = { minX: -0.5, maxX: 0.5, minZ: -0.2, maxZ: 0.12 };
+  /** The black card behind the doorway, hidden while the bedroom is really there. */
+  let doorwayBehind = null;
 
   // ---------- the bedroom's own materials ----------------------------------
   const wallpaper = loadTexture(wallpaperUrl, { wrapS: THREE.MirroredRepeatWrapping });
@@ -254,9 +267,16 @@ export function createUpstairsHallwayLevel({
     addSection(0, HALL_LEN, 0, HALL_H, hallGaps);
     // The stairwell section runs on down past the hall floor.
     addSection(HALL_LEN, WELL_END_Z, STAIR_BOTTOM_Y - 0.1, HALL_H, wellGaps);
-    colliders.push(side === 'left'
-      ? { minX: LEFT_X - 0.2, maxX: LEFT_X + 0.08, minZ: -0.2, maxZ: WELL_END_Z }
-      : { minX: RIGHT_X - 0.08, maxX: RIGHT_X + 0.2, minZ: -0.2, maxZ: WELL_END_Z });
+    if (side === 'left') {
+      colliders.push({ minX: LEFT_X - 0.2, maxX: LEFT_X + 0.08, minZ: -0.2, maxZ: WELL_END_Z });
+    } else {
+      // Broken at the turn, so the doorway at the foot of the stairs can be
+      // walked through into the passage.
+      colliders.push(
+        { minX: RIGHT_X - 0.08, maxX: RIGHT_X + 0.2, minZ: -0.2, maxZ: TURN.z - TURN.w / 2 },
+        { minX: RIGHT_X - 0.08, maxX: RIGHT_X + 0.2, minZ: TURN.z + TURN.w / 2, maxZ: WELL_END_Z }
+      );
+    }
   }
   addSideWall('left', [WINDOW]);
   addSideWall('right', [], [TURN]);
@@ -280,7 +300,14 @@ export function createUpstairsHallwayLevel({
     const behind = new THREE.Mesh(new THREE.PlaneGeometry(doorW, doorH), darkBehindMat);
     behind.position.set(0, doorH / 2, -0.03);
     group.add(behind);
-    colliders.push({ minX: LEFT_X, maxX: RIGHT_X, minZ: -0.2, maxZ: 0.12 });
+    doorwayBehind = behind;
+    // Either side of the doorway, and the doorway itself as a removable plug
+    // (setDoorwayOpen), so the bedroom can be walked into while the door is open.
+    colliders.push(
+      { minX: LEFT_X, maxX: -doorW / 2, minZ: -0.2, maxZ: 0.12 },
+      { minX: doorW / 2, maxX: RIGHT_X, minZ: -0.2, maxZ: 0.12 },
+      doorwayPlug
+    );
   }
 
   // The far wall at the foot of the stairs.
@@ -743,6 +770,10 @@ export function createUpstairsHallwayLevel({
   const rattles = new Map();
   function rattle(host) {
     rattles.set(host, 0.3);
+    const at = host.getWorldPosition(new THREE.Vector3());
+    at.y = 1.0;
+    // The bathroom door has something pushed up behind it: it gives less, and louder.
+    onSfx('door_locked_rattle', { position: at, gainDb: host.name === 'BathroomDoor' ? 2 : 0 });
   }
 
   // ---------- the window, the storm, the radiator ---------------------------
@@ -844,23 +875,15 @@ export function createUpstairsHallwayLevel({
   }).catch((error) => console.error('Could not load the hall table:', error));
   colliders.push({ minX: LEFT_X, maxX: LEFT_X + 0.03 + 0.55 * TABLE_SCALE, minZ: TABLE_Z - 0.35 * TABLE_SCALE, maxZ: TABLE_Z + 0.35 * TABLE_SCALE });
 
-  // A lamp left burning on it: the one warm light up here.
+  // A lamp on it, switched off: the pendant is the hall's one light now.
   const lampHost = new THREE.Group();
   lampHost.position.set(LEFT_X + 0.22, TABLE_TOP_Y, TABLE_Z - 0.18);
   group.add(lampHost);
-  const lampLight = new THREE.PointLight(0xffa860, 0.75, 4.2, 1.7);
-  lampLight.position.set(0, 0.34, 0);
-  lampHost.add(lampLight);
   loadModel(lampModelUrl).then((lamp) => {
     lamp.traverse((child) => {
       if (!child.isMesh) return;
       child.castShadow = false;
       child.receiveShadow = true;
-      if (/Shade|Bulb/.test(child.name)) {
-        child.material = child.material.clone();
-        child.material.emissive = new THREE.Color(0xffa452);
-        child.material.emissiveIntensity = /Bulb/.test(child.name) ? 1.4 : 0.35;
-      }
     });
     lampHost.add(lamp);
   }).catch((error) => console.error('Could not load the hall lamp:', error));
@@ -967,14 +990,33 @@ export function createUpstairsHallwayLevel({
     const cap = new THREE.Mesh(new THREE.SphereGeometry(0.075, 16, 12), trimMat);
     cap.position.set(RIGHT_X - 0.1, 1.17, HALL_LEN - 0.06);
     group.add(cap);
-    // The top step is as far as the player goes on foot.
-    colliders.push({ minX: LEFT_X, maxX: RIGHT_X, minZ: HALL_LEN - 0.05, maxZ: WELL_END_Z });
-    const hit = new THREE.Mesh(new THREE.BoxGeometry(HALL_W - 0.2, 1.6, 1.3), HITBOX_MATERIAL);
-    hit.position.set(0, 0.2, HALL_LEN + 0.6);
-    hit.userData.interact = { label: 'Go down the stairs', onInteract: () => goDown() };
-    group.add(hit);
-    interactables.push(hit);
+    // Walked, not clicked: groundAt() below takes the player down the treads,
+    // and stepping through the turn into the passage is the way on (update()).
+    // The wall at the far end of the landing stops them walking past the turn.
+    colliders.push({ minX: LEFT_X, maxX: RIGHT_X, minZ: WELL_END_Z - 0.08, maxZ: WELL_END_Z + 0.2 });
+    // The passage's own two walls, out to where it is lost in the dark.
+    colliders.push(
+      { minX: RIGHT_X, maxX: RIGHT_X + PASSAGE_LEN + 0.3, minZ: TURN.z - TURN.w / 2 - 0.2, maxZ: TURN.z - TURN.w / 2 + 0.04 },
+      { minX: RIGHT_X, maxX: RIGHT_X + PASSAGE_LEN + 0.3, minZ: TURN.z + TURN.w / 2 - 0.04, maxZ: TURN.z + TURN.w / 2 + 0.2 },
+      { minX: RIGHT_X + PASSAGE_LEN, maxX: RIGHT_X + PASSAGE_LEN + 0.3, minZ: TURN.z - TURN.w / 2, maxZ: TURN.z + TURN.w / 2 }
+    );
   }
+
+  /**
+   * The floor under (x, z): the hall at 0, down the stairs as an even ramp
+   * (PointerLockPlayer eases the eye onto it, so it still reads as steps), the
+   * landing and the passage at the foot.
+   */
+  function groundAt(wx, wz) {
+    const x = wx - origin.x;
+    const z = wz - origin.z;
+    if (x > RIGHT_X) return STAIR_BOTTOM_Y;
+    if (z <= HALL_LEN) return 0;
+    if (z >= STAIR_END_Z) return STAIR_BOTTOM_Y;
+    return -((z - HALL_LEN) / STEP_RUN) * STEP_RISE;
+  }
+  /** This far into the passage and the player has gone down to the basement. */
+  const PASSAGE_EXIT_X = RIGHT_X + 1.0;
 
   let leaving = false;
   function goDown() {
@@ -997,7 +1039,8 @@ export function createUpstairsHallwayLevel({
    * storyline describes, so the hall dips into the dark now and then.
    */
   const pendants = [
-    { z: 5.6, intensity: 1.15, casts: true, failing: true, decay: 1.45, distance: 9.5 }
+    // Dead centre of the hall, the one hanging light.
+    { z: HALL_LEN / 2, intensity: 1.15, casts: true, failing: true, decay: 1.45, distance: 9.5 }
   ].map((spec) => {
     const anchor = new THREE.Group();
     anchor.position.set(0, HALL_H - 0.0225, spec.z);
@@ -1012,6 +1055,8 @@ export function createUpstairsHallwayLevel({
       light.shadow.bias = -0.0015;
     }
     anchor.add(light);
+    // The glass's own glow, so cutting the light darkens the fitting too.
+    const glows = [];
     loadModel(pendantModelUrl).then((model) => {
       const broken = model.getObjectByName('PendantBroken');
       if (broken) broken.visible = false;
@@ -1020,10 +1065,14 @@ export function createUpstairsHallwayLevel({
         const isGlass = /Glass|Bulb/.test(child.material?.name ?? '');
         child.castShadow = !isGlass;
         child.receiveShadow = !isGlass;
+        if (isGlass && child.material.emissive) {
+          child.material = child.material.clone();
+          glows.push({ material: child.material, base: child.material.emissiveIntensity });
+        }
       });
       anchor.add(model);
     }).catch((error) => console.error('Could not load a hallway pendant:', error));
-    return { light, base: spec.intensity, failing: spec.failing };
+    return { light, base: spec.intensity, failing: spec.failing, glows };
   });
 
   /**
@@ -1037,9 +1086,28 @@ export function createUpstairsHallwayLevel({
   // falls off toward them instead of being lit flat like a card.
   // Brighter than it would need to be with a light over the stairs: with the
   // hall down to one pendant, this is what shows the way down.
-  const belowGlow = new THREE.PointLight(0x7f97a8, 3.2, 6.2, 1.7);
+  const BELOW_GLOW = 3.2;
+  const belowGlow = new THREE.PointLight(0x7f97a8, BELOW_GLOW, 6.2, 1.7);
   belowGlow.position.set(RIGHT_X + 1.05, STAIR_BOTTOM_Y + 1.7, TURN.z);
   group.add(belowGlow);
+
+  /**
+   * Where Annabelle is: down the stairs, round the turn, at the far end of the
+   * passage the stairs lead to -- where the player has to go. Nothing is there
+   * to see; this is only where the singing comes from (AudioDirector). Below
+   * the hall and off to the right of it, so from the top it is plainly coming
+   * up the stairs, and it grows the whole way down to her.
+   */
+  const singingAnchor = new THREE.Object3D();
+  singingAnchor.name = 'AnnabelleSinging';
+  singingAnchor.position.set(RIGHT_X + PASSAGE_LEN, STAIR_BOTTOM_Y + 1.45, TURN.z);
+  group.add(singingAnchor);
+
+  /** The window's pane, where the rain against the glass is heard from (AudioDirector). */
+  const windowAnchor = new THREE.Object3D();
+  windowAnchor.name = 'RainOnGlass';
+  windowAnchor.position.set(LEFT_X, WINDOW.y, WINDOW.z);
+  group.add(windowAnchor);
 
   // ---------- update -----------------------------------------------------------
   let elapsed = 0;
@@ -1048,25 +1116,62 @@ export function createUpstairsHallwayLevel({
   const FLASH_SECONDS = 0.42;
   let flickerTimer = 0;
   let flickerLevel = 1;
+  /** Set while the hall's light is cut (main.js's rush): pendant and glow dark. */
+  let lightsOut = false;
+
+  // Into place: see `origin`. Every collider is a plain world-space box, so it
+  // moves with the group here, once (the doorway plug among them).
+  group.position.set(origin.x, 0, origin.z);
+  for (const c of colliders) {
+    c.minX += origin.x; c.maxX += origin.x;
+    c.minZ += origin.z; c.maxZ += origin.z;
+  }
 
   return {
     group,
     interactables,
     colliders,
-    spawn: [0, 0.95],
+    spawn: [origin.x, origin.z + 0.95],
     // Facing down the hall, +Z, away from the bedroom door.
     spawnYaw: Math.PI,
-    refs: { lightning, pendants, glassMaterial },
+    refs: {
+      lightning, pendants, glassMaterial, singingAnchor, windowAnchor,
+      /** Its ambient, which main.js dims while the bedroom is the room being lit. */
+      ambient,
+      /** Cut the hall's light (true) or give it back (false). */
+      setLightsOut(out) { lightsOut = !!out; },
+      /** Where something standing at the far end of the hall stands: just short of the stairs. */
+      farEnd: { x: origin.x, z: origin.z + HALL_LEN - 0.6 },
+      /** The doorway, world space: the bedroom door. */
+      doorway: { x: origin.x, z: origin.z },
+      /**
+       * Open (true): the doorway's collider, its black card and the hall's own
+       * copy of the bedroom door are taken away, because the real bedroom and its
+       * real, open door are on the other side. Closed (false) puts them back.
+       */
+      setDoorwayOpen(open) {
+        const i = colliders.indexOf(doorwayPlug);
+        if (open && i >= 0) colliders.splice(i, 1);
+        if (!open && i < 0) colliders.push(doorwayPlug);
+        if (doorwayBehind) doorwayBehind.visible = !open;
+        const bedroomDoor = doorHosts.find((h) => h.name === 'BedroomDoor');
+        if (bedroomDoor) bedroomDoor.visible = !open;
+      }
+    },
+
+    groundAt,
 
     reset() {
       leaving = false;
+      lightsOut = false;
       rattles.clear();
       flashTime = -1;
       nextFlashIn = 4 + Math.random() * 5;
     },
 
-    update(dt) {
+    update(dt, playerPosition) {
       elapsed += dt;
+      if (playerPosition && playerPosition.x - origin.x > PASSAGE_EXIT_X) goDown();
       rain.update(dt);
       glassMaterial.uniforms.uTime.value = elapsed;
 
@@ -1100,8 +1205,10 @@ export function createUpstairsHallwayLevel({
         flickerLevel = Math.random() < 0.035 ? 0.3 + Math.random() * 0.3 : 0.9 + Math.random() * 0.1;
       }
       for (const pendant of pendants) {
-        pendant.light.intensity = pendant.base * (pendant.failing ? flickerLevel : 1);
+        pendant.light.intensity = lightsOut ? 0 : pendant.base * (pendant.failing ? flickerLevel : 1);
+        for (const g of pendant.glows) g.material.emissiveIntensity = lightsOut ? 0 : g.base;
       }
+      belowGlow.intensity = lightsOut ? 0 : BELOW_GLOW;
 
       // Tried doors shudder and settle.
       for (const [host, remaining] of rattles) {
