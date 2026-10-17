@@ -11,7 +11,8 @@ import {
 import { addBaseboard } from '../world/trim.js';
 import { createRainGlassMaterial } from '../world/RainGlassMaterial.js';
 import { loadModel, applyTextureByMaterialName } from '../world/modelLoader.js';
-import { line } from '../dialogue/index.js';
+import { line, linePicker } from '../dialogue/index.js';
+import { cueInfo } from '../world/audio/assets.js';
 import bedModelUrl from '../assets/models/bed.glb?url';
 import bedsideTableModelUrl from '../assets/models/bedside_table.glb?url';
 import bedsidePuzzleTableModelUrl from '../assets/models/bedside_puzzle_table.glb?url';
@@ -62,8 +63,37 @@ const PUZZLE_PHOTO_URLS = {
 // Preserve photo centers/heights and hitboxes; only correct the printed aspect.
 const PUZZLE_PHOTO_ASPECT_RATIO = 1122 / 1402;
 const PUZZLE_PHOTO_HEIGHT_METRES = 0.17;
-const LOCKBOX_OPEN_DURATION_SECONDS = 0.7;
+/**
+ * The lid takes exactly as long as its recording (sfx/lockbox_open -- see
+ * src/assets/audio/SOURCES.md), read from the MEASURED manifest and not from a
+ * decode, so a missing audio file can never change how long the box takes. The
+ * fallbacks are those same measured values, for a build without the manifest.
+ */
+const LOCKBOX_SOUND = cueInfo('lockbox_open');
+const LOCKBOX_OPEN_DURATION_SECONDS = LOCKBOX_SOUND?.duration ?? 4.74;
+/** Where in it the latch lets go (the last of its clicks) and the lid lands (the final knock). */
+const LOCKBOX_LATCH_SECONDS = LOCKBOX_SOUND?.events?.latchEnd ?? 1.05;
+const LOCKBOX_SETTLE_SECONDS = LOCKBOX_SOUND?.events?.settle ?? 4.28;
+/** How far the lid lifts while the latch is still working: cracked, not open. */
+const LOCKBOX_LATCH_LIFT = 0.04;
+/** The crowbar comes out once the lid is this far open -- not out of a closed box. */
+const LOCKBOX_REACH_AT = 0.7;
 const LOCKBOX_OPEN_ANGLE_RADIANS = -THREE.MathUtils.degToRad(85);
+
+/**
+ * Lid travel, 0..1, `t` seconds into the open, timed to the recording's own
+ * shape: the latch's clicks (to 1.05 s) only crack it, the long creak (1.05 to
+ * 4.28 s) is the lid swinging, eased in and out, and the knock at 4.28 is it
+ * landing on its stop. The old 1 - (1 - p)^3 was front-loaded -- stretched over
+ * nearly five seconds the lid would leap most of the way open and then creep.
+ */
+function lockboxLidTravel(t) {
+  if (t <= 0) return 0;
+  if (t < LOCKBOX_LATCH_SECONDS) return LOCKBOX_LATCH_LIFT * (t / LOCKBOX_LATCH_SECONDS);
+  if (t >= LOCKBOX_SETTLE_SECONDS) return 1;
+  const p = (t - LOCKBOX_LATCH_SECONDS) / (LOCKBOX_SETTLE_SECONDS - LOCKBOX_LATCH_SECONDS);
+  return LOCKBOX_LATCH_LIFT + (1 - LOCKBOX_LATCH_LIFT) * p * p * (3 - 2 * p);
+}
 
 // The GLB's authored detail faces local +Z, while the bedroom camera approaches
 // the doorway from local -Z. Mirroring only depth presents the detailed face to
@@ -268,13 +298,21 @@ export function createBedroomLevel({
   onFloorboardOpened = () => {},
   onDoorPlankRemoved = () => {},
   onDoorOpened = () => {},
+  // The instant the door starts to swing, with its world position -- for the
+  // creak. onDoorOpened is 600 ms later, when the swing hands over to the fade.
+  onDoorOpening = () => {},
+  // The instant the lockbox lid starts to move, with the box's world position.
+  onLockboxOpening = () => {},
   onExaminePhotos = () => {},
   onExaminePinpad = () => {},
   // The scratched floor message is a STORY beat, not just a caption: reading it
   // is what brings the thing past the door. The level reports the read and
   // main.js decides what happens, the same split every other callback here uses.
   onReadMessage = () => {},
-  onExaminePolaroid = () => {}
+  onExaminePolaroid = () => {},
+  // A sound effect by name (AudioDirector's SFX) -- the level has no audio of
+  // its own, so it says what made a noise and main.js plays it.
+  onSfx = () => {}
 } = {}) {
   const group = new THREE.Group();
   group.name = 'Level1_Bedroom';
@@ -476,6 +514,20 @@ export function createBedroomLevel({
     hallwayVoid.position.set(DOOR_POSITION_X, doorwayHeightMetres / 2, ROOM_D / 2 + 0.26);
     hallwayVoid.rotation.y = Math.PI;
     structure.add(hallwayVoid);
+    doorwayVoid = hallwayVoid;
+  }
+  /** The black card in the doorway, hidden while the real hallway stands behind it. */
+  let doorwayVoid = null;
+  /** Open: the doorway can be walked through and seen through. Closed: as built. */
+  function setDoorwayOpen(open) {
+    // The wall's plug AND the closed door's own footprint: either alone and
+    // the doorway is still solid.
+    for (const blocker of doorwayBlockers) {
+      const i = colliders.indexOf(blocker);
+      if (open && i >= 0) colliders.splice(i, 1);
+      if (!open && i < 0) colliders.push(blocker);
+    }
+    if (doorwayVoid) doorwayVoid.visible = !open;
   }
 
   // back wall (has the window), front wall (has the door), right wall
@@ -564,11 +616,19 @@ export function createBedroomLevel({
     }).catch((error) => console.warn('Bedroom hollow visual could not load:', error));
   }
 
+  const doorwayPlug = { minX: DOOR_POSITION_X - 0.5, maxX: DOOR_POSITION_X + 0.5, minZ: ROOM_D / 2 - 0.15, maxZ: ROOM_D / 2 + 0.1 };
+  /** Everything that closes the doorway: setDoorwayOpen takes them all out. */
+  const doorwayBlockers = [doorwayPlug];
   colliders.push(
     { minX: -ROOM_W / 2 - 0.1, maxX: -ROOM_W / 2 + 0.15, minZ: -ROOM_D / 2, maxZ: ROOM_D / 2 },
     { minX: ROOM_W / 2 - 0.15, maxX: ROOM_W / 2 + 0.1, minZ: -ROOM_D / 2, maxZ: ROOM_D / 2 },
     { minX: -ROOM_W / 2, maxX: ROOM_W / 2, minZ: -ROOM_D / 2 - 0.1, maxZ: -ROOM_D / 2 + 0.15 },
-    { minX: -ROOM_W / 2, maxX: ROOM_W / 2, minZ: ROOM_D / 2 - 0.15, maxZ: ROOM_D / 2 + 0.1 }
+    // The door wall, either side of the doorway, and the doorway itself as a
+    // plug that comes out while the door stands open (setDoorwayOpen): the
+    // upstairs hallway is built onto the other side of it, one space.
+    { minX: -ROOM_W / 2, maxX: DOOR_POSITION_X - 0.5, minZ: ROOM_D / 2 - 0.15, maxZ: ROOM_D / 2 + 0.1 },
+    { minX: DOOR_POSITION_X + 0.5, maxX: ROOM_W / 2, minZ: ROOM_D / 2 - 0.15, maxZ: ROOM_D / 2 + 0.1 },
+    doorwayPlug
   );
 
   addBaseboard(structure, {
@@ -867,6 +927,11 @@ export function createBedroomLevel({
   bedGroup.position.set(BED_POSITION_X, 0, BED_POSITION_Z);
   group.add(bedGroup);
 
+  // The two candle flames, for their crackle: main.js's audio director reads a
+  // world position off each. Both are built in model-load callbacks, so each
+  // adds itself when it exists, and the sound starts when its candle does.
+  const candleAnchors = [];
+
   // Shared dark timber placeholder for the room's script-built furniture.
   // The imported bed carries its own refined, embedded materials.
   const frameMatWood = new THREE.MeshStandardMaterial({ color: 0x3c2c1e, roughness: 0.85 });
@@ -959,6 +1024,7 @@ export function createBedroomLevel({
     shelfFlame = new THREE.Group();
     shelfFlame.position.y = 0.136;
     shelfCandle.add(shelfFlame);
+    candleAnchors.push(shelfFlame);
     shelfFlameMaterial = new THREE.MeshBasicMaterial({
       color: 0xffa347, transparent: true, opacity: 0.86,
       depthWrite: false, side: THREE.DoubleSide
@@ -1222,6 +1288,7 @@ export function createBedroomLevel({
         flameSide.rotation.y = Math.PI / 2;
         flame.add(flameFront, flameSide);
         model.add(flame);
+        candleAnchors.push(flame);
         const candleGlow = new THREE.PointLight(0xffa65a, 0.18, 0.9, 2);
         candleGlow.position.y = 0.43;
         model.add(candleGlow);
@@ -1285,6 +1352,8 @@ export function createBedroomLevel({
   doorHinge.position.set(-0.5, 1.0, 0.025);
   doorFrame.add(doorHinge);
   const doorOpenSwing = Math.PI / 2;
+  /** Set once the player is through: the open door swings shut behind them (shutDoor). */
+  let doorShutBehind = false;
   const doorRattleDurationSeconds = 0.28;
   const doorRattleAmplitudeRadians = 0.045;
   let doorRattleRemainingSeconds = 0;
@@ -1500,10 +1569,13 @@ export function createBedroomLevel({
   };
   interactables.push(polaroid);
 
-  colliders.push({
+  // The closed door. It comes out with the wall's plug (setDoorwayOpen).
+  const closedDoorCollider = {
     minX: doorFrame.position.x - 0.6, maxX: doorFrame.position.x + 0.6,
     minZ: doorFrame.position.z - 0.1, maxZ: doorFrame.position.z + 0.15
-  });
+  };
+  colliders.push(closedDoorCollider);
+  doorwayBlockers.push(closedDoorCollider);
 
   // ---------- hero wallpaper tear beside the door ----------
   // Use the supplied tears' real colour, dark interior and irregular alpha.
@@ -2713,6 +2785,21 @@ export function createBedroomLevel({
   group.add(bedroomKeyHitbox);
 
   interactables.push(doorSlab);
+
+  /**
+   * Trying the door while it is still locked. The first try in each state says
+   * what is wrong with it (the planks, then the missing key); every try after
+   * that is the player muttering one of the "still locked" takes, at random and
+   * never the same twice running -- the same sentence on every press of E is a
+   * recording, not a person. Only the takes that make sense now are offered:
+   * the one about the planks while they are on, the one about the key once
+   * they are off.
+   */
+  const lockedTries = { planks: 0, key: 0 };
+  const pickLockedLine = linePicker([
+    'dialog_open_door_locked_1', 'dialog_open_door_locked_2', 'dialog_open_door_locked_3'
+  ]);
+
   doorSlab.userData.interact = {
     label: 'Open door',
     onInteract: () => {
@@ -2732,11 +2819,17 @@ export function createBedroomLevel({
           onDoorPlankRemoved();
           showCaption(line('dialog_door_planks_pried_off'));
         } else {
-          showCaption(line('dialog_door_planks_examine'));
+          onSfx('door_locked_rattle');
+          showCaption(line(lockedTries.planks++ === 0
+            ? 'dialog_door_planks_examine'
+            : pickLockedLine(['dialog_open_door_locked_1', 'dialog_open_door_locked_2'])));
         }
       } else if (!puzzleState.doorUnlocked) {
         if (!puzzleState.hasBedroomKey) {
-          showCaption(line('dialog_door_locked_needs_key'));
+          onSfx('door_locked_rattle');
+          showCaption(line(lockedTries.key++ === 0
+            ? 'dialog_door_locked_needs_key'
+            : pickLockedLine(['dialog_open_door_locked_1', 'dialog_open_door_locked_3'])));
           return;
         }
         if (!isHolding('bedroomKey')) {
@@ -2748,6 +2841,7 @@ export function createBedroomLevel({
         puzzleState.doorUnlocked = true;
         puzzleState.hasBedroomKey = false;
         onBedroomKeyUsed();
+        onDoorOpening(doorSlab.getWorldPosition(new THREE.Vector3()));
         showCaption(line('dialog_door_opens'));
         // Enough of the hinge swing to read as a door opening, and no more.
         // This used to be 1400ms and cut straight to Level 2; now a 700ms fade
@@ -3095,6 +3189,8 @@ export function createBedroomLevel({
   // callbacks below remain authoritative. No reward pickup mesh is exposed.
   let boxOpened = false;
   let boxOpenElapsedSeconds = 0;
+  /** Whether the crowbar has gone into the hand yet -- see updateLockedBoxPresentation(). */
+  let crowbarHandedOver = false;
   let importedBoxHinge = null;
   const boxVisual = new THREE.Group();
   boxVisual.name = 'Level1_LockboxVisual';
@@ -3133,10 +3229,20 @@ export function createBedroomLevel({
   function updateLockedBoxPresentation(dt) {
     boxVisual.visible = puzzleState.photosArranged;
     if (boxOpened) boxOpenElapsedSeconds = Math.min(LOCKBOX_OPEN_DURATION_SECONDS, boxOpenElapsedSeconds + dt);
-    const progress = boxOpened ? boxOpenElapsedSeconds / LOCKBOX_OPEN_DURATION_SECONDS : 0;
-    const angle = LOCKBOX_OPEN_ANGLE_RADIANS * (1 - (1 - progress) ** 3);
+    const travel = boxOpened ? lockboxLidTravel(boxOpenElapsedSeconds) : 0;
+    const angle = LOCKBOX_OPEN_ANGLE_RADIANS * travel;
     fallbackBoxHinge.rotation.x = angle;
     if (importedBoxHinge) importedBoxHinge.rotation.x = angle;
+    // The glove reaches in once there is an opening to reach into. Fired from
+    // here, on the frame clock, rather than from the open itself: with a lid
+    // that takes most of five seconds the grab used to go into a closed box.
+    // The puzzle flags were already set when the box opened, so spamming E or
+    // restarting mid-lid is still safe -- reset() clears boxOpened, and with it
+    // any grant that had not happened yet.
+    if (boxOpened && !crowbarHandedOver && travel >= LOCKBOX_REACH_AT) {
+      crowbarHandedOver = true;
+      onCrowbarFound();
+    }
   }
 
   loadModel(antiqueLockboxModelUrl).then((chestModel) => {
@@ -3173,8 +3279,9 @@ export function createBedroomLevel({
         boxOpenElapsedSeconds = 0;
         puzzleState.hasBrassKey = false;
         onBrassKeyUsed();
+        // The crowbar is the box's from this moment; the HAND gets it at 70% lid.
         puzzleState.hasCrowbar = true;
-        onCrowbarFound();
+        onLockboxOpening(lockedBoxGroup.getWorldPosition(new THREE.Vector3()));
         onReadSafeTag();
         onSafeOpened();
       } else if (puzzleState.photosArranged) {
@@ -3208,6 +3315,11 @@ export function createBedroomLevel({
     // level omits spawnPitch and is unaffected.
     spawnPitch: -0.30,
     refs: {
+      /** The door, world space: where the upstairs hallway is built on. */
+      doorway: { x: DOOR_POSITION_X, z: ROOM_D / 2 },
+      setDoorwayOpen,
+      /** The open door swings shut (the player has gone through). */
+      shutDoor() { doorShutBehind = true; },
       bedExitPosition: [BED_POSITION_X, BED_EXIT_POSITION_Z],
       bedsideTableCollider,
       disturbChair,
@@ -3233,6 +3345,10 @@ export function createBedroomLevel({
       bedroomKey,
       chain,
       doorSlab,
+      // For the audio director: where the candles burn, and how long the
+      // lockbox takes to open (main.js waits that long before the door rattles).
+      candleAnchors,
+      lockboxOpenSeconds: LOCKBOX_OPEN_DURATION_SECONDS,
       /**
        * Runs the "something moves past the door" beat once. Returns how long it
        * takes, so a script can wait exactly that long instead of guessing.
@@ -3263,6 +3379,9 @@ export function createBedroomLevel({
       exitTimer = null;
       clearTimeout(freeTimer);
       freeTimer = null;
+      lockedTries.planks = 0;
+      lockedTries.key = 0;
+      pickLockedLine.reset();
 
       paperclip.visible = true;
       paperclipHitbox.visible = true;
@@ -3329,6 +3448,7 @@ export function createBedroomLevel({
       boxHitbox.visible = true;
       boxOpened = false;
       boxOpenElapsedSeconds = 0;
+      crowbarHandedOver = false;
       updateLockedBoxPresentation(0);
       boxVisual.visible = false;
 
@@ -3349,6 +3469,8 @@ export function createBedroomLevel({
 
       resetDoorPlankPresentation();
       doorHinge.rotation.y = 0;
+      doorShutBehind = false;
+      setDoorwayOpen(false);
       doorRattleRemainingSeconds = 0;
 
       doorPass.active = false;
@@ -3499,7 +3621,7 @@ export function createBedroomLevel({
         ? Math.sin(doorRattlePhase * Math.PI * 3) * doorRattleAmplitudeRadians * (1 - doorRattlePhase)
         : 0;
       doorRattleRemainingSeconds = Math.max(0, doorRattleRemainingSeconds - dt);
-      const targetDoorRotY = (puzzleState.doorUnlocked ? doorOpenSwing : 0) + doorRattleOffset;
+      const targetDoorRotY = (puzzleState.doorUnlocked && !doorShutBehind ? doorOpenSwing : 0) + doorRattleOffset;
       doorHinge.rotation.y += (targetDoorRotY - doorHinge.rotation.y) * Math.min(1, dt * 3);
 
       // The planks remain puzzle-state-driven: this is presentation only. A

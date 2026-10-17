@@ -37,8 +37,8 @@ import { gameState } from '../core/GameState.js';
 import { line } from '../dialogue/index.js';
 import doorModelUrl from '../assets/models/door.glb?url';
 import {
-  CORRIDOR_W, T, CORRIDORS, ROUTE, BOX, LEGS, buildWallRuns, runCollider, validateMaze,
-  junctions, deadEnd, sideWall, legMid, spawnPoint, exitPoint, nameNoise
+  CORRIDOR_W, T, CORRIDORS, ROUTE, BOX, LEGS, CROSSINGS, DOORWAYS, buildWallRuns, runCollider,
+  validateMaze, junctions, deadEnd, sideWall, legMid, spawnPoint, exitPoint, nameNoise, crossingFor
 } from './backroomsMaze.js';
 
 /**
@@ -134,7 +134,14 @@ if (import.meta.env.DEV) {
 
 const WALL_RUNS = buildWallRuns();
 
-export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {} } = {}) {
+export function createBackroomsLevel({
+  showCaption = () => {},
+  onExit = () => {},
+  // The exit door starting to swing, with its world position.
+  onDoorOpening = () => {},
+  // A sound effect by name (AudioDirector's SFX), with its world `position`.
+  onSfx = () => {}
+} = {}) {
   const group = new THREE.Group();
   group.name = 'Level0_Backrooms';
   const interactables = [];
@@ -253,10 +260,18 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     group.add(m);
     return m;
   }
-  const exitLeg = Object.keys(LEGS).find((n) => LEGS[n].exit);
-  const rootLeg = Object.keys(LEGS).find((n) => LEGS[n].parent === null);
-  const exitMark = addLandmark(exitPoint(), 0xffd257, 2.2);
-  const entryMark = addLandmark(spawnPoint(), 0x6b6355, 1.8);
+  // A pair per crossing -- each comes in and goes out somewhere different --
+  // and only the current crossing's pair is ever shown.
+  const inFrom = (e, d) => ({ x: e.x + e.nx * d, z: e.z + e.nz * d });
+  const marks = {};
+  for (const key of Object.keys(CROSSINGS)) {
+    marks[key] = {
+      exitLeg: CROSSINGS[key].exit,
+      entryLeg: CROSSINGS[key].enter,
+      exit: addLandmark(inFrom(exitPoint(key), 1.1), 0xffd257, 2.2),
+      entry: addLandmark(inFrom(spawnPoint(key).door, 0.9), 0x6b6355, 1.8)
+    };
+  }
 
   const CORRIDOR_LIST = Object.entries(CORRIDORS);
   let hereQuad = null;
@@ -276,8 +291,9 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
       if (gameState.corridorsSeen.has(name)) continue;
       gameState.corridorsSeen.add(name);
       mapQuads[name].visible = true;
-      if (name === exitLeg) exitMark.visible = true;
-      if (name === rootLeg) entryMark.visible = true;
+      const m = marks[crossing];
+      if (name === m.exitLeg) m.exit.visible = true;
+      if (name === m.entryLeg) m.entry.visible = true;
     }
     if (here === hereQuad) return;
     if (hereQuad) hereQuad.material = minimapFloorMat;
@@ -302,8 +318,10 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
       q.material = minimapFloorMat;
     }
     hereQuad = null;
-    exitMark.visible = gameState.corridorsSeen.has(exitLeg);
-    entryMark.visible = gameState.corridorsSeen.has(rootLeg);
+    for (const [key, m] of Object.entries(marks)) {
+      m.exit.visible = key === crossing && gameState.corridorsSeen.has(m.exitLeg);
+      m.entry.visible = key === crossing && gameState.corridorsSeen.has(m.entryLeg);
+    }
   }
 
   const ceilTex = createCeilingTileTexture();
@@ -734,17 +752,11 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
   // No collider. The player cannot leave the floor, so the only thing a
   // collider up there could do is snag them in the doorway.
   const DOOR_H = 2.05;
-  Object.keys(LEGS).filter((n) => LEGS[n].kind === 'neck').forEach((name) => {
-    const L = LEGS[name];
-    const P = LEGS[L.parent];
-    const R = LEGS[Object.keys(LEGS).find((m) => LEGS[m].parent === name)];
-    // Everything below is measured ALONG the neck's own axis. The parent and
-    // the room each occupy a band on it, and the tunnel is the gap between
-    // them -- derived rather than typed, so moving a room cannot leave a soffit
-    // hanging in the corridor.
-    const pLo = P.at - P.w / 2, pHi = P.at + P.w / 2;
-    const rLo = R.at - R.w / 2, rHi = R.at + R.w / 2;
-    const [t0, t1] = rHi <= pLo ? [rHi, pLo] : [pHi, rLo];
+  DOORWAYS.forEach(({ neck, tunnel: [t0, t1] }) => {
+    const L = LEGS[neck];
+    // The tunnel is the stretch of the neck between the corridor's face and
+    // the room's, measured along the neck's own axis -- derived by buildMaze(),
+    // so moving a room cannot leave a soffit hanging in the corridor.
     const soffit = new THREE.Mesh(
       new THREE.BoxGeometry(
         L.axis === 'z' ? L.w : t1 - t0,
@@ -1118,30 +1130,43 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     });
   });
 
-  // One over the arrival, so the corridor is not pitch black the instant you
-  // step into it, and one over the exit.
-  const spawnAt = spawnPoint();
-  addFixture(spawnAt.x, spawnAt.z + 0.4, {
-    along: 'x', mode: 'dying', colour: 0xffd07a, base: 1.5, dist: 6.5, decay: 1.7,
-    emissive: 0xffdca0, emissiveIntensity: 1.9, wear: 0.71
-  });
+  // One over each way in, so the corridor is not pitch black the instant you
+  // step into it, and one over each way out. Two of each: the maze is crossed
+  // twice, in and out at different places each time (CROSSINGS).
+  const across = (axis) => (axis === 'z' ? 'x' : 'z');
+  for (const key of Object.keys(CROSSINGS)) {
+    const at = spawnPoint(key);
+    // 0.4 m on past where the player stands, so it hangs just in front of them.
+    addFixture(at.x + at.door.nx * 0.4, at.z + at.door.nz * 0.4, {
+      along: across(at.door.axis), mode: 'dying', colour: 0xffd07a, base: 1.5, dist: 6.5, decay: 1.7,
+      emissive: 0xffdca0, emissiveIntensity: 1.9, wear: 0.71
+    });
+  }
 
   // The only bright steady light in the level sits over the exit, and it is the
   // one fixture exempt from the blackouts below. The destination is the one
   // stable thing here -- the light does the signage, and during a blackout it
   // becomes the only lit thing in the maze, which turns the blackout into a
   // direction rather than only a punishment.
-  const exitAt = exitPoint();
-  addFixture(exitAt.x, exitAt.z + exitAt.nz * 1.2, {
-    along: 'x', mode: 'steady', colour: 0xffe0a4, base: 1.95, dist: 9, decay: 1.5,
-    emissive: 0xfff0c0, emissiveIntensity: 1.9,
-    // The one fixture in the level with an intact, barely-grimed lens, and a
-    // halo half again as wide. It is signage: it has to be the thing you pick
-    // out from the far end of a corridor, and during a blackout it is the only
-    // lit object on the floor.
-    wear: 0.32, glareSize: 1.45
-  });
-  const exitLamp = lamps[lamps.length - 1];
+  //
+  // One per crossing; only the CURRENT crossing's exit lamp gets the signage
+  // treatment (setRoute picks it). The other is an ordinary failing fixture,
+  // so it never lures a player to the door that will not open for them.
+  const exitLamps = {};
+  for (const key of Object.keys(CROSSINGS)) {
+    const at = exitPoint(key);
+    addFixture(at.x + at.nx * 1.2, at.z + at.nz * 1.2, {
+      along: across(at.axis), mode: 'steady', colour: 0xffe0a4, base: 1.95, dist: 9, decay: 1.5,
+      emissive: 0xfff0c0, emissiveIntensity: 1.9,
+      // The one fixture with an intact, barely-grimed lens, and a halo half
+      // again as wide. It is signage: it has to be the thing you pick out from
+      // the far end of a corridor, and during a blackout it is the only lit
+      // object on the floor.
+      wear: 0.32, glareSize: 1.45
+    });
+    exitLamps[key] = lamps[lamps.length - 1];
+  }
+  let exitLamp = exitLamps.first;
 
   /**
    * Is there actually a wall behind a decal at (x, z) facing rotY?
@@ -1171,12 +1196,22 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
       ') has no wall behind it -- it is floating in a branch mouth.');
   }
 
-  // ---------- the exit door ----------
-  let opened = false;
+  // ---------- the exit doors ----------
+  //
+  // One per crossing, because the maze is left by a different door each time:
+  // Door 1, at the top of the drawing, out to Level 2; Door 2, inside the
+  // central room, out to Level 3. setRoute() says which crossing this is, and
+  // the other door stays shut -- it is there, it is a door, and it is not the
+  // way this time.
   let route = null;
+  let crossing = 'first';
   let outFade = 1;
   // Handle on the pending exit, so setRoute()/reset() can cancel it.
   let exitTimer = null;
+  // +PI/2 swings the leaf into the frame's local -Z, which after the frame's
+  // own turn is AWAY from the player, opening onto black rather than into
+  // their face.
+  const doorOpenSwing = Math.PI / 2;
 
   // Deliberately lighter than createFurnitureWoodTexture's default (60,44,30),
   // which is tuned for the bedroom's warm bulb. This level's albedo is roughly
@@ -1187,156 +1222,32 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
   const furnitureWoodTex = createFurnitureWoodTexture({ tint: [128, 96, 60] });
   const furnitureWoodNormal = createFurnitureWoodNormalTexture();
 
-  const doorFrame = new THREE.Group();
-  doorFrame.position.set(exitAt.x + exitAt.nx * 0.06, 0, exitAt.z + exitAt.nz * 0.06);
-  // door.glb is authored facing +Z: blender/build_door.py puts the knob at
-  // Blender y = -0.035, and the glTF Y-up conversion lands that at +Z. DERIVED
-  // now from the exit leg's own dead end, so the door turns to face back down
-  // whichever corridor the route finishes in, and its 0.06m frame depth runs
-  // into the end wall behind it. atan2 of the inward normal is that angle.
-  doorFrame.rotation.y = Math.atan2(exitAt.nx, exitAt.nz);
-  group.add(doorFrame);
-
-  const doorHinge = new THREE.Object3D();
-  doorHinge.position.set(-0.5, 1.0, 0.025); // the leaf's own edge, opposite the knob
-  doorFrame.add(doorHinge);
-  // +PI/2 swings the leaf into the frame's local -Z, which after the 180 above
-  // is world +Z -- AWAY down the corridor, opening onto black rather than into
-  // the player's face.
-  const doorOpenSwing = Math.PI / 2;
-
-  // Claw marks raked into the lower panel, same placement the bedroom door
-  // uses. The 0.13 matters: bedroomLevel documents that the raised panels reach
-  // z = 0.105, so anything shallower is buried inside the geometry.
-  const doorClawMarks = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.45, 0.45),
-    new THREE.MeshStandardMaterial({
-      map: createClawMarksTexture(),
-      normalMap: createClawMarksNormalTexture(),
-      normalScale: new THREE.Vector2(1.2, 1.2),
-      transparent: true,
-      roughness: 0.95
-    })
-  );
-  doorClawMarks.position.set(-0.15, 0.68, 0.13);
-  doorFrame.add(doorClawMarks);
-
-  loadModel(doorModelUrl).then((doorModel) => {
-    doorModel.traverse((child) => {
-      if (!child.isMesh) return;
-      child.castShadow = true;
-      child.receiveShadow = true;
+  /**
+   * door.glb in this level's lighter wood. A fresh parse per call (THREE.Cache
+   * is off), so each copy owns its materials and they are safe to mutate.
+   */
+  function loadDoorModel() {
+    return loadModel(doorModelUrl).then((doorModel) => {
+      doorModel.traverse((child) => {
+        if (!child.isMesh) return;
+        child.castShadow = true;
+        child.receiveShadow = true;
+      });
+      applyTextureByMaterialName(doorModel, 'DoorWood', furnitureWoodTex, furnitureWoodNormal);
+      applyTextureByMaterialName(doorModel, 'DoorFrameWood', furnitureWoodTex, furnitureWoodNormal);
+      // Let the canvas texture actually BE the albedo: blender/build_door.py
+      // bakes DOOR_WOOD (0.13, 0.08, 0.05) into baseColorFactor, and map *
+      // color put the door at ~6% reflectance -- a flat black rectangle against
+      // this level's bright wallpaper.
+      doorModel.traverse((child) => {
+        if (child.isMesh && child.material && child.material.map) child.material.color.setScalar(1);
+      });
+      return doorModel;
     });
-    applyTextureByMaterialName(doorModel, 'DoorWood', furnitureWoodTex, furnitureWoodNormal);
-    applyTextureByMaterialName(doorModel, 'DoorFrameWood', furnitureWoodTex, furnitureWoodNormal);
-    // Let the canvas texture actually BE the albedo.
-    //
-    // applyTextureByMaterialName only assigns .map, and a MeshStandardMaterial
-    // renders map * color -- while blender/build_door.py bakes DOOR_WOOD
-    // (0.13, 0.08, 0.05) into the glTF as baseColorFactor. Multiplying the wood
-    // texture by that put the finished door at roughly 6% reflectance: against
-    // this level's bright wallpaper it rendered as a flat black rectangle with
-    // only the brass knob catching light, which is no good for the one object
-    // the player has to find. Safe to mutate in place rather than clone --
-    // loadModel parses a fresh glTF per call (THREE.Cache is off), so these
-    // materials belong to this door alone and not to the bedroom's copy.
-    doorModel.traverse((child) => {
-      if (child.isMesh && child.material && child.material.map) {
-        child.material.color.setScalar(1);
-      }
-    });
-    doorFrame.add(doorModel);
-    // attach(), not add(): it preserves world transform, so nothing jumps when
-    // this async load resolves.
-    ['doorPanel', 'knobHandle', 'knobPlate'].forEach((name) => {
-      const part = doorModel.getObjectByName(name);
-      if (part) doorHinge.attach(part);
-    });
-    doorHinge.attach(doorClawMarks);
-  }).catch((err) => {
-    console.error('Failed to load door.glb for the backrooms exit:', err);
-  });
+  }
 
-  // Invisible hitbox on the FRAME, not the hinge: it has to stay in the doorway
-  // after the swing, and putting it here makes the door interactable
-  // immediately instead of waiting on the async load. Interaction's raycast is
-  // non-recursive, so a Group in the list would never be hit -- this Mesh is
-  // what makes the door work at all.
-  const doorSlab = new THREE.Mesh(
-    new THREE.BoxGeometry(1.0, 2.0, 0.06),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
-  );
-  doorSlab.position.set(0, 1.0, 0);
-  doorFrame.add(doorSlab);
-  doorSlab.userData.interact = {
-    // No '[E] ' prefix -- Interaction.js prepends it. Four labels in
-    // bedroomLevel.js get this wrong and render "[E] [E] Search drawer".
-    label: 'Open the door',
-    onInteract: () => {
-      // Set SYNCHRONOUSLY, before the door-swing delay below. That delay is
-      // exactly the window a second E press lands in, and main.js's
-      // transitionInFlight guard does not cover it yet.
-      if (opened) {
-        showCaption(line('dialog_exit_door_already_open'));
-        return;
-      }
-      opened = true;
-      showCaption(line('dialog_exit_door_opens'));
-      // The route is captured NOW, not read when the timer fires. Restarting
-      // inside this delay calls setRoute(null), and a timer that read the live
-      // variable would then hand onExit a null route -- which main.js would
-      // fall back on and drop the player into Level 2 out of a bedroom they had
-      // just reset.
-      const bound = route;
-      exitTimer = setTimeout(() => { exitTimer = null; onExit(bound); }, 1400);
-    }
-  };
-  interactables.push(doorSlab);
-
-  // ---------- the sealed entry ----------
-  // Not a locked door: a locked door implies a key exists somewhere. This is
-  // the SHAPE of a door with the wallpaper running straight across it. No
-  // frame, no handle, no gap.
-  const sealedMap = tiled(wallpaperTex, 1.16 / 2.12, 2.16 / 2.45);
-  // Offset so the roll seams on the patch deliberately do NOT line up with the
-  // seams on the wall behind it -- paper hung over a doorway never does.
-  sealedMap.offset.set(0.31, 0.07);
-  const sealed = new THREE.Mesh(
-    new THREE.BoxGeometry(1.16, 2.16, 0.03),
-    new THREE.MeshStandardMaterial({ map: sealedMap, roughness: 0.93 })
-  );
-  sealed.position.set(0, 1.08, 0.03);
-  group.add(sealed);
-
-  // Dark reveal around the edge, so the door-shape stays legible even when the
-  // fixture above it is in one of its dead stretches.
-  const revealMat = new THREE.MeshStandardMaterial({ color: 0x120e06, roughness: 0.8 });
-  [[-0.58, 1.08, 0.02, 2.16], [0.58, 1.08, 0.02, 2.16]].forEach(([x, y, w, h]) => {
-    const strip = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.032), revealMat);
-    strip.position.set(x, y, 0.032);
-    group.add(strip);
-  });
-  [[0, 0.0], [0, 2.16]].forEach(([x, y]) => {
-    const strip = new THREE.Mesh(new THREE.BoxGeometry(1.20, 0.02, 0.032), revealMat);
-    strip.position.set(x, y, 0.032);
-    group.add(strip);
-  });
-
-  const sealedHitbox = new THREE.Mesh(
-    new THREE.BoxGeometry(1.2, 2.2, 0.1),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
-  );
-  sealedHitbox.position.set(0, 1.1, 0.08);
-  sealedHitbox.userData.interact = {
-    label: 'The door you came through',
-    onInteract: () => showCaption(line('dialog_sealed_door'))
-  };
-  group.add(sealedHitbox);
-  interactables.push(sealedHitbox);
-
-  // Someone before you already tried this.
-  function addClawMarks(x, y, z, rotY, scale = 1) {
-    const marks = new THREE.Mesh(
+  function clawMarksMesh(scale = 1) {
+    return new THREE.Mesh(
       new THREE.PlaneGeometry(0.5 * scale, 0.5 * scale),
       new THREE.MeshStandardMaterial({
         map: createClawMarksTexture(),
@@ -1346,12 +1257,180 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
         roughness: 0.95
       })
     );
-    marks.position.set(x, y, z);
-    marks.rotation.y = rotY;
-    group.add(marks);
   }
-  addClawMarks(0.25, 1.15, 0.055, 0, 1.1);
-  addClawMarks(-0.30, 1.45, 0.055, 0, 0.80);
+
+  const exitDoors = {};
+  for (const key of Object.keys(CROSSINGS)) {
+    const at = exitPoint(key);
+    const frame = new THREE.Group();
+    frame.position.set(at.x + at.nx * 0.06, 0, at.z + at.nz * 0.06);
+    // door.glb is authored facing +Z; turned to face back the way the player
+    // comes, with its 0.06 m frame depth running into the wall behind it.
+    frame.rotation.y = Math.atan2(at.nx, at.nz);
+    group.add(frame);
+
+    const hinge = new THREE.Object3D();
+    hinge.position.set(-0.5, 1.0, 0.025); // the leaf's own edge, opposite the knob
+    frame.add(hinge);
+
+    // Claw marks raked into the lower panel, same placement the bedroom door
+    // uses. The 0.13 matters: the raised panels reach z = 0.105, so anything
+    // shallower is buried inside the geometry.
+    const claws = clawMarksMesh(0.9);
+    claws.position.set(-0.15, 0.68, 0.13);
+    frame.add(claws);
+
+    loadDoorModel().then((doorModel) => {
+      frame.add(doorModel);
+      // attach(), not add(): it preserves world transform, so nothing jumps
+      // when this async load resolves.
+      ['doorPanel', 'knobHandle', 'knobPlate'].forEach((name) => {
+        const part = doorModel.getObjectByName(name);
+        if (part) hinge.attach(part);
+      });
+      hinge.attach(claws);
+    }).catch((err) => console.error(`Failed to load door.glb for the backrooms exit (${key}):`, err));
+
+    // Invisible hitbox on the FRAME, not the hinge: it has to stay in the
+    // doorway after the swing, and it makes the door interactable before the
+    // model has loaded. Interaction's raycast is non-recursive, so this Mesh is
+    // what makes the door work at all.
+    const slab = new THREE.Mesh(
+      new THREE.BoxGeometry(1.0, 2.0, 0.06),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+    );
+    slab.position.set(0, 1.0, 0);
+    frame.add(slab);
+
+    const door = { key, hinge, slab, opened: false };
+    slab.userData.interact = {
+      // No '[E] ' prefix -- Interaction.js prepends it.
+      label: 'Open the door',
+      onInteract: () => {
+        if (key !== crossing) {
+          onSfx('door_locked_rattle', { position: slab.getWorldPosition(new THREE.Vector3()) });
+          showCaption(line('dialog_exit_door_not_this_way'));
+          return;
+        }
+        // Set SYNCHRONOUSLY, before the door-swing delay below: that delay is
+        // exactly the window a second E press lands in.
+        if (door.opened) {
+          showCaption(line('dialog_exit_door_already_open'));
+          return;
+        }
+        door.opened = true;
+        onDoorOpening(slab.getWorldPosition(new THREE.Vector3()));
+        showCaption(line('dialog_exit_door_opens'));
+        // The route is captured NOW, not read when the timer fires: a restart
+        // inside this delay calls setRoute(null), and a timer reading the live
+        // variable would hand onExit a null route.
+        const bound = route;
+        exitTimer = setTimeout(() => { exitTimer = null; onExit(bound); }, 1400);
+      }
+    };
+    interactables.push(slab);
+    exitDoors[key] = door;
+  }
+  /** The door this crossing leaves by. */
+  const activeDoor = () => exitDoors[crossing];
+  const exitDoorAt = new THREE.Vector3();
+
+  // ---------- the rooms' door frames ----------
+  // Every doorway into a room gets a door frame on its corridor face -- the
+  // two rooms inside the maze one to come in by and one to leave by. It is
+  // door.glb's own frame with the leaf taken out: 1.28 m across its posts, so
+  // it lines the 1.4 m neck like real trim, and a 1.0 m opening inside it.
+  //
+  // The posts get colliders (blender/build_door.py: 0.14 m wide at x = +-0.57,
+  // standing 0.10 m proud of the wall). Without them a player cutting the
+  // corner of the doorway walks straight through the wood.
+  const FRAME_POST = { inner: 0.50, outer: 0.64, depth: 0.10 };
+  DOORWAYS.forEach((d) => {
+    for (const side of [-1, 1]) {
+      // In the frame's own space (+Z out of the wall), then turned onto the wall.
+      const corners = [[side * FRAME_POST.inner, 0], [side * FRAME_POST.outer, FRAME_POST.depth]].map(([lx, lz]) => {
+        const yaw = Math.atan2(d.nx, d.nz);
+        return [d.x + lx * Math.cos(yaw) + lz * Math.sin(yaw), d.z - lx * Math.sin(yaw) + lz * Math.cos(yaw)];
+      });
+      colliders.push({
+        minX: Math.min(corners[0][0], corners[1][0]), maxX: Math.max(corners[0][0], corners[1][0]),
+        minZ: Math.min(corners[0][1], corners[1][1]), maxZ: Math.max(corners[0][1], corners[1][1])
+      });
+    }
+  });
+  if (DOORWAYS.length) {
+    loadDoorModel().then((model) => {
+      // The whole moving leaf hangs off one empty (see build_door.py).
+      const leaf = model.getObjectByName('doorLeaf');
+      leaf?.parent?.remove(leaf);
+      DOORWAYS.forEach((d, i) => {
+        const frame = i === 0 ? model : model.clone(true);
+        frame.position.set(d.x, 0, d.z);
+        frame.rotation.y = Math.atan2(d.nx, d.nz);
+        group.add(frame);
+      });
+    }).catch((err) => console.error('Failed to load door.glb for the backrooms door frames:', err));
+  }
+
+  // ---------- the sealed entries ----------
+  // Not a locked door: a locked door implies a key exists somewhere. This is
+  // the SHAPE of a door with the wallpaper running straight across it. No
+  // frame, no handle, no gap. One at each way in -- the bottom of the drawing
+  // on the first crossing, low on the right-hand wall on the second -- and both stay sealed:
+  // there is no going back either way.
+  const sealedMap = tiled(wallpaperTex, 1.16 / 2.12, 2.16 / 2.45);
+  // Offset so the roll seams on the patch deliberately do NOT line up with the
+  // seams on the wall behind it -- paper hung over a doorway never does.
+  sealedMap.offset.set(0.31, 0.07);
+  const sealedMat = new THREE.MeshStandardMaterial({ map: sealedMap, roughness: 0.93 });
+  // Dark reveal around the edge, so the door-shape stays legible even when the
+  // fixture above it is in one of its dead stretches.
+  const revealMat = new THREE.MeshStandardMaterial({ color: 0x120e06, roughness: 0.8 });
+  const sealedEntries = {};
+  for (const key of Object.keys(CROSSINGS)) {
+    const at = spawnPoint(key).door;
+    // Built facing +Z at the origin, as it always was, then turned onto the
+    // end wall of this crossing's way in.
+    const entry = new THREE.Group();
+    entry.position.set(at.x, 0, at.z);
+    entry.rotation.y = Math.atan2(at.nx, at.nz);
+    group.add(entry);
+
+    const patch = new THREE.Mesh(new THREE.BoxGeometry(1.16, 2.16, 0.03), sealedMat);
+    patch.position.set(0, 1.08, 0.03);
+    entry.add(patch);
+    [[-0.58, 1.08, 0.02, 2.16], [0.58, 1.08, 0.02, 2.16]].forEach(([x, y, w, h]) => {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.032), revealMat);
+      strip.position.set(x, y, 0.032);
+      entry.add(strip);
+    });
+    [[0, 0.0], [0, 2.16]].forEach(([x, y]) => {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(1.20, 0.02, 0.032), revealMat);
+      strip.position.set(x, y, 0.032);
+      entry.add(strip);
+    });
+    // Someone before you already tried this.
+    [[0.25, 1.15, 1.1], [-0.30, 1.45, 0.80]].forEach(([x, y, scale]) => {
+      const marks = clawMarksMesh(scale);
+      marks.position.set(x, y, 0.055);
+      entry.add(marks);
+    });
+
+    const hitbox = new THREE.Mesh(
+      new THREE.BoxGeometry(1.2, 2.2, 0.1),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+    );
+    hitbox.position.set(0, 1.1, 0.08);
+    hitbox.userData.interact = {
+      label: 'The door you came through',
+      onInteract: () => showCaption(line('dialog_sealed_door'))
+    };
+    entry.add(hitbox);
+    interactables.push(hitbox);
+    sealedEntries[key] = patch;
+  }
+  const sealed = sealedEntries.first;
+
 
   // ---------- dressing ----------
   // Deliberately sparse. Backrooms is defined by emptiness, and dressing this
@@ -1605,7 +1684,10 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
     group,
     interactables,
     colliders,
-    spawn: [spawnAt.x, spawnAt.z],
+    // Where SceneManager puts the player. Rewritten by setRoute() for each
+    // crossing, which main.js calls before activating the level -- the two
+    // crossings come in at opposite ends of the maze.
+    spawn: [spawnPoint('first').x, spawnPoint('first').z],
     /**
      * The map frames this whole level instead of 14m around the player.
      *
@@ -1616,15 +1698,27 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
      */
     minimap: { mode: 'overview', bounds: BOX, exclusive: true },
     revealAt,
-    // The camera's local forward is -Z by default and the corridor runs +Z, so
-    // it has to be turned 180 degrees to face down it -- same reasoning as
-    // hallwayBasementLevel. It also means the player spawns with their back to
-    // the sealed door, so finding it is a choice to turn around.
-    spawnYaw: Math.PI,
+    // Facing into the maze from the way in, with their back to the sealed
+    // door, so finding it is a choice to turn around. Per crossing, like spawn.
+    spawnYaw: spawnPoint('first').yaw,
     refs: {
-      doorHinge,
+      /** The current crossing's exit door hinge (setRoute changes which). */
+      get doorHinge() { return activeDoor().hinge; },
+      /**
+       * Where this crossing's exit door stands, at head height -- Annabelle
+       * sings from it (AudioDirector). Null until its model has loaded.
+       */
+      get exitDoorPosition() {
+        const door = activeDoor();
+        if (!door?.slab) return null;
+        door.slab.getWorldPosition(exitDoorAt);
+        exitDoorAt.y = 1.5;
+        return exitDoorAt;
+      },
+      exitDoors,
       lamps,
       sealed,
+      sealedEntries,
       /**
        * The corridor rectangles this maze is generated from. Exposed because
        * "is anywhere standable unreachable?" is meaningless here without them:
@@ -1653,9 +1747,18 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
       clearTimeout(exitTimer);
       exitTimer = null;
       route = next ?? null;
-      opened = false;
+      // Which crossing: by the level it came from. The first goes up the
+      // drawing to Door 1 and Level 2, the second to Door 2 and Level 3.
+      crossing = crossingFor(route);
+      const sp = spawnPoint(crossing);
+      this.spawn = [sp.x, sp.z];
+      this.spawnYaw = sp.yaw;
+      exitLamp = exitLamps[crossing];
+      for (const door of Object.values(exitDoors)) {
+        door.opened = false;
+        door.hinge.rotation.y = 0;
+      }
       outFade = 1;
-      doorHinge.rotation.y = 0;
       lamps.forEach((l, i) => {
         l.light.intensity = l.base;
         l.mat.emissiveIntensity = l.emissiveBase;
@@ -1681,6 +1784,7 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
       syncFog();
     },
     get route() { return route; },
+    get crossing() { return crossing; },
 
     reset() { this.setRoute(null); },
 
@@ -1690,6 +1794,7 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
       // Exit punctuation: once the door is open every fluorescent fades out
       // over about a second, so the caption's "the humming stops all at once"
       // is literally true on screen during the beat before the level switches.
+      const opened = activeDoor().opened;
       if (opened) outFade = Math.max(0, outFade - dt * 1.1);
 
       // Level-wide blackout. Not driven off this._t, because that clock is
@@ -1772,8 +1877,10 @@ export function createBackroomsLevel({ showCaption = () => {}, onExit = () => {}
       drip.scale.set(1 - fall * 0.25, 1 + fall * 1.4, 1 - fall * 0.25);
 
       // Eased swing, same treatment and rate as the bedroom's front door.
-      const target = opened ? doorOpenSwing : 0;
-      doorHinge.rotation.y += (target - doorHinge.rotation.y) * Math.min(1, dt * 3);
+      for (const door of Object.values(exitDoors)) {
+        const target = door.opened ? doorOpenSwing : 0;
+        door.hinge.rotation.y += (target - door.hinge.rotation.y) * Math.min(1, dt * 3);
+      }
     }
   };
 }

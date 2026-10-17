@@ -53,6 +53,9 @@ const ROOM_H = 3.0;
 export function createStudyLevel({
   showCaption = () => {},
   onExit = () => {},
+  // The front door starting to swing, with its world position. Not the later
+  // press that walks through it.
+  onDoorOpening = () => {},
   onExaminePinpad = () => {},
   onTakeVisor = () => {},
   onTakeGateKey = () => {},
@@ -71,7 +74,9 @@ export function createStudyLevel({
   isHolding = () => true,
   /** Fired with the lock id each time one opens, and again when all three are. */
   onLockOpened = () => {},
-  onAllLocksOpen = () => {}
+  onAllLocksOpen = () => {},
+  /** A sound effect by name (AudioDirector's SFX); the level has no audio of its own. */
+  onSfx = () => {}
 } = {}) {
   const group = new THREE.Group();
   group.name = 'Level3_Study';
@@ -746,6 +751,7 @@ export function createStudyLevel({
         doorState.open = true;
         // The doorway becomes walkable at the same moment it becomes open.
         setDoorSolid(false);
+        onDoorOpening(frontDoorSlabHit.getWorldPosition(new THREE.Vector3()));
         showCaption(line('dialog_front_door_opens'));
         return;
       }
@@ -915,6 +921,7 @@ export function createStudyLevel({
     onInteract: () => {
       if (puzzle.gateOpen) { onExit(); return; }
       if (!puzzle.hasGateKey) {
+        onSfx('gate_locked');
         showCaption(line(gameState.visorWorn
           ? 'dialog_fence_gate_locked_visor'
           : 'dialog_fence_gate_locked'));
@@ -926,6 +933,7 @@ export function createStudyLevel({
       }
       puzzle.gateOpen = true;
       setGateSolid(false);
+      onSfx('gate_open');
       showCaption(line('dialog_fence_gate_opens'));
       offerTheChoice();
     }

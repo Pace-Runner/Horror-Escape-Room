@@ -97,6 +97,13 @@ export const dialog_door_planks_pried_off = ["You wedge the crowbar behind the p
 
 export const dialog_door_planks_examine = ["Two wooden planks, boarded diagonally. Whatever is in this house trapped you inside.", "level1/door_planks_examine.m4a"];
 
+// Trying the door again while it is still locked: one of these at random each
+// time, never the same twice running. 2 is only said while the planks are on,
+// 3 only once they are off (see the door in levels/bedroomLevel.js).
+export const dialog_open_door_locked_1 = ["\"I need to unlock this door so I can find Annabelle.\"", "level1/open_door_locked_1.m4a"];
+export const dialog_open_door_locked_2 = ["\"I need to find something to break down these planks of wood.\"", "level1/open_door_locked_2.m4a"];
+export const dialog_open_door_locked_3 = ["\"It is still locked. The key might be hidden.\"", "level1/open_door_locked_3.m4a"];
+
 export const dialog_door_locked_needs_key = ["The planks are gone, but the bedroom door is still locked. A keyhole waits beneath the knob.", "level1/door_locked_needs_key.m4a"];
 
 export const dialog_door_opens = ["The door creaks open on its hinges. You slip out into the dark hallway...", "level1/door_opens.m4a"];

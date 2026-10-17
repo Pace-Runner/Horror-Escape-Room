@@ -44,18 +44,24 @@ reasoning behind the scenegraph hierarchy.
   door). The three-lock sequence (keyed deadbolt, combination pin-pad,
   and a containment lock gated on the visor), the visor mechanic, and
   the branching ending (release or contain) are all implemented.
+- **The bedroom and the upstairs hallway are one space**: the hallway is
+  built onto the bedroom's door, so when it opens there is no fade or load
+  -- you walk through, the door shuts behind you, and the thing is already
+  standing at the end of the hall.
 - **The backrooms corridor -- the space between levels**: leaving a
   level no longer cuts straight to the next one. The screen fades to
   black and you come up in a short, wrong-feeling yellow corridor --
   damp wallpaper, a drop ceiling, mostly-dead fluorescents -- and it
-  is a warren, unguided. The route turns seven times, and each turn is a
-  T-junction where carrying straight on is the mistake; several decoys
-  fork, so a wrong turn can offer a choice of its own and one dead end
-  sits two wrong turns deep. But the corridor graph is a tree, so every
-  wrong turn is a guaranteed dead end rather than a shortcut. About
-  54 m, roughly 27 seconds if you never take one. Nothing marks the
-  route -- no arrows, no signage -- so it is found (or lost) on sight
-  alone. The way you came in has wallpaper running straight across it.
+  is a warren, unguided. The layout is the team's own 10 x 10 grid maze,
+  transcribed wall by wall into `GRID` in `src/levels/backroomsMaze.js`
+  (6.4 m per cell), with five larger rooms; the two inside the maze have
+  a door frame to come in by and another to leave by. It is crossed
+  twice: down the upstairs hallway's stairs, in at the bottom and out of
+  Door 1 at the top to Level 2 (~131 m); then from Level 2, in low on the
+  right-hand wall and out of Door 2, inside the central room, to Level 3
+  (~107 m). Nothing marks the route -- no arrows, no signage -- so it is
+  found (or lost) on sight alone. The way you came in has wallpaper
+  running straight across it. `npm run check:maze` validates the layout.
 - **A radar-style mini-map**, top-right of the HUD: a live top-down view
   centred on the player, showing nearby geometry and a facing arrow. It
   is lit by its own private light rather than the room's actual (and
@@ -105,51 +111,41 @@ reasoning behind the scenegraph hierarchy.
 
 Every texture is generated on `<canvas>` at runtime, so there are no
 image files to path, credit, or break on a case-sensitive server. Wind,
-thunder and creaks are synthesised with the Web Audio API. The models
+thunder and creaks are synthesised with the Web Audio API; everything that
+is a performance rather than a signal (breathing, footsteps, doors, the
+monster) is a recording -- see Audio below. The models
 (bed, dresser, door, flashlight, hands) are Blender-authored `.glb`
 files in `src/assets/models/`, imported as `?url` so Vite hashes them
 and rewrites the path for the subdirectory deploy. Three.js and its
 `PointerLockControls` example module are the only third-party code,
 credited in-game via the credits screen (`C`).
 
-### The breathing loop -- the one audio file
+### Audio
 
-`src/assets/audio/breathing.m4a` (AAC-LC, 48 kHz, 61.2 s) is the only
-audio file in the project. It loops continuously from the moment audio
-is unlocked on the start screen until the tab closes, on its own gain
-node, and survives a restart (`R`) without a gap or a second copy
-stacking on top.
+Every recording lives in `src/assets/audio/`: the breathing loop, the
+player's footsteps and the trolley at the top level, and the audio
+director's cues -- doors, the lockbox, candles, the CRT's static, the rain
+bed, distant laughter, the monster's breathing, footsteps and stalking aura,
+and the caught sting -- in `amb/`, `sfx/`, `monster/` and `foley/`.
 
-The loader globs `breathing.*`, so re-exporting as `.mp3`, `.ogg` or
-`.wav` needs no code change -- and if the file is missing entirely the
-game still runs, warning once to the console. `AudioEngine` deliberately
-does not `import` it directly, so a build never fails over a missing
-asset.
+- **How it works, where each cue plays, how to retune or swap one, and a
+  listening checklist:** [docs/AUDIO.md](docs/AUDIO.md).
+- **Where each file came from, its licence, and the cut used:**
+  [src/assets/audio/SOURCES.md](src/assets/audio/SOURCES.md). Several are
+  marked *licence unverified* -- read that before a public release.
+- **Rebuilding them:** `node scripts/audio/build.mjs` (needs `ffmpeg` and
+  `yt-dlp`; the processed files are committed, so nobody else needs either).
+  `npm run check:audio` checks the files against the measured
+  `manifest.json` without any tools.
 
-Two things worth knowing about the file as it stands: at 1.5 MB (48 kHz
-stereo, 192 kbps) it is the largest single asset in the build, and its
-two channels are bit-identical, so a mono re-export at ~96 kbps would be
-roughly a quarter of the size with nothing audible lost. And AAC decodes
-in Chrome, Edge and Safari, and in Firefox on Windows and macOS via the
-platform decoders -- an `.ogg` or `.wav` export is the safer choice if a
-Linux Firefox without system codecs ever has to play it.
-
-Two things to know if the recording is ever replaced:
-
-- `BREATH_LOOP_START` / `BREATH_LOOP_END` at the top of
-  `src/world/AudioEngine.js` are the loop window in seconds, currently
-  `3.69` -> `59.7`. They are measured off *this* recording: they cut a
-  handling thump at 1.39 s and a fading tail, and land on the quiet gaps
-  between breaths so the seam is inaudible. A different file needs a
-  different window (or `0` / `0` to loop the whole buffer, if it has
-  already been trimmed to a clean loop -- whole number of breath cycles,
-  zero crossings at both ends, no lead-in silence).
-- `BREATH_MAKEUP` in the same file compensates for how quiet the
-  recording is (peak -23.7 dBFS); re-measure it for a louder file.
-
-The track is credited in-game: fill in the placeholder breathing-loop
-line in the `CREDITS` array in `src/main.js` with its source, author and
-licence (or delete that line if the team recorded it themselves).
+Every file is loaded through a glob, never imported, so a missing one is a
+silent cue and a console line, never a failed build. The breathing loop runs
+for the whole session, on its own gain node, and survives a restart (`R`)
+without a gap; its loop window and makeup gain are measured off the file and
+explained at the top of `src/world/AudioEngine.js`. AAC decodes in Chrome,
+Edge and Safari, and in Firefox on Windows and macOS via the platform
+decoders -- `.ogg` is the safer export if a Linux Firefox without system
+codecs ever has to play them.
 
 ## Deploying to the LAMP server
 

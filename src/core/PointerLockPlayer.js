@@ -155,6 +155,11 @@ export class PointerLockPlayer {
     this.keys = { forward: false, back: false, left: false, right: false, crouch: false, sprint: false };
     this.colliders = [];
     this.bodyRadius = 0.35;
+    // The floor under the player, for the one level with stairs to walk down:
+    // a level may hand over groundAt(x, z) -> floor height in metres (see
+    // setGround). Everywhere else the floor is y = 0, as it always was.
+    this.groundAt = null;
+    this.groundY = 0;
     // Gate for scripted beats (e.g. still chained to the bed at the start
     // of Level 1) where looking around should work but walking shouldn't.
     this.movementEnabled = true;
@@ -385,7 +390,8 @@ export class PointerLockPlayer {
    * means no half-applied mouse movement survives the jump.
    */
   spawn(x, z, yaw = 0, pitch = 0) {
-    this.object.position.set(x, this.eyeHeight, z);
+    this.groundY = this.#groundUnder(x, z);
+    this.object.position.set(x, this.eyeHeight + this.groundY, z);
     this._yaw = yaw;
     this._pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch));
     this.#clampLookToBounds();
@@ -403,7 +409,8 @@ export class PointerLockPlayer {
 
   /** Kept for callers that only want to move without re-aiming. */
   teleport(x, z) {
-    this.object.position.set(x, this.eyeHeight, z);
+    this.groundY = this.#groundUnder(x, z);
+    this.object.position.set(x, this.eyeHeight + this.groundY, z);
   }
 
   /**
@@ -462,6 +469,16 @@ export class PointerLockPlayer {
   // needs to duck or jump in this world.
   setColliders(boxes) {
     this.colliders = boxes;
+  }
+
+  /** The active level's floor height function, or null for a flat floor at 0. */
+  setGround(fn) {
+    this.groundAt = typeof fn === 'function' ? fn : null;
+    this.groundY = this.#groundUnder(this.object.position.x, this.object.position.z);
+  }
+
+  #groundUnder(x, z) {
+    return this.groundAt ? this.groundAt(x, z) : 0;
   }
 
   // Moved to core/collision.js when the creature needed to walk. Two copies of
@@ -614,6 +631,11 @@ export class PointerLockPlayer {
     this.moving += (want - this.moving) * Math.min(1, dt / BOB_BLEND);
     this.pushing += ((this.pushContact.pushed ? 1 : 0) - this.pushing) * Math.min(1, dt / PUSH_BLEND);
 
+    // Eased onto the floor rather than snapped, so a stair reads as steps
+    // taken, not as the camera stuttering down a ramp.
+    const ground = this.#groundUnder(this.object.position.x, this.object.position.z);
+    this.groundY += (ground - this.groundY) * Math.min(1, dt * 14);
+
     this.#applyEyeHeight();
   }
 
@@ -636,6 +658,6 @@ export class PointerLockPlayer {
     const amp = BOB_AMPLITUDE * (1 + this.sprint * (SPRINT_BOB_SCALE - 1));
     const bob = this.moving * amp * Math.sin(this.bobPhase * 2);
     const idle = IDLE_AMPLITUDE * Math.sin(this._t * IDLE_RATE);
-    this.object.position.y = this.eyeHeight - this.crouch * CROUCH_DROP + bob + idle;
+    this.object.position.y = this.groundY + this.eyeHeight - this.crouch * CROUCH_DROP + bob + idle;
   }
 }

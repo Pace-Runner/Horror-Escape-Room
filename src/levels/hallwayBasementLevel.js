@@ -153,6 +153,21 @@ const CRT_WARM_UP_SECONDS = 0.7;
 const CRT_SWITCH_OFF_SECONDS = 0.25;
 
 /**
+ * The hallway sighting's stutter -- see `stutter` in the level. A fresh strike
+ * every 0.7-1.3 s, each decaying like the original single one; between them a
+ * floor of 1.6, which is where that single 0.55 s strike had decayed to a
+ * quarter of a second in -- still a lit figure -- dipping to 40% of that on
+ * roughly one frame in twelve. Checked against rendered frames, not just by
+ * these numbers: see docs/AUDIO.md.
+ */
+const STUTTER_STRIKE_SECONDS = 0.4;
+const STUTTER_GAP_MIN = 0.7;
+const STUTTER_GAP_MAX = 1.3;
+const STUTTER_FLOOR = 1.6;
+const STUTTER_DIP = 0.4;
+const STUTTER_DIP_CHANCE = 1 / 12;
+
+/**
  * The breaker panel (breaker_panel.glb), in the model's own space: x across
  * the face, y up, z out of the wall. Mirrors build_breaker_panel.py -- the
  * toggles, flags, label strip and click targets are built here and have to
@@ -389,6 +404,8 @@ const FUSE_CRATE = CRATE_LAYOUT.reduce((a, b) => (b.stackY > a.stackY ? b : a));
 export function createHallwayBasementLevel({
   showCaption = () => {},
   onExit = () => {},
+  // The metal door swinging open, with its world position, just before onExit.
+  onDoorOpening = () => {},
   onSpark = () => {},
   onGlare = () => {},  // called with 0..1 each frame so the host can drive a screen-space wash
   // Fired when the breaker goes in. The level changes its own lights and its
@@ -419,6 +436,11 @@ export function createHallwayBasementLevel({
   onEnterSecurityCode = () => {},
   /** Fired with a camera id each time a feed is selected. Drives the sightings. */
   onViewFeed = () => {},
+  /**
+   * A sound effect by name (AudioDirector's SFX): a breaker, a control, the
+   * cover. The level has no audio of its own -- see onTrolleyRoll below.
+   */
+  onSfx = () => {},
   /**
    * Called every frame with how hard the instrument trolley is rolling, 0 to
    * 1, so the host can play its castors. The level has no audio of its own.
@@ -509,6 +531,14 @@ export function createHallwayBasementLevel({
   hallLightning.position.set(0, HALL_H - 0.2, HALL_LEN * 0.75);
   hallway.add(hallLightning);
   const flash = { t: 0, duration: 0 };
+  /**
+   * A STUTTER: the storm keeps catching for `duration` seconds instead of once.
+   * One strike lights the end of the hallway for well under half a second, and
+   * the sighting now holds the figure there for three -- so the light keeps
+   * re-striking over a flickering floor that never drops low enough to lose
+   * it, then cuts out when the figure does.
+   */
+  const stutter = { t: 0, duration: 0, nextStrike: 0 };
   hallway.add(hallLight2);
 
   /**
@@ -1076,10 +1106,9 @@ export function createHallwayBasementLevel({
   const fixturesGroup = new THREE.Group();
   lab.add(fixturesGroup);
   // Normal-running values for the strip lights, and the far harsher values
-  // they are driven to while an overrated fuse is seated -- seating the 45A
-  // fuse pushes the circuit way past its rating, so the lab is supposed to
-  // wash out into a glare the player can barely see through until they pull
-  // it back out.
+  // they flare to when an overrated fuse goes in -- seating the 45A pushes the
+  // circuit way past its rating, and the lab washes out white for a second
+  // (FUSE_FLARE_SECONDS) before it settles dark again.
   const TUBE_EMISSIVE_INTENSITY = 1.6;
   const OVERLOAD_TUBE_EMISSIVE_INTENSITY = 9;
   // Dead-circuit values. The lab starts with no power at all, so the tubes
@@ -1633,7 +1662,7 @@ export function createHallwayBasementLevel({
   const puzzleState = {
     heldFuse: null,   // amps string currently in the player's hand, or null
     slotFuse: null,   // amps string currently seated in the fuse box, or null
-    overloaded: false // true while an overrated fuse is seated (drives the light-glare effect)
+    overloaded: false // true while an overrated fuse is seated (its glare is only the first FUSE_FLARE_SECONDS)
   };
 
   const fuseFailReason = {}; // amps -> 'blown' | 'overrated', keyed per fuse for the dropped-fuse inspect prompt
@@ -1885,6 +1914,7 @@ export function createHallwayBasementLevel({
    */
   function setFuseCoverOpen(open, { quiet = false } = {}) {
     fuseCover.open = open;
+    if (!quiet) onSfx('latch');
     const i = interactables.indexOf(fuseCoverHit);
     if (open && i < 0) interactables.push(fuseCoverHit);
     if (!open && i >= 0) interactables.splice(i, 1);
@@ -2000,6 +2030,7 @@ export function createHallwayBasementLevel({
         const removed = puzzleState.slotFuse;
         puzzleState.slotFuse = null;
         puzzleState.overloaded = false;
+        fuseFlareRemaining = 0;
         sparkTimer = 0;
         sparkLight.intensity = 0;
         fuseBox.userData.interact.label = 'Empty fuse slot';
@@ -2082,6 +2113,7 @@ export function createHallwayBasementLevel({
         fuseFailReason[installed] = 'overrated';
         showCaption(line('dialog_fuse_rating_too_high', { amps: installed }));
         puzzleState.overloaded = true;
+        fuseFlareRemaining = FUSE_FLARE_SECONDS;
         fuseBox.userData.interact.label = 'Remove fuse';
       }
     }
@@ -2301,6 +2333,7 @@ export function createHallwayBasementLevel({
 
     // Whatever the puzzle makes of it, the control moves.
     animateGeneratorControl(controlId);
+    onSfx('switch_click');
 
     if (controlId !== GENERATOR_RESTART_SEQUENCE[generatorStepsCompleted]) {
       generatorStepsCompleted = 0;
@@ -2317,6 +2350,8 @@ export function createHallwayBasementLevel({
       starterPulls += 1;
       if (starterPulls < STARTER_PULLS_TO_CATCH) {
         generatorSputterSeconds = 0.4 + starterPulls * 0.5;
+        // It turns over, coughs and dies.
+        onSfx('generator_stop');
         showCaption(line(starterPulls === 1
           ? 'dialog_starter_first_pull'
           : 'dialog_starter_later_pull'));
@@ -2587,6 +2622,13 @@ export function createHallwayBasementLevel({
    * to stand in it.
    */
   const BREAKER_TRIP_GLARE_IN_SECONDS = 1.1;
+  /**
+   * The 45A's white-out, seconds. It used to last for as long as the fuse sat
+   * in the clips; now it is a flash, the same length as the panel trip's, and
+   * the lab settles dark with the wrong fuse still in (user, 2026-10-17).
+   */
+  const FUSE_FLARE_SECONDS = 1.0;
+  let fuseFlareRemaining = 0;
   let breakerTripTimeRemainingInSeconds = 0;
 
   /**
@@ -2730,6 +2772,7 @@ export function createHallwayBasementLevel({
 
     breakerIsOn[circuitId] = !breakerIsOn[circuitId];
     updateBreakerSwitch(circuitId);
+    onSfx(breakerIsOn[circuitId] ? 'breaker_on' : 'breaker_off');
 
     const drawnInAmps = getTotalBreakerLoadInAmps();
     const remainingInAmps = PANEL_CAPACITY_IN_AMPS - drawnInAmps;
@@ -2900,6 +2943,7 @@ export function createHallwayBasementLevel({
    */
   function setBreakerCoverOpen(open, { quiet = false } = {}) {
     breakerCover.open = open;
+    if (!quiet) onSfx('latch');
     breakerCoverHit.userData.interact.label = open ? 'Close the breaker cover' : 'Lift the breaker cover';
     if (open) {
       // The raised cover, hinge line to free edge, across its whole width.
@@ -3575,6 +3619,7 @@ export function createHallwayBasementLevel({
   powerButton.userData.interact = {
     label: 'Switch the monitor on',
     onInteract: () => {
+      onSfx('switch_click');
       if (!isCctvPowered()) {
         showCaption(line(
           powerStage === POWER_STAGE.DEAD
@@ -3919,6 +3964,7 @@ export function createHallwayBasementLevel({
 
       if (securityCleared) {
         showCaption(line('dialog_metal_door_opens'));
+        onDoorOpening(metalDoor.getWorldPosition(new THREE.Vector3()));
         onExit();
         return;
       }
@@ -4595,7 +4641,8 @@ export function createHallwayBasementLevel({
     if (breakerTripTimeRemainingInSeconds > 0) {
       breakerTripTimeRemainingInSeconds = Math.max(0, breakerTripTimeRemainingInSeconds - deltaTimeInSeconds);
     }
-    const isOverloaded = puzzleState.overloaded || breakerTripTimeRemainingInSeconds > 0;
+    if (fuseFlareRemaining > 0) fuseFlareRemaining = Math.max(0, fuseFlareRemaining - deltaTimeInSeconds);
+    const isOverloaded = fuseFlareRemaining > 0 || breakerTripTimeRemainingInSeconds > 0;
 
     overloadGlare = easeToward(
       overloadGlare,
@@ -4679,6 +4726,13 @@ export function createHallwayBasementLevel({
         flash.t = duration;
         return duration;
       },
+      /** Lightning that keeps catching for `duration` seconds, then goes. Returns the duration. */
+      stutter: (duration) => {
+        stutter.t = 0;
+        stutter.duration = duration;
+        stutter.nextStrike = 0;
+        return duration;
+      },
       /** Reveals the pool and makes it examinable. Once the creature has gone. */
       revealPool: () => {
         if (blackPool.visible) return;
@@ -4689,6 +4743,12 @@ export function createHallwayBasementLevel({
       get powerRestored() { return hasMainsPower(); },
       /** The full electrical stage, for anything that needs more than on/off. */
       get powerStage() { return powerStage; },
+      /** The cabinet, for its engine noise to sit on. */
+      generator,
+      /** True while its engine turns over -- every stage but the blackout. */
+      get generatorRunning() { return isGeneratorRunning(); },
+      /** The lab lights' ramp, 0 dark to 1 lit, which the tubes' hum follows. */
+      get powerLevel() { return powerLevel; },
       /**
        * A fresh snapshot of how far the player is, for the H-key hints (see
        * basementHints.js). Read-only copies: nothing outside may change these.
@@ -4721,6 +4781,7 @@ export function createHallwayBasementLevel({
       puzzleState.heldFuse = null;
       puzzleState.slotFuse = null;
       puzzleState.overloaded = false;
+      fuseFlareRemaining = 0;
       sparkTimer = 0;
       sparkLight.intensity = 0;
       droppedFuseCount = 0;
@@ -4756,6 +4817,7 @@ export function createHallwayBasementLevel({
       screenMaterial.uniforms.uFeed.value = feeds.textures.kitchen;
       feeds.reset();
       flash.t = 0;
+      stutter.duration = 0;
       hallLightning.intensity = 0;
       if (blackPool.visible) {
         blackPool.visible = false;
@@ -4830,7 +4892,27 @@ export function createHallwayBasementLevel({
 
       // The scripted lightning. Fast up, slower down, with the intensity
       // jittered so it reads as a strike rather than a lamp being switched.
-      if (flash.t > 0) {
+      if (stutter.duration > 0) {
+        stutter.t += dt;
+        if (stutter.t >= stutter.duration) {
+          // Out with the figure, not after it.
+          stutter.duration = 0;
+          flash.t = 0;
+          hallLightning.intensity = 0;
+        } else {
+          if (stutter.t >= stutter.nextStrike) {
+            flash.duration = STUTTER_STRIKE_SECONDS;
+            flash.t = STUTTER_STRIKE_SECONDS;
+            stutter.nextStrike = stutter.t + STUTTER_GAP_MIN + Math.random() * (STUTTER_GAP_MAX - STUTTER_GAP_MIN);
+          }
+          flash.t = Math.max(0, flash.t - dt);
+          const k = flash.t / flash.duration;
+          // Between strikes the floor flickers but never lets the far end go
+          // dark; now and then it dips hard, which is what makes it a storm.
+          const floor = STUTTER_FLOOR * (Math.random() < STUTTER_DIP_CHANCE ? STUTTER_DIP : 0.7 + Math.random() * 0.3);
+          hallLightning.intensity = Math.max(k * k * 5.2 * (0.55 + Math.random() * 0.45), floor);
+        }
+      } else if (flash.t > 0) {
         flash.t = Math.max(0, flash.t - dt);
         const k = flash.t / flash.duration;
         hallLightning.intensity = k * k * 5.2 * (0.55 + Math.random() * 0.45);

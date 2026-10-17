@@ -40,9 +40,11 @@ import { createScriptRunner } from './core/Script.js';
 import { createOkabeCreature } from './systems/OkabeCreature.js';
 import { createCreatureAI } from './systems/CreatureAI.js';
 import { createBackroomsHunter } from './systems/BackroomsHunter.js';
+import { createAudioDirector } from './systems/AudioDirector.js';
+import { createBackroomsBarks } from './systems/BackroomsBarks.js';
 import { createVisor } from './core/Visor.js';
 import { DOCUMENTS } from './story/lines.js';
-import { line } from './dialogue/index.js';
+import { line, linePicker } from './dialogue/index.js';
 import { installUnloadGuard } from './core/KeyboardGuard.js';
 import { Hands } from './systems/hands/hands.js';
 import { setHandAssetUrl } from './systems/hands/hand-mesh.js';
@@ -109,7 +111,7 @@ const fade = createScreenFade(fadeOverlay);
 // module has finished evaluating, so reading `audio` in onShow is safe.
 const newspaperView = createNewspaper({
   root: document.getElementById('newspaper-view'),
-  onShow: () => audio.paperRustle()
+  onShow: () => paperRustle()
 });
 
 /**
@@ -580,6 +582,48 @@ let flashlightFound = false;
 let flashlightSwitchOn = false;
 let flashlightOn = false;
 
+/**
+ * THE TORCH FAILS. Every 45-60 s of it actually shining, it gives out for
+ * 10-15 s: the beam dies, and for the whole of that it stutters -- short,
+ * irregular flashes of light -- and the switch cannot fix it. Then it comes
+ * back on its own. The clock only runs while the beam is lit, so a torch kept
+ * in the pocket does not bank a failure for the moment it comes out.
+ */
+const TORCH_FAULT_EVERY = [45, 60];
+const TORCH_FAULT_FOR = [10, 15];
+const torchFault = { nextIn: 0, left: 0, flickerIn: 0, flickerOn: false, flickerLevel: 1 };
+const randBetween = ([a, b]) => a + Math.random() * (b - a);
+function resetTorchFault() {
+  torchFault.nextIn = randBetween(TORCH_FAULT_EVERY);
+  torchFault.left = 0;
+  torchFault.flickerOn = false;
+}
+resetTorchFault();
+
+/** Advances the fault clock and the stutter. Once a frame, while playing. */
+function updateTorchFault(dt) {
+  if (torchFault.left > 0) {
+    torchFault.left -= dt;
+    torchFault.flickerIn -= dt;
+    if (torchFault.flickerIn <= 0) {
+      // Brief catches of light between longer dead stretches.
+      torchFault.flickerOn = !torchFault.flickerOn;
+      torchFault.flickerIn = torchFault.flickerOn ? 0.04 + Math.random() * 0.16 : 0.15 + Math.random() * 0.9;
+      torchFault.flickerLevel = 0.25 + Math.random() * 0.75;
+    }
+    if (torchFault.left <= 0) resetTorchFault();
+    applyFlashlightBeam();
+  } else if (flashlightOn) {
+    torchFault.nextIn -= dt;
+    if (torchFault.nextIn <= 0) {
+      torchFault.left = randBetween(TORCH_FAULT_FOR);
+      torchFault.flickerOn = false;
+      torchFault.flickerIn = 0.1;
+      applyFlashlightBeam();
+    }
+  }
+}
+
 /** Flips the torch's switch. The beam follows it only while the torch is in hand. */
 function setFlashlight(on) {
   flashlightSwitchOn = !!on;
@@ -595,14 +639,17 @@ function applyFlashlightBeam() {
   // The spill drops well below the old 2.4: it is now filling AROUND a hot
   // spot rather than being the whole beam, and leaving both at full strength
   // would just be a brighter blob.
-  flashlightSpot.intensity = flashlightOn ? 1.75 : 0;
-  flashlightHot.intensity = flashlightOn ? 3.35 : 0;
-  dustMotes.setBeamOn(flashlightOn);
+  // A failing torch is switched on but dark, but for its stutter.
+  const failing = torchFault.left > 0;
+  const level = !flashlightOn ? 0 : !failing ? 1 : torchFault.flickerOn ? torchFault.flickerLevel : 0;
+  flashlightSpot.intensity = 1.75 * level;
+  flashlightHot.intensity = 3.35 * level;
+  dustMotes.setBeamOn(level > 0);
   flashlightStateEl.textContent = !flashlightFound ? 'not found'
     : !gameState.inventory.has('flashlight') ? 'dropped'
       : !inHand ? 'put away'
-        : flashlightOn ? 'on' : 'off';
-  flashlightStateEl.classList.toggle('on', flashlightOn);
+        : flashlightOn ? (failing ? 'failing' : 'on') : 'off';
+  flashlightStateEl.classList.toggle('on', flashlightOn && !failing);
 }
 
 // ---------- inventory, and what is in the hand ----------
@@ -985,6 +1032,18 @@ function clearDroppedItems() {
 // ---------- audio ----------
 const audio = new AudioEngine();
 
+/**
+ * The recorded sound effects (AudioDirector's SFX table: free CC0 and public
+ * domain clips, see src/assets/audio/SOURCES.md). The four the game used to
+ * synthesise keep their synthesised version as a fallback, for the moment
+ * before a file has decoded or a build without it.
+ */
+const sfx = (name, opts) => audioDirector.sfx(name, opts);
+const creak = () => sfx('creak') || audio.creak();
+const thunder = (opts) => sfx('thunder', opts) || audio.thunder();
+const spark = () => sfx('spark') || audio.spark();
+const paperRustle = () => sfx('paper') || audio.paperRustle();
+
 // ---------- interaction / captions ----------
 // One caption authority for the whole game. Interaction forwards examine text
 // to it; story beats call captions.play([...]) and can await the result.
@@ -1016,8 +1075,20 @@ const photoBoardUI = createPhotoBoardUI({
 // for the bedroom's lamp-drawer combination lock (and any future
 // numeric-lock puzzle -- the UI itself doesn't know the code, see
 // PinPadUI.js).
+const pickWrongCode = linePicker([
+  'dialog_wrong_code_1', 'dialog_wrong_code_2', 'dialog_wrong_code_3',
+  'dialog_wrong_code_4', 'dialog_wrong_code_5'
+]);
 const pinPadUI = createPinPadUI({
-  onClose: () => player.lock()
+  onClose: () => player.lock(),
+  // Every keypad in the game. say(), not play(): a wrong code must never cut
+  // into a story line that happens to be running.
+  onWrong: () => {
+    sfx('keypad_wrong');
+    captions.say(line(pickWrongCode()));
+  },
+  onKey: () => sfx('keypad_press'),
+  onGranted: () => sfx('keypad_accept')
 });
 
 // The reading surface for every letter, note, file and transcript in the game.
@@ -1069,7 +1140,12 @@ function runBedroomHorrorEvent(id, sequence) {
  * The Level 3 reveal asks for the man explicitly, and the visor drives the dial
  * between the two.
  */
-const creature = createOkabeCreature({ restCorrection: 0 });
+/**
+ * The monster is 15% bigger than the rig's own size, and then 15% bigger again,
+ * in every appearance (user, 2026-10-17): 1.15 x 1.15.
+ */
+const MONSTER_SCALE = 1.15 * 1.15;
+const creature = createOkabeCreature({ restCorrection: 0, scale: MONSTER_SCALE });
 creature.visible = false;
 worldRoot.add(creature.group);
 
@@ -1081,7 +1157,7 @@ worldRoot.add(creature.group);
  * it from the minimap, and a partial correction. Two instances keep each one's
  * state its own. They share the cached file, not a skeleton.
  */
-const okabe = createOkabeCreature();
+const okabe = createOkabeCreature({ scale: MONSTER_SCALE });
 okabe.visible = false;
 worldRoot.add(okabe.group);
 
@@ -1326,6 +1402,9 @@ const creatureAI = createCreatureAI({
     // twice in a row on its own.
     if (caughtInFlight || transitionInFlight) return;
     caughtInFlight = true;
+    // Silent unless the director's STING.onStudyCatch is flipped: she is hauling
+    // you back, not killing you, and a death sting here undercuts the ending.
+    audioDirector.caught({ where: 'study' });
     script.run(async (s) => {
       try {
         s.do(() => {
@@ -1387,7 +1466,10 @@ const bedroom = createBedroomLevel({
   // It is held in grip-cylinder (see HELD_ITEM_FRAMING in core/HeldItems.js),
   // the very shape the loop is built on, so the loop's few degrees of wrist
   // work the clip in the cuff rather than swinging it off across the screen.
-  onPaperclipUsed: () => hands.play('right', 'lockpick', { fade: 0.2 }),
+  onPaperclipUsed: () => {
+    hands.play('right', 'lockpick', { fade: 0.2 });
+    sfx('lockpick');
+  },
   onFreed: () => {
     // The wake-up scene starts on the mattress. Leave it intact while chained,
     // then move to the clear foot-end position before the full bed collider is
@@ -1401,6 +1483,8 @@ const bedroom = createBedroomLevel({
     // it is a loop, so nothing ever fires hands:clip-end for it), so being
     // freed is what stops it.
     hands.stop('right');
+    // The cuff opens and its chain drops off the bed frame.
+    sfx('chain_drop');
     // Used up, like the brass key and the crowbar: the clip stays in the
     // cuff's lock. Kept, it sat first in the hotbar for the whole run as a dead
     // wheel stop, and was what the hand fell back to when the bedroom key went
@@ -1438,7 +1522,7 @@ const bedroom = createBedroomLevel({
       if (!await s.play(line('dialog_bulb_blows'))) return;
       if (!await s.wait(1.8)) return;
       s.do(() => {
-        audio.creak();
+        creak();
         audio.footsteps({ count: 1, pan: 0.55, level: 0.28 });
         // Arms the one glimpse at the window -- see the note above
         // bedroomStorm. Left until now rather than the moment the bulb goes,
@@ -1460,6 +1544,7 @@ const bedroom = createBedroomLevel({
     runBedroomHorrorEvent('flashlight-sound', (s) => {
       s.do(() => {
         bedroom.refs.disturbChair();
+        sfx('chair_scrape', { gainDb: -6 });
         audio.footsteps({ count: 1, pan: -0.45, level: 0.24 });
       });
     });
@@ -1468,20 +1553,27 @@ const bedroom = createBedroomLevel({
     // The physical drawer key keeps the existing inventory grant; the pickup
     // gesture makes that transfer visible without introducing a held key mesh.
     hands.play('right', 'pickup', { fade: 0.15 });
+    sfx('keys_pickup');
     pickUpItem('brassKey');
   },
   // Used up, not dropped: the key stays in the lockbox, the crowbar comes out
   // of it (and goes into the hand), the planks keep the crowbar, the door keeps
   // its key.
   onBrassKeyUsed: () => consumeItem('brassKey'),
+  // Fired as the lockbox lid passes 70% -- a couple of seconds after the box
+  // was opened. Not if the planks have been pried in the meantime (G's skip
+  // can do that): that crowbar is already spent, and a second would sit in the
+  // hotbar for the rest of the run.
   onCrowbarFound: () => {
-    pickUpItem('crowbar');
+    if (!bedroom.refs.puzzleState.planksRemoved) pickUpItem('crowbar');
   },
   onCrowbarUsed: () => consumeItem('crowbar'),
   onBedroomKeyFound: () => {
+    sfx('keys_pickup');
     pickUpItem('bedroomKey');
   },
   onBedroomKeyUsed: () => {
+    sfx('deadbolt_open');
     consumeItem('bedroomKey');
     // The door wanted the key IN the hand, which put the torch away -- and a
     // torch put away is switched off. Through this door is the dark of the
@@ -1489,11 +1581,12 @@ const bedroom = createBedroomLevel({
     if (gameState.inventory.has('flashlight') && heldItems.select('flashlight')) setFlashlight(true);
   },
   onPhotoCollected: (count) => {
+    sfx('paper');
     if (count !== 2) return;
     runBedroomHorrorEvent('two-photos', (s) => {
       s.do(() => {
         bedroom.refs.disturbBin();
-        audio.creak();
+        creak();
       });
     });
   },
@@ -1509,6 +1602,7 @@ const bedroom = createBedroomLevel({
     });
   },
   onDrawerUnlocked: () => {
+    sfx('drawer_open');
     runBedroomHorrorEvent('drawer-thump', async (s) => {
       if (!await s.wait(0.55)) return;
       s.do(() => {
@@ -1519,16 +1613,22 @@ const bedroom = createBedroomLevel({
   },
   onSafeOpened: () => {
     runBedroomHorrorEvent('safe-door-rattle', async (s) => {
-      if (!await s.wait(0.45)) return;
+      // Just after the lid lands, not in the middle of its creak -- the lid
+      // takes as long as its recording now (see LOCKBOX_OPEN_DURATION_SECONDS).
+      if (!await s.wait(bedroom.refs.lockboxOpenSeconds + 0.15)) return;
+      // The recorded rattle is the whole beat; the two creaks are its stand-in.
+      let rattled = false;
       s.do(() => {
         bedroom.refs.rattleDoor();
-        audio.creak();
+        rattled = !!sfx('door_locked_rattle');
+        if (!rattled) creak();
       });
       if (!await s.wait(0.22)) return;
-      s.do(() => audio.creak());
+      s.do(() => { if (!rattled) creak(); });
     });
   },
   onFloorboardOpened: () => {
+    sfx('creak');
     runBedroomHorrorEvent('key-footsteps-retreat', async (s) => {
       if (!await s.wait(0.18)) return;
       s.do(() => {
@@ -1538,9 +1638,11 @@ const bedroom = createBedroomLevel({
     });
   },
   onDoorPlankRemoved: () => {
+    sfx('planks_pry');
     runBedroomHorrorEvent('plank-breathing-retreat', async (s) => {
       s.do(() => {
         bedroom.refs.rattleDoor();
+        sfx('door_locked_rattle', { gainDb: -4 });
         audio.setBreathing(LEVEL_ONE_DOOR_BREATHING);
       });
       if (!await s.wait(0.8)) return;
@@ -1565,10 +1667,19 @@ const bedroom = createBedroomLevel({
       variant: 'note'
     });
   },
+  // No load: the door opens onto the hallway, which is built on the other
+  // side of it, and the player walks through -- see openToHallway().
   onDoorOpened: () => {
     bedroomHorrorScript.cancel();
-    exitLevel('bedroom');
+    openToHallway();
   },
+  // The hallway is there from the first moment of the swing -- not the black
+  // card the doorway used to show until the fade.
+  onDoorOpening: (position) => {
+    audioDirector.door(position);
+    openToHallway();
+  },
+  onLockboxOpening: (position) => audioDirector.lockbox(position),
 
   /**
    * The scratched floor message, and what it brings.
@@ -1609,7 +1720,8 @@ const bedroom = createBedroomLevel({
   onExaminePinpad: ({ length, code, onSolved }) => {
     player.unlock();
     pinPadUI.open({ length, code, onSolved });
-  }
+  },
+  onSfx: (name) => sfx(name)
 });
 sceneManager.register('bedroom', bedroom);
 
@@ -1619,14 +1731,18 @@ sceneManager.register('bedroom', bedroom);
 // they read whether captions are on or off.
 const upstairsHallway = createUpstairsHallwayLevel({
   showCaption,
+  // Built onto the bedroom's door: the two are one space, walked between.
+  origin: bedroom.refs.doorway,
   onInspect: async ({ title, body, art }) => {
     const image = art ? await art.toImageUrl() : null;
     player.unlock();
     documentUI.open({ title, body, image, variant: 'exhibit' });
   },
+  // Walked down the stairs and into the passage at their foot.
   onExit: () => exitLevel('upstairsHallway'),
   // The flash, then the thunder a moment later -- it is a few miles off.
-  onLightning: () => setTimeout(() => audio.thunder(), 350 + Math.random() * 900)
+  onLightning: () => setTimeout(() => thunder(), 350 + Math.random() * 900),
+  onSfx: (name, opts) => sfx(name, opts)
 });
 sceneManager.register('upstairsHallway', upstairsHallway);
 
@@ -1764,17 +1880,266 @@ const cctvSeen = new Set();
 /** True while it is standing there, so the frame loop keeps it breathing. */
 let creatureStanding = false;
 
+/**
+ * How long the creature stays in view when a beat puts it somewhere -- Level 2
+ * and every level after it. Asked for at three seconds: long enough to be sure
+ * of what you saw, which the old 0.45 s flash never was.
+ */
+const CREATURE_LINGER_SECONDS = 3;
+/**
+ * Level 2's arrival sighting: the lightning, and the creature it shows, last
+ * this long -- one second, at the user's ask, where it used to stutter on for
+ * CREATURE_LINGER_SECONDS.
+ */
+const LAB_FLASH_SECONDS = 1.0;
+
+/** The appearance under way: seconds left on the FRAME clock, and what to run when it goes. */
+let creatureLinger = null;
+/** Its stalking aura, from the audio director -- null when refused or not asked for. */
+let creatureStalkToken = null;
+
+/**
+ * Put the house creature at (x, z), facing the player unless told otherwise, for
+ * `linger` seconds -- null keeps it there until hideCreature(). With
+ * `stalkAudio`, its breathing plays from its body while it is there. Counted
+ * down in tick() on the frame clock, so the time it is seen is exact to a frame
+ * and a restart (activateLevel clears this) cannot leave a timer behind.
+ *
+ * The shared way in for any future level that shows it, so each one gets the
+ * three seconds and the sound without being told.
+ */
+function showCreatureAt({ x, z, yaw = null, linger = CREATURE_LINGER_SECONDS, stalkAudio = true, onGone = null }) {
+  creature.reset();
+  creature.setPosition(x, z);
+  creature.setYaw(yaw ?? Math.atan2(-(camera.position.x - x), -(camera.position.z - z)));
+  creature.setSpeed(0);
+  creature.visible = true;
+  creatureStanding = true;
+  audioDirector.endStalk(creatureStalkToken, 0.3);
+  // Asked here as well as inside the director: the aura is for a creature that
+  // is stalking, and nothing is while the backrooms hunter is running.
+  creatureStalkToken = stalkAudio && backroomsHunter.state === 'stopped'
+    ? audioDirector.startStalk({ follow: () => creature.position, linger })
+    : null;
+  creatureLinger = linger === null ? null : { remaining: linger, onGone };
+}
+
+function hideCreature() {
+  creature.visible = false;
+  creatureStanding = false;
+  creatureLinger = null;
+  audioDirector.endStalk(creatureStalkToken);
+  creatureStalkToken = null;
+}
+
+/**
+ * THE BEDROOM AND THE UPSTAIRS HALLWAY ARE ONE SPACE. The hallway is built onto
+ * the bedroom's door (its `origin`), so when the door opens there is no fade
+ * and no load: both rooms are drawn, the doorway's colliders come out of both,
+ * and the player walks through. HALL_ENTER_DEPTH into the hall it becomes the
+ * active level -- seamlessly, without moving them (activateLevel's
+ * `seamless`) -- and a moment later the door swings shut behind them, the
+ * doorway is solid again and the bedroom stops being drawn.
+ *
+ * The two ambients are swapped by INTENSITY, never by switching one off: a
+ * light count is part of every shader's key, so turning a light off mid-game
+ * recompiles every material in view -- the very stall this is meant to avoid.
+ * Both lit sets (both rooms, and the hall alone) are built in warmUp().
+ */
+const HALL_ENTER_DEPTH = 0.8;
+const HALL_AMBIENT = 0.31;
+let doorwayJoined = false;
+/** Set by G: the player is carried through the door the moment it opens. */
+let skipThroughDoor = false;
+/** G's carry: the rush starts once the hall is the active level, not before. */
+let rushAfterSwitch = false;
+const joinedColliders = [];
+
+function openToHallway() {
+  if (doorwayJoined) return;
+  doorwayJoined = true;
+  bedroom.refs.setDoorwayOpen(true);
+  upstairsHallway.refs.setDoorwayOpen(true);
+  // Lit only once it is the room you are in; see the note above.
+  upstairsHallway.refs.ambient.intensity = 0;
+  upstairsHallway.group.visible = true;
+  joinedColliders.length = 0;
+  joinedColliders.push(...bedroom.colliders, ...upstairsHallway.colliders);
+  player.setColliders(joinedColliders);
+  if (skipThroughDoor) {
+    skipThroughDoor = false;
+    const [x, z] = upstairsHallway.spawn;
+    // Facing down the hall, as walking in would be.
+    player.spawn(x, z, upstairsHallway.spawnYaw ?? 0);
+    // Carried straight into the hall, which activates it next frame -- and an
+    // activation clears any creature on screen, so the rush waits for that.
+    rushAfterSwitch = true;
+  } else {
+    // The door is opening onto it: it is already standing at the end of the hall.
+    startHallwayRush();
+  }
+}
+
+/** Once a frame: the hall becomes the active level when the player is in it. */
+function updateDoorwayJoin(dt) {
+  if (!doorwayJoined || sceneManager.activeKey !== 'bedroom') return;
+  // Seen through the open door, the hall is alive -- its pendant, its rain,
+  // and the light the rush puts out -- though the bedroom is the active level.
+  upstairsHallway.update(dt, camera.position);
+  if (camera.position.z < upstairsHallway.refs.doorway.z + HALL_ENTER_DEPTH) return;
+  bedroom.refs.ambient.intensity = 0;
+  upstairsHallway.refs.ambient.intensity = HALL_AMBIENT;
+  activateLevel('upstairsHallway', { seamless: true });
+  // Both rooms stay solid until the door shuts behind them.
+  player.setColliders(joinedColliders);
+  if (rushAfterSwitch) {
+    rushAfterSwitch = false;
+    startHallwayRush();
+  }
+}
+
+/** The door swings shut behind the player: the doorway is a wall again. */
+function closeDoorwayBehind() {
+  if (!doorwayJoined) return;
+  doorwayJoined = false;
+  bedroom.refs.shutDoor();
+  bedroom.refs.setDoorwayOpen(false);
+  upstairsHallway.refs.setDoorwayOpen(false);
+  player.setColliders(upstairsHallway.colliders);
+  // Anyone still standing in the doorway is on the hall side of it.
+  const d = upstairsHallway.refs.doorway;
+  if (camera.position.z < d.z + 0.45) player.teleport(camera.position.x, d.z + 0.5);
+}
+
+/** The bedroom stops being drawn once its door has shut. */
+function hideBedroomBehind() {
+  if (sceneManager.activeKey !== 'upstairsHallway') return;
+  bedroom.group.visible = false;
+}
+
+/** Restart: the two rooms back to two rooms with a closed door between them. */
+function resetDoorwayJoin() {
+  doorwayJoined = false;
+  skipThroughDoor = false;
+  rushAfterSwitch = false;
+  hallwayRushDone = false;
+  bedroom.refs.setDoorwayOpen(false);
+  upstairsHallway.refs.setDoorwayOpen(false);
+  upstairsHallway.refs.ambient.intensity = HALL_AMBIENT;
+  // The bedroom's own ambient is put back to lit by resetGame() itself.
+}
+
+/**
+ * THE HALLWAY RUSH. As the bedroom door opens, it is standing at the far end
+ * of the hall. For a second it only stands there; then the light goes, and in
+ * the dark it SPRINTS at you. When it is nearly on you it is gone -- the dark
+ * holds a second longer, the light comes back on an empty hall, and only then
+ * does the singing start, faint, from down the stairs (AudioDirector's
+ * startSinging). Once per run.
+ *
+ * The player is held still from the first sight of it until it vanishes, so
+ * it always reaches them: the beat is that there was nowhere to go, not a
+ * chase to win. On the frame clock in tick(), so a pause freezes it; a restart
+ * (resetGame) or leaving both rooms ends it.
+ */
+const HALLWAY_RUSH_STARE = 1.0;     // seconds it stands there, lit, before the light goes
+const HALLWAY_RUSH_SPEED = 5.2 * 1.3; // m/s: 30% up on the first pass, at the user's ask
+const HALLWAY_RUSH_VANISH = 1.6;    // metres from the player where it is gone
+const HALLWAY_RUSH_MAX = 4.5;       // seconds of sprinting at most, whatever happens
+const HALLWAY_RUSH_DARK_AFTER = 1.0; // seconds the light stays out after it has gone
+let hallwayRush = null;
+let hallwayRushDone = false;
+
+function startHallwayRush() {
+  if (hallwayRush || hallwayRushDone) return;
+  hallwayRushDone = true;
+  const { x, z } = upstairsHallway.refs.farEnd;
+  player.movementEnabled = false;
+  // It breathes from its body while it is there (the stalking aura).
+  showCreatureAt({ x, z, linger: null });
+  hallwayRush = { phase: 'stare', t: 0 };
+}
+
+/** It is gone: the body goes, the player can move, the dark holds a moment. */
+function vanishHallwayRush() {
+  hideCreature();
+  player.movementEnabled = true;
+  sfx('gasp');
+  hallwayRush.phase = 'dark';
+  hallwayRush.t = 0;
+}
+
+function endHallwayRush({ quiet = false } = {}) {
+  if (!hallwayRush) return;
+  const wasPhase = hallwayRush.phase;
+  hallwayRush = null;
+  hideCreature();
+  upstairsHallway.refs.setLightsOut(false);
+  player.movementEnabled = true;
+  if (quiet) return;
+  if (wasPhase !== 'dark') sfx('gasp');
+  // The light is back, the hall is empty -- and someone is singing below.
+  audioDirector.startSinging();
+}
+
+function updateHallwayRush(dt) {
+  const r = hallwayRush;
+  if (!r) return;
+  if (sceneManager.activeKey !== 'upstairsHallway' && sceneManager.activeKey !== 'bedroom') {
+    endHallwayRush({ quiet: true });
+    return;
+  }
+  r.t += dt;
+  if (r.phase === 'dark') {
+    if (r.t >= HALLWAY_RUSH_DARK_AFTER) endHallwayRush();
+    return;
+  }
+  if (r.phase === 'stare') {
+    if (r.t < HALLWAY_RUSH_STARE) return;
+    r.phase = 'rush';
+    r.t = 0;
+    upstairsHallway.refs.setLightsOut(true);
+    // The light dying, then its feet coming down the boards at a run.
+    sfx('power_down', { gainDb: -8 });
+    audio.footsteps({ count: 6, spacing: 0.27, pan: 0, level: 0.62 });
+  }
+  const p = creature.position;
+  const dx = camera.position.x - p.x;
+  const dz = camera.position.z - p.z;
+  const d = Math.hypot(dx, dz);
+  if (d <= HALLWAY_RUSH_VANISH || r.t > HALLWAY_RUSH_MAX) { vanishHallwayRush(); return; }
+  const step = Math.min(d - HALLWAY_RUSH_VANISH + 0.01, HALLWAY_RUSH_SPEED * dt);
+  creature.setPosition(p.x + (dx / d) * step, p.z + (dz / d) * step);
+  creature.setYaw(Math.atan2(-dx, -dz));
+  creature.setSpeed(HALLWAY_RUSH_SPEED);
+}
+
 const hallwayBasement = createHallwayBasementLevel({
   showCaption,
   onExit: () => exitLevel('hallwayBasement'),
-  onSpark: () => audio.spark(),
+  // Every press in the cleared branch calls onExit, and only the first one
+  // starts a transition -- so only that one gets a door.
+  // The lab's metal door, not the house's wooden creak.
+  onDoorOpening: (position) => {
+    if (transitionInFlight) return;
+    if (!sfx('metal_door_open', { position: { x: position.x, y: 1.1, z: position.z }, spans: true })) audioDirector.door(position);
+  },
+  onSpark: () => spark(),
   onTrolleyRoll: (level) => audio.setTrolleyRattle(level),
   // The crash. Level 2's creature is scripted rather than hunting, so nothing
   // answers the noise yet -- this is where to hook it if something should.
   onTrolleyCrash: () => audio.trolleyCrash(),
-  onGlare: setGlare,
+  // The white-out, and the overload buzz that rides it.
+  onGlare: (amount) => {
+    setGlare(amount);
+    audioDirector.glare(amount);
+  },
+  onSfx: (name) => sfx(name),
 
   onPowerRestored: () => {
+    // The fuse seats, and the tubes strike as the lights ramp up.
+    sfx('metal_click');
+    sfx('tubes_start');
     script.run(async (s) => {
       if (!await s.play(line('dialog_power_restored'))) return;
     });
@@ -1792,8 +2157,10 @@ const hallwayBasement = createHallwayBasementLevel({
   onBlackout: () => {
     script.run(async (s) => {
       s.do(() => {
-        audio.creak();
-        audio.spark();
+        // A hand on the main lever, and the room running down with it.
+        if (!sfx('main_lever')) creak();
+        sfx('power_down');
+        spark();
         // It is close. The breathing says so without showing anything.
         audio.setBreathing(0.9);
       });
@@ -1808,9 +2175,13 @@ const hallwayBasement = createHallwayBasementLevel({
     });
   },
 
-  onOverload: () => captions.play(line('dialog_breaker_overload')),
+  onOverload: () => {
+    sfx('panel_trip');
+    captions.play(line('dialog_breaker_overload'));
+  },
 
   onPowerRouted: () => {
+    sfx('main_lever');
     script.run(async (s) => {
       if (!await s.play(line('dialog_power_routed'))) return;
     });
@@ -1844,6 +2215,7 @@ const hallwayBasement = createHallwayBasementLevel({
   },
 
   onViewFeed: (id) => {
+    sfx('cctv_glitch');
     if (cctvSeen.has(id)) return;
     cctvSeen.add(id);
 
@@ -1865,7 +2237,7 @@ const hallwayBasement = createHallwayBasementLevel({
         if (!await s.wait(0.6)) return;
         s.do(() => audio.setBreathing(0.95));
         if (!await s.play(line('dialog_cctv_basement'))) return;
-        s.do(() => audio.creak());
+        s.do(() => creak());
 
         /**
          * And then it is behind you.
@@ -1881,19 +2253,14 @@ const hallwayBasement = createHallwayBasementLevel({
         if (!await s.wait(0.7)) return;
         s.do(() => {
           // Where it stands after camera five -- the level owns the spot, so it
-          // moves with the lab if the room is ever resized again.
+          // moves with the lab if the room is ever resized again. For as long
+          // as the line takes, its aura looping, rather than a fixed linger.
           const CORNER = hallwayBasement.refs.creatureCorner;
-          creature.reset();
-          creature.setPosition(CORNER[0], CORNER[1]);
-          creature.setYaw(Math.atan2(-(camera.position.x - CORNER[0]), -(camera.position.z - CORNER[1])));
-          creature.setSpeed(0);
-          creature.visible = true;
-          creatureStanding = true;
+          showCreatureAt({ x: CORNER[0], z: CORNER[1], linger: null });
         });
         if (!await s.play(line('dialog_creature_corner'))) return;
         s.do(() => {
-          creature.visible = false;
-          creatureStanding = false;
+          hideCreature();
           hallwayBasement.refs.revealPool();
           // Back off: it has gone, and the room is only as bad as it was.
           audio.setBreathing(0.6);
@@ -1914,8 +2281,12 @@ sceneManager.register('hallwayBasement', hallwayBasement);
  */
 const STUDY_GUARD_POINT = [2.5, 2.9];
 
+/** What each of the study's front-door locks sounds like as it gives. */
+const STUDY_LOCK_SFX = { deadbolt: 'deadbolt_open', combination: 'padlock_open', containment: 'latch' };
+
 const study = createStudyLevel({
   showCaption,
+  onDoorOpening: (position) => audioDirector.door(position),
   // The study is the last room, so its exit is the ENDING rather than another
   // level. Unit 17 replaces this; until then it says so plainly instead of
   // silently doing nothing, which is what an unimplemented exit used to do.
@@ -1934,6 +2305,9 @@ const study = createStudyLevel({
       body: DOCUMENTS.frontDoorNote.body
     });
   },
+  // Each of the front door's three locks, as itself.
+  onLockOpened: (id) => sfx(STUDY_LOCK_SFX[id] ?? 'latch'),
+  onSfx: (name) => sfx(name),
   onAllLocksOpen: () => {
     script.run(async (s) => {
       if (!await s.play(line('dialog_shadow_wrong'))) return;
@@ -1946,12 +2320,14 @@ const study = createStudyLevel({
   // No hands.play('pickup') of their own any more: pickUpItem plays the reach on
   // the empty glove and puts the item in it as the clip ends.
   onTakeVisor: () => {
+    sfx('cloth');
     visor.take();
     pickUpItem('visor');
     objectiveEl.textContent = 'Put the visor on. [V]';
     captions.play(line('dialog_visor_found'));
   },
   onTakeDoorKey: () => {
+    sfx('keys_pickup');
     pickUpItem('doorKey');
   },
 
@@ -2023,6 +2399,7 @@ const study = createStudyLevel({
   onChooseEnding: (which) => { playEnding(which); },
 
   onTakeGateKey: () => {
+    sfx('keys_pickup');
     pickUpItem('gateKey');
     captions.play(line('dialog_pickup_gate_key'));
   },
@@ -2064,7 +2441,9 @@ itemMeshes.setTemplate('visor', study.refs.visorGroup);
 // activate it unarmed.
 const backrooms = createBackroomsLevel({
   showCaption,
-  onExit: (route) => transitionTo(route?.to ?? 'hallwayBasement')
+  onExit: (route) => transitionTo(route?.to ?? 'hallwayBasement'),
+  onDoorOpening: (position) => audioDirector.door(position),
+  onSfx: (name, opts) => sfx(name, opts)
 });
 sceneManager.register('backrooms', backrooms);
 
@@ -2100,7 +2479,9 @@ const backroomsHunter = createBackroomsHunter({
     // player.sprint is a 0..1 blend, not a boolean -- it eases in over
     // SPRINT_BLEND so the FOV kick has something continuous to follow. Half way
     // is the point where the player has committed to the sprint.
-    sprinting: player.sprint > 0.5
+    sprinting: player.sprint > 0.5,
+    // Footsteps it can hear close by: walking, not crouched (see HEAR_WALK).
+    walking: player.moving > 0.5 && player.crouch < 0.5
   }),
   colliders: backrooms.colliders,
   onBreathing: (level) => audio.setBreathing(level),
@@ -2109,6 +2490,58 @@ const backroomsHunter = createBackroomsHunter({
 
 /** Which level this crossing started from, or null when not crossing. */
 let backroomsFrom = null;
+
+/**
+ * Who plays what, when -- the doors, the candles, the static, the bed, the
+ * laughter and every sound the monster makes. See systems/AudioDirector.js;
+ * main.js only tells it the things only main.js knows.
+ */
+const audioDirector = createAudioDirector({
+  audio,
+  THREE,
+  // The player's own head -- never the third-person camera. The free camera
+  // takes the ears with it, which is what a clip recorded from it wants.
+  getListener: () => (freeCamera.isActive ? freeCamera.camera : camera),
+  player,
+  captions,
+  getLevel: () => ({ key: sceneManager.activeKey, level: sceneManager.active }),
+  isBusy: () => transitionInFlight || caughtInFlight || cutscene.isRunning,
+  hunter: backroomsHunter,
+  // The SECOND crossing is the one it hunts on, start delay and respawns included.
+  isHuntingCrossing: () => sceneManager.activeKey === 'backrooms' && backroomsFrom === 'hallwayBasement',
+  candleAnchors: bedroom.refs.candleAnchors,
+  basementRefs: hallwayBasement.refs,
+  hallwayRefs: upstairsHallway.refs,
+  backroomsRefs: backrooms.refs
+});
+
+/**
+ * The player talking to themselves in the maze: wandering in, the first looks
+ * at the thing in there, and the blind ends. See systems/BackroomsBarks.js.
+ */
+const _barkForward = new THREE.Vector3();
+const backroomsBarks = createBackroomsBarks({
+  // Never over a story line; an examine caption can give way.
+  say: (key) => {
+    if (captions.isPlaying) return false;
+    captions.play(line(key));
+    return true;
+  },
+  getPlayer: () => {
+    camera.getWorldDirection(_barkForward);
+    return {
+      x: camera.position.x, z: camera.position.z,
+      forwardX: _barkForward.x, forwardZ: _barkForward.z,
+      moving: player.moving
+    };
+  },
+  hunter: backroomsHunter,
+  getFigure: () => (backroomsHunter.state !== 'stopped' ? backroomsHunter.position
+    : okabe.visible ? okabe.position : null),
+  colliders: backrooms.colliders,
+  isBusy: () => transitionInFlight || caughtInFlight || jumpScareRunning
+    || !(player.isLocked || audioDirector.forceActive)
+});
 
 /**
  * Something trailing behind you in the corridor between levels.
@@ -2135,7 +2568,7 @@ let backroomsFrom = null;
  */
 const BACKROOMS_SHADOW_LAG = 11;          // metres behind the player it trails at
 const BACKROOMS_SHADOW_MIN_PATH = 4;      // metres of recorded path before it may appear at all
-const BACKROOMS_SHADOW_HIDE_RANGE = 5;    // closer than this (player closing the gap) and it is gone
+const BACKROOMS_SHADOW_HIDE_RANGE = 10;   // closer than this (player closing the gap) and it is gone -- doubled from 5 at the user's ask
 const BACKROOMS_SHADOW_SAMPLE_DIST = 0.15; // metres between recorded path points
 const BACKROOMS_SHADOW_CORRECTION = 0.35;  // human-ish, not clean -- see the header above
 
@@ -2158,34 +2591,20 @@ const BACKROOMS_SHADOW_CORRECTION = 0.35;  // human-ish, not clean -- see the he
 const BACKROOMS_SHADOW_GRACE = 16.5;
 
 /**
- * Metres the player must cover after it HIDES before it may come back.
+ * Seconds of play after it HIDES before it may come back: it haunts the first
+ * crossing every 30 s, at the user's ask.
  *
- * THE FIGURE IS NOT A ONE-OFF, which is easy to miss reading the code. It hides
- * whenever the point 11 m back along the TRAIL comes within HIDE_RANGE of the
- * player as the crow flies, and in a maze of ten turns that is constantly:
- * round a corner and the trail doubles back into the corridor beside you, so
- * the thing standing on it is suddenly 5 m away and blinks out; walk on and it
- * is far again and blinks back.
+ * Was 17 m walked. Time rather than distance now, so the rhythm is the same
+ * whether the player is pressing on or hesitating at a junction -- the point
+ * is that it keeps coming back. The clock only runs in updateBackroomsShadow(),
+ * which only runs in the maze, and resetBackroomsShadow() restarts it.
  *
- * 17 m, and the number is measured rather than picked. Replaying a realistic
- * first crossing -- the route plus detours into six decoy branches, 159 m
- * walked -- the untouched system showed the figure EIGHT times with a median
- * gap of 16.2 m and gaps as short as 7.4 m, which is under four seconds and is
- * why it read as ever-present rather than as a glimpse. At 17 the median gap
- * is 24.2 m: a ratio of 1.49, the 1.5x that was asked for.
- *
- * The response is lumpy, so do not expect fine control. Past about 19 the
- * cooldown starts MERGING sightings rather than spacing them -- two that were
- * 20 m apart become one -- and the median jumps to 34 m because the survivors
- * are sums of several old gaps. 13 and 15 undershoot at 1.12x and 1.22x. The
- * usable band for 1.5x is 16-18.
- *
- * DISTANCE, not seconds, like everything else in this system. Standing still
- * does not earn a reappearance -- it comes back when you press on, which is the
- * only version of this that is about the player's choice rather than about
- * waiting them out.
+ * With HIDE_RANGE at 10 m against an 11 m trail it is only showable where the
+ * last 11 m walked are nearly straight -- measured along the first crossing's
+ * route, 28% of it in five separate stretches -- so some 30 s marks pass with
+ * it out of view, and it surfaces at the next straight.
  */
-const BACKROOMS_SHADOW_COOLDOWN = 17;
+const BACKROOMS_SHADOW_COOLDOWN = 30;
 
 /** Recorded {x,z} player positions, oldest first, trimmed to stay bounded. */
 let backroomsPath = [];
@@ -2194,8 +2613,12 @@ let backroomsShadowPos = null;
 let backroomsShadowVisible = false;
 /** Metres walked since entering, for BACKROOMS_SHADOW_GRACE. Not the trail length. */
 let backroomsWalked = 0;
-/** backroomsWalked at the moment it last hid, for BACKROOMS_SHADOW_COOLDOWN. */
+/** Seconds spent in the maze this crossing, for BACKROOMS_SHADOW_COOLDOWN. */
+let backroomsShadowClock = 0;
+/** backroomsShadowClock at the moment it last hid. */
 let backroomsShadowHidAt = -Infinity;
+/** The shadow's stalking aura while it is up, from the audio director. */
+let backroomsShadowStalk = null;
 
 /** Sum of consecutive segment lengths -- how much corridor is actually recorded. */
 function pathLength(path) {
@@ -2228,10 +2651,13 @@ function resetBackroomsShadow() {
   backroomsPath = [];
   backroomsShadowPos = null;
   backroomsWalked = 0;
+  backroomsShadowClock = 0;
   // -Infinity, not 0: the cooldown must not gate the FIRST sighting as well,
   // which is what GRACE is for. At 0 the two would add up and the opening wait
   // would silently be GRACE + COOLDOWN.
   backroomsShadowHidAt = -Infinity;
+  audioDirector.endStalk(backroomsShadowStalk, 0.3);
+  backroomsShadowStalk = null;
   if (backroomsShadowVisible) {
     okabe.visible = false;
     // Back to the default layer mask, or the AI chase / scripted placements
@@ -2245,6 +2671,7 @@ function resetBackroomsShadow() {
 }
 
 function updateBackroomsShadow(dt) {
+  backroomsShadowClock += dt;
   const px = camera.position.x, pz = camera.position.z;
 
   const last = backroomsPath[backroomsPath.length - 1];
@@ -2266,7 +2693,7 @@ function updateBackroomsShadow(dt) {
   const closeBy = found && Math.hypot(px - found.x, pz - found.z) < BACKROOMS_SHADOW_HIDE_RANGE;
   const shouldShow = !!found && !closeBy
     && backroomsWalked >= BACKROOMS_SHADOW_GRACE
-    && backroomsWalked - backroomsShadowHidAt >= BACKROOMS_SHADOW_COOLDOWN
+    && backroomsShadowClock - backroomsShadowHidAt >= BACKROOMS_SHADOW_COOLDOWN
     && pathLength(backroomsPath) >= BACKROOMS_SHADOW_MIN_PATH;
 
   if (found) {
@@ -2289,7 +2716,9 @@ function updateBackroomsShadow(dt) {
       backroomsShadowVisible = false;
       // Stamped on the way OUT, so the cooldown measures the gap between
       // sightings rather than the time since some arbitrary frame.
-      backroomsShadowHidAt = backroomsWalked;
+      backroomsShadowHidAt = backroomsShadowClock;
+      audioDirector.endStalk(backroomsShadowStalk);
+      backroomsShadowStalk = null;
     }
     return;
   }
@@ -2306,6 +2735,13 @@ function updateBackroomsShadow(dt) {
     // this is a glimpse, not something to confirm by checking the radar.
     okabe.setLayer(MAIN_ONLY);
     backroomsShadowVisible = true;
+    // It IS stalking you, on the first crossing -- so its aura comes with it,
+    // from its body, a fresh stretch of breath each time it surfaces. Never on
+    // the crossing the hunter hunts, where it can surface in the hunter's
+    // start delay or a respawn gap: the director refuses that too.
+    if (backroomsHunter.state === 'stopped' && backroomsFrom !== 'hallwayBasement') {
+      backroomsShadowStalk = audioDirector.startStalk({ follow: () => okabe.position, linger: null });
+    }
   }
   okabe.setPosition(found.x, found.z);
   // Faces the player, the same convention every other placement in this file
@@ -2372,7 +2808,7 @@ const bedroomStorm = new Storm({
   // The mesh as well as the light. Without it the glass keeps glowing.
   bulbMaterial: bedroom.refs.bulbMaterial,
   onFlash: () => {
-    audio.thunder();
+    thunder();
     /**
      * The one frame the lightning's shadow map is rendered.
      *
@@ -2388,21 +2824,20 @@ const bedroomStorm = new Storm({
       windowFlashArmed = false;
       windowFlashUsed = true;
       const wz = bedroom.refs.windowGroup.position.z;
-      creature.reset();
+      // For exactly the flash, not CREATURE_LINGER_SECONDS: this one is only
+      // ever there while the lightning is. Its aura gets the flash plus the
+      // usual second of tail.
+      const shownFor = bedroomStorm?.flashDuration || 0.2;
+      showCreatureAt({
+        x: -2.1,
+        z: wz - 0.9,
+        yaw: Math.PI, // faces back through the window, into the room
+        linger: shownFor,
+        onGone: hideWindowReveal
+      });
       creature.setCorrection(0);
-      creature.setPosition(-2.1, wz - 0.9);
-      creature.setYaw(Math.PI); // faces back through the window, into the room
-      creature.setSpeed(0);
-      creatureStanding = true;
-      creature.visible = true;
 
       windowRevealLight.intensity = WINDOW_REVEAL_INTENSITY;
-
-      const shownFor = bedroomStorm?.flashDuration || 0.2;
-      script.run(async (s) => {
-        if (!await s.wait(shownFor)) return;
-        s.do(hideWindowReveal);
-      });
     }
   },
   onBlow: () => {
@@ -2414,8 +2849,7 @@ const bedroomStorm = new Storm({
 
 /** Hides the window-flash figure and tears down its dedicated light -- see the note above. */
 function hideWindowReveal() {
-  creature.visible = false;
-  creatureStanding = false;
+  hideCreature();
   windowRevealLight.intensity = 0;
 }
 {
@@ -2464,10 +2898,12 @@ const LEVEL_FOG = {
 //   via: which registered level to pass through, or null for a direct cut
 //   to:  the level on the far side of the interstitial's exit door
 const TRANSITIONS = {
-  // Straight out onto the upstairs hallway, and down its stairs to the
-  // basement. The backrooms are only the crossing from Level 2 to Level 3.
+  // Straight out onto the upstairs hallway; down its stairs into the backrooms
+  // maze, and out of its Door 1 into the basement. The maze is crossed again
+  // from Level 2, in at the other side and out of Door 2 to Level 3 -- see
+  // CROSSINGS in levels/backroomsMaze.js.
   bedroom: { to: 'upstairsHallway', via: null },
-  upstairsHallway: { to: 'hallwayBasement', via: null },
+  upstairsHallway: { to: 'hallwayBasement', via: 'backrooms' },
   hallwayBasement: { to: 'study', via: 'backrooms' },
   study: { to: null, via: null }
 };
@@ -2480,38 +2916,46 @@ const ON_ENTER = {
   /** Out of the bedroom at last: the door shuts behind, and something moves below. */
   upstairsHallway: () => {
     script.run(async (s) => {
+      // Through the door, and it swings shut behind you.
+      if (!await s.wait(0.5)) return;
+      s.do(() => { closeDoorwayBehind(); creak(); });
+      // The bedroom goes once the door has shut, so it is not drawn for
+      // nothing. The rush has normally been and gone by now (it starts as the
+      // door opens -- see startHallwayRush); the caption waits for it if not.
       if (!await s.wait(0.6)) return;
-      s.do(() => audio.creak());
+      s.do(() => hideBedroomBehind());
+      while (hallwayRush) if (!await s.wait(0.1)) return;
+      if (!await s.wait(0.8)) return;
       await s.play(line('dialog_hallway_enter'));
     });
   },
 
   /**
-   * The hallway sighting. One strike, and it is standing at the far end.
+   * The hallway sighting. The storm catches, and it is standing at the far end.
    *
    * A running storm would make this a coin toss -- the flash has to land while
    * the player is looking down the corridor, and a random one usually will not.
-   * Firing the strike from the same script that places the creature is what
+   * Firing the lightning from the same script that places the creature is what
    * guarantees the player is shown the thing the level is about.
+   *
+   * It stays CREATURE_LINGER_SECONDS now, not 0.45 -- and since one strike is
+   * dark again in half a second, the lightning stutters for exactly as long as
+   * it stands there and goes out with it. The captions start on the strike
+   * instead of after it has gone, timed (dialogue/level2_basement.js) so the
+   * second line arrives as it vanishes.
    */
   hallwayBasement: () => {
     script.run(async (s) => {
       if (!await s.wait(1.6)) return;
       s.do(() => {
-        creature.reset();
-        creature.setPosition(0, 5.0);
-        // AT the player, worked out rather than written down. This was a
-        // hardcoded PI, which looks down +Z -- straight away from a player who
-        // stands at smaller z -- so the one-flash sighting showed its back.
-        creature.setYaw(Math.atan2(-(camera.position.x - 0), -(camera.position.z - 5.0)));
-        creature.setSpeed(0);
-        creature.visible = true;
-        hallwayBasement.refs.strike(0.55);
-        audio.thunder();
+        hallwayBasement.refs.stutter(LAB_FLASH_SECONDS);
+        // AT the player, worked out rather than written down -- showCreatureAt
+        // faces it at the camera. A hardcoded PI looked down +Z, straight away
+        // from a player who stands at smaller z, and showed its back.
+        showCreatureAt({ x: 0, z: 5.0, linger: LAB_FLASH_SECONDS });
+        // Right over the house: the strike the creature is seen by.
+        thunder({ near: true });
       });
-      // Gone before the light is. It was only ever there for the flash.
-      if (!await s.wait(0.45)) return;
-      s.do(() => { creature.visible = false; });
       await s.play(line('dialog_hallway_sighting'));
     });
   },
@@ -2542,9 +2986,27 @@ const ON_ENTER = {
  * is a real penalty measured in the thing this level trades in, which is time,
  * without ever being a death.
  */
+/**
+ * What the player says as it gets them, and as they come round. In order the
+ * first few times -- each one is a step further into not understanding what
+ * is happening -- then at random. Reset by resetGame(): a new run starts the
+ * order again.
+ */
+const pickCaughtLine = linePicker([
+  'dialog_backrooms_caught_1', 'dialog_backrooms_caught_2', 'dialog_backrooms_caught_3',
+  'dialog_backrooms_caught_4', 'dialog_backrooms_caught_5'
+], { order: 'sequence' });
+const pickRespawnLine = linePicker([
+  'dialog_backrooms_respawn_1', 'dialog_backrooms_respawn_2',
+  'dialog_backrooms_respawn_3', 'dialog_backrooms_respawn_4'
+], { order: 'sequence' });
+
 function onHunterCaught() {
   if (caughtInFlight || transitionInFlight) return;
   caughtInFlight = true;
+  // First, so the sting lands on the catch and not on the caption after it --
+  // and inside the guard above, so it is exactly once per catch.
+  audioDirector.caught();
   script.run(async (s) => {
     const wasThirdPerson = thirdPerson;
     try {
@@ -2568,6 +3030,7 @@ function onHunterCaught() {
       if (!s.alive()) return;
       // A beat of black and silence after the scream, before waking.
       if (!await s.wait(0.9)) return;
+      let caughtLine = null;
       s.do(() => {
         player.cinematic = false;
         hands.setVisible(true);
@@ -2576,7 +3039,7 @@ function onHunterCaught() {
         player.spawn(sx, sz, backrooms.spawnYaw ?? 0);
         // Over the dark rather than waited out: after a scare the pace is
         // the point, and the respawn line takes over once the eyes open.
-        captions.play(line('dialog_backrooms_caught'));
+        caughtLine = captions.play(line(pickCaughtLine()));
       });
       if (!await s.wait(1.2)) return;
       await fade.fadeIn(650);
@@ -2589,7 +3052,12 @@ function onHunterCaught() {
         // chase back. start() already biases the draw away from the player.
         backroomsHunter.start();
       });
-      await s.play(line('dialog_backrooms_respawn'));
+      // The caught line is spoken now, and runs longer than the fade: let the
+      // player finish the sentence before they come round, or the respawn
+      // line's voice cuts it off half way.
+      if (caughtLine) await caughtLine;
+      if (!s.alive()) return;
+      await s.play(line(pickRespawnLine()));
     } finally {
       caughtInFlight = false;
       // However it ended -- a restart mid-scream included -- the camera and
@@ -2607,11 +3075,11 @@ function onHunterCaught() {
 let jumpScareRunning = false;
 const jumpScare = createJumpScare({ camera, fade, postFX, audio });
 
-function activateLevel(key, { lockMovement = false } = {}) {
+function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   // A prior restrained bedroom view must never clamp the spawn orientation of
   // another level during SceneManager.activate()'s player.spawn() call.
   player.setLookBounds(null);
-  const level = sceneManager.activate(key, player);
+  const level = sceneManager.activate(key, player, { seamless });
   // Was a TypeError on an unregistered key -- a routing typo should cost a
   // wrong room, never a crash mid-transition.
   if (!level) return null;
@@ -2620,6 +3088,15 @@ function activateLevel(key, { lockMovement = false } = {}) {
   returnDroppedItems(key);
   setGlare(0); // the basement's overload wash must not follow the player into another level
   audio.setTrolleyRattle(0); // nor a trolley still rolling as they left
+  // Level 2 walks on metal; everywhere else on the default recording.
+  audio.setFootstepSurface(key);
+  // Stops the room being left's candles, static, laughter and monster cues --
+  // but not a door or the sting, which are meant to play across the fade.
+  audioDirector.onLevelActivated(key);
+  // An appearance in progress does not follow the player out. creatureAI.reset()
+  // below hides the body; the director has already cut its aura.
+  creatureLinger = null;
+  creatureStalkToken = null;
   const isBedroomRestraintActive = key === 'bedroom' && !level.refs.puzzleState.chainsEscaped;
   player.setLookBounds(isBedroomRestraintActive ? BEDROOM_RESTRAINED_LOOK_BOUNDS : null);
   interaction.setTargets(level.interactables);
@@ -2857,9 +3334,21 @@ function resetGame() {
   // is already running, so it can never stack a second copy.
   audio.setBreathing(BREATH_BASE_LEVEL);
   audio.startBreathing();
+  // Every director cue goes, the door and the sting included -- except the
+  // ambient bed, which is playing in the bedroom this lands in anyway, and is
+  // left unbroken for the same reason the breathing is.
+  audioDirector.reset();
   // A restart is a new run on the same difficulty; activateLevel() then gives
   // the bedroom its full time again.
   runTimer.configure(currentDifficulty);
+  // Every "first time" line is a first time again, and being caught starts
+  // its lines from the top.
+  backroomsBarks.reset();
+  resetTorchFault();
+  endHallwayRush({ quiet: true });
+  resetDoorwayJoin();
+  pickCaughtLine.reset();
+  pickRespawnLine.reset();
   activateLevel('bedroom', { lockMovement: true });
 }
 
@@ -2895,8 +3384,26 @@ window.addEventListener('keydown', (e) => {
     // The door asks for each tool IN THE HAND, so each is put there before its
     // press; and it wants the floorboard pried before the planks, so that flag
     // is set rather than playing the rug and the board through too.
-    if (sceneManager.activeKey !== 'bedroom') {
-      showCaption('[debug] G only works from the bedroom.');
+    //
+    // Every other level: G takes its real way out too, for testing --
+    //   upstairsHallway  down the stairs (exitLevel, as walking down does)
+    //   backrooms        this crossing's exit door, through its own interact
+    //   hallwayBasement  out through the metal door's exit, power puzzle skipped
+    //   study            the released ending
+    const key = sceneManager.activeKey;
+    if (transitionInFlight || endingInFlight) {
+      // A press during a fade would queue a second exit behind the first.
+    } else if (key === 'upstairsHallway' || key === 'hallwayBasement') {
+      showCaption('[debug] G: level skipped.');
+      exitLevel(key);
+    } else if (key === 'backrooms') {
+      const door = backrooms.refs.exitDoors[backrooms.crossing];
+      if (door?.slab) door.slab.userData.interact.onInteract();
+      else showCaption('[debug] G: the exit door has not loaded yet.');
+    } else if (key === 'study') {
+      playEnding('released');
+    } else if (key !== 'bedroom') {
+      showCaption(`[debug] G does nothing in "${key}".`);
     } else {
       // A drop caught half way would land under the grants below (take()
       // finishes a pending drop first), so it is abandoned, item in hand, the
@@ -2935,7 +3442,9 @@ window.addEventListener('keydown', (e) => {
         puzzleState.hasBedroomKey = true;
         removeDroppedProp('bedroomKey');
         pickUpItem('bedroomKey', { animate: false });
-        door.onInteract();   // opens it -> exitLevel('bedroom')
+        // Opens it -> openToHallway(), which carries the player through.
+        skipThroughDoor = true;
+        door.onInteract();
       }
       // Taking the crowbar and the key out put the torch away, and a torch put
       // away is switched off -- so it comes back out, lit, for the corridor.
@@ -2965,6 +3474,7 @@ window.addEventListener('keydown', (e) => {
     if (result === 'none') {
       showCaption(line('dialog_visor_not_carried'));
     } else {
+      sfx(result === 'on' ? 'visor_on' : 'visor_off');
       captions.play(result === 'on' ? line('dialog_visor_first_worn') : line('dialog_visor_removed'));
     }
   }
@@ -3111,11 +3621,11 @@ async function playEnding(which) {
     if (which === 'contained') {
       // The door shuts, and the bolts go across. Heard, not just described.
       study.refs.doorState.open = false;
-      audio.creak();
+      creak();
       script.run(async (s) => {
         for (let i = 0; i < 3; i++) {
           if (!await s.wait(0.55)) return;
-          s.do(() => audio.creak());
+          s.do(() => { if (!sfx('deadbolt_open')) creak(); });
         }
       });
       await wait(900);
@@ -3193,16 +3703,51 @@ const CREDITS = [
     + 'left arm removed, wrist re-aligned, re-rigged for this project.',
   'All other models (bed, door, dresser, flashlight, creature) are generated '
     + 'from the Python scripts in blender/ -- see blender/build_*.py.',
-  'Wind, thunder and creaks are synthesised with the Web Audio API at runtime -- no audio files used for those.',
-  'Three audio files ship with the project, all in src/assets/audio: breathing.m4a, '
-    + 'walking_audio.mp3 and running_audio.mp3.',
-  // TODO: replace these lines with the real source, author and licence of each
-  // recording -- or delete a line if that one was recorded by the team.
-  // THIS IS NOT A FORMALITY. hands.glb above is CC-BY and the attribution
-  // beside it is what keeps using it legal; the same applies to anything here
-  // that came from a library. The game deploys publicly to GitHub Pages.
-  'Breathing loop -- [SOURCE / AUTHOR / LICENCE TO BE FILLED IN].',
-  'Footstep recordings (walking, running) -- [SOURCE / AUTHOR / LICENCE TO BE FILLED IN].',
+  'Wind and the footsteps heard past doors are synthesised with the Web Audio API at runtime; thunder, '
+    + 'creaks, sparks and paper fall back to synthesised versions until their recordings load.',
+  // One line per recording, saying where it came from and what licence the
+  // upload states -- src/assets/audio/SOURCES.md has the full table (URL, the
+  // cut used, the processing). THIS IS NOT A FORMALITY: hands.glb above is CC-BY
+  // and the attribution beside it is what keeps using it legal, and the game
+  // deploys publicly to GitHub Pages. "Licence not stated" means exactly that.
+  'Recordings, all in src/assets/audio (sources: SOURCES.md in that folder):',
+  'Breathing -- "Sound Effect - Man Freezing Breathing" by FUNBOON (YouTube). Licence not stated.',
+  'Distant laughter -- "Evil Laughing Woman Sound - Woman Laugh Sound Effect | Ver. 1" by Distorted Room '
+    + '(YouTube). The author asks for approval before use.',
+  'Monster breathing -- "Scary Sound Effect #3" by Best Sound Effects (YouTube): "Cthulhu growl" by '
+    + 'cyclon8472, freesound.org, Creative Commons 4.0 according to the upload.',
+  'CRT static -- "TV STATIC (4K 60FPS)" by The Fowl Owl (YouTube), CC BY.',
+  'Rain ambience -- "Night Rainstorm Over Quiet Town" by Cowboys in Rain (YouTube). Licence not stated.',
+  'Caught sting -- "BioShock 2 | Harvesting a Little Sister" uploaded by Bond Factory (YouTube); '
+    + 'game audio from BioShock 2 (2K Games).',
+  'Level 2 footsteps -- "Gmod/TF2 SFX - Metal Footsteps Sound Effect" by Autisticblood5 (YouTube); '
+    + 'game audio from Team Fortress 2 / Garry\'s Mod (Valve).',
+  'Candle -- "Candle flicker // free sound effects" by Macc III Audio & Digital Production (YouTube). '
+    + 'Licence not stated.',
+  'Lockbox -- "Chest Opening SOUND Effect" by SOUND Effects Public Domain (YouTube), released as public domain.',
+  'Door -- "Creepy Wooden Door Creaking Sound Effect" by Sound Around (YouTube), from freesound_community '
+    + 'via Pixabay; royalty-free per the upload.',
+  'Stalking breath -- "Scary Breathing And Heartbeat Sound Effects" by Scary Sound Effects (YouTube). '
+    + 'Licence not stated.',
+  'Hunter footsteps -- "CREEPY FOOTSTEPS (& RUNNING), HORROR SOUND EFFECT" by DARKLIT STUDIO (YouTube), CC BY.',
+  // CC BY: this line is the attribution the licence requires.
+  'Annabelle singing -- "Daisy Bell But I Made It Even More Unsettling" by LARA\'S HORROR SOUNDS (YouTube), '
+    + 'CC BY (creativecommons.org/licenses/by/3.0). Trimmed, mono, filtered in game.',
+  // Not required by CC0 or public domain, given anyway: the full list, with
+  // links and the cut used, is the "Free sound effects" table in SOURCES.md.
+  'Sound effects, CC0 -- Kenney (kenney.nl): the RPG Audio, Impact Sounds and Interface Sounds packs.',
+  'Sound effects, CC0, from freesound.org -- "Unlock Deadbolt" by alegemaate, "opening Padlock" and '
+    + '"Electricity Sound" by NachtmahrTV, "cemeterygate8" by celadon_noise, "CHAIN & LOCK ON FENCE SOUND" '
+    + 'by metrostock99, "Circuit Breaker 1 SP" and "2 DP" by sribubba, "Kill Switch (Large Breaker Switch)" '
+    + 'by EchoCinematics, "Spark" by elliott.klein, "Lights Flicker On" by mmaruska, "Power Down" by '
+    + 'peepholecircus, "engine2_down" by ReadeOnly, "Fluorescent Lightbulb Hum" by ftpalad, "Diesel engine '
+    + 'idling" by chungus43A, "Drawer Opening & Closing" by quantumriver, "Planks Clattering" by Fission9, '
+    + '"Wood Creak Single V3" by Rudmer_Rotteveel, "Pushing chair" by santiagogra, "Picking Up Keys" by '
+    + 'WeeJee_vdH, "Chains" by cribbler, "Tiny metal/lockpicking" by cappellacciocrew, "Gasp." by bacruz666, "Sniffing" by spookymodem, "Water Drop 01" by LilMati.',
+  'Sound effects, public domain, from PDSounds.org via Wikimedia Commons -- "Storm thunderbolts", "Door '
+    + 'handle creaking" and "Aggressive electric buzzing" by stephan, "Open metallic door" by hc, "Rain '
+    + 'against the window" by cori, "Turning a page" by planish.',
+  'Player footsteps (walking, running) and the trolley (rolling, crash) -- [SOURCE / AUTHOR / LICENCE TO BE FILLED IN].',
   'Game concept, story, world and code: the project team, for COMS3006A/COMS3025A.'
 ];
 /**
@@ -3456,6 +4001,12 @@ player.controls.addEventListener('unlock', () => {
 // Nothing here grants a capability a player does not have with the keyboard.
 if (import.meta.env.DEV) {
   window.__game = {
+    // The torch's failure clock, so a harness can force one rather than wait 45 s.
+    torchFault,
+    updateTorchFault,
+    get hallwayRush() { return hallwayRush; },
+    // Opens the bedroom onto the hall as the door would, without the puzzle chain.
+    openToHallway,
     activateLevel,
     exitLevel,
     resetGame,
@@ -3480,6 +4031,7 @@ if (import.meta.env.DEV) {
     okabe,
     creatureAI,
     backroomsHunter,
+    backroomsBarks,
     playerBody,
     thirdCam,
     setThirdPerson,
@@ -3532,6 +4084,10 @@ if (import.meta.env.DEV) {
     captions,
     documentUI,
     audio,
+    // audition(name), debug(), state, forceActive -- see docs/AUDIO.md.
+    audioDirector,
+    showCreatureAt,
+    hideCreature,
     gameState,
     get level() { return sceneManager.activeKey; }
   };
@@ -3813,13 +4369,35 @@ async function warmUp() {
   creature.group.traverse((o) => {
     if (o.isMesh || o.isSkinnedMesh) { unculled.push([o, o.frustumCulled]); o.frustumCulled = false; }
   });
-  for (const houseKey of ['bedroom', 'hallwayBasement', 'study']) {
+  // Each lit set it can be seen in: every house room on its own, plus the
+  // bedroom and the hallway drawn together (the door open between them, see
+  // openToHallway) -- a light set no single room has, so every material in
+  // both rooms is drawn under it here too, or opening the door stalls.
+  for (const houseKeys of [['bedroom'], ['bedroom', 'upstairsHallway'], ['upstairsHallway'], ['hallwayBasement'], ['study']]) {
+    const houseKey = houseKeys[houseKeys.length - 1];
     const houseLevel = sceneManager.get(houseKey);
     if (!houseLevel) continue;
-    for (const [key, level] of sceneManager.levels) level.group.visible = key === houseKey;
-    scene.fog = LEVEL_FOG[houseKey] ?? null;
+    for (const [key, level] of sceneManager.levels) level.group.visible = houseKeys.includes(key);
+    scene.fog = LEVEL_FOG[houseKeys[0]] ?? null;
     if (houseLevel.spawn) camera.position.set(houseLevel.spawn[0], 1.6, houseLevel.spawn[1]);
     creature.setPosition(camera.position.x, camera.position.z - 4);
+    if (houseKeys.length > 1) {
+      // Both rooms, whole, unculled, as the levels' own warm-up does.
+      const both = [];
+      for (const k of houseKeys) {
+        sceneManager.get(k).group.traverse((o) => {
+          if (o.isMesh || o.isSkinnedMesh) { both.push([o, o.frustumCulled]); o.frustumCulled = false; }
+        });
+      }
+      try {
+        await renderer.compileAsync(scene, camera);
+        darkShadowSkipper.refreshAllShadowsOnce();
+        postFX.render();
+      } catch (err) {
+        console.warn('warmUp: could not warm the bedroom and hallway together', err);
+      }
+      for (const [o, was] of both) o.frustumCulled = was;
+    }
     creature.update(1 / 60);
     playerBody.setPosition(camera.position.x, camera.position.z);
     playerBody.update(1 / 60);
@@ -3912,17 +4490,31 @@ function tick() {
   // The difficulty's clock. Stopped by the same things, and by every moment
   // the player has no control: a fade between rooms, a cutscene, an ending.
   if (isPlaying && !transitionInFlight && !cutscene.isRunning && !endingInFlight) runTimer.update(dt);
+  if (isPlaying && !transitionInFlight && !endingInFlight) updateTorchFault(dt);
   captions.update(dt);
   // Only while it is actually on screen. The AI is not driving it in Level 2 --
   // it is placed by a script -- but it still has to breathe, or a figure
   // standing in a corner reads as a statue rather than as something watching.
+  updateDoorwayJoin(dt);
+  updateHallwayRush(dt);
   if (creatureStanding) creature.update(dt);
+  // A scripted appearance's linger, on the frame clock -- see showCreatureAt().
+  if (creatureLinger) {
+    creatureLinger.remaining -= dt;
+    if (creatureLinger.remaining <= 0) {
+      const onGone = creatureLinger.onGone;
+      hideCreature();
+      onGone?.();
+    }
+  }
   creatureAI.update(dt);
   if (sceneManager.activeKey === 'backrooms') {
     // Never both: one rig, and the hunter owns it outright while it is running.
     // The scare borrows the same figure: leave it alone while that runs.
     if (backroomsHunter.state === 'stopped') { if (!jumpScareRunning) updateBackroomsShadow(dt); }
     else backroomsHunter.update(dt);
+    // After the hunter has moved, so a look is judged on where it is now.
+    backroomsBarks.update(dt);
   }
   dustMotes.update(dt, elapsed);
   // Per rendered frame rather than on a fixed step: the hands are
@@ -4022,6 +4614,10 @@ function tick() {
   // camera has actually left the head instead of on the frame the key is hit.
   if (freeCamera.isActive) postFX.setCamera(freeCamera.camera);
   else postFX.setCamera(thirdAmount > 0.001 ? thirdCam : camera);
+
+  // After everything that moves the player, the hunter and the creature, so
+  // the ears and every emitter are where this frame drew them.
+  audioDirector.update(dt);
 
   postFX.update(dt);
   // After everything that sets a light's intensity this frame, so a light that

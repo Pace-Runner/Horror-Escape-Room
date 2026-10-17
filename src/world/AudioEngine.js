@@ -1,14 +1,20 @@
-// Wind, thunder and creaks are synthesised with the Web Audio API rather
-// than loaded from audio files, so the world's ambience costs no binary
-// assets to credit, path or accidentally break on a case-sensitive server.
-// The one exception is the breathing loop below: a breath is performance,
-// not signal processing, and no filtered-noise fake of it holds up. It runs
-// for the whole session once audio is unlocked. AudioContext must be created
-// after a user gesture (the start screen's click) or the browser will refuse
-// to let it run.
+// The one AudioContext, and everything that plays through it.
+//
+// Wind, thunder, creaks and the scripted pass-by footsteps are synthesised with
+// the Web Audio API. Everything that is performance rather than signal -- the
+// breathing, the player's footsteps, the trolley, and the cues the audio
+// director plays (doors, the lockbox, candles, static, the ambient bed, the
+// monster's breathing and steps, the laughter, the caught sting) -- is a
+// recording under src/assets/audio/. Where each came from, and under what
+// licence, is src/assets/audio/SOURCES.md; how each is used is docs/AUDIO.md.
+//
+// This file is DSP and loading. WHO plays WHEN is systems/AudioDirector.js.
+// AudioContext must be created after a user gesture (the start screen's click)
+// or the browser will refuse to let it run.
+import { CUE_NAMES, cueUrl, cueInfo } from './audio/assets.js';
+import { createEmitter, createEchoBus, syncListener } from './audio/spatial.js';
 
-// The breathing loop is the only audio file the project ships, and it is
-// deliberately loaded through a glob rather than the `import url from
+// Every recording is loaded through a glob rather than the `import url from
 // '../assets/audio/breathing.m4a?url'` pattern the .glb models use: a plain
 // import of a file that is not there fails the BUILD, whereas a glob that
 // matches nothing is just an empty object -- so a teammate who has not
@@ -66,22 +72,26 @@ const VOICE_LEVEL = 0.9;
 // next is not audibly a fade.
 const VOICE_FADE = 0.12;
 
-// Loop window in seconds, MEASURED off the supplied recording rather than
-// guessed at. breathing.m4a decodes to 61.163 s and neither end of it is
-// loopable as it stands: the first 10 ms are the AAC encoder's priming
-// silence, the loudest event in the entire file (by 13 dB) is a -23.7 dBFS
-// handling thump at 1.39 s, and the last ~1.4 s fades out to a -65 dBFS
-// tail. Looping the whole buffer would replay a hole-then-thump every
-// minute. This window instead starts and ends in the quiet gap between two
-// breaths (-65.4 and -62.8 dBFS, 2.6 dB apart), spans 29 cycles of the
-// recording's ~1.93 s breathing rhythm, and lands on near-zero samples both
-// ends -- the step across the splice is 0.00014, roughly a twentieth of the
-// sample-to-sample movement inside the audio itself, so the seam does not
-// click. Both at 0 would mean "loop the whole buffer": the Web Audio API
-// reads loopEnd 0 as end-of-buffer, so the window is only applied when it
-// has actually been narrowed.
-const BREATH_LOOP_START = 3.69;
-const BREATH_LOOP_END = 59.7;
+// Loop window in seconds, MEASURED off the shipped file rather than guessed at.
+//
+// The recording (a man breathing in the cold -- see SOURCES.md) is one
+// unbroken shiver: no silent gap anywhere, and only a weak rhythm (the
+// envelope's autocorrelation peaks at 1.19 s, r = 0.16). So the seam is not a
+// lucky pair of quiet samples, as the old file's was, but BAKED: the build
+// script cut 11.93 s between two of the recording's quietest moments (1.52 s
+// and 13.45 s into the source, -43.9 and -40.9 dB, ten of those cycles apart)
+// and crossfaded the window into itself over 0.25 s at equal power, so the end
+// runs straight into the start. The file is that loop with 0.15 s of itself
+// either side, which is why the window starts at 0.15: a browser that leaves
+// the AAC encoder's priming in shifts the audio by ~20 ms, and the padding is
+// the loop continuing, so the shifted window is still seamless. Measured off
+// the encoded file, the step across the wrap is 0.0033 against a median
+// sample-to-sample step of 0.0034 -- the seam is as smooth as the audio.
+//
+// scripts/audio/build.mjs writes these into manifest.json as well; the check at
+// the bottom of this file says so if the two ever disagree.
+const BREATH_LOOP_START = 0.15;
+const BREATH_LOOP_END = 12.08;
 
 // Long enough that starting and stopping reads as something moving closer or
 // further away instead of a switch being flipped, short enough that a
@@ -92,20 +102,27 @@ const BREATH_FADE = 0.6;
 // nearer), so they slide over about a breath rather than a frame.
 const BREATH_LEVEL_RAMP = 1.1;
 
-// The recording is quiet -- measured peak -23.7 dBFS, RMS -52.2 dBFS -- so
-// even a dial value of 1.0 fed straight to the gain node would sit under the
-// wind drone and be lost. This fixed makeup gain is what makes the 0..1
-// intensity dial mean something audible, without callers having to know
-// anything about the file's level. Re-measure it if the file is replaced.
+// The fixed gain between the 0..1 intensity dial and the file, so callers set
+// a story level and never need to know how loud the recording is. Re-measure
+// it if the file is replaced.
 //
-// 5x (+14 dB): sized so the loudest story beat (0.95, see BEATS in
-// story/lines.js) lands the recording's own peak at roughly -9.7 dBFS --
-// clearly present without dominating the mix. At the level the game opens
-// on (BREATH_BASE_LEVEL, 0.1) that puts the effective peak around -36 dBFS:
-// a background breath, not a wall of noise. Left at 1 (i.e. no makeup at
-// all) this dial never got loud enough to be more than technically playing
-// -- audible on nothing but studio monitors at a dangerous volume.
-const BREATH_MAKEUP = 5;
+// MATCHED BY LOUDNESS TO THE LOOP IT REPLACED, so every intensity a level
+// script already sets -- each one tuned by ear against the old file -- still
+// sounds the size it did. The old loop measured -48.3 LUFS inside its window
+// and played at a makeup of 5; this file measures -23.2 LUFS, so
+//
+//   5 x 10^((-48.3 - -23.2) / 20) = 0.278   (-11.1 dB)
+//
+// What that does to peaks (the file peaks at -3.3 dBFS):
+//   BREATH_BASE_LEVEL 0.1         -> -34.5 dBFS   (the old loop: -34.3)
+//   LEVEL_ONE_BREATHING_BASE 0.035 -> -43.6 dBFS  a background breath, as before
+//   loudest story beat 0.95       -> -14.9 dBFS   (the old loop: -14.8)
+//
+// The old comment here promised -9.7 dBFS at 0.95. That was the peak of a
+// handling thump at 1.39 s that the old loop window skipped -- it never played
+// -- so the breath itself was never that loud, and matching it now would have
+// made every beat 5 dB louder than the one the team tuned.
+const BREATH_MAKEUP = 0.278;
 
 // Exported because main.js's resetGame() has to put the intensity back to the
 // level the game opens on, and two copies of that number in two files would
@@ -162,6 +179,44 @@ function audibleSpan(buffer) {
   return { start: first / buffer.sampleRate, end: (last + 1) / buffer.sampleRate };
 }
 const RUN_STEP_URL = Object.values(RUN_STEP_FILES)[0] ?? null;
+
+/**
+ * Per-level WALKING recordings. A level listed here walks on its own file; every
+ * other level, and every sprint anywhere, keeps walking_audio / running_audio.
+ * main.js's activateLevel() picks the surface through setFootstepSurface().
+ *
+ * hallwayBasement walks on metal (foley/steps_metal, see SOURCES.md). Each of
+ * its footfalls is a heel and a toe 0.13 s apart, so at the default 120 ms
+ * refractory the slicer cut its six footfalls into eleven half-steps and the
+ * shuffle played a lone toe as often as a step. 250 ms is longer than heel to
+ * toe and well under the 0.65 s between footfalls.
+ *
+ * The backrooms walk on their damp carpet (foley/steps_carpet: Kenney's five
+ * CC0 carpet steps, joined 0.45 s apart so the slicer cuts them back out).
+ */
+const STEP_SURFACES = {
+  hallwayBasement: { cue: 'steps_metal', refractorySeconds: 0.25 },
+  backrooms: { cue: 'steps_carpet' }
+};
+
+/**
+ * A footstep set that slices into fewer or more steps than this is not a
+ * recording of footsteps as far as the slicer can tell -- the two shipped sets
+ * give 8 and 61. Outside it the load warns instead of quietly sounding wrong.
+ */
+const STEP_SLICES_MIN = 4;
+const STEP_SLICES_MAX = 120;
+
+/**
+ * The director's buses. Each is a plain gain to the master, and the gain IS the
+ * duck stage: a cue sets its own level on its own node, so a duck on the bus
+ * can never stomp on it, or be stomped on by it.
+ *
+ *   amb      the bed, the candles, the static, the laughter and its echo
+ *   sfx      doors, the lockbox, the caught sting
+ *   monster  the hunter's breathing and steps, the stalking aura
+ */
+const CUE_BUSES = ['amb', 'sfx', 'monster'];
 
 /**
  * WHERE IN THE STRIDE A FOOT LANDS.
@@ -236,16 +291,16 @@ const STEP_EVEN = 0.5;
  * That comment claimed "under the breathing, well under the wind" while
  * setting 0.42, which works out as follows. A step peaks at STEP_TARGET_PEAK x
  * STEP_LEVEL, so 0.42 x 0.42 = 0.176 = -15.1 dBFS before the master. The
- * breathing at the level the game opens on peaks at 10^(-23.7/20) x
- * (BREATH_BASE_LEVEL x BREATH_MAKEUP) = 0.0327 = -29.7 dBFS. The wind drone is
- * uniform noise through a 2nd-order 340 Hz lowpass at gain 0.06, roughly
- * -35 dBFS peak. So the player's own feet were landing 14.6 dB ABOVE the
- * ambient breathing and 20 dB above the wind -- the loudest recurring thing in
- * the game, and within 5 dB of the loudest story beat there is.
+ * breathing loop at the level the game opens on peaks at about -34.5 dBFS (see
+ * BREATH_MAKEUP). The wind drone is uniform noise through a 2nd-order 340 Hz
+ * lowpass at gain 0.06, roughly -35 dBFS peak. So the player's own feet were
+ * landing nearly 20 dB ABOVE the ambient breathing and the wind -- the loudest
+ * recurring thing in the game, and louder than the loudest story beat.
  *
- * 0.12 puts a step at 0.0504 = -25.9 dBFS: about 4 dB over the base breathing
- * peak, 9 dB under a story-beat breath, 9 dB over the wind. Clearly audible as
- * a transient, underneath everything that is supposed to carry the scene.
+ * 0.12 puts a step at 0.0504 = -25.9 dBFS: about 9 dB over the base breathing
+ * peak, 11 dB under a story-beat breath (-14.9), 9 dB over the wind. Clearly
+ * audible as a transient, underneath everything that is supposed to carry the
+ * scene.
  *
  * CROUCH IS A REAL DUCK NOW. 0.42 against 0.30 was -2.9 dB, roughly one
  * just-noticeable difference -- crouching sounded like walking. 0.04 is
@@ -278,8 +333,13 @@ const STEP_RELEASE = 0.006;
  * running recordings should look like -- if a future file yields one slice or
  * two hundred, the assertion in #loadFootsteps says so rather than letting it
  * quietly sound wrong.
+ *
+ * `refractory` is PER FILE, and the default is the one the two files above were
+ * measured with. A recording whose footfalls are not single transients -- the
+ * Level 2 metal steps land heel and toe 0.13 s apart -- passes its own value
+ * rather than this one being loosened for everybody.
  */
-function detectFootstepSlices(buffer) {
+function detectFootstepSlices(buffer, { refractorySeconds = 0.12 } = {}) {
   const d = buffer.getChannelData(0);
   const sr = buffer.sampleRate;
   const hop = Math.max(1, Math.round(sr * 0.01));
@@ -300,7 +360,8 @@ function detectFootstepSlices(buffer) {
   const fileGain = STEP_TARGET_PEAK / peak;
 
   const threshold = peak * 0.18;
-  const refractory = 12;            // 120 ms: shorter than any real stride
+  // In 10 ms envelope frames. 120 ms by default: shorter than any real stride.
+  const refractory = Math.round(refractorySeconds * 100);
   const onsets = [];
   for (let i = 1; i < env.length - 1; i++) {
     if (env[i] < threshold) continue;
@@ -385,6 +446,17 @@ export class AudioEngine {
     // distance from phase 0 as a footfall.
     this.stepPhase = null;
     this.stepFoot = false;
+    // Which STEP_SURFACES entry walking uses, and the sets loaded for them.
+    this.stepSurface = null;
+    this.stepSurfaceSets = {};
+
+    // The director's cues: buses, decoded buffers by name, and the echo. On
+    // the instance for the same load-order reason as everything above.
+    this.buses = {};
+    this.breathDuck = null;
+    this.cueBuffers = new Map();
+    this.cueWarned = new Set();
+    this.echo = null;
   }
 
   start() {
@@ -399,7 +471,10 @@ export class AudioEngine {
     // be driven by the story without dragging the wind and thunder with it.
     this.breathGain = this.ctx.createGain();
     this.breathGain.gain.value = this.breathLevel * BREATH_MAKEUP;
-    this.breathGain.connect(this.master);
+    // A duck stage after the dial, for the caught sting -- the dial itself is
+    // the story's, and setBreathing() ramps it on its own schedule.
+    this.breathDuck = this.ctx.createGain();
+    this.breathGain.connect(this.breathDuck).connect(this.master);
 
     // Its own bus, beside breathGain rather than under it: the story's menace
     // dial must never change how loud a plot line is.
@@ -413,13 +488,123 @@ export class AudioEngine {
     this.stepGain.gain.value = 1;
     this.stepGain.connect(this.master);
 
+    for (const name of CUE_BUSES) {
+      const bus = this.ctx.createGain();
+      bus.connect(this.master);
+      this.buses[name] = bus;
+    }
+
     // Fetched here and not at module load: decodeAudioData needs a context,
     // and a context before the user gesture is a context the browser blocks.
     this.#loadBreathing();
     this.#loadFootstepSet(WALK_STEP_URL, 'walking').then((set) => { this.stepWalk = set; });
     this.#loadFootstepSet(RUN_STEP_URL, 'running').then((set) => { this.stepRun = set; });
+    for (const [key, surface] of Object.entries(STEP_SURFACES)) {
+      this.#loadFootstepSet(cueUrl(surface.cue), surface.cue, surface)
+        .then((set) => { this.stepSurfaceSets[key] = set; });
+    }
     this.#loadClip(TROLLEY_ROLL_URL).then((buffer) => { this.trolleyRollBuffer = buffer; });
     this.#loadClip(TROLLEY_CRASH_URL).then((buffer) => { this.trolleyCrashBuffer = buffer; });
+    // Every director cue, in the background. Nothing waits on these: a cue
+    // asked for before its buffer lands is skipped, not queued -- see cue().
+    for (const name of CUE_NAMES) {
+      this.#loadClip(cueUrl(name)).then((buffer) => {
+        if (buffer && this.ctx) this.cueBuffers.set(name, buffer);
+      });
+    }
+  }
+
+  // ---------- the director's cues ----------
+
+  /**
+   * The decoded buffer for a cue, or null. Null is never an error: the file may
+   * not be in this build, or may still be decoding, and either way the cue is
+   * simply not heard this time. Says which, once per cue.
+   */
+  cue(name) {
+    const buffer = this.cueBuffers.get(name);
+    if (buffer) return buffer;
+    if (!this.cueWarned.has(name)) {
+      this.cueWarned.add(name);
+      console.info(cueUrl(name)
+        ? `[audio] "${name}" has not finished loading -- skipped this time`
+        : `[audio] no recording for "${name}" -- that cue is silent`);
+    }
+    return null;
+  }
+
+  /**
+   * Start a sound on one of the director's buses -- see spatial.js's
+   * createEmitter for the options. Null before start() or after dispose().
+   */
+  emit(bus, opts) {
+    if (!this.ctx) return null;
+    return createEmitter(this.ctx, this.buses[bus] ?? this.master, opts);
+  }
+
+  /** The shared echo's input, built the first time something sends to it. */
+  echoInput() {
+    if (!this.ctx) return null;
+    // Into the ambience bus, so the sting's duck takes the echo down with the dry.
+    if (!this.echo) this.echo = createEchoBus(this.ctx, this.buses.amb);
+    return this.echo.input;
+  }
+
+  /** The ears follow `object3D` -- call once a frame, after it has moved. */
+  updateListener(object3D) {
+    if (this.ctx && object3D) syncListener(this.ctx, object3D);
+  }
+
+  /**
+   * Pull some buses down and bring them back: `db` (negative) over `attack`,
+   * held for `hold`, back to unity over `release`, all in seconds. Groups are
+   * the cue buses plus 'breath' and 'steps'. Ramped from wherever the stage
+   * is, so a second duck over a first does not jump.
+   */
+  duck(groups, db, { attack = 0.05, hold = 0, release = 0.8 } = {}) {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const floor = 10 ** (db / 20);
+    for (const name of groups) {
+      const param = this.#duckStage(name)?.gain;
+      if (!param) continue;
+      param.cancelScheduledValues(now);
+      param.setValueAtTime(param.value, now);
+      param.linearRampToValueAtTime(floor, now + attack);
+      param.setValueAtTime(floor, now + attack + hold);
+      param.linearRampToValueAtTime(1, now + attack + hold + release);
+    }
+  }
+
+  /** Every duck stage back to unity at once -- a restart must not inherit a dip. */
+  clearDucks() {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    for (const name of [...CUE_BUSES, 'breath', 'steps']) {
+      const param = this.#duckStage(name)?.gain;
+      if (!param) continue;
+      param.cancelScheduledValues(now);
+      param.setValueAtTime(param.value, now);
+      param.linearRampToValueAtTime(1, now + 0.05);
+    }
+  }
+
+  #duckStage(name) {
+    if (name === 'breath') return this.breathDuck;
+    // stepGain sits at a constant 1 -- its level lives in STEP_LEVEL -- so it
+    // doubles as the steps' duck stage.
+    if (name === 'steps') return this.stepGain;
+    return this.buses[name] ?? null;
+  }
+
+  /**
+   * Which floor the player is walking on: a level key from STEP_SURFACES, or
+   * anything else for the default recording. Walking only -- a sprint is the
+   * running recording everywhere. Until a surface's own file has decoded it
+   * walks on the default rather than in silence.
+   */
+  setFootstepSurface(key) {
+    this.stepSurface = key in STEP_SURFACES ? key : null;
   }
 
   /** Fetches and decodes one recording; resolves null if there is none or it will not decode. */
@@ -784,7 +969,8 @@ export class AudioEngine {
     // opening footfall consumed in silence.
     if (prev === null) return;
     if (t >= prev) return;                       // no wrap, no footfall
-    const set = sprint > 0.5 ? this.stepRun : this.stepWalk;
+    const walk = (this.stepSurface && this.stepSurfaceSets[this.stepSurface]) || this.stepWalk;
+    const set = sprint > 0.5 ? this.stepRun : walk;
     if (!set || !set.slices.length) return;
 
     // Alternating weight, for the same reason the synthesised footsteps() does
@@ -860,11 +1046,18 @@ export class AudioEngine {
     };
   }
 
-  #loadFootstepSet(url, label) {
+  /**
+   * @param opts.refractorySeconds  this file's slicer refractory -- see
+   *        detectFootstepSlices. Omitted, the default the shipped sets use.
+   * @param opts.cue  set for a STEP_SURFACES file, which lives with the other
+   *        cues rather than at the top of src/assets/audio/.
+   */
+  #loadFootstepSet(url, label, { refractorySeconds, cue } = {}) {
     if (!url) {
-      console.warn(`AudioEngine: no ${label} recording found -- expected `
-        + `src/assets/audio/${label}_audio.mp3 (or .m4a/.ogg/.wav). `
-        + 'Footsteps for this gait will be silent.');
+      const expected = cue
+        ? `src/assets/audio/foley/${cue}.m4a. That level walks on the default recording instead.`
+        : `src/assets/audio/${label}_audio.mp3 (or .m4a/.ogg/.wav). Footsteps for this gait will be silent.`;
+      console.warn(`AudioEngine: no ${label} recording found -- expected ${expected}`);
       return Promise.resolve(null);
     }
     return fetch(url)
@@ -874,7 +1067,7 @@ export class AudioEngine {
       })
       .then((bytes) => this.ctx.decodeAudioData(bytes))
       .then((buffer) => {
-        const slices = detectFootstepSlices(buffer);
+        const slices = detectFootstepSlices(buffer, { refractorySeconds });
         // A recording that yields no steps is the one failure that would
         // otherwise be silent in every sense -- the game would run, footsteps
         // would simply never play, and nothing would say why.
@@ -883,6 +1076,10 @@ export class AudioEngine {
             + `(${buffer.duration.toFixed(2)} s). detectFootstepSlices needs clear `
             + 'transients above 18% of the file peak, at least 120 ms apart. A '
             + 'continuous or heavily compressed recording will not slice.');
+        } else if (slices.length < STEP_SLICES_MIN || slices.length > STEP_SLICES_MAX) {
+          console.warn(`AudioEngine: the ${label} recording sliced into ${slices.length} `
+            + `footsteps, outside ${STEP_SLICES_MIN}-${STEP_SLICES_MAX}. It is probably not `
+            + 'step-shaped for this detector: pre-slice it, or give it its own refractory.');
         }
         return { buffer, slices };
       })
@@ -1365,7 +1562,9 @@ export class AudioEngine {
     this.windSource?.stop();
     this.windSource?.disconnect();
     this.breathGain?.disconnect();
+    this.breathDuck?.disconnect();
     this.voiceGain?.disconnect();
+    for (const bus of Object.values(this.buses)) bus.disconnect();
     this.master?.disconnect();
     this.ctx.close();
 
@@ -1373,11 +1572,34 @@ export class AudioEngine {
     this.master = null;
     this.windSource = null;
     this.breathGain = null;
+    this.breathDuck = null;
     this.breathBuffer = null;
     this.breathLoading = null;
     this.voiceGain = null;
+    this.buses = {};
+    this.echo = null;
     // The decoded buffers belong to the context that is now closed, so they
     // cannot be reused and must be refetched if start() is called again.
     this.voiceBuffers.clear();
+    this.cueBuffers.clear();
+    this.stepSurfaceSets = {};
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Boot-time checks
+// ---------------------------------------------------------------------------
+//
+// Warn, never throw -- a stale number should cost a console line, not the game.
+
+{
+  // The loop window above is typed in, and the build script measures it into
+  // the manifest. If the file is rebuilt with a different window and these are
+  // not updated, the loop would wrap somewhere that is not the baked seam.
+  const loop = cueInfo('breathing')?.loop;
+  if (loop && (Math.abs(loop.start - BREATH_LOOP_START) > 0.002 || Math.abs(loop.end - BREATH_LOOP_END) > 0.002)) {
+    console.warn(`AudioEngine: BREATH_LOOP_START/END (${BREATH_LOOP_START}, ${BREATH_LOOP_END}) `
+      + `no longer match the measured loop in manifest.json (${loop.start}, ${loop.end}). `
+      + 'Copy the measured values in, and re-derive BREATH_MAKEUP if the file changed.');
   }
 }
