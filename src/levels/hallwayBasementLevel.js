@@ -31,6 +31,7 @@ import surgicalLampModelUrl from '../assets/models/surgical_lamp.glb?url';
 import instrumentTrolleyModelUrl from '../assets/models/instrument_trolley.glb?url';
 import labChairModelUrl from '../assets/models/lab_chair.glb?url';
 import storageShelfModelUrl from '../assets/models/storage_shelf.glb?url';
+import containmentChamberModelUrl from '../assets/models/containment_chamber.glb?url';
 // TEXTURE PREVIEW (branch lvl2-texture-preview): photo textures the user found,
 // to judge the look. Tiles141, Concrete030 and Metal055B are ambientCG (CC0);
 // the rest are Texturelabs.
@@ -55,6 +56,7 @@ import rustOverlayUrl from '../assets/textures/lab/texturelabs_metal_190_rust_ov
 // transparent where that concrete was pale, mossy where it was stained.
 import greenGrimeUrl from '../assets/textures/lab/lab_green_grime_overlay.png?url';
 import { createStaticScreenMaterial } from '../world/StaticScreenMaterial.js';
+import { createTintedGlassMaterial } from '../world/TintedGlassMaterial.js';
 import { createCctvFeeds, FEED_IDS, FEED_LABELS } from '../world/CctvFeeds.js';
 import { SECURITY_CODE } from '../world/doorPanels.js';
 import { createCreatureSketchTexture } from '../world/textures.js';
@@ -224,6 +226,21 @@ const WORKBENCH_POSITION = { x: 0.4 * LAB_SCALE, z: -0.3 * LAB_SCALE };
 
 /** One unit of the steel shelving (storage_shelf.glb): length along x. Mirrors build_storage_shelf.py. */
 const STORAGE_SHELF = { width: 1.2, depth: 0.5, height: 1.83 };
+
+/**
+ * The broken containment chamber (containment_chamber.glb), in the model's own
+ * space: standing on the middle of its octagonal plinth, the hole and the
+ * glass that came out of it toward +Z, and the outlet the feed pipe meets on
+ * top. Mirrors PLINTH_R, PLINTH_FLAT, OUTLET_TOP and OUTLET_R in
+ * build_containment_chamber.py.
+ */
+const CONTAINMENT_CHAMBER = { plinthCorner: 0.78, plinthFlat: 0.72, outletTop: 2.52, outletRadius: 0.05 };
+/**
+ * Where it stands: the back-west corner, a metre out from each wall rather
+ * than pushed into them -- clear of the load chart beside the breaker panel,
+ * and with the back of its cap clear of the pipe run it is fed from.
+ */
+const CHAMBER_POSITION = { x: -LAB_W / 2 + 1.0, z: LAB_D / 2 - 0.95 };
 
 /** The breaker panel's place along the west wall. The load chart hangs beside it. */
 const BREAKER_PANEL_Z = 1.7 * LAB_SCALE;
@@ -1146,13 +1163,14 @@ export function createHallwayBasementLevel({
   /**
    * TEXTURE PREVIEW: hospital-white paint with rust coming through, for the lab
    * equipment, given to a loaded model's named materials. Shared, so every
-   * prop wears one texture.
+   * prop wears one texture. `tint` repaints it, for equipment that was never
+   * white.
    */
   const whiteRustMap = loadPhoto(whiteRustMetalUrl, { wrap: THREE.MirroredRepeatWrapping });
-  function applyWhiteRust(model, materialNames) {
+  function applyWhiteRust(model, materialNames, tint = 0xffffff) {
     model.traverse((child) => {
       if (!child.isMesh || !materialNames.includes(child.material.name)) return;
-      child.material.color.set(0xffffff);
+      child.material.color.set(tint);
       child.material.map = whiteRustMap;
       child.material.metalness = 0.15;
       child.material.roughness = 0.7;
@@ -1205,6 +1223,138 @@ export function createHallwayBasementLevel({
     if (highestPipeTopY > LAB_H) {
       console.warn(`[lab] the pipe run reaches ${highestPipeTopY.toFixed(2)}m, through a ${LAB_H}m ceiling`);
     }
+  }
+
+  /**
+   * The containment chamber in the back-west corner: containment_chamber.glb
+   * (blender/build_containment_chamber.py), a specimen tank broken open from
+   * the inside, with the glass that came out of it across the floor in front.
+   * Turned to face the middle of the room, so the hole is the side of it a
+   * player sees from anywhere they can stand.
+   */
+  const chamber = new THREE.Group();
+  chamber.name = 'ContainmentChamber';
+  chamber.position.set(CHAMBER_POSITION.x, 0, CHAMBER_POSITION.z);
+  chamber.rotation.y = Math.atan2(-CHAMBER_POSITION.x, -CHAMBER_POSITION.z);
+  lab.add(chamber);
+
+  /**
+   * Its plinth, as three boxes round a circle between the octagon's flats and
+   * its corners: a square for the diagonals and a cross for the rest. One box
+   * round the whole of it would stop a player a third of a metre short of the
+   * hole, which faces the room along exactly the diagonal a box's corner
+   * reaches out on.
+   */
+  {
+    const radius = (CONTAINMENT_CHAMBER.plinthCorner + CONTAINMENT_CHAMBER.plinthFlat) / 2;
+    const x = CHAMBER_POSITION.x;
+    const z = LAB_Z + CHAMBER_POSITION.z;
+    for (const [halfX, halfZ] of [
+      [radius * Math.SQRT1_2, radius * Math.SQRT1_2],
+      [radius, radius / 2],
+      [radius / 2, radius]
+    ]) {
+      colliders.push({ minX: x - halfX, maxX: x + halfX, minZ: z - halfZ, maxZ: z + halfZ });
+    }
+  }
+
+  /**
+   * Medium green glass. The tube is a shell the eye looks through both walls
+   * of, so it writes no depth; the shards on the floor are flat and do, so the
+   * tube's far wall, drawn after them, cannot paint over the ones in front of
+   * it. Broken edges are where glass shows its colour most, so they are
+   * greener and more solid than the faces.
+   *
+   * Drawn after the lab's grime layers (render order 0) and in this order
+   * among themselves, so stains on the floor and walls behind the glass are
+   * seen through it rather than laid over it.
+   */
+  const chamberGlassMat = createTintedGlassMaterial({ color: 0x4f9a63, opacity: 0.24, grazingOpacity: 0.85 });
+  // Lying on a floor that is lit much like they are, a dark tint barely shows:
+  // the shards are paler, and rough enough that the lights leave a soft
+  // highlight on them from more than one exact angle.
+  const chamberShardMat = createTintedGlassMaterial({
+    color: 0x8ccf9c, opacity: 0.4, grazingOpacity: 0.85, roughness: 0.25, depthWrite: true
+  });
+  const glassEdge = { color: 0x5cc474, roughness: 0.15, transparent: true, opacity: 0.85 };
+  const chamberGlassEdgeMat = new THREE.MeshStandardMaterial({ ...glassEdge, depthWrite: false });
+  const chamberShardEdgeMat = new THREE.MeshStandardMaterial({ ...glassEdge, opacity: 0.9, depthWrite: true });
+  const chamberCrackMat = new THREE.MeshStandardMaterial({
+    color: 0xdcefe2, roughness: 0.3, transparent: true, opacity: 0.45, depthWrite: false
+  });
+  /** Material name -> [tube's material, shards' material, the tube's render order]. Shards draw at 1. */
+  const chamberGlassByName = {
+    ChamberGlass: [chamberGlassMat, chamberShardMat, 2],
+    ChamberGlassEdge: [chamberGlassEdgeMat, chamberShardEdgeMat, 3],
+    ChamberGlassCrack: [chamberCrackMat, chamberCrackMat, 4]
+  };
+
+  /** The heavy rings round the glass and the stepped cap: the bare steel, darkened. */
+  const chamberDarkSteelMat = bareSteelMaterial();
+  chamberDarkSteelMat.color.set(0x5b6366);
+
+  loadModel(containmentChamberModelUrl).then((model) => {
+    // The reference's pale blue, with the rust coming through it.
+    applyWhiteRust(model, ['ChamberPaint'], 0x9fb4b8);
+    applyWhiteRust(model, ['ChamberHazardLight'], 0xe4e0d4);
+    applyWhiteRust(model, ['ChamberHazardDark'], 0x232323);
+    applyBareSteel(model, ['ChamberSteel']);
+    model.traverse((child) => {
+      if (!child.isMesh) return;
+      const name = child.material.name;
+      if (name === 'ChamberDarkSteel') child.material = chamberDarkSteelMat;
+      const glass = chamberGlassByName[name];
+      if (glass) {
+        // A mesh with more than one material arrives as a group of meshes, one per material.
+        const isShard = [child.name, child.parent?.name].some((n) => n?.startsWith('ChamberShards'));
+        child.material = glass[isShard ? 1 : 0];
+        child.renderOrder = isShard ? 1 : glass[2];
+      }
+      // Glass would throw a solid shadow.
+      child.castShadow = !glass;
+      child.receiveShadow = !glass;
+    });
+    chamber.add(model);
+  }).catch((err) => console.error('[lab] containment_chamber.glb failed to load', err));
+
+  /**
+   * The chamber's feed: up from the outlet on its cap, over in a bend toward
+   * the back wall, and along into the top pipe of the run, which it tees into.
+   * One tube along one path, so the bend has no seams in it.
+   */
+  {
+    const BEND_RADIUS = 0.12;
+    const radius = CONTAINMENT_CHAMBER.outletRadius;
+    const x = CHAMBER_POSITION.x;
+    const outlet = new THREE.Vector3(x, CONTAINMENT_CHAMBER.outletTop, CHAMBER_POSITION.z);
+    const corner = new THREE.Vector3(x, highestPipeY, CHAMBER_POSITION.z);
+    const bendStart = corner.clone().setY(highestPipeY - BEND_RADIUS);
+    const bendEnd = corner.clone().setZ(CHAMBER_POSITION.z + BEND_RADIUS);
+    const path = new THREE.CurvePath();
+    path.add(new THREE.LineCurve3(outlet, bendStart));
+    path.add(new THREE.QuadraticBezierCurve3(bendStart, corner, bendEnd));
+    path.add(new THREE.LineCurve3(bendEnd, new THREE.Vector3(x, highestPipeY, PIPE_Z)));
+    const feedGeometry = new THREE.TubeGeometry(path, 64, radius, 12, false);
+    // Round it first and along it second, the way the run's own cylinders are
+    // mapped, so the steel's streaks run the same way on both.
+    const uv = feedGeometry.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getY(i), uv.getX(i));
+    const feed = new THREE.Mesh(feedGeometry, bareSteelMaterial([0.33, path.getLength()]));
+    lab.add(feed);
+
+    // A coupling over the joint with the outlet, and the tee on the run with a
+    // collar where the feed goes into it.
+    const collarGeometry = new THREE.CylinderGeometry(radius + 0.012, radius + 0.012, 0.05, 16);
+    const coupling = new THREE.Mesh(collarGeometry, toolSteelMat);
+    coupling.position.copy(outlet);
+    const teeRadius = PIPE_RADIUS_IN_METRES + 0.016;
+    const tee = new THREE.Mesh(new THREE.CylinderGeometry(teeRadius, teeRadius, 0.2, 20), toolSteelMat);
+    tee.rotation.z = Math.PI / 2;
+    tee.position.set(x, highestPipeY, PIPE_Z);
+    const teeCollar = new THREE.Mesh(collarGeometry, toolSteelMat);
+    teeCollar.rotation.x = Math.PI / 2;
+    teeCollar.position.set(x, highestPipeY, PIPE_Z - teeRadius - 0.02);
+    lab.add(coupling, tee, teeCollar);
   }
 
   /**
