@@ -13,16 +13,33 @@
        Sits above the canvas but below the HUD so prompts stay readable. -->
   <div id="glare-overlay"></div>
 
+  <!-- The boot load. The same dark desk the newspapers are read on, with no
+       paper on it yet: the first front page is laid down after Start Game. -->
   <div id="loading-screen">
-    <div id="loading-title">DON'T LET IT OUT</div>
-    <div id="loading-bar-track"><div id="loading-bar-fill"></div></div>
-    <div id="loading-hint">entering the house...</div>
+    <div class="np-desk" aria-hidden="true"></div>
+    <div id="loading-content">
+      <div id="loading-title">DON'T LET IT OUT</div>
+      <div id="loading-bar-track"><div id="loading-bar-fill"></div></div>
+      <div id="loading-hint">entering the house...</div>
+    </div>
+  </div>
+
+  <!-- The newspaper interludes: a front page laid on a desk. Filled in by
+       src/core/Newspaper.js from src/story/newspapers.js. -->
+  <div id="newspaper-view" aria-live="polite">
+    <div class="np-desk" aria-hidden="true"></div>
+    <div class="np-stage"></div>
+    <div class="np-footer">
+      <div class="np-continue">Click or press Space to continue</div>
+    </div>
   </div>
 
   <div id="crosshair"></div>
 
   <div id="hud">
     <div id="objective"></div>
+    <!-- Time left on Medium and Hard. Hidden on Easy. See src/core/Difficulty.js. -->
+    <div id="run-timer" aria-label="Time left"><span class="run-timer-label">Time left</span><span class="run-timer-value">0:00</span></div>
     <div id="interact-prompt"></div>
     <div id="flashlight-status">FLASHLIGHT: <span id="flashlight-state">not found</span></div>
     <!-- Clickable, and bound to T as well. The button is the one that works
@@ -123,10 +140,19 @@
     <div id="main-menu" aria-label="Main menu">
       <div class="menu-ornament" aria-hidden="true">✦</div>
       <h1 id="menu-title"><span>DON'T</span><span>LET IT OUT</span></h1>
-      <div class="menu-actions" role="menu">
+      <div class="menu-actions" id="menu-main-actions" role="menu">
         <button class="menu-option is-selected" id="menu-start" type="button" role="menuitem">Start Game</button>
         <button class="menu-option" id="menu-credits" type="button" role="menuitem">Credits</button>
         <button class="menu-option" id="menu-quit" type="button" role="menuitem">Quit</button>
+      </div>
+      <!-- Start Game opens this in place of the list above. Choosing one starts
+           the run; see src/core/Difficulty.js for the time each one gives. -->
+      <div class="menu-actions hidden" id="menu-difficulty" role="menu" aria-label="Choose difficulty">
+        <div class="menu-heading">Choose difficulty</div>
+        <button class="menu-option menu-difficulty-option" type="button" role="menuitem" data-difficulty="easy">Easy<span class="menu-option-detail">No time limit</span></button>
+        <button class="menu-option menu-difficulty-option" type="button" role="menuitem" data-difficulty="medium">Medium<span class="menu-option-detail">45 minutes</span></button>
+        <button class="menu-option menu-difficulty-option" type="button" role="menuitem" data-difficulty="hard">Hard<span class="menu-option-detail">25 minutes</span></button>
+        <button class="menu-option menu-back" id="menu-difficulty-back" type="button" role="menuitem">Back</button>
       </div>
     </div>
 
@@ -140,7 +166,7 @@
       <button id="settings-button">Settings</button>
       <button id="restart-button" class="hidden">Restart</button>
       <div id="start-controls">
-        WASD move &middot; SHIFT sprint &middot; CTRL crouch &middot; mouse look &middot; E interact &middot; Scroll switch item &middot; Q drop &middot; H hint &middot; F flashlight &middot; V visor &middot; T 1st/3rd person &middot; 3/4 preview rooms &middot; G skip to exit &middot; R restart &middot; C credits
+        WASD move &middot; SHIFT sprint &middot; CTRL crouch &middot; mouse look &middot; E or right-click interact &middot; Scroll switch item &middot; Q drop &middot; H hint &middot; F flashlight &middot; V visor &middot; T 1st/3rd person &middot; 3/4 preview rooms &middot; G skip to exit &middot; R restart &middot; C credits
         <br>Plays fullscreen, so crouch-walking (CTRL+W) cannot close the tab. ESC pauses.
       </div>
     </div>
@@ -183,6 +209,8 @@
        Generic on purpose; see src/core/DocumentUI.js. -->
   <div id="document-view" class="hidden">
     <div id="document-panel" class="document-note">
+      <!-- Shown for pictures and framed pieces (the hallway's), hidden otherwise. -->
+      <img id="document-image" alt="" hidden>
       <h2 id="document-title"></h2>
       <div id="document-body"></div>
       <button id="document-close">Put it down</button>
@@ -208,9 +236,9 @@
 
       <div class="settings-row settings-row-toggle">
         <label for="settings-captions">Captions</label>
-        <input type="checkbox" id="settings-captions" checked>
+        <input type="checkbox" id="settings-captions">
       </div>
-      <div id="settings-captions-hint">Most lines have no voice recording yet -- turning this off will skip them silently.</div>
+      <div id="settings-captions-hint">Off by default. Most lines have no voice recording yet, so turn this on to read them. Hints (H) always show.</div>
 
       <button id="settings-close">Close</button>
     </div>
@@ -229,6 +257,20 @@
         <ul id="credits-list"></ul>
       </section>
       <button id="credits-close" type="button">Back to Menu</button>
+    </div>
+  </div>
+
+  <!-- R asks first: it is right next to the movement keys and easy to hit by
+       mistake. Keep playing is the default, so Enter does not wipe a run. -->
+  <div id="restart-confirm" class="hidden" role="alertdialog" aria-modal="true" aria-labelledby="restart-confirm-title" aria-describedby="restart-confirm-text">
+    <div id="restart-confirm-panel">
+      <div class="credits-ornament" aria-hidden="true">✦</div>
+      <h2 id="restart-confirm-title">Restart the game?</h2>
+      <p id="restart-confirm-text">You will go back to the start of the first room and lose everything you have done so far.</p>
+      <div class="restart-confirm-actions">
+        <button id="restart-confirm-keep" type="button">Keep playing</button>
+        <button id="restart-confirm-yes" type="button">Restart</button>
+      </div>
     </div>
   </div>
 

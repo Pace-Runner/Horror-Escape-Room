@@ -30,9 +30,17 @@ export class Interaction {
 
     window.addEventListener('keydown', (e) => {
       if (e.code !== 'KeyE') return;
-      if (!this.enabled || !this.current) return;
-      this.current.userData.interact.onInteract?.();
+      this.interact();
     });
+  }
+
+  /**
+   * Uses whatever the crosshair is on. E calls this, and so does right-click
+   * (wired in main.js, which knows when the mouse belongs to the game).
+   */
+  interact() {
+    if (!this.enabled || !this.current) return;
+    this.current.userData.interact.onInteract?.();
   }
 
   setEnabled(enabled) {

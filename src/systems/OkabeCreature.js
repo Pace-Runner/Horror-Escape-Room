@@ -893,6 +893,14 @@ const IK_CLAMP = 0.999;
 const PLANT_HEIGHT = 0.005;
 const SINK_LIMIT = 0.012;
 /**
+ * The boot sweep's per-sample slip allowance for a planted shoe, as a share of
+ * body speed: "slipping at under a fifth of body speed", the rule SLIP_LIMIT's
+ * note below describes. It was referenced but never declared, and the
+ * ReferenceError it threw inside attach() stopped the GLB from loading at all
+ * -- every Okabe figure in the game, monster and player body alike.
+ */
+const PLANT_SLIP = 0.2;
+/**
  * HOW FAR A DOWN SHOE MAY TRAVEL ACROSS THE FLOOR IN ONE STANCE, metres, and
  * how far it may turn on it, radians: totals over the stance, in the floor's
  * own frame, which is what the eye sees.

@@ -17,6 +17,7 @@ import { createBedroomLevel } from './levels/bedroomLevel.js';
 import { createHallwayBasementLevel } from './levels/hallwayBasementLevel.js';
 import { createStudyLevel } from './levels/studyLevel.js';
 import { createBackroomsLevel } from './levels/backroomsLevel.js';
+import { createUpstairsHallwayLevel } from './levels/upstairsHallwayLevel.js';
 import { createScreenFade, wait } from './core/ScreenFade.js';
 import { gameState, resetState, addItem, removeItem, ITEMS } from './core/GameState.js';
 import { createHeldItems } from './core/HeldItems.js';
@@ -28,8 +29,12 @@ import { createDocumentUI } from './core/DocumentUI.js';
 import { createPostFX } from './world/Postprocessing.js';
 import { createHintSystem } from './core/HintSystem.js';
 import { BEDROOM_HINT_STAGES } from './levels/bedroomHints.js';
+import { BASEMENT_HINT_STAGES } from './levels/basementHints.js';
 import { enableSinglePassForFlatDecals, createDarkShadowSkipper, findShadowCastingLights } from './world/renderOptimizations.js';
 import { createCutsceneRunner } from './core/Cutscene.js';
+import { createNewspaper } from './core/Newspaper.js';
+import { createJumpScare } from './core/JumpScare.js';
+import { DIFFICULTIES, DEFAULT_DIFFICULTY, createRunTimer } from './core/Difficulty.js';
 import { FreeCamera } from './core/FreeCamera.js';
 import { createScriptRunner } from './core/Script.js';
 import { createOkabeCreature } from './systems/OkabeCreature.js';
@@ -56,7 +61,10 @@ const thirdPersonBtn = document.getElementById('third-person-toggle');
 const startScreen = document.getElementById('start-screen');
 const mainMenu = document.getElementById('main-menu');
 const legacyStartControls = document.getElementById('legacy-start-controls');
-const menuOptionButtons = [...document.querySelectorAll('.menu-option')];
+const menuMainActions = document.getElementById('menu-main-actions');
+const menuDifficulty = document.getElementById('menu-difficulty');
+const menuDifficultyBack = document.getElementById('menu-difficulty-back');
+const runTimerEl = document.getElementById('run-timer');
 const menuStartButton = document.getElementById('menu-start');
 const menuCreditsButton = document.getElementById('menu-credits');
 const menuQuitButton = document.getElementById('menu-quit');
@@ -97,6 +105,22 @@ const captionsCheckbox = document.getElementById('settings-captions');
 // instead of fading.
 const fade = createScreenFade(fadeOverlay);
 
+// Every front page in the game -- see core/Newspaper.js and
+// story/newspapers.js. Pages are only ever shown during play, long after this
+// module has finished evaluating, so reading `audio` in onShow is safe.
+const newspaperView = createNewspaper({
+  root: document.getElementById('newspaper-view'),
+  onShow: () => audio.paperRustle()
+});
+
+/**
+ * Medium and Hard's per-room clock -- see core/Difficulty.js. Set to the
+ * chosen difficulty by beginGame() and every restart, refilled by
+ * activateLevel() in each room, and counted down in tick() only while the
+ * player is playing. Up here so it exists before any room is activated.
+ */
+const runTimer = createRunTimer({ el: runTimerEl, onExpire: () => playOutOfTime() });
+
 // ---------- launch menu ----------
 // This state belongs only to the DOM launch menu. It deliberately does not
 // overlap the game's pause/end state, which continues to use the legacy start
@@ -104,16 +128,41 @@ const fade = createScreenFade(fadeOverlay);
 let menuOverlayState = 'main';
 let selectedMenuOptionIndex = 0;
 
+/** The buttons of whichever menu panel is showing: the main list, or difficulty. */
+function readVisibleMenuButtons() {
+  const panel = menuDifficulty.classList.contains('hidden') ? menuMainActions : menuDifficulty;
+  return [...panel.querySelectorAll('.menu-option')];
+}
+
 function selectMenuOption(optionIndex) {
-  selectedMenuOptionIndex = (optionIndex + menuOptionButtons.length) % menuOptionButtons.length;
-  menuOptionButtons.forEach((button, index) => {
+  const buttons = readVisibleMenuButtons();
+  selectedMenuOptionIndex = (optionIndex + buttons.length) % buttons.length;
+  buttons.forEach((button, index) => {
     button.classList.toggle('is-selected', index === selectedMenuOptionIndex);
   });
-  menuOptionButtons[selectedMenuOptionIndex].focus({ preventScroll: true });
+  buttons[selectedMenuOptionIndex].focus({ preventScroll: true });
 }
+
+/** Swaps the main list for the difficulty choice, or back. */
+function showDifficultyChoice(show) {
+  menuDifficulty.classList.toggle('hidden', !show);
+  menuMainActions.classList.toggle('hidden', show);
+  // Start on the difficulty last played, so a replay is one Enter away.
+  const buttons = readVisibleMenuButtons();
+  const lastPlayed = buttons.findIndex((button) => button.dataset.difficulty === currentDifficulty);
+  selectMenuOption(show ? Math.max(0, lastPlayed) : 0);
+}
+
+/**
+ * The difficulty of the run being played (a key of DIFFICULTIES). Up here
+ * because the menu needs it before the settings are loaded further down;
+ * loadSettings() fills it in with the one last played.
+ */
+let currentDifficulty = DEFAULT_DIFFICULTY;
 
 function showMainMenu() {
   menuOverlayState = 'main';
+  showDifficultyChoice(false);
   mainMenu.classList.remove('hidden');
   legacyStartControls.classList.add('hidden');
   creditsScreen.classList.add('hidden');
@@ -121,7 +170,6 @@ function showMainMenu() {
   startScreen.classList.remove('hidden');
   hud.style.display = 'none';
   crosshair.style.display = 'none';
-  selectMenuOption(0);
 }
 
 function showMenuCredits() {
@@ -158,18 +206,33 @@ function showLegacyStartScreen() {
   legacyStartControls.classList.remove('hidden');
 }
 
-menuOptionButtons.forEach((button, index) => {
-  button.addEventListener('mouseenter', () => selectMenuOption(index));
-  button.addEventListener('focus', () => selectMenuOption(index));
+for (const panel of [menuMainActions, menuDifficulty]) {
+  panel.querySelectorAll('.menu-option').forEach((button, index) => {
+    button.addEventListener('mouseenter', () => selectMenuOption(index));
+    button.addEventListener('focus', () => {
+      if (!button.classList.contains('is-selected')) selectMenuOption(index);
+    });
+  });
+}
+
+// The time each difficulty gives, written once in core/Difficulty.js.
+menuDifficulty.querySelectorAll('[data-difficulty]').forEach((button) => {
+  const detail = button.querySelector('.menu-option-detail');
+  if (detail) detail.textContent = DIFFICULTIES[button.dataset.difficulty].detail;
+  button.addEventListener('click', () => {
+    currentDifficulty = button.dataset.difficulty;
+    settings.difficulty = currentDifficulty;
+    saveSettings(settings);
+    menuOverlayState = 'game';
+    mainMenu.classList.add('hidden');
+    // Keep this synchronous with the click so Pointer Lock retains the browser
+    // user gesture that the existing Level 1 flow requires.
+    startButton.click();
+  });
 });
 
-menuStartButton.addEventListener('click', () => {
-  menuOverlayState = 'game';
-  mainMenu.classList.add('hidden');
-  // Keep this synchronous with the click so Pointer Lock retains the browser
-  // user gesture that the existing Level 1 flow requires.
-  startButton.click();
-});
+menuStartButton.addEventListener('click', () => showDifficultyChoice(true));
+menuDifficultyBack.addEventListener('click', () => showDifficultyChoice(false));
 menuCreditsButton.addEventListener('click', showMenuCredits);
 menuQuitButton.addEventListener('click', requestQuit);
 quitBackButton.addEventListener('click', showMainMenu);
@@ -192,7 +255,10 @@ window.addEventListener('keydown', (event) => {
     selectMenuOption(selectedMenuOptionIndex + 1);
   } else if (event.code === 'Enter') {
     event.preventDefault();
-    menuOptionButtons[selectedMenuOptionIndex].click();
+    readVisibleMenuButtons()[selectedMenuOptionIndex].click();
+  } else if (event.code === 'Escape' && !menuDifficulty.classList.contains('hidden')) {
+    event.preventDefault();
+    showDifficultyChoice(false);
   }
 });
 
@@ -1559,6 +1625,23 @@ const bedroom = createBedroomLevel({
 });
 sceneManager.register('bedroom', bedroom);
 
+// ---------- the upstairs hallway (between Level 1 and Level 2) ----------
+// The bedroom door opens onto it, and its stairs lead down to the basement --
+// see TRANSITIONS. Its framed pieces open full size in the document reader, so
+// they read whether captions are on or off.
+const upstairsHallway = createUpstairsHallwayLevel({
+  showCaption,
+  onInspect: async ({ title, body, art }) => {
+    const image = art ? await art.toImageUrl() : null;
+    player.unlock();
+    documentUI.open({ title, body, image, variant: 'exhibit' });
+  },
+  onExit: () => exitLevel('upstairsHallway'),
+  // The flash, then the thunder a moment later -- it is a few miles off.
+  onLightning: () => setTimeout(() => audio.thunder(), 350 + Math.random() * 900)
+});
+sceneManager.register('upstairsHallway', upstairsHallway);
+
 // ---------- level 1 hints ----------
 // H gives a hint for whichever bedroom puzzle the player is on, vaguer first
 // and more direct on each press; see core/HintSystem.js and
@@ -1581,16 +1664,67 @@ function readBedroomHintProgress() {
   };
 }
 
-const bedroomHints = createHintSystem({
+/**
+ * Marks lines as help rather than dialogue, so they show even with captions
+ * turned off in Settings. A player who switched captions off still pressed H
+ * because they wanted a hint -- hiding the answer made the key look broken.
+ */
+function alwaysShown(lines) {
+  const list = Array.isArray(lines) ? lines : [lines];
+  return list.map((entry) => (typeof entry === 'string'
+    ? { text: entry, always: true }
+    : { ...entry, always: true }));
+}
+
+/**
+ * The hint system for one room. Every room shares the same delivery: through
+ * interaction.showCaption, not the local showCaption(), because the hint system
+ * needs its answer, which is false while a story sequence holds the caption.
+ * Every hint, the "press H" offer and the all-solved line go through here.
+ */
+function createRoomHints({ stages, readProgress, allSolvedLine }) {
+  return createHintSystem({
+    stages,
+    readProgress,
+    showCaption: (lines) => interaction.showCaption(alwaysShown(lines)),
+    readNudgeLines: () => line('dialog_hint_nudge'),
+    readAllSolvedLines: () => line(allSolvedLine),
+    onNudge: pulseHintKey
+  });
+}
+
+const bedroomHints = createRoomHints({
   stages: BEDROOM_HINT_STAGES,
   readProgress: readBedroomHintProgress,
-  // interaction.showCaption, not the local showCaption(): the hint system needs
-  // its answer, which is false while a story sequence holds the caption.
-  showCaption: (lines) => interaction.showCaption(lines),
-  readNudgeLines: () => line('dialog_hint_nudge'),
-  readAllSolvedLines: () => line('dialog_hint_all_solved'),
-  onNudge: pulseHintKey
+  allSolvedLine: 'dialog_hint_all_solved'
 });
+
+// Read lazily: `hallwayBasement` is built further down, and progress is only
+// ever asked for during play.
+const basementHints = createRoomHints({
+  stages: BASEMENT_HINT_STAGES,
+  readProgress: () => hallwayBasement.refs.hintProgress,
+  allSolvedLine: 'dialog_hint_basement_all_solved'
+});
+
+// The hallway has no puzzle, only a way on, so its one "stage" never completes:
+// H always points at the stairs.
+const hallwayHints = createRoomHints({
+  stages: [{
+    id: 'stairs',
+    isComplete: () => false,
+    readHints: () => [line('dialog_hint_hallway_1'), line('dialog_hint_hallway_all_solved')]
+  }],
+  readProgress: () => ({}),
+  allSolvedLine: 'dialog_hint_hallway_all_solved'
+});
+
+/** Which rooms H gives hints in, keyed by level. Every other room says so plainly. */
+const HINTS_BY_LEVEL = {
+  bedroom: bedroomHints,
+  upstairsHallway: hallwayHints,
+  hallwayBasement: basementHints
+};
 
 /**
  * Pulses the on-screen hint key, so the "press H" offer points at something.
@@ -1603,10 +1737,11 @@ function pulseHintKey() {
   hintKeyEl.classList.add('nudge');
 }
 
-/** The H key: a hint in the bedroom, and a plain answer anywhere else. */
+/** The H key: a hint in a room that has them, and a plain answer anywhere else. */
 function showHint() {
-  if (sceneManager.activeKey === 'bedroom') bedroomHints.showNextHint();
-  else showCaption(line('dialog_hint_unavailable'));
+  const roomHints = HINTS_BY_LEVEL[sceneManager.activeKey];
+  if (roomHints) roomHints.showNextHint();
+  else showCaption(alwaysShown(line('dialog_hint_unavailable')));
 }
 
 // Screen-space half of the basement's overload glare. The level drives the
@@ -2392,6 +2527,7 @@ bedroom.group.add(rain.points);
 
 const LEVEL_OBJECTIVES = {
   bedroom: 'You wake up chained to the bed frame. Find a way free.',
+  upstairsHallway: 'Find a way downstairs.',
   hallwayBasement: 'Restore power in the basement, then get through the locked door.',
   study: 'Preview: the study and front door (Level 3 blockout).',
   backrooms: 'Find the way through.'
@@ -2399,6 +2535,9 @@ const LEVEL_OBJECTIVES = {
 
 const LEVEL_FOG = {
   bedroom: new THREE.FogExp2(0x05070a, 0.065),
+  // Thinner than the bedroom's, so the far end of the hall and the top of the
+  // stairs are a shape in the dark from the bedroom door rather than nothing.
+  upstairsHallway: new THREE.FogExp2(0x05070a, 0.05),
   hallwayBasement: new THREE.FogExp2(0x0a0c0a, 0.03),
   study: new THREE.FogExp2(0x0c0a06, 0.02),
   // A murky olive-brown rather than near-black: distant geometry fades into a
@@ -2416,7 +2555,10 @@ const LEVEL_FOG = {
 //   via: which registered level to pass through, or null for a direct cut
 //   to:  the level on the far side of the interstitial's exit door
 const TRANSITIONS = {
-  bedroom: { to: 'hallwayBasement', via: 'backrooms' },
+  // Straight out onto the upstairs hallway, and down its stairs to the
+  // basement. The backrooms are only the crossing from Level 2 to Level 3.
+  bedroom: { to: 'upstairsHallway', via: null },
+  upstairsHallway: { to: 'hallwayBasement', via: null },
   hallwayBasement: { to: 'study', via: 'backrooms' },
   study: { to: null, via: null }
 };
@@ -2426,6 +2568,15 @@ const TRANSITIONS = {
  * Keyed by level so activateLevel does not grow a switch statement.
  */
 const ON_ENTER = {
+  /** Out of the bedroom at last: the door shuts behind, and something moves below. */
+  upstairsHallway: () => {
+    script.run(async (s) => {
+      if (!await s.wait(0.6)) return;
+      s.do(() => audio.creak());
+      await s.play(line('dialog_hallway_enter'));
+    });
+  },
+
   /**
    * The hallway sighting. The storm catches, and it is standing at the far end.
    *
@@ -2488,6 +2639,7 @@ function onHunterCaught() {
   // and inside the guard above, so it is exactly once per catch.
   audioDirector.caught();
   script.run(async (s) => {
+    const wasThirdPerson = thirdPerson;
     try {
       s.do(() => {
         player.movementEnabled = false;
@@ -2496,14 +2648,30 @@ function onHunterCaught() {
         // Stop it dead first: without this it keeps closing during the fade and
         // is standing on top of the spawn point when the screen comes back.
         backroomsHunter.stop();
+        // The scare is seen through the player's own eyes, with nothing of
+        // theirs in the way.
+        if (thirdPerson) setThirdPerson(false);
+        hands.setVisible(false);
+        player.cinematic = true;
+        jumpScareRunning = true;
       });
-      if (!await s.play(line('dialog_backrooms_caught'))) return;
-      await fade.fadeOut(450);
+      // Its face, all at once. Ends on black -- see core/JumpScare.js.
+      await jumpScare.run({ creature: okabe, isAlive: s.alive });
+      jumpScareRunning = false;
       if (!s.alive()) return;
+      // A beat of black and silence after the scream, before waking.
+      if (!await s.wait(0.9)) return;
       s.do(() => {
+        player.cinematic = false;
+        hands.setVisible(true);
+        if (wasThirdPerson) setThirdPerson(true);
         const [sx, sz] = backrooms.spawn;
         player.spawn(sx, sz, backrooms.spawnYaw ?? 0);
+        // Over the dark rather than waited out: after a scare the pace is
+        // the point, and the respawn line takes over once the eyes open.
+        captions.play(line('dialog_backrooms_caught'));
       });
+      if (!await s.wait(1.2)) return;
       await fade.fadeIn(650);
       if (!s.alive()) return;
       s.do(() => {
@@ -2517,9 +2685,20 @@ function onHunterCaught() {
       await s.play(line('dialog_backrooms_respawn'));
     } finally {
       caughtInFlight = false;
+      // However it ended -- a restart mid-scream included -- the camera and
+      // the hands go back to the player.
+      if (jumpScareRunning || player.cinematic) {
+        jumpScareRunning = false;
+        player.cinematic = false;
+        hands.setVisible(true);
+      }
     }
   });
 }
+
+/** True while the catch's jump scare owns the backrooms figure and the camera. */
+let jumpScareRunning = false;
+const jumpScare = createJumpScare({ camera, fade, postFX, audio });
 
 function activateLevel(key, { lockMovement = false } = {}) {
   // A prior restrained bedroom view must never clamp the spawn orientation of
@@ -2550,7 +2729,9 @@ function activateLevel(key, { lockMovement = false } = {}) {
   // decal among them should get the same single-pass draw.
   enableSinglePassForFlatDecals(level.group);
   // The on-screen hint key, only where H actually gives hints.
-  hintKeyEl.classList.toggle('visible', key === 'bedroom');
+  hintKeyEl.classList.toggle('visible', key in HINTS_BY_LEVEL);
+  // Each room gets its own full time on Medium and Hard; corridors none.
+  runTimer.enterRoom(key);
   scene.fog = LEVEL_FOG[key] ?? null;
   objectiveEl.textContent = LEVEL_OBJECTIVES[key] ?? '';
   // Hard-cancel rather than just hiding the box: a queued sequence would
@@ -2645,12 +2826,21 @@ function unfreezePlayerAfterTransition() {
 function abortTransition() {
   transitionGeneration++;
   transitionInFlight = false;
+  newspaperView.cancel();
   fade.clear();
   interaction.setEnabled(true);
   player.lookEnabled = true;
 }
 
-async function transitionTo(key, { lockMovement = false, outMs = 700, holdMs = 140, inMs = 900 } = {}) {
+/**
+ * @param {string} key level to go to
+ * @param {object} [options]
+ * @param {string|null} [options.interlude] a front page from story/newspapers.js
+ *   read on the black between the two rooms. The next room is not switched on
+ *   until the player continues past it, so its entry beat cannot start behind
+ *   the page.
+ */
+async function transitionTo(key, { lockMovement = false, outMs = 700, holdMs = 140, inMs = 900, interlude = null } = {}) {
   if (transitionInFlight) return null;
   transitionInFlight = true;
   const mine = ++transitionGeneration;
@@ -2659,6 +2849,10 @@ async function transitionTo(key, { lockMovement = false, outMs = 700, holdMs = 1
   try {
     await fade.fadeOut(outMs);
     if (mine !== transitionGeneration) return null;   // aborted mid-fade
+    if (interlude) {
+      await newspaperView.show(interlude);
+      if (mine !== transitionGeneration) return null;  // restarted while reading
+    }
     const level = activateLevel(key, { lockMovement: true });
     if (!level) {
       // Fade back in rather than leaving a black screen: a bad route must never
@@ -2692,22 +2886,33 @@ async function exitLevel(fromKey) {
     console.warn('exitLevel: no route out of "' + fromKey + '"');
     return;
   }
-  if (!route.via) { await transitionTo(route.to); return; }
+  const interlude = INTERLUDES[fromKey] ?? null;
+  if (!route.via) { await transitionTo(route.to, { interlude }); return; }
 
   const interstitial = sceneManager.get(route.via);
   // Degrade to a plain cut rather than trapping the player, if the interstitial
   // is ever missing or does not implement the arming contract.
-  if (!interstitial?.setRoute) { await transitionTo(route.to); return; }
+  if (!interstitial?.setRoute) { await transitionTo(route.to, { interlude }); return; }
   // Armed BEFORE activateLevel, so the destination, the re-armed exit door and
   // spawn/spawnYaw are all in place by the time SceneManager reads them.
   backroomsFrom = fromKey;
   interstitial.setRoute({ from: fromKey, ...route });
-  await transitionTo(route.via);
+  await transitionTo(route.via, { interlude });
 }
+
+/**
+ * The front page read on the way out of each room, keyed like TRANSITIONS by
+ * the room being LEFT. Read on the black before the maze, so the walk through
+ * it is spent thinking about what the paper said.
+ */
+const INTERLUDES = {
+  bedroom: 'afterBedroom',
+  hallwayBasement: 'afterBasement'
+};
 
 // ---------- game reset (restart without page refresh) ----------
 function resetGame() {
-  bedroomHints.reset();
+  for (const roomHints of Object.values(HINTS_BY_LEVEL)) roomHints.reset();
   // A restart from the pause menu can land mid-fade; without this the freshly
   // reset bedroom would come up behind a black overlay that never lifts.
   abortTransition();
@@ -2758,6 +2963,9 @@ function resetGame() {
   // ambient bed, which is playing in the bedroom this lands in anyway, and is
   // left unbroken for the same reason the breathing is.
   audioDirector.reset();
+  // A restart is a new run on the same difficulty; activateLevel() then gives
+  // the bedroom its full time again.
+  runTimer.configure(currentDifficulty);
   activateLevel('bedroom', { lockMovement: true });
 }
 
@@ -2866,8 +3074,70 @@ window.addEventListener('keydown', (e) => {
       captions.play(result === 'on' ? line('dialog_visor_first_worn') : line('dialog_visor_removed'));
     }
   }
-  if (e.code === 'KeyR') resetGame();
+  if (e.code === 'KeyR' && !e.repeat) openRestartConfirm();
   if (e.code === 'KeyC' && !transitionInFlight) toggleCredits(true);
+});
+
+// ---------- right-click = E ----------
+// For players who play with the mouse: right-click uses whatever the crosshair
+// is on, exactly like E. Only while the game has the mouse -- on a menu or a
+// pop-up the mouse is the menu's -- and never in the free camera, which is
+// for filming. While a newspaper is up, that page takes the click instead.
+window.addEventListener('mousedown', (e) => {
+  if (e.button !== 2 || !player.isLocked || freeCamera.isActive || newspaperView.isOpen) return;
+  e.preventDefault();
+  interaction.interact();
+});
+// No browser right-click menu over the game itself.
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+window.addEventListener('contextmenu', (e) => {
+  if (player.isLocked) e.preventDefault();
+});
+
+// ---------- restart confirm (R) ----------
+// R sits right next to the movement keys, so a stray press used to wipe the
+// whole run with no warning. It now asks first. The pointer is released so the
+// buttons can be clicked, and the game pauses behind it exactly like a pause.
+// The pause menu's own Restart button does not ask: that is never an accident.
+const restartConfirmEl = document.getElementById('restart-confirm');
+const restartConfirmYes = document.getElementById('restart-confirm-yes');
+const restartConfirmKeep = document.getElementById('restart-confirm-keep');
+let restartConfirmOpen = false;
+
+function openRestartConfirm() {
+  if (restartConfirmOpen || endingInFlight || gameState.endingChosen) return;
+  restartConfirmOpen = true;
+  restartConfirmEl.classList.remove('hidden');
+  player.unlock();
+  // Keep playing is the default, so a reflexive Enter does nothing harmful.
+  restartConfirmKeep.focus({ preventScroll: true });
+}
+
+/**
+ * @param {boolean} restart - true to restart, false to go back to the game.
+ * @param {object} [options]
+ * @param {boolean} [options.toPauseMenu] - Esc: the browser will not hand the
+ *   pointer back on Esc, so land on the pause menu ("Click to resume") instead.
+ */
+function closeRestartConfirm(restart, { toPauseMenu = false } = {}) {
+  if (!restartConfirmOpen) return;
+  restartConfirmOpen = false;
+  restartConfirmEl.classList.add('hidden');
+  if (restart) resetGame();
+  if (toPauseMenu) showPauseScreen();
+  else player.lock();
+}
+
+restartConfirmYes.addEventListener('click', () => closeRestartConfirm(true));
+restartConfirmKeep.addEventListener('click', () => closeRestartConfirm(false));
+window.addEventListener('keydown', (e) => {
+  if (!restartConfirmOpen) return;
+  // Y confirms; N or Esc backs out. Enter and Space press whichever button has
+  // focus, which the browser does by itself. Not R: the very R press that
+  // opened this reaches this listener too, and would confirm it on the spot.
+  if (e.code === 'KeyY') { e.preventDefault(); closeRestartConfirm(true); }
+  else if (e.code === 'KeyN') { e.preventDefault(); closeRestartConfirm(false); }
+  else if (e.code === 'Escape') { e.preventDefault(); closeRestartConfirm(false, { toPauseMenu: true }); }
 });
 
 /**
@@ -2885,7 +3155,13 @@ window.addEventListener('keydown', (e) => {
  */
 const ENDING_TITLES = {
   released: 'THE HOLLOW IS OUT',
-  contained: 'THE HOUSE HELD'
+  contained: 'THE HOUSE HELD',
+  timeout: 'OUT OF TIME'
+};
+
+/** The small line under the title. Only running out of time is not an ending. */
+const ENDING_SUBTITLES = {
+  timeout: 'The house kept you'
 };
 
 const ENDING_CREDITS = {
@@ -2900,6 +3176,34 @@ const ENDING_CREDITS = {
 };
 
 let endingInFlight = false;
+
+/**
+ * Time ran out on Medium or Hard. Not a story ending, so no camera shot and
+ * no newspaper: the room goes dark, a line says why, and the end screen offers
+ * another go.
+ */
+async function playOutOfTime() {
+  if (endingInFlight || gameState.endingChosen) return;
+  endingInFlight = true;
+  gameState.endingChosen = 'timeout';
+  try {
+    // Stop whatever beat was playing (a catch, a sighting), so nothing hands
+    // the controls back while the screen is going dark.
+    script.cancel();
+    newspaperView.cancel();
+    interaction.setEnabled(false);
+    player.movementEnabled = false;
+    player.lookEnabled = false;
+    // Help, not story: shown even with captions off, like the hints.
+    captions.play(alwaysShown(line('dialog_out_of_time')));
+    await fade.fadeOut(2600);
+    // R during the fade already started a new run; resetState() cleared the flag.
+    if (gameState.endingChosen !== 'timeout') return;
+    showEndScreen('timeout');
+  } finally {
+    endingInFlight = false;
+  }
+}
 
 async function playEnding(which) {
   if (endingInFlight) return;
@@ -2927,13 +3231,18 @@ async function playEnding(which) {
     const from = which === 'released'
       ? [2.5, 1.6, 7.2]
       : [2.5, 1.6, 6.4];
-    await cutscene.playToBlack({
+    const shotFinished = await cutscene.playToBlack({
       points: [from, [2.2, 3.2, 12.0], [0.6, 7.5, 20.0], [-1.5, 12.0, 30.0]],
       lookAt: (t) => [2.5, 1.4 + t * 1.2, 3.0],
       seconds: 13,
       fadeMs: 2200,
       body: () => captions.play(line(`dialog_ending_${which}`))
     });
+
+    // The morning's paper, on the black after the shot: the bulletin the player
+    // just heard, as the town will read it. Skipped only by a restart, which
+    // has already put the game somewhere an end screen must not appear over.
+    if (shotFinished && !await newspaperView.show(`ending_${which}`)) return;
 
     showEndScreen(which);
   } finally {
@@ -2952,13 +3261,20 @@ function showEndScreen(which) {
   creatureStanding = false;
   audio.setBreathing(BREATH_BASE_LEVEL);
   startTitle.textContent = ENDING_TITLES[which];
-  startSub.textContent = 'THE END';
+  startSub.textContent = ENDING_SUBTITLES[which] ?? 'THE END';
   startButton.textContent = 'Play again';
   restartButton.classList.add('hidden');
   startScreen.classList.remove('hidden');
   hud.style.display = 'none';
   crosshair.style.display = 'none';
   promptEl.style.display = 'none';
+  // Running out of time is not an ending, so no credits roll over it: the
+  // title and Play again are what the player needs to see.
+  if (!ENDING_CREDITS[which]) {
+    buildCredits();
+    if (player.isLocked) player.unlock();
+    return;
+  }
   buildCredits(which);
   toggleCredits(true);
 }
@@ -2968,6 +3284,9 @@ const CREDITS = [
   'Three.js -- 3D rendering library (three.js authors, MIT licence) -- threejs.org',
   'PointerLockControls -- Three.js official examples module (MIT licence)',
   'Vite -- build tool used to produce the deployment bundle (MIT licence)',
+  'Newspaper typefaces -- UnifrakturMaguntia (J. "Mach" Wust), Playfair Display (Claus Eggers Sørensen) '
+    + 'and Old Standard TT (Alexey Kryukov), all SIL Open Font License 1.1, bundled via Fontsource (fontsource.org).',
+  'Handwriting typeface -- Caveat (Impallari Type), SIL Open Font License 1.1, bundled via Fontsource.',
   'All textures are generated procedurally on <canvas> at runtime -- no image assets used.',
   // CC-BY REQUIRES ATTRIBUTION AND THIS IS IT. hands.glb is the one piece of
   // third-party geometry in the project; everything else under
@@ -3048,7 +3367,9 @@ creditsCloseBtn.addEventListener('click', () => {
 // before ever clicking "begin" still hears/feels the right values from their
 // very first frame.
 const SETTINGS_STORAGE_KEY = 'dontLetItOut.settings';
-const DEFAULT_SETTINGS = { volume: 50, sensitivity: 100, captions: true };
+// Captions start off: hints (H) and the front pages still show either way.
+// `difficulty` is the one last played, so the menu can offer it first.
+const DEFAULT_SETTINGS = { volume: 50, sensitivity: 100, captions: false, difficulty: DEFAULT_DIFFICULTY };
 
 function loadSettings() {
   try {
@@ -3060,7 +3381,8 @@ function loadSettings() {
       sensitivity: Number.isFinite(parsed.sensitivity)
         ? Math.min(SENSITIVITY_MAX * 100, Math.max(SENSITIVITY_MIN * 100, parsed.sensitivity))
         : DEFAULT_SETTINGS.sensitivity,
-      captions: typeof parsed.captions === 'boolean' ? parsed.captions : DEFAULT_SETTINGS.captions
+      captions: typeof parsed.captions === 'boolean' ? parsed.captions : DEFAULT_SETTINGS.captions,
+      difficulty: Object.hasOwn(DIFFICULTIES, parsed.difficulty) ? parsed.difficulty : DEFAULT_SETTINGS.difficulty
     };
   } catch {
     // Private browsing (Safari) throws on localStorage access rather than
@@ -3085,6 +3407,7 @@ function applySettings(settings) {
 }
 
 const settings = loadSettings();
+currentDifficulty = settings.difficulty;
 volumeInput.value = String(settings.volume);
 volumeValueEl.textContent = `${settings.volume}%`;
 sensitivityInput.value = String(settings.sensitivity);
@@ -3150,6 +3473,9 @@ function beginGame() {
   // level or an event, only its intensity is. Safe whether or not the loop
   // file is actually there, and safe before it has decoded -- see AudioEngine.
   audio.startBreathing();
+  // Before the room: activateLevel() starts the bedroom's clock, full and
+  // still -- it only counts once the first newspaper is put away.
+  runTimer.configure(currentDifficulty);
   activateLevel('bedroom', { lockMovement: true });
   player.lock();
 
@@ -3163,6 +3489,11 @@ function beginGame() {
    */
   script.run(async (s) => {
     s.do(() => fade.snapToBlack());
+    // The first front page, on the black before the eyes open: what the town
+    // read in January, before the player knows where they are. A restart
+    // while it is up cancels it, and the wake-up then does not run on top of
+    // the restarted room.
+    if (!await newspaperView.show('prologue') || !s.alive()) return;
     if (!await s.wait(0.9)) return;
     fade.fadeIn(2600);
     await s.play(line('dialog_wake'));
@@ -3225,7 +3556,12 @@ player.controls.addEventListener('unlock', () => {
   audio.pause();
   captions.setPaused(true);
 
+  // The restart question is a pause of its own; it brings the game back itself.
+  if (restartConfirmOpen) return;
   if (!creditsScreen.classList.contains('hidden')) return;
+  // A finished run (an ending, or out of time) is showing its end screen;
+  // the pause menu must not replace it.
+  if (gameState.endingChosen) return;
   showPauseScreen();
 });
 
@@ -3246,6 +3582,13 @@ if (import.meta.env.DEV) {
     activateLevel,
     exitLevel,
     resetGame,
+    // So a harness can run the clock out without waiting the whole limit.
+    runTimer,
+    // So a harness can light a room the way a player carrying the torch sees it.
+    setFlashlight,
+    // So a harness can see the backrooms catch and its jump scare without
+    // having to be run down in the maze.
+    onHunterCaught,
     hands,
     THREE,
     sceneManager,
@@ -3368,6 +3711,7 @@ if (import.meta.env.DEV) {
 /** Flavour, keyed by level, so the longest steps say what they are waiting on. */
 const LOAD_HINTS = {
   bedroom: 'entering the house...',
+  upstairsHallway: 'hanging the pictures...',
   hallwayBasement: 'feeling along the wall...',
   study: 'finding the study...',
   backrooms: 'the walls do not end...'
@@ -3382,7 +3726,7 @@ const nextFrame = () => new Promise((resolve) => {
 
 function setLoadProgress(fraction, hint) {
   loadingBarFill.style.width = `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`;
-  if (hint && loadingHintEl) loadingHintEl.textContent = hint;
+  if (hint) loadingHintEl.textContent = hint;
 }
 
 /**
@@ -3647,7 +3991,12 @@ warmUp()
     // The world is ready either way: a warm-up that failed costs stutter, not
     // a game nobody can start.
     backroomsHunter.setReady(true);
-    setTimeout(() => loadingScreen.classList.add('hidden'), 250);
+    setTimeout(() => loadingScreen.classList.add('is-done'), 250);
+    // Print every page's photograph now, while the player is on the menu, so
+    // each one is already on its plate when its page lands.
+    for (const id of ['prologue', 'afterBedroom', 'afterBasement', 'ending_released', 'ending_contained']) {
+      newspaperView.preload(id);
+    }
   });
 
 // ---------- render loop ----------
@@ -3682,9 +4031,14 @@ function tick() {
   if (sceneManager.activeKey === 'bedroom') {
     bedroomStorm.update(dt);
     rain.update(dt);
-    // Only while actually playing: a paused game is not a stuck player.
-    if (player.isLocked) bedroomHints.update(dt);
   }
+  // Only while actually playing: a paused game is not a stuck player, nor is
+  // one reading the front page laid over the room.
+  const isPlaying = player.isLocked && !newspaperView.isOpen;
+  if (isPlaying) HINTS_BY_LEVEL[sceneManager.activeKey]?.update(dt);
+  // The difficulty's clock. Stopped by the same things, and by every moment
+  // the player has no control: a fade between rooms, a cutscene, an ending.
+  if (isPlaying && !transitionInFlight && !cutscene.isRunning && !endingInFlight) runTimer.update(dt);
   captions.update(dt);
   // Only while it is actually on screen. The AI is not driving it in Level 2 --
   // it is placed by a script -- but it still has to breathe, or a figure
@@ -3702,7 +4056,8 @@ function tick() {
   creatureAI.update(dt);
   if (sceneManager.activeKey === 'backrooms') {
     // Never both: one rig, and the hunter owns it outright while it is running.
-    if (backroomsHunter.state === 'stopped') updateBackroomsShadow(dt);
+    // The scare borrows the same figure: leave it alone while that runs.
+    if (backroomsHunter.state === 'stopped') { if (!jumpScareRunning) updateBackroomsShadow(dt); }
     else backroomsHunter.update(dt);
   }
   dustMotes.update(dt, elapsed);

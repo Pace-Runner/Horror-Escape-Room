@@ -86,6 +86,12 @@ export class CaptionSequencer {
     /** True while a play() sequence owns the box, so say() stands aside. */
     this._sequence = false;
     this._resolve = null;
+    /**
+     * A help line (a hint) drawn in the box while captions are off and a story
+     * sequence is running unseen underneath it. Its own little clock, so the
+     * hidden sequence keeps its timing: { line, phase, t } or null.
+     */
+    this._aside = null;
     /** Fires when a line becomes visible; the voice bus hangs off this. */
     this.onLineStart = null;
   }
@@ -110,10 +116,10 @@ export class CaptionSequencer {
    * the box: incidental text still never cuts into a story beat.
    */
   say(text, duration) {
-    if (this._sequence) return false;
     if (Array.isArray(text)) {
       if (!text.length) return false;
       if (text.length > 1) {
+        if (this._sequence) return false;
         this.play(text);
         return true;
       }
@@ -121,8 +127,39 @@ export class CaptionSequencer {
     }
     const line = typeof text === 'string' ? { text } : { ...text };
     if (duration != null) line.duration = duration;
+    if (this._sequence) {
+      // With captions off the running story line is invisible, so a hint the
+      // player asked for has nothing to wait for. It is drawn on top while the
+      // hidden sequence carries on timing underneath.
+      if (this.enabled || !line.always) return false;
+      this._showAside(toLine(line));
+      return true;
+    }
     this._start(toLine(line), false);
     return true;
+  }
+
+  _showAside(line) {
+    this._aside = { line, phase: 'in', t: 0 };
+    this.el.textContent = line.text;
+    this.el.style.transitionDuration = `${FADE}s`;
+    this.el.classList.add('visible');
+  }
+
+  /** Advances the aside line on the same frame clock as everything else. */
+  _updateAside(dt) {
+    const aside = this._aside;
+    aside.t += dt;
+    if (aside.phase === 'in' && aside.t >= FADE) {
+      aside.phase = 'hold';
+      aside.t = 0;
+    } else if (aside.phase === 'hold' && aside.t >= aside.line.duration) {
+      aside.phase = 'out';
+      aside.t = 0;
+      this.el.classList.remove('visible');
+    } else if (aside.phase === 'out' && aside.t >= FADE) {
+      this._aside = null;
+    }
   }
 
   /**
@@ -153,6 +190,12 @@ export class CaptionSequencer {
     if (this._phase === 'idle') return;
     this._phase = 'out';
     this._t = 0;
+    this._hideLine();
+  }
+
+  /** Fades the current line out, unless a hint drawn over it owns the box. */
+  _hideLine() {
+    if (this._aside) return;
     this.el.style.transitionDuration = `${this._queue.length ? SWAP_FADE : FADE}s`;
     this.el.classList.remove('visible');
   }
@@ -169,6 +212,7 @@ export class CaptionSequencer {
     this._sequence = false;
     this._line = null;
     this._t = 0;
+    this._aside = null;
     this.el.style.transitionDuration = '';
     this.el.classList.remove('visible');
   }
@@ -189,12 +233,26 @@ export class CaptionSequencer {
    */
   setEnabled(enabled) {
     this.enabled = enabled;
-    if (!enabled) this.el.classList.remove('visible');
-    else if (this._phase === 'hold' || this._phase === 'in') this.el.classList.add('visible');
+    if (this._aside) return;   // a hint on screen keeps showing either way
+    const onScreen = this._phase === 'hold' || this._phase === 'in';
+    const show = onScreen && this._shows(this._line);
+    // A line that started hidden never wrote its text, so write it now.
+    if (show) this.el.textContent = this._line.text;
+    this.el.classList.toggle('visible', show);
+  }
+
+  /**
+   * Whether a line is drawn. A line marked `always` (a hint the player asked
+   * for with H) is help, not dialogue, and shows even with captions off.
+   */
+  _shows(line) {
+    return this.enabled || Boolean(line?.always);
   }
 
   update(dt) {
-    if (this.paused || this._phase === 'idle') return;
+    if (this.paused) return;
+    if (this._aside) this._updateAside(dt);
+    if (this._phase === 'idle') return;
     this._t += dt;
 
     if (this._phase === 'in') {
@@ -207,8 +265,7 @@ export class CaptionSequencer {
       if (this._t >= this._line.duration) {
         this._phase = 'out';
         this._t = 0;
-        this.el.style.transitionDuration = `${this._queue.length ? SWAP_FADE : FADE}s`;
-        this.el.classList.remove('visible');
+        this._hideLine();
       }
       return;
     }
@@ -222,7 +279,7 @@ export class CaptionSequencer {
       this._phase = 'idle';
       this._sequence = false;
       this._line = null;
-      this.el.style.transitionDuration = '';
+      if (!this._aside) this.el.style.transitionDuration = '';
       if (wasSequence) this._settle(true);
     }
   }
@@ -232,11 +289,16 @@ export class CaptionSequencer {
     this._sequence = isSequence;
     this._phase = 'in';
     this._t = 0;
-    this.el.textContent = line.text;
-    // Set before the class flips, so the browser uses this duration for the
-    // transition it is about to start rather than the previous one.
-    this.el.style.transitionDuration = `${isSequence ? SWAP_FADE : FADE}s`;
-    if (this.enabled) this.el.classList.add('visible');
+    // A line that will not be seen leaves the box alone, so a hint drawn
+    // there (captions off) is not overwritten by the story running unseen.
+    if (this._shows(line)) {
+      this._aside = null;
+      this.el.textContent = line.text;
+      // Set before the class flips, so the browser uses this duration for the
+      // transition it is about to start rather than the previous one.
+      this.el.style.transitionDuration = `${isSequence ? SWAP_FADE : FADE}s`;
+      this.el.classList.add('visible');
+    }
     this.onLineStart?.(line);
   }
 

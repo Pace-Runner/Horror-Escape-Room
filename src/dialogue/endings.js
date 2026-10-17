@@ -16,6 +16,11 @@
 // Full guide: src/dialogue/README.md
 // =============================================================================
 
+// ---- running out of time (Medium and Hard) ---------------------------------
+// Shown even with captions off, because it explains why the game just stopped.
+
+export const dialog_out_of_time = ["Out of time. The lights go out, and the house keeps you.", "endings/out_of_time.m4a", 3.5];
+
 // ---- the two news reports read over the closing pan -----------------------
 
 export const dialog_ending_released = [

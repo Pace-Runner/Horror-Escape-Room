@@ -4030,7 +4030,20 @@ export function createHallwayBasementLevel({
       /** True while the lab's lights and CCTV are live. The level owns the state. */
       get powerRestored() { return hasMainsPower(); },
       /** The full electrical stage, for anything that needs more than on/off. */
-      get powerStage() { return powerStage; }
+      get powerStage() { return powerStage; },
+      /**
+       * A fresh snapshot of how far the player is, for the H-key hints (see
+       * basementHints.js). Read-only copies: nothing outside may change these.
+       */
+      get hintProgress() {
+        return {
+          powerStage,
+          slotFuse: puzzleState.slotFuse,
+          monitorSwitchedOn,
+          securityCleared,
+          securityCode: SECURITY_CODE
+        };
+      }
     },
 
     /**
