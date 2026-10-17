@@ -32,6 +32,7 @@ import instrumentTrolleyModelUrl from '../assets/models/instrument_trolley.glb?u
 import labChairModelUrl from '../assets/models/lab_chair.glb?url';
 import storageShelfModelUrl from '../assets/models/storage_shelf.glb?url';
 import containmentChamberModelUrl from '../assets/models/containment_chamber.glb?url';
+import biosafetyCabinetModelUrl from '../assets/models/biosafety_cabinet.glb?url';
 // TEXTURE PREVIEW (branch lvl2-texture-preview): photo textures the user found,
 // to judge the look. Tiles141, Concrete030 and Metal055B are ambientCG (CC0);
 // the rest are Texturelabs.
@@ -241,6 +242,31 @@ const CONTAINMENT_CHAMBER = { plinthCorner: 0.78, plinthFlat: 0.72, outletTop: 2
  * and with the back of its cap clear of the pipe run it is fed from.
  */
 const CHAMBER_POSITION = { x: -LAB_W / 2 + 1.0, z: LAB_D / 2 - 0.95 };
+
+/**
+ * The cell culture workstation (biosafety_cabinet.glb), in the model's own
+ * space: standing on the middle of its footprint, width along x, its open
+ * front toward +Z and its back on z = -depth/2. It is as tall as the shelving
+ * either side of it, with its controls at eye level. `armRest` is how far the
+ * arm rest stands out in front of the body; `lamp` is the middle of the light
+ * panel under the front of the interior ceiling; `buttons` are the centres of
+ * the three buttons on the blue band, with the indicator material each one
+ * lights. Mirrors HALF_W, DEPTH, WORK_Z, LAMP, BUTTONS, BUTTON_Z and
+ * BAND_FRONT_Y in build_biosafety_cabinet.py.
+ */
+const BIOSAFETY_CABINET = {
+  halfWidth: 0.70, depth: 0.80, armRest: 0.026, workTop: 0.86,
+  lamp: [0, 1.409, 0.23],
+  buttons: {
+    light: { centre: [0.30, 1.595, 0.422], indicator: 'HoodLedLight' },
+    airflow: { centre: [0.375, 1.595, 0.422], indicator: 'HoodLedAirflow' },
+    heat: { centre: [0.45, 1.595, 0.422], indicator: 'HoodLedHeat' }
+  },
+  /** A button's click target: wider than the button, which is 25 mm across, and taking in its indicator. */
+  buttonHit: [0.065, 0.08]
+};
+/** Its place along the east wall: where the middle shelving unit stood. */
+const BIOSAFETY_CABINET_Z = 0;
 
 /** The breaker panel's place along the west wall. The load chart hangs beside it. */
 const BREAKER_PANEL_Z = 1.7 * LAB_SCALE;
@@ -3079,11 +3105,11 @@ export function createHallwayBasementLevel({
   }
 
   /**
-   * Storage shelving along the east wall: three units of storage_shelf.glb
+   * Storage shelving along the east wall: two units of storage_shelf.glb
    * (blender/build_storage_shelf.py), boltless steel rivet shelving with
-   * slotted uprights. The two end units stand with a short side to the wall
-   * and run out into the room; the middle one stands with its long side to
-   * the wall. They replace two plain dark boxes.
+   * slotted uprights, standing with a short side to the wall and running out
+   * into the room either side of the culture cabinet. A third unit, long side
+   * to the wall, stood where the cabinet is now.
    *
    * One model, loaded once and cloned: the clones share its geometry, so the
    * slotted uprights -- which are real holes, and a lot of small parts --
@@ -3093,7 +3119,6 @@ export function createHallwayBasementLevel({
   const shelfPlacements = [
     // [z along the wall, true if the long side is against it]
     [-2 * LAB_SCALE, false],
-    [0, true],
     [2 * LAB_SCALE, false]
   ];
   const shelfUnits = shelfPlacements.map(([z, longSideToWall]) => {
@@ -3125,6 +3150,250 @@ export function createHallwayBasementLevel({
     });
     shelfUnits.forEach((unit, i) => unit.add(shadowed(i === 0 ? model : model.clone())));
   }).catch((err) => console.error('[lab] storage_shelf.glb failed to load', err));
+
+  /**
+   * The cell culture workstation, where the middle shelving unit stood:
+   * biosafety_cabinet.glb (blender/build_biosafety_cabinet.py), a Class II
+   * biological safety cabinet with someone's culture work still out on its
+   * tray -- dishes, flasks, bottles of medium, pipettes and droppers, a bottle
+   * knocked over and dried where it spilled. Its back is on the east wall and
+   * it faces into the room: the model faces its own +Z, and a quarter turn
+   * the other way takes that to -X.
+   *
+   * It is as tall as the shelving either side of it, and its three buttons --
+   * light, air flow, incubation heat -- are on the blue band at eye level.
+   * Like the surgical lamp, nothing on it runs unless the lab's lighting
+   * circuit is live, and it remembers what was on: a blackout stops it, and it
+   * starts again with the power.
+   */
+  const CABINET_WALL_GAP = 0.03;
+  const cabinet = new THREE.Group();
+  cabinet.name = 'BiosafetyCabinet';
+  cabinet.position.set(LAB_W / 2 - CABINET_WALL_GAP - BIOSAFETY_CABINET.depth / 2, 0, BIOSAFETY_CABINET_Z);
+  cabinet.rotation.y = -Math.PI / 2;
+  lab.add(cabinet);
+  colliders.push({
+    minX: LAB_W / 2 - CABINET_WALL_GAP - BIOSAFETY_CABINET.depth - BIOSAFETY_CABINET.armRest, maxX: LAB_W / 2,
+    minZ: LAB_Z + BIOSAFETY_CABINET_Z - BIOSAFETY_CABINET.halfWidth,
+    maxZ: LAB_Z + BIOSAFETY_CABINET_Z + BIOSAFETY_CABINET.halfWidth
+  });
+
+  /**
+   * The see-through parts. The dishes, flasks, plate and pipettes are clear
+   * polystyrene and the bottles and beaker glass, both thickening toward
+   * their edges so a dish reads by its rim; the sash in front of them all is
+   * drawn after them, so it is seen over them rather than under. Shared
+   * across every mesh that uses them.
+   */
+  const cabinetSeeThrough = {
+    LabPlastic: createTintedGlassMaterial({ color: 0xf2f6f8, opacity: 0.1, grazingOpacity: 0.6, roughness: 0.12 }),
+    LabGlass: createTintedGlassMaterial({ color: 0xe4efec, opacity: 0.1, grazingOpacity: 0.65 }),
+    LabReagent: new THREE.MeshStandardMaterial({
+      color: 0xd8e8ee, roughness: 0.05, transparent: true, opacity: 0.3, depthWrite: false
+    }),
+    LabAmber: new THREE.MeshStandardMaterial({
+      color: 0x8a4a12, roughness: 0.1, transparent: true, opacity: 0.75, depthWrite: false
+    }),
+    HoodGlass: createTintedGlassMaterial({ color: 0xdfe9e6, opacity: 0.08, grazingOpacity: 0.55 })
+  };
+  /** Smears on the sash: the lab's green damp grime, faint, on the glass itself. */
+  const sashGrimeMat = new THREE.MeshStandardMaterial({
+    map: loadPhoto(greenGrimeUrl, { repeat: [0.3, 0.3], wrap: THREE.MirroredRepeatWrapping }),
+    transparent: true,
+    opacity: 0.4,
+    depthWrite: false,
+    roughness: 0.9
+  });
+  /**
+   * The stainless inside: the bare-steel photos, but only half metallic, as
+   * the shelving and the lab doors are -- at full, a big flat steel tray has
+   * nothing in this room to reflect and renders near black.
+   */
+  const cabinetSteelMat = bareSteelMaterial();
+  cabinetSteelMat.metalnessMap = null;
+  cabinetSteelMat.metalness = 0.5;
+
+  const HOOD_LIGHT_COLOR = 0xffe2b8;      // warm white, against the lab's cold green
+  // Tune here. The light hangs only half a metre over the tray, so a little goes a long way.
+  const HOOD_LIGHT_INTENSITY = 4.5;
+  const HOOD_LAMP_EMISSIVE_INTENSITY = 2.2;
+  /** How long the tube stutters when it comes on, before it holds. */
+  const HOOD_STRIKE_SECONDS = 0.6;
+  const HOOD_INDICATOR_GREEN = 0x2bff52;
+  /** The light panel and the display, once the model has given them. */
+  const hoodLit = { lamp: null, display: null };
+
+  /**
+   * The three buttons on the blue band, left to right: the light, the air
+   * flow, and the incubation heat. Each switches its own function, and the
+   * indicator over it shows green while that function is running -- switched
+   * on, with the lab's power live. Like the light, the air flow and the heat
+   * remember being on through a blackout and come back with the power.
+   *
+   * `name` finishes the button's prompt; `firstOnCaption` is said the first
+   * time the function actually starts. `indicator` is filled in when the model
+   * has loaded and `hit` when the click target is made, below.
+   */
+  const hoodButtons = {
+    light: { name: 'the cabinet light', firstOnCaption: 'dialog_hood_light_lit' },
+    airflow: { name: 'the air flow', firstOnCaption: 'dialog_hood_airflow_on' },
+    heat: { name: 'the incubation heat', firstOnCaption: 'dialog_hood_heat_on' }
+  };
+  for (const button of Object.values(hoodButtons)) {
+    Object.assign(button, { switchedOn: false, hasRun: false, indicator: null, hit: null });
+  }
+
+  loadModel(biosafetyCabinetModelUrl).then((model) => {
+    // Old white enamel and grey, and the reference's blue gone dull, all with
+    // the rust coming through.
+    applyWhiteRust(model, ['HoodPaint'], 0xe6e6e0);
+    applyWhiteRust(model, ['HoodPaintGrey'], 0xb5bab9);
+    applyWhiteRust(model, ['HoodBlue'], 0x3d6898);
+    applyWhiteRust(model, ['HoodDarkBlue'], 0x1e3150);
+    const glowing = { HoodLamp: ['lamp', HOOD_LIGHT_COLOR], HoodLcd: ['display', 0x5fd0b0] };
+    model.traverse((child) => {
+      if (!child.isMesh) return;
+      const name = child.material.name;
+      if (name === 'HoodSteel') child.material = cabinetSteelMat;
+      if (glowing[name]) {
+        const [key, colour] = glowing[name];
+        child.material.emissive.setHex(colour);
+        child.material.emissiveIntensity = 0;
+        hoodLit[key] = child.material;
+      }
+      const buttonKey = Object.keys(hoodButtons).find((key) => BIOSAFETY_CABINET.buttons[key].indicator === name);
+      if (buttonKey) {
+        child.material.emissive.setHex(HOOD_INDICATOR_GREEN);
+        child.material.emissiveIntensity = 0;
+        hoodButtons[buttonKey].indicator = child.material;
+      }
+      const seeThrough = cabinetSeeThrough[name];
+      if (seeThrough) {
+        child.material = seeThrough;
+        child.renderOrder = name === 'HoodGlass' ? 2 : 1;
+        if (name === 'HoodGlass') {
+          const grime = new THREE.Mesh(child.geometry, sashGrimeMat);
+          grime.renderOrder = 3;
+          child.add(grime);
+        }
+      }
+      // Anything see-through would throw a solid shadow.
+      child.castShadow = !seeThrough;
+      child.receiveShadow = !seeThrough;
+    });
+    cabinet.add(model);
+  }).catch((err) => console.error('[lab] biosafety_cabinet.glb failed to load', err));
+
+  /**
+   * Its light: a spotlight just under the light panel, down onto the tray and
+   * out through the opening onto the floor in front. It throws shadows, so
+   * the bottles and dish stacks stand on the steel rather than float over it.
+   */
+  const hoodLight = new THREE.SpotLight(HOOD_LIGHT_COLOR, 0, 3, 0.95, 0.6, 1.5);
+  hoodLight.position.set(BIOSAFETY_CABINET.lamp[0], BIOSAFETY_CABINET.lamp[1] - 0.012, BIOSAFETY_CABINET.lamp[2]);
+  hoodLight.target.position.set(0, BIOSAFETY_CABINET.workTop, -0.02);
+  hoodLight.castShadow = true;
+  hoodLight.shadow.mapSize.set(512, 512);
+  hoodLight.shadow.bias = -0.0005;
+  hoodLight.shadow.normalBias = 0.02;
+  hoodLight.shadow.camera.near = 0.05;
+  hoodLight.shadow.camera.far = 3;
+  cabinet.add(hoodLight, hoodLight.target);
+
+  /**
+   * Soft dark on the floor round the foot of the cabinet. The room's tube
+   * lights throw no shadows, so without it the cabinet stands on the tiles
+   * without touching them. Black, fading out from the footprint, unlit.
+   */
+  {
+    const SIZE = 64;
+    const pixels = new Uint8Array(SIZE * SIZE * 4);
+    for (let j = 0; j < SIZE; j++) {
+      for (let i = 0; i < SIZE; i++) {
+        // How far outside the footprint, 0 inside it to 1 at the edge of the texture.
+        const u = Math.max(0, Math.abs((i + 0.5) / SIZE * 2 - 1) - 0.72) / 0.28;
+        const v = Math.max(0, Math.abs((j + 0.5) / SIZE * 2 - 1) - 0.62) / 0.38;
+        const fade = Math.min(1, Math.hypot(u, v));
+        pixels[(j * SIZE + i) * 4 + 3] = Math.round(255 * (1 - fade) * (1 - fade));
+      }
+    }
+    const shadowTexture = new THREE.DataTexture(pixels, SIZE, SIZE);
+    shadowTexture.needsUpdate = true;
+    const footShadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(BIOSAFETY_CABINET.halfWidth * 2 + 0.45, BIOSAFETY_CABINET.depth + 0.45),
+      new THREE.MeshBasicMaterial({
+        color: 0x000000, map: shadowTexture, transparent: true, opacity: 0.6, depthWrite: false,
+        polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1
+      })
+    );
+    footShadow.rotation.x = -Math.PI / 2;
+    footShadow.position.y = 0.002;
+    cabinet.add(footShadow);
+  }
+
+  /** What a button's prompt says, from whether it is switched on. */
+  function hoodButtonLabel(button) {
+    return `${button.switchedOn ? 'Switch off' : 'Switch on'} ${button.name}`;
+  }
+
+  /**
+   * Presses one of the cabinet's buttons. It latches whether or not there is
+   * power -- the indicator only lights, and the function only runs, once
+   * there is -- so the captions say which it is.
+   */
+  function pressHoodButton(button) {
+    button.switchedOn = !button.switchedOn;
+    button.hit.userData.interact.label = hoodButtonLabel(button);
+    if (!button.switchedOn) return;
+    if (!isLabLightingOn()) {
+      showCaption(line(
+        powerStage === POWER_STAGE.DEAD
+          ? 'dialog_hood_button_no_power'
+          : 'dialog_hood_button_dead'
+      ));
+      return;
+    }
+    if (!button.hasRun) {
+      button.hasRun = true;
+      showCaption(line(button.firstOnCaption));
+    }
+  }
+
+  // A click target over each button and its indicator: the buttons themselves
+  // are 25 mm across, and Interaction raycasts non-recursively anyway.
+  const hoodButtonHitGeometry = new THREE.BoxGeometry(...BIOSAFETY_CABINET.buttonHit, 0.02);
+  for (const [key, button] of Object.entries(hoodButtons)) {
+    button.hit = new THREE.Mesh(hoodButtonHitGeometry, hiddenHitMat);
+    button.hit.position.set(...BIOSAFETY_CABINET.buttons[key].centre);
+    button.hit.userData.interact = { label: hoodButtonLabel(button), onInteract: () => pressHoodButton(button) };
+    cabinet.add(button.hit);
+    interactables.push(button.hit);
+  }
+
+  let hoodLightWasLit = false;
+  let hoodStrikeSecondsLeft = 0;
+
+  dynamics.push({
+    update: (dt) => {
+      const mains = isLabLightingOn();
+      const lit = hoodButtons.light.switchedOn && mains;
+      if (lit && !hoodLightWasLit) hoodStrikeSecondsLeft = HOOD_STRIKE_SECONDS;
+      hoodLightWasLit = lit;
+      let level = lit ? 1 : 0;
+      if (lit && hoodStrikeSecondsLeft > 0) {
+        // Striking: a fluorescent tube catching and dropping out before it holds.
+        hoodStrikeSecondsLeft -= dt;
+        level = Math.random() < 0.45 ? 0.12 : 1;
+      }
+      hoodLight.intensity = HOOD_LIGHT_INTENSITY * level;
+      if (hoodLit.lamp) hoodLit.lamp.emissiveIntensity = HOOD_LAMP_EMISSIVE_INTENSITY * level;
+      // The display shows the cabinet has mains, whatever its buttons are doing.
+      if (hoodLit.display) hoodLit.display.emissiveIntensity = mains ? 0.8 : 0;
+      for (const button of Object.values(hoodButtons)) {
+        if (button.indicator) button.indicator.emissiveIntensity = button.switchedOn && mains ? 2.5 : 0;
+      }
+    }
+  });
 
   // retro computer desk with the CCTV monitor (custom shader material)
   /**
@@ -4501,6 +4770,12 @@ export function createHallwayBasementLevel({
       lampSwitchedOn = false;
       lampHasBeenLit = false;
       lampHit.userData.interact.label = 'Switch on the operating lamp';
+
+      for (const button of Object.values(hoodButtons)) {
+        button.switchedOn = false;
+        button.hasRun = false;
+        button.hit.userData.interact.label = hoodButtonLabel(button);
+      }
 
       instrumentTrolley.reset();
       trolleyHit.userData.interact.label = 'Examine the instruments';

@@ -250,6 +250,17 @@ export const dialog_surgical_lamp_dead = ["The switch clicks over. Nothing. The 
 
 export const dialog_surgical_lamp_lit = ["The lamp stutters, then floods the table white. Every strap on it throws a shadow.", "level2/surgical_lamp_lit.m4a"];
 
+// The culture cabinet's three buttons: light, air flow, incubation heat.
+export const dialog_hood_button_no_power = ["The button on the cabinet clicks in. Nothing. There is no power down here.", "level2/hood_button_no_power.m4a"];
+
+export const dialog_hood_button_dead = ["The button clicks in. The cabinet stays as dead as the rest of the lab.", "level2/hood_button_dead.m4a"];
+
+export const dialog_hood_light_lit = ["The cabinet light stutters on over work nobody came back to. Some of the dishes have gone yellow. One has grown something dark.", "level2/hood_light_lit.m4a"];
+
+export const dialog_hood_airflow_on = ["A fan spins up somewhere in the cabinet. Air starts drawing in across the tray.", "level2/hood_airflow_on.m4a"];
+
+export const dialog_hood_heat_on = ["Under the tray, something starts to tick as it warms.", "level2/hood_heat_on.m4a"];
+
 export const dialog_instrument_trolley = ["Scalpels, forceps, a bone saw, laid out ready. The gauze has been used.", "level2/instrument_trolley.m4a"];
 
 export const dialog_instrument_trolley_fallen = ["Knocked flat. Everything that was laid out on it is across the floor now.", "level2/instrument_trolley_fallen.m4a"];
