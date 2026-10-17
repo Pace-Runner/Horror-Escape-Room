@@ -33,6 +33,7 @@ import { BASEMENT_HINT_STAGES } from './levels/basementHints.js';
 import { enableSinglePassForFlatDecals, createDarkShadowSkipper, findShadowCastingLights } from './world/renderOptimizations.js';
 import { createCutsceneRunner } from './core/Cutscene.js';
 import { createNewspaper } from './core/Newspaper.js';
+import { createJumpScare } from './core/JumpScare.js';
 import { DIFFICULTIES, DEFAULT_DIFFICULTY, createRunTimer } from './core/Difficulty.js';
 import { FreeCamera } from './core/FreeCamera.js';
 import { createScriptRunner } from './core/Script.js';
@@ -2545,6 +2546,7 @@ function onHunterCaught() {
   if (caughtInFlight || transitionInFlight) return;
   caughtInFlight = true;
   script.run(async (s) => {
+    const wasThirdPerson = thirdPerson;
     try {
       s.do(() => {
         player.movementEnabled = false;
@@ -2553,14 +2555,30 @@ function onHunterCaught() {
         // Stop it dead first: without this it keeps closing during the fade and
         // is standing on top of the spawn point when the screen comes back.
         backroomsHunter.stop();
+        // The scare is seen through the player's own eyes, with nothing of
+        // theirs in the way.
+        if (thirdPerson) setThirdPerson(false);
+        hands.setVisible(false);
+        player.cinematic = true;
+        jumpScareRunning = true;
       });
-      if (!await s.play(line('dialog_backrooms_caught'))) return;
-      await fade.fadeOut(450);
+      // Its face, all at once. Ends on black -- see core/JumpScare.js.
+      await jumpScare.run({ creature: okabe, isAlive: s.alive });
+      jumpScareRunning = false;
       if (!s.alive()) return;
+      // A beat of black and silence after the scream, before waking.
+      if (!await s.wait(0.9)) return;
       s.do(() => {
+        player.cinematic = false;
+        hands.setVisible(true);
+        if (wasThirdPerson) setThirdPerson(true);
         const [sx, sz] = backrooms.spawn;
         player.spawn(sx, sz, backrooms.spawnYaw ?? 0);
+        // Over the dark rather than waited out: after a scare the pace is
+        // the point, and the respawn line takes over once the eyes open.
+        captions.play(line('dialog_backrooms_caught'));
       });
+      if (!await s.wait(1.2)) return;
       await fade.fadeIn(650);
       if (!s.alive()) return;
       s.do(() => {
@@ -2574,9 +2592,20 @@ function onHunterCaught() {
       await s.play(line('dialog_backrooms_respawn'));
     } finally {
       caughtInFlight = false;
+      // However it ended -- a restart mid-scream included -- the camera and
+      // the hands go back to the player.
+      if (jumpScareRunning || player.cinematic) {
+        jumpScareRunning = false;
+        player.cinematic = false;
+        hands.setVisible(true);
+      }
     }
   });
 }
+
+/** True while the catch's jump scare owns the backrooms figure and the camera. */
+let jumpScareRunning = false;
+const jumpScare = createJumpScare({ camera, fade, postFX, audio });
 
 function activateLevel(key, { lockMovement = false } = {}) {
   // A prior restrained bedroom view must never clamp the spawn orientation of
@@ -3434,6 +3463,9 @@ if (import.meta.env.DEV) {
     runTimer,
     // So a harness can light a room the way a player carrying the torch sees it.
     setFlashlight,
+    // So a harness can see the backrooms catch and its jump scare without
+    // having to be run down in the maze.
+    onHunterCaught,
     hands,
     THREE,
     sceneManager,
@@ -3888,7 +3920,8 @@ function tick() {
   creatureAI.update(dt);
   if (sceneManager.activeKey === 'backrooms') {
     // Never both: one rig, and the hunter owns it outright while it is running.
-    if (backroomsHunter.state === 'stopped') updateBackroomsShadow(dt);
+    // The scare borrows the same figure: leave it alone while that runs.
+    if (backroomsHunter.state === 'stopped') { if (!jumpScareRunning) updateBackroomsShadow(dt); }
     else backroomsHunter.update(dt);
   }
   dustMotes.update(dt, elapsed);

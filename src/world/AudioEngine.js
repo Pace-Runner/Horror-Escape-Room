@@ -1025,6 +1025,130 @@ export class AudioEngine {
   }
 
   /**
+   * The backrooms jump scare's scream (core/JumpScare.js). Four layers, built
+   * here like every other effect rather than loaded:
+   *
+   *   - the shriek: three detuned saws, distorted, sliding from a shout down
+   *     to a groan -- detuning is what makes it a throat and not a synth
+   *   - the screech: a square wave with a fast, wide wobble on top, the
+   *     part that sets teeth on edge
+   *   - the tear: band-passed noise sweeping down, breath through a ruined
+   *     mouth
+   *   - the hit: a sub thump on the first frame, felt more than heard
+   *
+   * All of it goes through one compressor, so it is as loud as it can be
+   * without clipping into crackle. Returns { stop } so the scare can cut it
+   * dead on the black -- the sudden silence is part of the scare.
+   */
+  jumpScare() {
+    if (!this.ctx) return { stop() {} };
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const length = 1.5;
+    const out = ctx.createDynamicsCompressor();
+    out.threshold.value = -14;
+    out.knee.value = 6;
+    out.ratio.value = 8;
+    out.attack.value = 0.002;
+    out.release.value = 0.12;
+    const level = ctx.createGain();
+    level.gain.value = 1.15;
+    out.connect(level).connect(this.master);
+
+    const curve = new Float32Array(1024);
+    for (let i = 0; i < curve.length; i++) {
+      const x = (i / (curve.length - 1)) * 2 - 1;
+      curve[i] = Math.tanh(x * 6);
+    }
+    const sources = [];
+
+    // The shriek.
+    const shriekShape = ctx.createWaveShaper();
+    shriekShape.curve = curve;
+    const shriekFilter = ctx.createBiquadFilter();
+    shriekFilter.type = 'bandpass';
+    shriekFilter.frequency.setValueAtTime(1800, now);
+    shriekFilter.frequency.exponentialRampToValueAtTime(700, now + length);
+    shriekFilter.Q.value = 0.8;
+    const shriekGain = ctx.createGain();
+    shriekGain.gain.setValueAtTime(0.0001, now);
+    shriekGain.gain.exponentialRampToValueAtTime(0.42, now + 0.03);
+    shriekGain.gain.setValueAtTime(0.42, now + 0.7);
+    shriekGain.gain.exponentialRampToValueAtTime(0.0001, now + length);
+    shriekShape.connect(shriekFilter).connect(shriekGain).connect(out);
+    for (const detune of [0, 23, -31]) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(430, now);
+      osc.frequency.exponentialRampToValueAtTime(150, now + length);
+      osc.detune.value = detune;
+      osc.connect(shriekShape);
+      sources.push(osc);
+    }
+
+    // The screech, with a wobble too fast to be a voice.
+    const screech = ctx.createOscillator();
+    screech.type = 'square';
+    screech.frequency.setValueAtTime(1500, now);
+    screech.frequency.exponentialRampToValueAtTime(900, now + 0.9);
+    const wobble = ctx.createOscillator();
+    wobble.frequency.value = 31;
+    const wobbleDepth = ctx.createGain();
+    wobbleDepth.gain.value = 160;
+    wobble.connect(wobbleDepth).connect(screech.frequency);
+    const screechGain = ctx.createGain();
+    screechGain.gain.setValueAtTime(0.0001, now);
+    screechGain.gain.exponentialRampToValueAtTime(0.11, now + 0.04);
+    screechGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.95);
+    screech.connect(screechGain).connect(out);
+    sources.push(screech, wobble);
+
+    // The tear: noise, sweeping down.
+    const tear = ctx.createBufferSource();
+    tear.buffer = this.#noiseBuffer(length);
+    const tearFilter = ctx.createBiquadFilter();
+    tearFilter.type = 'bandpass';
+    tearFilter.frequency.setValueAtTime(3200, now);
+    tearFilter.frequency.exponentialRampToValueAtTime(600, now + length);
+    tearFilter.Q.value = 1.2;
+    const tearGain = ctx.createGain();
+    tearGain.gain.setValueAtTime(0.0001, now);
+    tearGain.gain.exponentialRampToValueAtTime(0.5, now + 0.02);
+    tearGain.gain.exponentialRampToValueAtTime(0.0001, now + length);
+    tear.connect(tearFilter).connect(tearGain).connect(out);
+    sources.push(tear);
+
+    // The hit.
+    const thump = ctx.createOscillator();
+    thump.type = 'sine';
+    thump.frequency.setValueAtTime(70, now);
+    thump.frequency.exponentialRampToValueAtTime(32, now + 0.45);
+    const thumpGain = ctx.createGain();
+    thumpGain.gain.setValueAtTime(0.0001, now);
+    thumpGain.gain.exponentialRampToValueAtTime(0.9, now + 0.01);
+    thumpGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.5);
+    thump.connect(thumpGain).connect(out);
+    sources.push(thump);
+
+    for (const source of sources) {
+      source.start(now);
+      source.stop(now + length + 0.05);
+    }
+    return {
+      /** Cut it dead, with only a few milliseconds' fade so it does not click. */
+      stop: () => {
+        const t = ctx.currentTime;
+        level.gain.cancelScheduledValues(t);
+        level.gain.setValueAtTime(level.gain.value, t);
+        level.gain.linearRampToValueAtTime(0, t + 0.012);
+        for (const source of sources) {
+          try { source.stop(t + 0.02); } catch { /* already stopped */ }
+        }
+      }
+    };
+  }
+
+  /**
    * A newspaper landing on the desk: a dry, crackling slide of paper. Three
    * short bursts of high, narrow noise one after another rather than one long
    * hiss, because paper does not rustle smoothly -- it crackles in creases.
