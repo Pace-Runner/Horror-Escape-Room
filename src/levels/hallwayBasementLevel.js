@@ -1112,6 +1112,16 @@ export function createHallwayBasementLevel({
   const PIPE_COUNT = 3;
   const lowestPipeY =
     DOOR_HEIGHT_IN_METRES + PIPE_CLEARANCE_ABOVE_DOOR_IN_METRES + PIPE_RADIUS_IN_METRES;
+  const highestPipeY = lowestPipeY + (PIPE_COUNT - 1) * PIPE_SPACING_IN_METRES;
+  /** The run's centre line, out from the back wall. */
+  const PIPE_Z = LAB_D / 2 - 0.2;
+  /**
+   * The run goes wall to wall and on into both side walls a little, so its
+   * ends are hidden behind them. It used to stop half a metre short of each
+   * wall, cut off in mid-air.
+   */
+  const PIPE_INTO_WALL_IN_METRES = 0.1;
+  const PIPE_RUN_LENGTH = LAB_W + 2 * PIPE_INTO_WALL_IN_METRES;
 
   /**
    * Bare steel, streaked and spotted with rust: Metal055B, a full set whose
@@ -1131,7 +1141,7 @@ export function createHallwayBasementLevel({
     });
   }
   // Round a 6 cm pipe is about 0.4 m; along it, the run's whole length.
-  const pipeMat = bareSteelMaterial([0.4, LAB_W - 1]);
+  const pipeMat = bareSteelMaterial([0.4, PIPE_RUN_LENGTH]);
 
   /**
    * TEXTURE PREVIEW: hospital-white paint with rust coming through, for the lab
@@ -1159,14 +1169,26 @@ export function createHallwayBasementLevel({
     });
     return model;
   }
+  // Each pipe goes through a round plate on the side wall, as pipes through a
+  // wall are finished off.
+  const pipeWallPlateGeometry = new THREE.CylinderGeometry(
+    PIPE_RADIUS_IN_METRES + 0.035, PIPE_RADIUS_IN_METRES + 0.035, 0.012, 20
+  );
   for (let i = 0; i < PIPE_COUNT; i++) {
+    const y = lowestPipeY + i * PIPE_SPACING_IN_METRES;
     const pipe = new THREE.Mesh(
-      new THREE.CylinderGeometry(PIPE_RADIUS_IN_METRES, PIPE_RADIUS_IN_METRES, LAB_W - 1, 10),
+      new THREE.CylinderGeometry(PIPE_RADIUS_IN_METRES, PIPE_RADIUS_IN_METRES, PIPE_RUN_LENGTH, 10),
       pipeMat
     );
     pipe.rotation.z = Math.PI / 2;
-    pipe.position.set(0, lowestPipeY + i * PIPE_SPACING_IN_METRES, LAB_D / 2 - 0.2);
+    pipe.position.set(0, y, PIPE_Z);
     lab.add(pipe);
+    for (const side of [-1, 1]) {
+      const plate = new THREE.Mesh(pipeWallPlateGeometry, toolSteelMat);
+      plate.rotation.z = Math.PI / 2;
+      plate.position.set(side * (LAB_W / 2 - 0.006), y, PIPE_Z);
+      lab.add(plate);
+    }
   }
 
   /**
@@ -1176,7 +1198,7 @@ export function createHallwayBasementLevel({
    * slab above it.
    */
   {
-    const highestPipeTopY = lowestPipeY + (PIPE_COUNT - 1) * PIPE_SPACING_IN_METRES + PIPE_RADIUS_IN_METRES;
+    const highestPipeTopY = highestPipeY + PIPE_RADIUS_IN_METRES;
     if (lowestPipeY - PIPE_RADIUS_IN_METRES < DOOR_HEIGHT_IN_METRES) {
       console.warn('[lab] the pipe run crosses the metal door -- the exit reads through bars');
     }
