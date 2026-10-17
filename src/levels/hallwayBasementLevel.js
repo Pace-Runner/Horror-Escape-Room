@@ -20,6 +20,7 @@ import {
   createSwitchLabelTexture
 } from '../world/textures.js';
 import { loadModel } from '../world/modelLoader.js';
+import labDoorModelUrl from '../assets/models/lab_door.glb?url';
 import fuseBoxModelUrl from '../assets/models/fuse_box.glb?url';
 import fuseModelUrl from '../assets/models/fuse.glb?url';
 import crtMonitorModelUrl from '../assets/models/crt_monitor.glb?url';
@@ -30,6 +31,8 @@ import surgicalLampModelUrl from '../assets/models/surgical_lamp.glb?url';
 import instrumentTrolleyModelUrl from '../assets/models/instrument_trolley.glb?url';
 import labChairModelUrl from '../assets/models/lab_chair.glb?url';
 import storageShelfModelUrl from '../assets/models/storage_shelf.glb?url';
+import containmentChamberModelUrl from '../assets/models/containment_chamber.glb?url';
+import biosafetyCabinetModelUrl from '../assets/models/biosafety_cabinet.glb?url';
 // TEXTURE PREVIEW (branch lvl2-texture-preview): photo textures the user found,
 // to judge the look. Tiles141, Concrete030 and Metal055B are ambientCG (CC0);
 // the rest are Texturelabs.
@@ -54,6 +57,7 @@ import rustOverlayUrl from '../assets/textures/lab/texturelabs_metal_190_rust_ov
 // transparent where that concrete was pale, mossy where it was stained.
 import greenGrimeUrl from '../assets/textures/lab/lab_green_grime_overlay.png?url';
 import { createStaticScreenMaterial } from '../world/StaticScreenMaterial.js';
+import { createTintedGlassMaterial } from '../world/TintedGlassMaterial.js';
 import { createCctvFeeds, FEED_IDS, FEED_LABELS } from '../world/CctvFeeds.js';
 import { SECURITY_CODE } from '../world/doorPanels.js';
 import { createCreatureSketchTexture } from '../world/textures.js';
@@ -76,6 +80,13 @@ const LAB_W = 8 * LAB_SCALE;
 const LAB_D = 6.5 * LAB_SCALE;
 const LAB_H = 3.2;
 const LAB_Z = HALL_LEN + LAB_D / 2 + 0.2;
+/**
+ * The steel double doors between the hallway and the lab (lab_door.glb).
+ * Mirrors blender/build_lab_door.py: the clear opening's half-width and
+ * height, the frame's outside, and how far in front of its wall the leaves'
+ * pivots stand. The frame's back sits on the hallway's end, z = HALL_LEN.
+ */
+const LAB_DOOR = { openHalf: 0.904, openH: 2.104, frameHalf: 0.994, frameTop: 2.194, pivotOffset: 0.06 };
 
 /**
  * The metal door at the far end. Up here with the room dimensions rather than
@@ -216,6 +227,46 @@ const WORKBENCH_POSITION = { x: 0.4 * LAB_SCALE, z: -0.3 * LAB_SCALE };
 
 /** One unit of the steel shelving (storage_shelf.glb): length along x. Mirrors build_storage_shelf.py. */
 const STORAGE_SHELF = { width: 1.2, depth: 0.5, height: 1.83 };
+
+/**
+ * The broken containment chamber (containment_chamber.glb), in the model's own
+ * space: standing on the middle of its octagonal plinth, the hole and the
+ * glass that came out of it toward +Z, and the outlet the feed pipe meets on
+ * top. Mirrors PLINTH_R, PLINTH_FLAT, OUTLET_TOP and OUTLET_R in
+ * build_containment_chamber.py.
+ */
+const CONTAINMENT_CHAMBER = { plinthCorner: 0.78, plinthFlat: 0.72, outletTop: 2.52, outletRadius: 0.05 };
+/**
+ * Where it stands: the back-west corner, a metre out from each wall rather
+ * than pushed into them -- clear of the load chart beside the breaker panel,
+ * and with the back of its cap clear of the pipe run it is fed from.
+ */
+const CHAMBER_POSITION = { x: -LAB_W / 2 + 1.0, z: LAB_D / 2 - 0.95 };
+
+/**
+ * The cell culture workstation (biosafety_cabinet.glb), in the model's own
+ * space: standing on the middle of its footprint, width along x, its open
+ * front toward +Z and its back on z = -depth/2. It is as tall as the shelving
+ * either side of it, with its controls at eye level. `armRest` is how far the
+ * arm rest stands out in front of the body; `lamp` is the middle of the light
+ * panel under the front of the interior ceiling; `buttons` are the centres of
+ * the three buttons on the blue band, with the indicator material each one
+ * lights. Mirrors HALF_W, DEPTH, WORK_Z, LAMP, BUTTONS, BUTTON_Z and
+ * BAND_FRONT_Y in build_biosafety_cabinet.py.
+ */
+const BIOSAFETY_CABINET = {
+  halfWidth: 0.70, depth: 0.80, armRest: 0.026, workTop: 0.86,
+  lamp: [0, 1.409, 0.23],
+  buttons: {
+    light: { centre: [0.30, 1.595, 0.422], indicator: 'HoodLedLight' },
+    airflow: { centre: [0.375, 1.595, 0.422], indicator: 'HoodLedAirflow' },
+    heat: { centre: [0.45, 1.595, 0.422], indicator: 'HoodLedHeat' }
+  },
+  /** A button's click target: wider than the button, which is 25 mm across, and taking in its indicator. */
+  buttonHit: [0.065, 0.08]
+};
+/** Its place along the east wall: where the middle shelving unit stood. */
+const BIOSAFETY_CABINET_Z = 0;
 
 /** The breaker panel's place along the west wall. The load chart hangs beside it. */
 const BREAKER_PANEL_Z = 1.7 * LAB_SCALE;
@@ -669,8 +720,10 @@ export function createHallwayBasementLevel({
    * Now: two segments with a doorway between them the width of the hallway, a
    * lintel over it, and colliders on both segments so the wall is real.
    */
-  const DOORWAY_W = HALL_W;
-  const DOORWAY_H = 2.15;
+  // Cut to the lab doors' opening, plus a little each side so a leaf swung
+  // right round into the lab clears the reveal.
+  const DOORWAY_W = (LAB_DOOR.openHalf + 0.02) * 2;
+  const DOORWAY_H = LAB_DOOR.openH;
   const jambW = (LAB_W - DOORWAY_W) / 2;
   for (const side of [-1, 1]) {
     const x = side * (DOORWAY_W / 2 + jambW / 2);
@@ -779,6 +832,246 @@ export function createHallwayBasementLevel({
   threshold.receiveShadow = true;
   group.add(threshold);
 
+  /**
+   * The lab doors: a pair of double-acting steel doors with lime laser-safety
+   * glass (lab_door.glb, blender/build_lab_door.py), set in the end of the
+   * hallway where it meets the lab. The hallway's end is walled up round
+   * their frame, and the 0.2 m between that and the lab's entrance wall is
+   * lined like the depth of a real wall.
+   *
+   * They swing both ways on sprung hinges. From the hallway they are easy: E
+   * pushes them open and they stay, E again lets them go and they flap shut.
+   * Walk on into the lab and they are let go behind you. From the lab side
+   * they fight back -- each E only shoves them a little against a heavy
+   * spring, and it takes a quick, sustained run of presses to force them far
+   * enough to give. Shut, they are solid; there is a collider across them.
+   */
+  {
+    const piece = (x0, x1, y0, y1) => {
+      const cx = (x0 + x1) / 2;
+      const geometry = new THREE.PlaneGeometry(x1 - x0, y1 - y0).translate(-cx, (y0 + y1) / 2, 0);
+      // UVs as if this were part of one whole end wall, like the far one.
+      const position = geometry.attributes.position;
+      const uv = geometry.attributes.uv;
+      for (let i = 0; i < uv.count; i++) {
+        uv.setXY(i, (position.getX(i) + HALL_W / 2) / HALL_W, position.getY(i) / HALL_H);
+      }
+      const mesh = new THREE.Mesh(geometry, hallWallMat);
+      mesh.position.set(0, 0, HALL_LEN / 2);
+      // Facing back down the hallway; turning it mirrors x, hence the -cx.
+      mesh.rotation.y = Math.PI;
+      mesh.receiveShadow = true;
+      hallway.add(mesh);
+    };
+    piece(-HALL_W / 2, -LAB_DOOR.frameHalf, 0, HALL_H);
+    piece(LAB_DOOR.frameHalf, HALL_W / 2, 0, HALL_H);
+    piece(-LAB_DOOR.frameHalf, LAB_DOOR.frameHalf, LAB_DOOR.frameTop, HALL_H);
+    for (const side of [-1, 1]) {
+      const inner = side * LAB_DOOR.openHalf;
+      const outer = side * HALL_W / 2;
+      colliders.push({ minX: Math.min(inner, outer), maxX: Math.max(inner, outer), minZ: HALL_LEN - 0.14, maxZ: HALL_LEN + 0.1 });
+    }
+
+    // The reveal, between the hallway's end and the lab's entrance wall.
+    const revealDepth = (LAB_Z - LAB_D / 2) - HALL_LEN;
+    const revealZ = -LAB_D / 2 - revealDepth / 2;
+    for (const side of [-1, 1]) {
+      const cheek = new THREE.Mesh(wallGeometry(revealDepth, DOORWAY_H), labWallMat);
+      cheek.position.set(side * DOORWAY_W / 2, DOORWAY_H / 2, revealZ);
+      cheek.rotation.y = -side * Math.PI / 2;
+      lab.add(cheek);
+    }
+    const soffit = new THREE.Mesh(wallGeometry(DOORWAY_W, revealDepth), labWallMat);
+    soffit.position.set(0, DOORWAY_H, revealZ);
+    soffit.rotation.x = Math.PI / 2;
+    lab.add(soffit);
+  }
+
+  const labDoorHost = new THREE.Group();
+  labDoorHost.name = 'LabDoors';
+  labDoorHost.position.set(0, 0, HALL_LEN);
+  // The model's front is its +Z; turned to face down the hallway.
+  labDoorHost.rotation.y = Math.PI;
+  group.add(labDoorHost);
+
+  /**
+   * One hitbox per leaf, made now so they are in `interactables` before the
+   * level is first shown, and moved onto the leaves when the model arrives --
+   * so the prompt follows a leaf as it swings, and an open doorway is not
+   * still covered by an invisible door. Until then they stand where the shut
+   * leaves will be, in the model's own frame.
+   */
+  const LAB_DOOR_LEAF_CENTRE_X = 0.45;
+  const LAB_DOOR_LEAF_CENTRE_Y = LAB_DOOR.openH / 2;
+  const labDoorHitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+  const labDoorHits = new Map([['labDoorLeafLeft', 1], ['labDoorLeafRight', -1]].map(([name, sign]) => {
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(0.88, LAB_DOOR.openH - 0.05, 0.14), labDoorHitMat);
+    hit.position.set(-sign * (LAB_DOOR.openHalf - 0.01 - LAB_DOOR_LEAF_CENTRE_X), LAB_DOOR_LEAF_CENTRE_Y, LAB_DOOR.pivotOffset);
+    hit.userData.interact = { label: 'Push the doors open', onInteract: () => useLabDoors() };
+    labDoorHost.add(hit);
+    interactables.push(hit);
+    return [name, hit];
+  }));
+
+  const labLeaves = [];
+  loadModel(labDoorModelUrl).then((model) => {
+    model.traverse((child) => {
+      if (!child.isMesh) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+      if (child.material.name === 'LabDoorGlass') {
+        // Laser-safety glass: tinted lime, but clear enough to see the room
+        // beyond -- the glow is kept faint, since an emissive pane hazes over
+        // whatever is behind it.
+        child.material = new THREE.MeshStandardMaterial({
+          color: 0xa6d12a,
+          emissive: 0x4d6a08,
+          emissiveIntensity: 0.12,
+          roughness: 0.05,
+          transparent: true,
+          opacity: 0.32,
+          depthWrite: false
+        });
+        child.castShadow = false;
+      } else if (child.material.name === 'LabDoorSteel') {
+        // Kept only half metallic, as the shelving is: nothing here for a true
+        // metal to reflect, and at full it renders near black.
+        child.material.metalness = 0.55;
+        child.material.roughness = 0.32;
+      }
+    });
+    // +1 turns the left leaf away from the model's front -- into the lab; the
+    // right leaf mirrors it.
+    for (const [name, sign] of [['labDoorLeafLeft', 1], ['labDoorLeafRight', -1]]) {
+      const node = model.getObjectByName(name);
+      if (!node) continue;
+      labLeaves.push({ node, sign, rest: node.rotation.y, angle: 0, speed: 0 });
+      const hit = labDoorHits.get(name);
+      hit.position.set(sign * LAB_DOOR_LEAF_CENTRE_X, LAB_DOOR_LEAF_CENTRE_Y, 0);
+      node.add(hit);
+    }
+    labDoorHost.add(model);
+  }).catch((err) => console.error('[lab] lab_door.glb failed to load', err));
+
+  /**
+   * The leaves are springs: an angle and a speed each, positive into the lab.
+   * Held, they are driven stiffly to openAngle; free, a soft spring pulls them
+   * shut and lets them overshoot. From the lab side the spring is a heavy,
+   * overdamped one that each shove only dents: about four presses a second,
+   * kept up for three seconds, forces them past giveAngle, and anything slower
+   * never does.
+   */
+  const LAB_DOOR_SWING = {
+    openAngle: 1.35, heldStiffness: 30, heldDamping: 8,
+    stiffness: 10, damping: 1.4,
+    heavyStiffness: 4, heavyDamping: 6, shove: 1.2, giveAngle: 0.95,
+    passableAngle: 0.9, maxAngle: 1.45
+  };
+  const labDoorPivotZ = HALL_LEN - LAB_DOOR.pivotOffset;
+  /** This far into the lab, doors opened from the hallway are let go behind the player. */
+  const LAB_DOOR_SHUT_BEHIND_Z = labDoorPivotZ + 1.3;
+  /** And this far, doors forced from the lab side are. */
+  const LAB_DOOR_FORCED_RELEASE_Z = labDoorPivotZ + 2.5;
+  /** 0 free on their springs; +1 held open into the lab; -1 held open toward the hallway. */
+  let labDoorHeld = 0;
+  /** -1 on the hallway side of the doors, +1 on the lab side; refreshed every frame. */
+  let labDoorPlayerSide = -1;
+  let labDoorHeavyHintShown = false;
+  // Across the doorway while the doors are shut; parked out of the way while
+  // they stand open far enough to walk through.
+  const LAB_DOOR_COLLIDER_SHUT = { minZ: labDoorPivotZ - 0.06, maxZ: labDoorPivotZ + 0.06 };
+  const labDoorCollider = { minX: -LAB_DOOR.openHalf, maxX: LAB_DOOR.openHalf, ...LAB_DOOR_COLLIDER_SHUT };
+  colliders.push(labDoorCollider);
+
+  function useLabDoors() {
+    if (labDoorHeld !== 0) {
+      labDoorHeld = 0;
+      return;
+    }
+    if (labDoorPlayerSide < 0) {
+      labDoorHeld = 1;
+      return;
+    }
+    if (!labDoorHeavyHintShown) {
+      labDoorHeavyHintShown = true;
+      showCaption(line('dialog_lab_doors_heavy'));
+    }
+    for (const leaf of labLeaves) leaf.speed -= LAB_DOOR_SWING.shove * (0.9 + Math.random() * 0.2);
+  }
+
+  function labDoorLabel() {
+    if (labDoorHeld !== 0) return labDoorPlayerSide < 0 ? 'Close the doors' : 'Let the doors go';
+    return labDoorPlayerSide < 0 ? 'Push the doors open' : 'Force the doors (keep pressing)';
+  }
+
+  function updateLabDoors(dt, playerPosition) {
+    const swing = LAB_DOOR_SWING;
+    let inDoorway = false;
+    if (playerPosition) {
+      labDoorPlayerSide = playerPosition.z > labDoorPivotZ ? 1 : -1;
+      // Only once they are open: leaning on them shut must not count, or
+      // walking into them would open them.
+      const isOpen = labDoorCollider.minZ !== LAB_DOOR_COLLIDER_SHUT.minZ;
+      inDoorway = isOpen && Math.abs(playerPosition.x) < LAB_DOOR.openHalf + 0.1 && Math.abs(playerPosition.z - labDoorPivotZ) < 0.55;
+      if (labDoorHeld === 1 && playerPosition.z > LAB_DOOR_SHUT_BEHIND_Z) labDoorHeld = 0;
+      if (labDoorHeld === -1 && playerPosition.z > LAB_DOOR_FORCED_RELEASE_Z) labDoorHeld = 0;
+    }
+    const label = labDoorLabel();
+    for (const hit of labDoorHits.values()) hit.userData.interact.label = label;
+
+    const meanAngle = labLeaves.reduce((sum, leaf) => sum + leaf.angle, 0) / Math.max(1, labLeaves.length);
+    // Forced far enough from the lab side, they give, and are held open.
+    if (labDoorHeld === 0 && labDoorPlayerSide > 0 && meanAngle < -swing.giveAngle) labDoorHeld = -1;
+
+    let target = labDoorHeld * swing.openAngle;
+    let stiffness = swing.stiffness;
+    let damping = swing.damping;
+    if (labDoorHeld !== 0) {
+      stiffness = swing.heldStiffness;
+      damping = swing.heldDamping;
+    } else if (inDoorway) {
+      // Never shut on the player: standing in the doorway holds them open
+      // whichever way they already lean.
+      target = Math.sign(meanAngle || 1) * swing.openAngle;
+      stiffness = swing.heldStiffness;
+      damping = swing.heldDamping;
+    }
+    // Heavy only while being shoved toward the hallway from the lab side, so
+    // they still swing shut behind the player rather than creeping to.
+    const isHeavy = labDoorHeld === 0 && !inDoorway && labDoorPlayerSide > 0;
+    const step = Math.min(dt, 1 / 30);
+    for (const leaf of labLeaves) {
+      const heavy = isHeavy && leaf.angle <= 0;
+      const k = heavy ? swing.heavyStiffness : stiffness;
+      const c = heavy ? swing.heavyDamping : damping;
+      leaf.speed += (-k * (leaf.angle - target) - c * leaf.speed) * step;
+      leaf.angle += leaf.speed * step;
+      if (Math.abs(leaf.angle) > swing.maxAngle) {
+        leaf.angle = Math.sign(leaf.angle) * swing.maxAngle;
+        leaf.speed = 0;
+      }
+      leaf.node.rotation.y = leaf.rest + leaf.sign * leaf.angle;
+    }
+
+    const passable = labLeaves.length > 0 && labLeaves.every((leaf) => Math.abs(leaf.angle) > swing.passableAngle);
+    if (passable || inDoorway) {
+      labDoorCollider.minZ = labDoorCollider.maxZ = -1000;
+    } else {
+      Object.assign(labDoorCollider, LAB_DOOR_COLLIDER_SHUT);
+    }
+  }
+
+  function resetLabDoors() {
+    labDoorHeld = 0;
+    labDoorHeavyHintShown = false;
+    Object.assign(labDoorCollider, LAB_DOOR_COLLIDER_SHUT);
+    for (const leaf of labLeaves) {
+      leaf.angle = 0;
+      leaf.speed = 0;
+      leaf.node.rotation.y = leaf.rest;
+    }
+  }
+
   // flickering fluorescent strip lights
   const fixturesGroup = new THREE.Group();
   lab.add(fixturesGroup);
@@ -862,6 +1155,16 @@ export function createHallwayBasementLevel({
   const PIPE_COUNT = 3;
   const lowestPipeY =
     DOOR_HEIGHT_IN_METRES + PIPE_CLEARANCE_ABOVE_DOOR_IN_METRES + PIPE_RADIUS_IN_METRES;
+  const highestPipeY = lowestPipeY + (PIPE_COUNT - 1) * PIPE_SPACING_IN_METRES;
+  /** The run's centre line, out from the back wall. */
+  const PIPE_Z = LAB_D / 2 - 0.2;
+  /**
+   * The run goes wall to wall and on into both side walls a little, so its
+   * ends are hidden behind them. It used to stop half a metre short of each
+   * wall, cut off in mid-air.
+   */
+  const PIPE_INTO_WALL_IN_METRES = 0.1;
+  const PIPE_RUN_LENGTH = LAB_W + 2 * PIPE_INTO_WALL_IN_METRES;
 
   /**
    * Bare steel, streaked and spotted with rust: Metal055B, a full set whose
@@ -881,18 +1184,19 @@ export function createHallwayBasementLevel({
     });
   }
   // Round a 6 cm pipe is about 0.4 m; along it, the run's whole length.
-  const pipeMat = bareSteelMaterial([0.4, LAB_W - 1]);
+  const pipeMat = bareSteelMaterial([0.4, PIPE_RUN_LENGTH]);
 
   /**
    * TEXTURE PREVIEW: hospital-white paint with rust coming through, for the lab
    * equipment, given to a loaded model's named materials. Shared, so every
-   * prop wears one texture.
+   * prop wears one texture. `tint` repaints it, for equipment that was never
+   * white.
    */
   const whiteRustMap = loadPhoto(whiteRustMetalUrl, { wrap: THREE.MirroredRepeatWrapping });
-  function applyWhiteRust(model, materialNames) {
+  function applyWhiteRust(model, materialNames, tint = 0xffffff) {
     model.traverse((child) => {
       if (!child.isMesh || !materialNames.includes(child.material.name)) return;
-      child.material.color.set(0xffffff);
+      child.material.color.set(tint);
       child.material.map = whiteRustMap;
       child.material.metalness = 0.15;
       child.material.roughness = 0.7;
@@ -909,14 +1213,26 @@ export function createHallwayBasementLevel({
     });
     return model;
   }
+  // Each pipe goes through a round plate on the side wall, as pipes through a
+  // wall are finished off.
+  const pipeWallPlateGeometry = new THREE.CylinderGeometry(
+    PIPE_RADIUS_IN_METRES + 0.035, PIPE_RADIUS_IN_METRES + 0.035, 0.012, 20
+  );
   for (let i = 0; i < PIPE_COUNT; i++) {
+    const y = lowestPipeY + i * PIPE_SPACING_IN_METRES;
     const pipe = new THREE.Mesh(
-      new THREE.CylinderGeometry(PIPE_RADIUS_IN_METRES, PIPE_RADIUS_IN_METRES, LAB_W - 1, 10),
+      new THREE.CylinderGeometry(PIPE_RADIUS_IN_METRES, PIPE_RADIUS_IN_METRES, PIPE_RUN_LENGTH, 10),
       pipeMat
     );
     pipe.rotation.z = Math.PI / 2;
-    pipe.position.set(0, lowestPipeY + i * PIPE_SPACING_IN_METRES, LAB_D / 2 - 0.2);
+    pipe.position.set(0, y, PIPE_Z);
     lab.add(pipe);
+    for (const side of [-1, 1]) {
+      const plate = new THREE.Mesh(pipeWallPlateGeometry, toolSteelMat);
+      plate.rotation.z = Math.PI / 2;
+      plate.position.set(side * (LAB_W / 2 - 0.006), y, PIPE_Z);
+      lab.add(plate);
+    }
   }
 
   /**
@@ -926,13 +1242,145 @@ export function createHallwayBasementLevel({
    * slab above it.
    */
   {
-    const highestPipeTopY = lowestPipeY + (PIPE_COUNT - 1) * PIPE_SPACING_IN_METRES + PIPE_RADIUS_IN_METRES;
+    const highestPipeTopY = highestPipeY + PIPE_RADIUS_IN_METRES;
     if (lowestPipeY - PIPE_RADIUS_IN_METRES < DOOR_HEIGHT_IN_METRES) {
       console.warn('[lab] the pipe run crosses the metal door -- the exit reads through bars');
     }
     if (highestPipeTopY > LAB_H) {
       console.warn(`[lab] the pipe run reaches ${highestPipeTopY.toFixed(2)}m, through a ${LAB_H}m ceiling`);
     }
+  }
+
+  /**
+   * The containment chamber in the back-west corner: containment_chamber.glb
+   * (blender/build_containment_chamber.py), a specimen tank broken open from
+   * the inside, with the glass that came out of it across the floor in front.
+   * Turned to face the middle of the room, so the hole is the side of it a
+   * player sees from anywhere they can stand.
+   */
+  const chamber = new THREE.Group();
+  chamber.name = 'ContainmentChamber';
+  chamber.position.set(CHAMBER_POSITION.x, 0, CHAMBER_POSITION.z);
+  chamber.rotation.y = Math.atan2(-CHAMBER_POSITION.x, -CHAMBER_POSITION.z);
+  lab.add(chamber);
+
+  /**
+   * Its plinth, as three boxes round a circle between the octagon's flats and
+   * its corners: a square for the diagonals and a cross for the rest. One box
+   * round the whole of it would stop a player a third of a metre short of the
+   * hole, which faces the room along exactly the diagonal a box's corner
+   * reaches out on.
+   */
+  {
+    const radius = (CONTAINMENT_CHAMBER.plinthCorner + CONTAINMENT_CHAMBER.plinthFlat) / 2;
+    const x = CHAMBER_POSITION.x;
+    const z = LAB_Z + CHAMBER_POSITION.z;
+    for (const [halfX, halfZ] of [
+      [radius * Math.SQRT1_2, radius * Math.SQRT1_2],
+      [radius, radius / 2],
+      [radius / 2, radius]
+    ]) {
+      colliders.push({ minX: x - halfX, maxX: x + halfX, minZ: z - halfZ, maxZ: z + halfZ });
+    }
+  }
+
+  /**
+   * Medium green glass. The tube is a shell the eye looks through both walls
+   * of, so it writes no depth; the shards on the floor are flat and do, so the
+   * tube's far wall, drawn after them, cannot paint over the ones in front of
+   * it. Broken edges are where glass shows its colour most, so they are
+   * greener and more solid than the faces.
+   *
+   * Drawn after the lab's grime layers (render order 0) and in this order
+   * among themselves, so stains on the floor and walls behind the glass are
+   * seen through it rather than laid over it.
+   */
+  const chamberGlassMat = createTintedGlassMaterial({ color: 0x4f9a63, opacity: 0.24, grazingOpacity: 0.85 });
+  // Lying on a floor that is lit much like they are, a dark tint barely shows:
+  // the shards are paler, and rough enough that the lights leave a soft
+  // highlight on them from more than one exact angle.
+  const chamberShardMat = createTintedGlassMaterial({
+    color: 0x8ccf9c, opacity: 0.4, grazingOpacity: 0.85, roughness: 0.25, depthWrite: true
+  });
+  const glassEdge = { color: 0x5cc474, roughness: 0.15, transparent: true, opacity: 0.85 };
+  const chamberGlassEdgeMat = new THREE.MeshStandardMaterial({ ...glassEdge, depthWrite: false });
+  const chamberShardEdgeMat = new THREE.MeshStandardMaterial({ ...glassEdge, opacity: 0.9, depthWrite: true });
+  const chamberCrackMat = new THREE.MeshStandardMaterial({
+    color: 0xdcefe2, roughness: 0.3, transparent: true, opacity: 0.45, depthWrite: false
+  });
+  /** Material name -> [tube's material, shards' material, the tube's render order]. Shards draw at 1. */
+  const chamberGlassByName = {
+    ChamberGlass: [chamberGlassMat, chamberShardMat, 2],
+    ChamberGlassEdge: [chamberGlassEdgeMat, chamberShardEdgeMat, 3],
+    ChamberGlassCrack: [chamberCrackMat, chamberCrackMat, 4]
+  };
+
+  /** The heavy rings round the glass and the stepped cap: the bare steel, darkened. */
+  const chamberDarkSteelMat = bareSteelMaterial();
+  chamberDarkSteelMat.color.set(0x5b6366);
+
+  loadModel(containmentChamberModelUrl).then((model) => {
+    // The reference's pale blue, with the rust coming through it.
+    applyWhiteRust(model, ['ChamberPaint'], 0x9fb4b8);
+    applyWhiteRust(model, ['ChamberHazardLight'], 0xe4e0d4);
+    applyWhiteRust(model, ['ChamberHazardDark'], 0x232323);
+    applyBareSteel(model, ['ChamberSteel']);
+    model.traverse((child) => {
+      if (!child.isMesh) return;
+      const name = child.material.name;
+      if (name === 'ChamberDarkSteel') child.material = chamberDarkSteelMat;
+      const glass = chamberGlassByName[name];
+      if (glass) {
+        // A mesh with more than one material arrives as a group of meshes, one per material.
+        const isShard = [child.name, child.parent?.name].some((n) => n?.startsWith('ChamberShards'));
+        child.material = glass[isShard ? 1 : 0];
+        child.renderOrder = isShard ? 1 : glass[2];
+      }
+      // Glass would throw a solid shadow.
+      child.castShadow = !glass;
+      child.receiveShadow = !glass;
+    });
+    chamber.add(model);
+  }).catch((err) => console.error('[lab] containment_chamber.glb failed to load', err));
+
+  /**
+   * The chamber's feed: up from the outlet on its cap, over in a bend toward
+   * the back wall, and along into the top pipe of the run, which it tees into.
+   * One tube along one path, so the bend has no seams in it.
+   */
+  {
+    const BEND_RADIUS = 0.12;
+    const radius = CONTAINMENT_CHAMBER.outletRadius;
+    const x = CHAMBER_POSITION.x;
+    const outlet = new THREE.Vector3(x, CONTAINMENT_CHAMBER.outletTop, CHAMBER_POSITION.z);
+    const corner = new THREE.Vector3(x, highestPipeY, CHAMBER_POSITION.z);
+    const bendStart = corner.clone().setY(highestPipeY - BEND_RADIUS);
+    const bendEnd = corner.clone().setZ(CHAMBER_POSITION.z + BEND_RADIUS);
+    const path = new THREE.CurvePath();
+    path.add(new THREE.LineCurve3(outlet, bendStart));
+    path.add(new THREE.QuadraticBezierCurve3(bendStart, corner, bendEnd));
+    path.add(new THREE.LineCurve3(bendEnd, new THREE.Vector3(x, highestPipeY, PIPE_Z)));
+    const feedGeometry = new THREE.TubeGeometry(path, 64, radius, 12, false);
+    // Round it first and along it second, the way the run's own cylinders are
+    // mapped, so the steel's streaks run the same way on both.
+    const uv = feedGeometry.attributes.uv;
+    for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getY(i), uv.getX(i));
+    const feed = new THREE.Mesh(feedGeometry, bareSteelMaterial([0.33, path.getLength()]));
+    lab.add(feed);
+
+    // A coupling over the joint with the outlet, and the tee on the run with a
+    // collar where the feed goes into it.
+    const collarGeometry = new THREE.CylinderGeometry(radius + 0.012, radius + 0.012, 0.05, 16);
+    const coupling = new THREE.Mesh(collarGeometry, toolSteelMat);
+    coupling.position.copy(outlet);
+    const teeRadius = PIPE_RADIUS_IN_METRES + 0.016;
+    const tee = new THREE.Mesh(new THREE.CylinderGeometry(teeRadius, teeRadius, 0.2, 20), toolSteelMat);
+    tee.rotation.z = Math.PI / 2;
+    tee.position.set(x, highestPipeY, PIPE_Z);
+    const teeCollar = new THREE.Mesh(collarGeometry, toolSteelMat);
+    teeCollar.rotation.x = Math.PI / 2;
+    teeCollar.position.set(x, highestPipeY, PIPE_Z - teeRadius - 0.02);
+    lab.add(coupling, tee, teeCollar);
   }
 
   /**
@@ -2657,11 +3105,11 @@ export function createHallwayBasementLevel({
   }
 
   /**
-   * Storage shelving along the east wall: three units of storage_shelf.glb
+   * Storage shelving along the east wall: two units of storage_shelf.glb
    * (blender/build_storage_shelf.py), boltless steel rivet shelving with
-   * slotted uprights. The two end units stand with a short side to the wall
-   * and run out into the room; the middle one stands with its long side to
-   * the wall. They replace two plain dark boxes.
+   * slotted uprights, standing with a short side to the wall and running out
+   * into the room either side of the culture cabinet. A third unit, long side
+   * to the wall, stood where the cabinet is now.
    *
    * One model, loaded once and cloned: the clones share its geometry, so the
    * slotted uprights -- which are real holes, and a lot of small parts --
@@ -2671,7 +3119,6 @@ export function createHallwayBasementLevel({
   const shelfPlacements = [
     // [z along the wall, true if the long side is against it]
     [-2 * LAB_SCALE, false],
-    [0, true],
     [2 * LAB_SCALE, false]
   ];
   const shelfUnits = shelfPlacements.map(([z, longSideToWall]) => {
@@ -2703,6 +3150,250 @@ export function createHallwayBasementLevel({
     });
     shelfUnits.forEach((unit, i) => unit.add(shadowed(i === 0 ? model : model.clone())));
   }).catch((err) => console.error('[lab] storage_shelf.glb failed to load', err));
+
+  /**
+   * The cell culture workstation, where the middle shelving unit stood:
+   * biosafety_cabinet.glb (blender/build_biosafety_cabinet.py), a Class II
+   * biological safety cabinet with someone's culture work still out on its
+   * tray -- dishes, flasks, bottles of medium, pipettes and droppers, a bottle
+   * knocked over and dried where it spilled. Its back is on the east wall and
+   * it faces into the room: the model faces its own +Z, and a quarter turn
+   * the other way takes that to -X.
+   *
+   * It is as tall as the shelving either side of it, and its three buttons --
+   * light, air flow, incubation heat -- are on the blue band at eye level.
+   * Like the surgical lamp, nothing on it runs unless the lab's lighting
+   * circuit is live, and it remembers what was on: a blackout stops it, and it
+   * starts again with the power.
+   */
+  const CABINET_WALL_GAP = 0.03;
+  const cabinet = new THREE.Group();
+  cabinet.name = 'BiosafetyCabinet';
+  cabinet.position.set(LAB_W / 2 - CABINET_WALL_GAP - BIOSAFETY_CABINET.depth / 2, 0, BIOSAFETY_CABINET_Z);
+  cabinet.rotation.y = -Math.PI / 2;
+  lab.add(cabinet);
+  colliders.push({
+    minX: LAB_W / 2 - CABINET_WALL_GAP - BIOSAFETY_CABINET.depth - BIOSAFETY_CABINET.armRest, maxX: LAB_W / 2,
+    minZ: LAB_Z + BIOSAFETY_CABINET_Z - BIOSAFETY_CABINET.halfWidth,
+    maxZ: LAB_Z + BIOSAFETY_CABINET_Z + BIOSAFETY_CABINET.halfWidth
+  });
+
+  /**
+   * The see-through parts. The dishes, flasks, plate and pipettes are clear
+   * polystyrene and the bottles and beaker glass, both thickening toward
+   * their edges so a dish reads by its rim; the sash in front of them all is
+   * drawn after them, so it is seen over them rather than under. Shared
+   * across every mesh that uses them.
+   */
+  const cabinetSeeThrough = {
+    LabPlastic: createTintedGlassMaterial({ color: 0xf2f6f8, opacity: 0.1, grazingOpacity: 0.6, roughness: 0.12 }),
+    LabGlass: createTintedGlassMaterial({ color: 0xe4efec, opacity: 0.1, grazingOpacity: 0.65 }),
+    LabReagent: new THREE.MeshStandardMaterial({
+      color: 0xd8e8ee, roughness: 0.05, transparent: true, opacity: 0.3, depthWrite: false
+    }),
+    LabAmber: new THREE.MeshStandardMaterial({
+      color: 0x8a4a12, roughness: 0.1, transparent: true, opacity: 0.75, depthWrite: false
+    }),
+    HoodGlass: createTintedGlassMaterial({ color: 0xdfe9e6, opacity: 0.08, grazingOpacity: 0.55 })
+  };
+  /** Smears on the sash: the lab's green damp grime, faint, on the glass itself. */
+  const sashGrimeMat = new THREE.MeshStandardMaterial({
+    map: loadPhoto(greenGrimeUrl, { repeat: [0.3, 0.3], wrap: THREE.MirroredRepeatWrapping }),
+    transparent: true,
+    opacity: 0.4,
+    depthWrite: false,
+    roughness: 0.9
+  });
+  /**
+   * The stainless inside: the bare-steel photos, but only half metallic, as
+   * the shelving and the lab doors are -- at full, a big flat steel tray has
+   * nothing in this room to reflect and renders near black.
+   */
+  const cabinetSteelMat = bareSteelMaterial();
+  cabinetSteelMat.metalnessMap = null;
+  cabinetSteelMat.metalness = 0.5;
+
+  const HOOD_LIGHT_COLOR = 0xffe2b8;      // warm white, against the lab's cold green
+  // Tune here. The light hangs only half a metre over the tray, so a little goes a long way.
+  const HOOD_LIGHT_INTENSITY = 4.5;
+  const HOOD_LAMP_EMISSIVE_INTENSITY = 2.2;
+  /** How long the tube stutters when it comes on, before it holds. */
+  const HOOD_STRIKE_SECONDS = 0.6;
+  const HOOD_INDICATOR_GREEN = 0x2bff52;
+  /** The light panel and the display, once the model has given them. */
+  const hoodLit = { lamp: null, display: null };
+
+  /**
+   * The three buttons on the blue band, left to right: the light, the air
+   * flow, and the incubation heat. Each switches its own function, and the
+   * indicator over it shows green while that function is running -- switched
+   * on, with the lab's power live. Like the light, the air flow and the heat
+   * remember being on through a blackout and come back with the power.
+   *
+   * `name` finishes the button's prompt; `firstOnCaption` is said the first
+   * time the function actually starts. `indicator` is filled in when the model
+   * has loaded and `hit` when the click target is made, below.
+   */
+  const hoodButtons = {
+    light: { name: 'the cabinet light', firstOnCaption: 'dialog_hood_light_lit' },
+    airflow: { name: 'the air flow', firstOnCaption: 'dialog_hood_airflow_on' },
+    heat: { name: 'the incubation heat', firstOnCaption: 'dialog_hood_heat_on' }
+  };
+  for (const button of Object.values(hoodButtons)) {
+    Object.assign(button, { switchedOn: false, hasRun: false, indicator: null, hit: null });
+  }
+
+  loadModel(biosafetyCabinetModelUrl).then((model) => {
+    // Old white enamel and grey, and the reference's blue gone dull, all with
+    // the rust coming through.
+    applyWhiteRust(model, ['HoodPaint'], 0xe6e6e0);
+    applyWhiteRust(model, ['HoodPaintGrey'], 0xb5bab9);
+    applyWhiteRust(model, ['HoodBlue'], 0x3d6898);
+    applyWhiteRust(model, ['HoodDarkBlue'], 0x1e3150);
+    const glowing = { HoodLamp: ['lamp', HOOD_LIGHT_COLOR], HoodLcd: ['display', 0x5fd0b0] };
+    model.traverse((child) => {
+      if (!child.isMesh) return;
+      const name = child.material.name;
+      if (name === 'HoodSteel') child.material = cabinetSteelMat;
+      if (glowing[name]) {
+        const [key, colour] = glowing[name];
+        child.material.emissive.setHex(colour);
+        child.material.emissiveIntensity = 0;
+        hoodLit[key] = child.material;
+      }
+      const buttonKey = Object.keys(hoodButtons).find((key) => BIOSAFETY_CABINET.buttons[key].indicator === name);
+      if (buttonKey) {
+        child.material.emissive.setHex(HOOD_INDICATOR_GREEN);
+        child.material.emissiveIntensity = 0;
+        hoodButtons[buttonKey].indicator = child.material;
+      }
+      const seeThrough = cabinetSeeThrough[name];
+      if (seeThrough) {
+        child.material = seeThrough;
+        child.renderOrder = name === 'HoodGlass' ? 2 : 1;
+        if (name === 'HoodGlass') {
+          const grime = new THREE.Mesh(child.geometry, sashGrimeMat);
+          grime.renderOrder = 3;
+          child.add(grime);
+        }
+      }
+      // Anything see-through would throw a solid shadow.
+      child.castShadow = !seeThrough;
+      child.receiveShadow = !seeThrough;
+    });
+    cabinet.add(model);
+  }).catch((err) => console.error('[lab] biosafety_cabinet.glb failed to load', err));
+
+  /**
+   * Its light: a spotlight just under the light panel, down onto the tray and
+   * out through the opening onto the floor in front. It throws shadows, so
+   * the bottles and dish stacks stand on the steel rather than float over it.
+   */
+  const hoodLight = new THREE.SpotLight(HOOD_LIGHT_COLOR, 0, 3, 0.95, 0.6, 1.5);
+  hoodLight.position.set(BIOSAFETY_CABINET.lamp[0], BIOSAFETY_CABINET.lamp[1] - 0.012, BIOSAFETY_CABINET.lamp[2]);
+  hoodLight.target.position.set(0, BIOSAFETY_CABINET.workTop, -0.02);
+  hoodLight.castShadow = true;
+  hoodLight.shadow.mapSize.set(512, 512);
+  hoodLight.shadow.bias = -0.0005;
+  hoodLight.shadow.normalBias = 0.02;
+  hoodLight.shadow.camera.near = 0.05;
+  hoodLight.shadow.camera.far = 3;
+  cabinet.add(hoodLight, hoodLight.target);
+
+  /**
+   * Soft dark on the floor round the foot of the cabinet. The room's tube
+   * lights throw no shadows, so without it the cabinet stands on the tiles
+   * without touching them. Black, fading out from the footprint, unlit.
+   */
+  {
+    const SIZE = 64;
+    const pixels = new Uint8Array(SIZE * SIZE * 4);
+    for (let j = 0; j < SIZE; j++) {
+      for (let i = 0; i < SIZE; i++) {
+        // How far outside the footprint, 0 inside it to 1 at the edge of the texture.
+        const u = Math.max(0, Math.abs((i + 0.5) / SIZE * 2 - 1) - 0.72) / 0.28;
+        const v = Math.max(0, Math.abs((j + 0.5) / SIZE * 2 - 1) - 0.62) / 0.38;
+        const fade = Math.min(1, Math.hypot(u, v));
+        pixels[(j * SIZE + i) * 4 + 3] = Math.round(255 * (1 - fade) * (1 - fade));
+      }
+    }
+    const shadowTexture = new THREE.DataTexture(pixels, SIZE, SIZE);
+    shadowTexture.needsUpdate = true;
+    const footShadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(BIOSAFETY_CABINET.halfWidth * 2 + 0.45, BIOSAFETY_CABINET.depth + 0.45),
+      new THREE.MeshBasicMaterial({
+        color: 0x000000, map: shadowTexture, transparent: true, opacity: 0.6, depthWrite: false,
+        polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1
+      })
+    );
+    footShadow.rotation.x = -Math.PI / 2;
+    footShadow.position.y = 0.002;
+    cabinet.add(footShadow);
+  }
+
+  /** What a button's prompt says, from whether it is switched on. */
+  function hoodButtonLabel(button) {
+    return `${button.switchedOn ? 'Switch off' : 'Switch on'} ${button.name}`;
+  }
+
+  /**
+   * Presses one of the cabinet's buttons. It latches whether or not there is
+   * power -- the indicator only lights, and the function only runs, once
+   * there is -- so the captions say which it is.
+   */
+  function pressHoodButton(button) {
+    button.switchedOn = !button.switchedOn;
+    button.hit.userData.interact.label = hoodButtonLabel(button);
+    if (!button.switchedOn) return;
+    if (!isLabLightingOn()) {
+      showCaption(line(
+        powerStage === POWER_STAGE.DEAD
+          ? 'dialog_hood_button_no_power'
+          : 'dialog_hood_button_dead'
+      ));
+      return;
+    }
+    if (!button.hasRun) {
+      button.hasRun = true;
+      showCaption(line(button.firstOnCaption));
+    }
+  }
+
+  // A click target over each button and its indicator: the buttons themselves
+  // are 25 mm across, and Interaction raycasts non-recursively anyway.
+  const hoodButtonHitGeometry = new THREE.BoxGeometry(...BIOSAFETY_CABINET.buttonHit, 0.02);
+  for (const [key, button] of Object.entries(hoodButtons)) {
+    button.hit = new THREE.Mesh(hoodButtonHitGeometry, hiddenHitMat);
+    button.hit.position.set(...BIOSAFETY_CABINET.buttons[key].centre);
+    button.hit.userData.interact = { label: hoodButtonLabel(button), onInteract: () => pressHoodButton(button) };
+    cabinet.add(button.hit);
+    interactables.push(button.hit);
+  }
+
+  let hoodLightWasLit = false;
+  let hoodStrikeSecondsLeft = 0;
+
+  dynamics.push({
+    update: (dt) => {
+      const mains = isLabLightingOn();
+      const lit = hoodButtons.light.switchedOn && mains;
+      if (lit && !hoodLightWasLit) hoodStrikeSecondsLeft = HOOD_STRIKE_SECONDS;
+      hoodLightWasLit = lit;
+      let level = lit ? 1 : 0;
+      if (lit && hoodStrikeSecondsLeft > 0) {
+        // Striking: a fluorescent tube catching and dropping out before it holds.
+        hoodStrikeSecondsLeft -= dt;
+        level = Math.random() < 0.45 ? 0.12 : 1;
+      }
+      hoodLight.intensity = HOOD_LIGHT_INTENSITY * level;
+      if (hoodLit.lamp) hoodLit.lamp.emissiveIntensity = HOOD_LAMP_EMISSIVE_INTENSITY * level;
+      // The display shows the cabinet has mains, whatever its buttons are doing.
+      if (hoodLit.display) hoodLit.display.emissiveIntensity = mains ? 0.8 : 0;
+      for (const button of Object.values(hoodButtons)) {
+        if (button.indicator) button.indicator.emissiveIntensity = button.switchedOn && mains ? 2.5 : 0;
+      }
+    }
+  });
 
   // retro computer desk with the CCTV monitor (custom shader material)
   /**
@@ -4026,6 +4717,7 @@ export function createHallwayBasementLevel({
      */
     reset() {
       powerStage = POWER_STAGE.DEAD;
+      resetLabDoors();
       puzzleState.heldFuse = null;
       puzzleState.slotFuse = null;
       puzzleState.overloaded = false;
@@ -4079,6 +4771,12 @@ export function createHallwayBasementLevel({
       lampHasBeenLit = false;
       lampHit.userData.interact.label = 'Switch on the operating lamp';
 
+      for (const button of Object.values(hoodButtons)) {
+        button.switchedOn = false;
+        button.hasRun = false;
+        button.hit.userData.interact.label = hoodButtonLabel(button);
+      }
+
       instrumentTrolley.reset();
       trolleyHit.userData.interact.label = 'Examine the instruments';
 
@@ -4122,6 +4820,7 @@ export function createHallwayBasementLevel({
     update(dt, playerPosition) {
       const elapsed = (this._t = (this._t ?? 0) + dt);
       dynamics.forEach((d) => d.update(dt, elapsed));
+      updateLabDoors(dt, playerPosition);
 
       // The blackout. Gated on LIT, so it cannot fire before the 30A fuse has
       // given the player something to lose, and cannot fire twice.

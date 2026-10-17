@@ -97,6 +97,11 @@ export class Interaction {
       } else {
         this.promptEl.style.display = 'none';
       }
+    } else if (hit) {
+      // A target can change its own label while it is looked at -- a door
+      // going from "open" to "close" -- so keep the prompt in step with it.
+      const text = `[E] ${hit.userData.interact.label}`;
+      if (this.promptEl.textContent !== text) this.promptEl.textContent = text;
     }
   }
 }
