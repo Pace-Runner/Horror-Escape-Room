@@ -40,6 +40,7 @@ import {
   CORRIDOR_W, T, CORRIDORS, ROUTE, BOX, LEGS, CROSSINGS, DOORWAYS, buildWallRuns, runCollider,
   validateMaze, junctions, deadEnd, sideWall, legMid, spawnPoint, exitPoint, nameNoise, crossingFor
 } from './backroomsMaze.js';
+import { dressAnnabelleRooms } from './annabelleRooms.js';
 
 /**
  * The interstitial -- the corridor between levels.
@@ -1433,9 +1434,13 @@ export function createBackroomsLevel({
 
 
   // ---------- dressing ----------
-  // Deliberately sparse. Backrooms is defined by emptiness, and dressing this
-  // like the basement lab is the main way the level could go wrong. No crates,
-  // no desks, no chairs.
+  // The corridors stay deliberately sparse. Backrooms is defined by emptiness,
+  // and dressing them like the basement lab is the main way the level could go
+  // wrong: no crates, no desks, no chairs out here. The furniture is all in the
+  // rooms, which are Annabelle's bedroom at four ages (annabelleRooms.js).
+  const annabelleRooms = dressAnnabelleRooms({
+    group, colliders, wallMatFor, hallH: HALL_H, backroomsWallpaper: wallpaperTex
+  });
 
   // Peeling flaps, matched to THIS level's wallpaper via the existing
   // parameterised texture, concentrated in the dark gaps and at branch corners.
@@ -1481,6 +1486,8 @@ export function createBackroomsLevel({
   Object.keys(LEGS).forEach((name) => {
     const n = nameNoise(name, 11);
     if (n > 0.42) return;
+    // Her rooms are papered over; a yellow flap would be peeling off nothing.
+    if (annabelleRooms.rooms.has(name)) return;
     // ASK wallBehind rather than assuming. The first version placed the flap a
     // fixed distance in from the dead end on the theory that nothing branches
     // past the last junction -- but a child can hang at the very END of a leg
@@ -1790,6 +1797,7 @@ export function createBackroomsLevel({
 
     update(dt) {
       this._t = (this._t ?? 0) + dt;
+      annabelleRooms.update(dt);
 
       // Exit punctuation: once the door is open every fluorescent fades out
       // over about a second, so the caption's "the humming stops all at once"

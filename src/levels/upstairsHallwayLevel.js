@@ -1116,7 +1116,7 @@ export function createUpstairsHallwayLevel({
   const FLASH_SECONDS = 0.42;
   let flickerTimer = 0;
   let flickerLevel = 1;
-  /** Set while the hall's light is cut (main.js's rush): pendant and glow dark. */
+  /** Set while the hall's light is cut (main.js's rush): pendant, glow and storm dark. */
   let lightsOut = false;
 
   // Into place: see `origin`. Every collider is a plain world-space box, so it
@@ -1175,8 +1175,10 @@ export function createUpstairsHallwayLevel({
       rain.update(dt);
       glassMaterial.uniforms.uTime.value = elapsed;
 
-      // Lightning: a double flicker, then dark for a while.
-      nextFlashIn -= dt;
+      // Lightning: a double flicker, then dark for a while. Not while the
+      // lights are cut: the storm goes too, and the first flash after it waits
+      // a couple of seconds, so the light coming back is its own beat.
+      nextFlashIn = lightsOut ? Math.max(nextFlashIn - dt, 2) : nextFlashIn - dt;
       if (flashTime < 0 && nextFlashIn <= 0) {
         flashTime = 0;
         lightning.shadow.needsUpdate = true;
@@ -1193,6 +1195,7 @@ export function createUpstairsHallwayLevel({
           nextFlashIn = 6 + Math.random() * 9;
         }
       }
+      if (lightsOut) flash = 0;   // one already under way when they went
       lightning.intensity = flash * 3.0;
       glassMaterial.uniforms.uFlash.value = flash;
       skyMat.color.setRGB(0.002 + flash * 0.35, 0.003 + flash * 0.4, 0.006 + flash * 0.55);
