@@ -583,13 +583,13 @@ let flashlightSwitchOn = false;
 let flashlightOn = false;
 
 /**
- * THE TORCH FAILS. Every 45-60 s of it actually shining, it gives out for
+ * THE TORCH FAILS. Every 67.5-90 s of it actually shining, it gives out for
  * 10-15 s: the beam dies, and for the whole of that it stutters -- short,
  * irregular flashes of light -- and the switch cannot fix it. Then it comes
  * back on its own. The clock only runs while the beam is lit, so a torch kept
  * in the pocket does not bank a failure for the moment it comes out.
  */
-const TORCH_FAULT_EVERY = [45, 60];
+const TORCH_FAULT_EVERY = [67.5, 90];
 const TORCH_FAULT_FOR = [10, 15];
 const torchFault = { nextIn: 0, left: 0, flickerIn: 0, flickerOn: false, flickerLevel: 1 };
 const randBetween = ([a, b]) => a + Math.random() * (b - a);
@@ -606,9 +606,11 @@ function updateTorchFault(dt) {
     torchFault.left -= dt;
     torchFault.flickerIn -= dt;
     if (torchFault.flickerIn <= 0) {
-      // Brief catches of light between longer dead stretches.
+      // Brief catches of light between longer dead stretches. The dead
+      // stretches average 0.94 s against a 0.12 s catch, about twelve catches
+      // in a 12.5 s failure.
       torchFault.flickerOn = !torchFault.flickerOn;
-      torchFault.flickerIn = torchFault.flickerOn ? 0.04 + Math.random() * 0.16 : 0.15 + Math.random() * 0.9;
+      torchFault.flickerIn = torchFault.flickerOn ? 0.04 + Math.random() * 0.16 : 0.24 + Math.random() * 1.4;
       torchFault.flickerLevel = 0.25 + Math.random() * 0.75;
     }
     if (torchFault.left <= 0) resetTorchFault();
@@ -2031,8 +2033,8 @@ function resetDoorwayJoin() {
 
 /**
  * THE HALLWAY RUSH. As the bedroom door opens, it is standing at the far end
- * of the hall. For a second it only stands there; then the light goes, and in
- * the dark it SPRINTS at you. When it is nearly on you it is gone -- the dark
+ * of the hall. For a second it only stands there; then every light in the
+ * house goes (setHouseLightsOut), and in the dark it SPRINTS at you. When it is nearly on you it is gone -- the dark
  * holds a second longer, the light comes back on an empty hall, and only then
  * does the singing start, faint, from down the stairs (AudioDirector's
  * startSinging). Once per run.
@@ -2049,6 +2051,63 @@ const HALLWAY_RUSH_MAX = 4.5;       // seconds of sprinting at most, whatever ha
 const HALLWAY_RUSH_DARK_AFTER = 1.0; // seconds the light stays out after it has gone
 let hallwayRush = null;
 let hallwayRushDone = false;
+
+/**
+ * THE HOUSE GOES DARK, for the rush: every light in the bedroom and the hall
+ * -- the lamp blinking its code, the candles, the pendant, the glow up the
+ * stairs, the lightning in both windows -- and every lit bulb, flame and pane
+ * with them. Only the torch in your hand is left (it hangs off the camera, not
+ * off either room), so what comes down the hall is whatever the beam finds.
+ *
+ * Held, not switched. Half these lights are driven every frame by their own
+ * level or by the storm, so applyHouseBlackout() puts them back to nothing
+ * after all of that, just before the draw; the rest are set once by an event,
+ * so the snapshot taken here is what puts them back (a blown bulb stays
+ * blown). Intensity only, never `visible`: a light count is part of every
+ * shader's key, and the doorway note above says what changing one costs.
+ *
+ * The two ambients are main.js's own -- the doorway swaps them as the player
+ * crosses, and the player is free to cross in the last of the dark -- so they
+ * come back by whichever room is active, not from the snapshot.
+ */
+let houseBlackout = null;
+
+function setHouseLightsOut(out) {
+  upstairsHallway.refs.setLightsOut(out);
+  if (out && !houseBlackout) {
+    const ambients = [bedroom.refs.ambient, upstairsHallway.refs.ambient];
+    const lights = new Map();
+    const glows = new Map();
+    const flashes = new Set();
+    for (const room of [bedroom.group, upstairsHallway.group]) {
+      room.traverse((o) => {
+        if (o.isLight && !ambients.includes(o)) lights.set(o, o.intensity);
+        if (!o.isMesh) return;
+        for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+          if (m?.emissive && m.emissiveIntensity > 0 && m.emissive.getHex() !== 0) glows.set(m, m.emissiveIntensity);
+          if (m?.uniforms?.uFlash) flashes.add(m.uniforms.uFlash);
+        }
+      });
+    }
+    houseBlackout = { lights, glows, flashes, ambients, bedroomAmbient: bedroom.refs.ambient.intensity };
+  } else if (!out && houseBlackout) {
+    for (const [light, v] of houseBlackout.lights) light.intensity = v;
+    for (const [material, v] of houseBlackout.glows) material.emissiveIntensity = v;
+    const inHall = sceneManager.activeKey === 'upstairsHallway';
+    bedroom.refs.ambient.intensity = inHall ? 0 : houseBlackout.bedroomAmbient;
+    upstairsHallway.refs.ambient.intensity = inHall ? HALL_AMBIENT : 0;
+    houseBlackout = null;
+  }
+}
+
+/** Once a frame, after everything else has set its lights: hold the house dark. */
+function applyHouseBlackout() {
+  if (!houseBlackout) return;
+  for (const light of houseBlackout.lights.keys()) light.intensity = 0;
+  for (const light of houseBlackout.ambients) light.intensity = 0;
+  for (const material of houseBlackout.glows.keys()) material.emissiveIntensity = 0;
+  for (const uniform of houseBlackout.flashes) uniform.value = 0;
+}
 
 function startHallwayRush() {
   if (hallwayRush || hallwayRushDone) return;
@@ -2074,7 +2133,7 @@ function endHallwayRush({ quiet = false } = {}) {
   const wasPhase = hallwayRush.phase;
   hallwayRush = null;
   hideCreature();
-  upstairsHallway.refs.setLightsOut(false);
+  setHouseLightsOut(false);
   player.movementEnabled = true;
   if (quiet) return;
   if (wasPhase !== 'dark') sfx('gasp');
@@ -2098,8 +2157,8 @@ function updateHallwayRush(dt) {
     if (r.t < HALLWAY_RUSH_STARE) return;
     r.phase = 'rush';
     r.t = 0;
-    upstairsHallway.refs.setLightsOut(true);
-    // The light dying, then its feet coming down the boards at a run.
+    setHouseLightsOut(true);
+    // The lights dying, then its feet coming down the boards at a run.
     sfx('power_down', { gainDb: -8 });
     audio.footsteps({ count: 6, spacing: 0.27, pan: 0, level: 0.62 });
   }
@@ -3291,6 +3350,9 @@ function resetGame() {
   // A restart from the pause menu can land mid-fade; without this the freshly
   // reset bedroom would come up behind a black overlay that never lifts.
   abortTransition();
+  // Before anything below resets a light: lifting a blackout puts back what it
+  // took, which must not land on top of the fresh run's lighting.
+  setHouseLightsOut(false);
   bedroomHorrorScript.cancel();
   bedroomHorrorEvents.clear();
   // Was bedroom.reset() alone, which left Level 2's breaker flipped and its
@@ -4620,6 +4682,9 @@ function tick() {
   audioDirector.update(dt);
 
   postFX.update(dt);
+  // The rush's blackout overrides every light the levels and the storm set
+  // above, so it goes after all of them.
+  applyHouseBlackout();
   // After everything that sets a light's intensity this frame, so a light that
   // has just come on gets a fresh shadow in the very frame it lights.
   darkShadowSkipper.update();

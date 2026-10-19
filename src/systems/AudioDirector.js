@@ -138,16 +138,16 @@ const LAUGH = {
  *
  *   upstairsHallway  Down the stairs, round the turn into the passage at their
  *                    foot (upstairsHallwayLevel's singingAnchor). Never loud
- *                    in the hall: -30 dBFS at 5 m, the top of the stairs, and
- *                    with inverse ref 1.5 / rolloff 1.4 about -40 at the
+ *                    in the hall: -28.5 dBFS at 5 m, the top of the stairs, and
+ *                    with inverse ref 1.5 / rolloff 1.4 about -38.5 at the
  *                    bedroom door, 14 m off -- slightly there on arrival,
  *                    growing the whole way down, and below and ahead of you, so
  *                    it is plain she is down the stairs. Round a corner, so dark:
  *                    900 Hz from the far end, 1.8 kHz at the top of the stairs.
  *   backrooms        At the exit door this crossing needs (backroomsLevel's
  *                    exitDoorPosition): a thread to follow through the maze.
- *                    -22 dBFS at 2 m; inverse ref 4 keeps her -36 at 20 m and
- *                    -42 at 40 m, so she is faintly somewhere from anywhere in
+ *                    -20.5 dBFS at 2 m; inverse ref 4 keeps her -34.5 at 20 m
+ *                    and -40.5 at 40 m, so she is faintly somewhere from anywhere in
  *                    it, and the top closes in with distance, 2.6 kHz near the
  *                    door to 700 Hz at 40 m.
  *
@@ -157,13 +157,14 @@ const SINGING = {
   cue: 'annabelle_singing', firstAfter: 1.5, gap: [3, 7], fadeIn: 1.2, fadeOut: 1.5,
   places: {
     upstairsHallway: {
-      // Both 25% (+1.9 dB) up on the first pass, at the user's ask.
-      peakDb: -30.1, at: 5,
+      // Both 25% (+1.9 dB) up on the first pass, and 20% (+1.6 dB) more on
+      // the second, at the user's ask.
+      peakDb: -28.5, at: 5,
       panner: { model: 'equalpower', distanceModel: 'inverse', refDistance: 1.5, rolloff: 1.4 },
       nearLowpass: 1800, farLowpass: 900, nearFrom: 5, farFrom: 14
     },
     backrooms: {
-      peakDb: -22.1, at: 2,
+      peakDb: -20.5, at: 2,
       panner: { model: 'equalpower', distanceModel: 'inverse', refDistance: 4, rolloff: 1 },
       nearLowpass: 2600, farLowpass: 700, nearFrom: 2, farFrom: 40
     }
