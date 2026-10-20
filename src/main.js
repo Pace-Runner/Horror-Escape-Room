@@ -2798,22 +2798,60 @@ const study = createStudyLevel({
     captions.play(line('dialog_pickup_gate_key'));
   },
 
-  /**
-   * The mirror. The single most important interaction in the game, and it only
-   * does its job with the visor on -- which is the point: the player has to
-   * have chosen to look.
-   */
+  // The study owns the once-only/letter gate; the shared runner owns input
+  // and the shot camera, leaving the player's actual position untouched.
   onLookInMirror: () => {
-    if (!gameState.visorWorn) {
-      showCaption(line('dialog_mirror_without_visor'));
-      return;
-    }
-    script.run(async (s) => {
-      if (!await s.play(line('dialog_mirror'))) return;
-      s.do(() => {
-        objectiveEl.textContent = 'Read the letter.';
-        audio.setBreathing(0.35);
-      });
+    if (cutscene.isRunning || !study.refs.puzzle.mirrorUnlocked) return Promise.resolve(false);
+    const wasVisorWorn = gameState.visorWorn;
+    const playerPosition = camera.position.clone();
+    const [annabelleX, annabelleZ] = study.refs.annabelleSpot;
+    const annabelleTarget = [annabelleX, 0.7, annabelleZ];
+    const externalCamera = [Math.min(7.1, playerPosition.x + 1.2), 1.65, playerPosition.z + 1.9];
+    const playerTarget = [playerPosition.x, 1.05, playerPosition.z];
+    setThirdPerson(false);
+    player.clearKeys();
+    return cutscene.playScene({
+      name: 'studyMirrorReveal',
+      letterbox: true,
+      skippable: false,
+      shots: [
+        { at: 'player', lookAt: [4.8, 1.45, -6.4], fov: 48, seconds: 0.8 },
+        { cut: true, at: externalCamera, lookAt: playerTarget, fov: [52, 43], seconds: 9.5, shake: 0.06 },
+        { cut: true, at: [annabelleX + 2.4, 1.35, annabelleZ + 1.3], lookAt: annabelleTarget, fov: [48, 42], seconds: 3 },
+        { cut: true, at: 'player', lookAt: annabelleTarget, fov: camera.fov, seconds: 1 }
+      ],
+      cues: [
+        { t: 0, run: () => { captions.cancel(); fade.fadeOut(180); } },
+        { t: 0.2, run: () => { visor.set(true); fade.fadeIn(400); } },
+        { t: 0.85, run: () => captions.say({ text: 'Subject 06.', duration: 1.8 }) },
+        { t: 3, run: () => captions.say({ text: 'Mark.', duration: 1.7 }) },
+        { t: 5.2, run: () => captions.say({ text: 'You were never running from it.', duration: 2.1 }) },
+        { t: 7.8, run: () => captions.say({ text: 'You were containing it.', duration: 2 }) },
+        { t: 10.3, run: () => { study.refs.revealAnnabelle(); sfx('cloth'); } },
+        { t: 10.5, run: () => captions.say({ text: 'Annabelle.', duration: 2 }) },
+        { t: 13, run: () => fade.fadeOut(250) },
+        { t: 13.4, run: () => fade.fadeIn(500) }
+      ],
+      onFrame: (_ctx, t) => {
+        cutsceneContext.showPlayerBody(t >= 0.8 && t < 10.3);
+        // The same rig as the corridor creature is Mark's own body. Its
+        // existing correction morph supplies the altered-subject reveal.
+        if (t >= 0.8 && t < 10.3) {
+          playerBody.setCorrection(0);
+          playerBody.setYaw(player.yaw);
+          playerBody.setSpeed(0);
+          playerBody.update(0);
+        }
+      },
+      onEnd: (_ctx, completed) => {
+        playerBody.setCorrection(1);
+        cutsceneContext.showPlayerBody(false);
+        visor.set(wasVisorWorn);
+        player.clearKeys();
+        fade.clear();
+        captions.cancel();
+        if (completed) objectiveEl.textContent = 'Take the HOLLOW OVERRIDE KEY beside Annabelle.';
+      }
     });
   }
 });

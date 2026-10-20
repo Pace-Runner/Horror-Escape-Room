@@ -325,8 +325,12 @@ export function createStudyLevel({
     truthRecordProgress: 0,
     truthRecordsSolved: false,
     truthRecordsComplete: false,
-    mirrorUnlocked: false
+    mirrorUnlocked: false,
+    mirrorRevealInProgress: false,
+    mirrorRevealed: false,
+    hasHollowOverrideKey: false
   };
+  let mirrorRevealGeneration = 0;
 
   /**
    * The desk drawer, which actually opens. A handle glued to a solid box is
@@ -1422,11 +1426,102 @@ Annabelle`;
   mirrorGlass.position.set(4.8, 1.45, -ROOM_D / 2 + 0.1);
   mirrorGlass.userData.interact = {
     label: 'Look into the mirror',
-    onInteract: () => {
-      if (puzzle.mirrorUnlocked) onLookInMirror();
+    onInteract: async () => {
+      if (!puzzle.mirrorUnlocked) {
+        showCaption("The reflection won't settle.");
+        return;
+      }
+      if (puzzle.mirrorRevealed || puzzle.mirrorRevealInProgress) return;
+      const generation = ++mirrorRevealGeneration;
+      puzzle.mirrorRevealInProgress = true;
+      try {
+        const completed = await onLookInMirror();
+        if (generation !== mirrorRevealGeneration) return;
+        if (!completed) {
+          annabelle.visible = false;
+          return;
+        }
+        puzzle.mirrorRevealed = true;
+        annabelle.visible = true;
+        hollowOverrideKey.visible = !puzzle.hasHollowOverrideKey;
+        hollowOverrideKeyHit.visible = !puzzle.hasHollowOverrideKey;
+        if (!puzzle.hasHollowOverrideKey && !interactables.includes(hollowOverrideKeyHit)) {
+          interactables.push(hollowOverrideKeyHit);
+        }
+        mirrorGlass.userData.interact.label = 'The reflection is still';
+      } finally {
+        if (generation === mirrorRevealGeneration) puzzle.mirrorRevealInProgress = false;
+      }
     }
   };
   group.add(mirrorGlass);
+
+  // Temporary injured Annabelle, tucked under the loft in the planned corner.
+  // Bent knees and a slumped torso communicate the pose without another rig.
+  const annabelle = new THREE.Group();
+  annabelle.name = 'Annabelle_Injured_Graybox';
+  annabelle.position.set(-4.2, 0, -4.2);
+  annabelle.rotation.y = -Math.PI / 2;
+  annabelle.visible = false;
+  group.add(annabelle);
+  const annabelleCoatMat = new THREE.MeshStandardMaterial({ color: 0x5d5148, roughness: 1 });
+  const annabelleSkinMat = new THREE.MeshStandardMaterial({ color: 0x9d8271, roughness: 0.95 });
+  const annabelleTorso = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.48, 0.22), annabelleCoatMat);
+  annabelleTorso.position.set(0, 0.66, 0.04);
+  annabelleTorso.rotation.x = 0.35;
+  annabelle.add(annabelleTorso);
+  const annabelleHead = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), annabelleSkinMat);
+  annabelleHead.scale.set(0.85, 1.1, 0.9);
+  annabelleHead.position.set(0, 0.98, -0.09);
+  annabelleHead.rotation.z = -0.2;
+  annabelle.add(annabelleHead);
+  const limbGeometry = new THREE.CylinderGeometry(0.055, 0.06, 1, 7);
+  function addAnnabelleLimb(from, to, material) {
+    const a = new THREE.Vector3(...from);
+    const b = new THREE.Vector3(...to);
+    const limb = new THREE.Mesh(limbGeometry, material);
+    limb.position.copy(a).add(b).multiplyScalar(0.5);
+    limb.scale.y = a.distanceTo(b);
+    limb.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.sub(a).normalize());
+    annabelle.add(limb);
+  }
+  for (const side of [-1, 1]) {
+    addAnnabelleLimb([side * 0.12, 0.46, 0.06], [side * 0.2, 0.28, -0.28], annabelleCoatMat);
+    addAnnabelleLimb([side * 0.2, 0.28, -0.28], [side * 0.2, 0.07, -0.02], annabelleCoatMat);
+    addAnnabelleLimb([side * 0.2, 0.83, -0.02], [side * 0.22, 0.53, -0.13], annabelleCoatMat);
+    addAnnabelleLimb([side * 0.22, 0.53, -0.13], [side * 0.07, 0.55, -0.23], annabelleSkinMat);
+  }
+
+  const hollowOverrideKey = new THREE.Group();
+  hollowOverrideKey.name = 'HollowOverrideKey';
+  hollowOverrideKey.position.set(-3.55, 0.055, -3.85);
+  hollowOverrideKey.rotation.x = -Math.PI / 2;
+  hollowOverrideKey.visible = false;
+  const overrideBow = new THREE.Mesh(new THREE.TorusGeometry(0.065, 0.018, 6, 12), keyMat);
+  const overrideShaft = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.2, 0.025), keyMat);
+  overrideShaft.position.y = -0.14;
+  const overrideBit = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.045, 0.025), keyMat);
+  overrideBit.position.set(0.025, -0.22, 0);
+  hollowOverrideKey.add(overrideBow, overrideShaft, overrideBit);
+  group.add(hollowOverrideKey);
+  const hollowOverrideKeyHit = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.24, 0.48), archiveHitMat);
+  hollowOverrideKeyHit.position.set(-3.55, 0.12, -3.85);
+  hollowOverrideKeyHit.visible = false;
+  hollowOverrideKeyHit.userData.interact = {
+    label: 'Take the HOLLOW OVERRIDE KEY',
+    onInteract: () => {
+      if (!puzzle.mirrorRevealed || puzzle.hasHollowOverrideKey) return;
+      puzzle.hasHollowOverrideKey = true;
+      gameState.inventory.add('hollowOverrideKey');
+      hollowOverrideKey.visible = false;
+      hollowOverrideKeyHit.visible = false;
+      const index = interactables.indexOf(hollowOverrideKeyHit);
+      if (index >= 0) interactables.splice(index, 1);
+      onSfx('keys_pickup');
+      showCaption('HOLLOW OVERRIDE KEY ACQUIRED');
+    }
+  };
+  group.add(hollowOverrideKeyHit);
 
   /**
    * The gate key, hanging on the side of the mirror frame.
@@ -2025,6 +2120,8 @@ Annabelle`;
         visorOnly.visible = on;
         distortedTrail.visible = !on;
         updateTruthRecords(on);
+        annabelleCoatMat.color.setHex(on ? 0x5d5148 : 0x29232b);
+        annabelleSkinMat.color.setHex(on ? 0x9d8271 : 0x4c414b);
         gateKey.visible = on && !puzzle.hasGateKey;
         const ki = interactables.indexOf(gateKeyHit);
         if (on && !puzzle.hasGateKey && ki < 0) interactables.push(gateKeyHit);
@@ -2043,6 +2140,12 @@ Annabelle`;
       shutHit,
       /** Where Annabelle stands once the letter has been read. */
       annabelleSpot: [-4.2, -4.2],
+      annabelle,
+      mirrorGlass,
+      revealAnnabelle() {
+        if (puzzle.mirrorRevealInProgress || puzzle.mirrorRevealed) annabelle.visible = true;
+      },
+      hollowOverrideKey,
       puzzle,
       lockMeshes,
       doorState,
@@ -2150,6 +2253,17 @@ Annabelle`;
       puzzle.truthRecordsSolved = false;
       puzzle.truthRecordsComplete = false;
       puzzle.mirrorUnlocked = false;
+      mirrorRevealGeneration++;
+      puzzle.mirrorRevealInProgress = false;
+      puzzle.mirrorRevealed = false;
+      puzzle.hasHollowOverrideKey = false;
+      annabelle.visible = false;
+      hollowOverrideKey.visible = false;
+      hollowOverrideKeyHit.visible = false;
+      gameState.inventory.delete('hollowOverrideKey');
+      const overrideIndex = interactables.indexOf(hollowOverrideKeyHit);
+      if (overrideIndex >= 0) interactables.splice(overrideIndex, 1);
+      mirrorGlass.userData.interact.label = 'Look into the mirror';
       truthDrawer.position.z = 0.28;
       letterPaper.visible = false;
       letterHit.visible = false;
