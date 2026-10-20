@@ -187,6 +187,13 @@ export class PointerLockPlayer {
      */
     this.sprint = 0;
     /**
+     * Whether Shift does anything in the current level. main.js turns it off
+     * for the bedroom and the upstairs hallway, which are walked, not run.
+     * While false the sprint blend eases back to 0 like a released key, and
+     * stamina rests.
+     */
+    this.sprintEnabled = true;
+    /**
      * Smoothed 0..1: how much the player is leaning into something they are
      * pushing. Eased toward last frame's contact, so the first frame of a push
      * goes at full speed and the slowdown arrives a beat later, like weight.
@@ -602,7 +609,7 @@ export class PointerLockPlayer {
      * still does not drain the bar -- you cannot sprint on the spot.
      */
     const wantsToMove = this.keys.forward || this.keys.back || this.keys.left || this.keys.right;
-    const canSprint = this.keys.sprint && wantsToMove && !this.winded
+    const canSprint = this.sprintEnabled && this.keys.sprint && wantsToMove && !this.winded
       && this.stamina > 0 && this.crouch < 0.5;
     this.sprint += ((canSprint ? 1 : 0) - this.sprint) * Math.min(1, dt / SPRINT_BLEND);
     this.#updateStamina(dt, canSprint);

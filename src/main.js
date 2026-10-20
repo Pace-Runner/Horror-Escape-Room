@@ -3245,6 +3245,12 @@ const LEVEL_OBJECTIVES = {
   backrooms: 'Find the way through.'
 };
 
+/**
+ * Levels where Shift does nothing. The bedroom and the upstairs hallway are
+ * small and meant to be walked slowly; sprint comes back from the backrooms on.
+ */
+const SPRINTLESS_LEVELS = new Set(['bedroom', 'upstairsHallway']);
+
 const LEVEL_FOG = {
   bedroom: new THREE.FogExp2(0x05070a, 0.065),
   // Thinner than the bedroom's, so the far end of the hall and the top of the
@@ -3589,6 +3595,7 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   stairsScareScript.cancel();
   if (key === 'bedroom') audio.setBreathing(LEVEL_ONE_BREATHING_BASE);
   player.movementEnabled = !lockMovement;
+  player.sprintEnabled = !SPRINTLESS_LEVELS.has(key);
   // postFX.reset() above zeroes the visor dial, and the level just activated has
   // never been told what the player can see. Without this, walking into a room
   // wearing the visor takes it off in everything except the player's inventory.
