@@ -3321,6 +3321,9 @@ export function createBedroomLevel({
       /** The open door swings shut (the player has gone through). */
       shutDoor() { doorShutBehind = true; },
       bedExitPosition: [BED_POSITION_X, BED_EXIT_POSITION_Z],
+      /** The bed's centre on the floor, and the locked cuff: what the wake-up scene is framed on. */
+      bedPosition: [BED_POSITION_X, BED_POSITION_Z],
+      cuff,
       bedsideTableCollider,
       disturbChair,
       disturbBin,

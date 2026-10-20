@@ -3,6 +3,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { VisorPass } from './VisorPass.js';
+import { WakePass } from './WakePass.js';
 
 /**
  * The game's post-processing chain. One place, so nothing else has to know that
@@ -53,10 +54,15 @@ export function createPostFX(renderer, scene, camera) {
   composer.addPass(renderPass);
   const visorPass = new VisorPass();
   composer.addPass(visorPass);
+  // The eyelids go over everything, the visor included: they are nearer the
+  // eye than the lenses are. Skipped by the composer while the eyes are open.
+  const wakePass = new WakePass();
+  composer.addPass(wakePass);
   // Last, always. See note 1.
   composer.addPass(new OutputPass());
 
   visorPass.setSize(size.width, size.height);
+  wakePass.setSize(size.width, size.height);
 
   /**
    * Eased rather than switched. Putting on a pair of glasses is a physical
@@ -107,12 +113,27 @@ export function createPostFX(renderer, scene, camera) {
       caughtTarget = THREE.MathUtils.clamp(amount, 0, 1);
     },
 
-    /** Snaps both dials to their targets. For restart, where easing is wrong. */
+    /**
+     * Eyelids and the blur of just waking, set directly every frame by the
+     * wake-up scene -- no easing here, because a blink is a shape only the
+     * scene knows. See WakePass.js.
+     *
+     * @param open 0 shut .. 1 open
+     * @param blur 0 sharp .. 1 unfocused
+     */
+    setWake(open, blur = 0) {
+      wakePass.open = open;
+      wakePass.blur = blur;
+    },
+
+    /** Snaps every dial to rest. For restart, where easing is wrong. */
     reset() {
       visorTarget = 0;
       caughtTarget = 0;
       visorPass.visor = 0;
       visorPass.caught = 0;
+      wakePass.open = 1;
+      wakePass.blur = 0;
     },
 
     get visorAmount() {
@@ -134,6 +155,7 @@ export function createPostFX(renderer, scene, camera) {
       composer.setPixelRatio(renderer.getPixelRatio());
       composer.setSize(width, height);
       visorPass.setSize(width, height);
+      wakePass.setSize(width, height);
     },
 
     render() {

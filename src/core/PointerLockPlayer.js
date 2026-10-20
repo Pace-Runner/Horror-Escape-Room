@@ -407,6 +407,23 @@ export class PointerLockPlayer {
     this.#applyLook();
   }
 
+  /**
+   * Re-aims without moving: teleport()'s counterpart. A cutscene that cuts
+   * back to the player's eyes hands over the view it ended on through this.
+   * spawn() would do it too, but it also stands the player up -- a crouching
+   * player would see the view jump up for a frame and drop back.
+   */
+  aim(yaw, pitch = this._pitch) {
+    this._yaw = yaw;
+    this._pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch));
+    this.#clampLookToBounds();
+    this._pendingYaw = 0;
+    this._pendingPitch = 0;
+    this.lookDeltaX = 0;
+    this.lookDeltaY = 0;
+    this.#applyLook();
+  }
+
   /** Kept for callers that only want to move without re-aiming. */
   teleport(x, z) {
     this.groundY = this.#groundUnder(x, z);

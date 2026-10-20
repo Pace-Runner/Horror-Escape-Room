@@ -1926,6 +1926,47 @@ body.free-camera-clean #caption-box {
   visibility: hidden;
 }
 
+/* ---------- cutscenes ---------- */
+/* The HUD goes for a scene the same way it goes for the free camera; the
+   captions stay, because a scene's lines are part of it. See
+   src/core/Cutscene.js. */
+body.cutscene #hud,
+body.cutscene #crosshair {
+  visibility: hidden;
+}
+
+/* Letterbox, for a scene that asks for it. Made by the runner itself. Under
+   the captions (18) so a line can sit on the bar, and under the fade (30) so
+   a scene that ends on black ends on black everywhere. */
+.cutscene-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 11vh;
+  background: #000;
+  pointer-events: none;
+  z-index: 17;
+  transition: transform 0.6s cubic-bezier(0.45, 0, 0.25, 1);
+}
+
+.cutscene-bar-top {
+  top: 0;
+  transform: translateY(-100%);
+}
+
+.cutscene-bar-bottom {
+  bottom: 0;
+  transform: translateY(100%);
+}
+
+body.cutscene-letterbox .cutscene-bar {
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cutscene-bar { transition-duration: 1ms; }
+}
+
 /* Fades out by itself so it is never left in a recording. Over the fade (30)
    so it can be read mid-transition, under the pause screen (40). */
 #free-camera-status {
