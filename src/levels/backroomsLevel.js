@@ -1201,7 +1201,7 @@ export function createBackroomsLevel({
   //
   // One per crossing, because the maze is left by a different door each time:
   // Door 1, at the top of the drawing, out to Level 2; Door 2, inside the
-  // central room, out to Level 3. setRoute() says which crossing this is, and
+  // far-left room, out to Level 3. setRoute() says which crossing this is, and
   // the other door stays shut -- it is there, it is a door, and it is not the
   // way this time.
   let route = null;

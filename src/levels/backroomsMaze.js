@@ -58,7 +58,7 @@
  * The maze is walked twice, from two different ways in to two different ways
  * out (CROSSINGS): down the upstairs hallway's stairs, in at the bottom of the
  * drawing and out through Door 1 at the top to Level 2; then from Level 2, in
- * through the right-hand wall near the bottom and out through Door 2, which stands inside the central
+ * through the right-hand wall near the bottom and out through Door 2, which stands in the far-left
  * room, to Level 3.
  */
 
@@ -157,11 +157,11 @@ export const GRID = {
   rooms: {
     // On the top edge; the drawing leaves both its ends open.
     TR: { cells: [[7, 0], [8, 0]], doors: [[6, 0], [9, 0]], grow: { north: 3.2 } },
-    // Door 2, to Level 3, stands inside this one. In at the top, out at the bottom.
+    // In at the top, out at the bottom.
     C: { cells: [[3, 3], [3, 4]], doors: [[3, 2], [3, 5]] },
     // Inside the maze: in from above, out below.
     BL: { cells: [[1, 8], [2, 8]], doors: [[1, 7], [1, 9]] },
-    // Off the outside of the left and right edges, one doorway each.
+    // Off the outside of the left and right edges, one doorway each. Door 2, to Level 3, stands in L.
     L: { beside: [0, 2], side: 'west', doors: [[0, 2]] },
     R: { beside: [9, 6], side: 'east', doors: [[9, 6]] }
   },
@@ -169,8 +169,8 @@ export const GRID = {
     // Down the upstairs hallway's stairs: in at the bottom, out of Door 1 at the top.
     first: { from: 'upstairsHallway', enter: { cell: [5, 9], side: 'south' }, exit: { cell: [5, 0], side: 'north' } },
     // From Level 2: in through the right-hand wall low down (the red X on the
-    // drawing), out of Door 2 in the central room.
-    second: { from: 'hallwayBasement', enter: { cell: [9, 8], side: 'east' }, exit: { room: 'C', wall: 'west' } }
+    // drawing), out of Door 2 on the far wall of the left-hand room.
+    second: { from: 'hallwayBasement', enter: { cell: [9, 8], side: 'east' }, exit: { room: 'L', wall: 'west' } }
   }
 };
 

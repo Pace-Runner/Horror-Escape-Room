@@ -24,7 +24,7 @@ import { LEGS, CORRIDORS, neighbours, crossPoint, legMid } from '../levels/backr
  *
  * ------------------------------------------------------------------ hearing
  *
- * IT DOES NOT KNOW WHERE YOU ARE. The only thing that tells it is NOISE, and
+ * IT ALWAYS KNOWS WHERE YOU ARE (changed 2026-10-20). Originally only NOISE told it, and
  * the only thing that makes noise is SPRINTING:
  *
  *   sprinting          -> it learns where you are, right now, and runs there
@@ -94,6 +94,17 @@ export const CHASE_SPEED = SPRINT_SPEED / CHASE_RATIO;
  * an option -- it would just be a slower way to be caught.
  */
 const SEARCH_SPEED = WALK_SPEED * 0.85;
+
+/**
+ * Catch-up: 30% faster at FAR_RANGE (30 m) or more, 15% faster from MID_RANGE
+ * (18 m) to 30 m, and the normal chase speed under 18 m. It always knows where you are (see
+ * update), so this is what keeps the pressure on across the maze.
+ */
+const FAR_RANGE = 30.0;
+const FAR_BOOST = 1.3;
+/** 18-30 m: a smaller boost. Under 18 m (SIGHT_RANGE) it is the normal chase speed. */
+const MID_RANGE = 18.0;
+const MID_BOOST = 1.15;
 
 /**
  * Unobstructed distance at which it sees you. Was 13 m; the maze grew to 6.4 m
@@ -632,10 +643,9 @@ export function createBackroomsHunter({
       } else if (sawFor > 0) {
         sawFor -= dt;
       }
-      if (player.sprinting || (player.walking && dist <= HEAR_WALK)) {
-        // Noise. It does not matter whether it can see you.
-        heard = { x: player.x, z: player.z };
-      }
+      // It ALWAYS knows where you are: the hunt target is your position every frame.
+      heard = { x: player.x, z: player.z };
+      const pace = CHASE_SPEED * (dist >= FAR_RANGE ? FAR_BOOST : dist >= MID_RANGE ? MID_BOOST : 1);
 
       // --- what it does ----------------------------------------------------
       const wasState = state;
@@ -690,7 +700,7 @@ export function createBackroomsHunter({
         // Re-path every frame while it can see you: you are moving, and in a
         // corridor the straight line to you IS the route.
         setPath({ x: player.x, z: player.z });
-        advance(dt, CHASE_SPEED, TURN_RATE_CHASE);
+        advance(dt, pace, TURN_RATE_CHASE);
       } else if (state === 'hunt') {
         // RE-PLANNED AS THE NOISE MOVES. It used to path to the first place it
         // heard you and never update, so a player sprinting about led it to a
@@ -704,7 +714,7 @@ export function createBackroomsHunter({
           huntPlannedFor = heardLeg;
           huntReplanIn = HUNT_REPLAN;
         }
-        const arrived = advance(dt, CHASE_SPEED, TURN_RATE_CHASE);
+        const arrived = advance(dt, pace, TURN_RATE_CHASE);
         if (arrived || Math.hypot(heard.x - pos.x, heard.z - pos.z) < SEARCH_ARRIVED) {
           // It got where it last heard you and you are not there. This is the
           // moment walking away pays off.
