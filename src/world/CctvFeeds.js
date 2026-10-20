@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { DOOR_PANEL_ROWS, getPanelSpans } from './doorPanels.js';
+import { createVideoFeed } from './VideoFeed.js';
 
 /**
  * The five camera feeds, painted onto canvases.
@@ -27,6 +28,18 @@ import { DOOR_PANEL_ROWS, getPanelSpans } from './doorPanels.js';
  * The creature crossing camera two is therefore not a physics event that
  * happens to be filmed. It is a shape drawn moving across a canvas, which means
  * it can be timed to the frame and can never fail to happen.
+ *
+ * RECORDED CLIPS, OPTIONALLY. A file in src/assets/video/ named after a feed id
+ * -- kitchen.webm, porch.mp4 -- replaces that camera's DRAWN ROOM with the
+ * clip, repainted through the same palette (see world/VideoFeed.js). Only the
+ * room: the OSD, the no-power veil, the scripted figures and the grain are
+ * still drawn here, on top, by the same code as every other feed, so camera
+ * one's label and clock are identical whether it is filmed or drawn.
+ *
+ * The folder is GLOBBED, NOT IMPORTED, for the same reason the audio is (see
+ * world/audio/assets.js): a glob that matches nothing is an empty object, so
+ * with no folder or no file every feed is drawn exactly as before and the
+ * build never notices. A clip that will not play falls back to the drawing.
  */
 
 /** Feed resolution. Deliberately low: this is a 1987 security camera. */
@@ -43,8 +56,11 @@ const H = 240;
  * away was unreadable -- shapes have to survive being small, dim and behind
  * scanlines, so the contrast between floor, wall and figure carries the image
  * rather than the detail does.
+ *
+ * Exported so world/VideoFeed.js maps recorded clips onto the SAME colours,
+ * rather than a copy of them that could drift.
  */
-const INK = {
+export const INK = {
   black: '#04060a',
   darkest: '#141d21',
   dark: '#222f32',
@@ -69,6 +85,31 @@ export const FEED_LABELS = {
   study: 'CAM 4  STUDY',
   basement: 'CAM 5  SUB-LEVEL'
 };
+
+/**
+ * Every clip in src/assets/video/, keyed by feed id. Empty -- and every feed
+ * drawn -- when the folder is missing or holds nothing.
+ *
+ * Keyed by BASENAME without extension, like the audio cues, and only names in
+ * FEED_IDS count: a stray "kitchen_take2.webm" is ignored rather than becoming
+ * a sixth camera nobody can select. With both a .webm and an .mp4 for the same
+ * camera the .webm wins; one that this browser will not decode falls back to
+ * the drawing, not to the other file.
+ */
+const CLIP_FILES = import.meta.glob('../assets/video/*.{webm,mp4}', {
+  query: '?url',
+  import: 'default',
+  eager: true
+});
+
+const CLIP_URLS = {};
+for (const [path, url] of Object.entries(CLIP_FILES)) {
+  const fileName = path.split('/').pop();
+  const feedId = fileName.replace(/\.[^.]+$/, '');
+  if (!FEED_IDS.includes(feedId)) continue;
+  if (CLIP_URLS[feedId] && !fileName.endsWith('.webm')) continue;
+  CLIP_URLS[feedId] = url;
+}
 
 /** Simple deterministic hash, so a feed's grain is stable frame to frame. */
 function noise(x, y, seed) {
@@ -200,14 +241,21 @@ function overlay(ctx, label, seconds) {
   ctx.fillText('JUN 1987', 8, H - 10);
 }
 
+/**
+ * How bright the odd lines are against the even ones. Every other line dimmed
+ * is most of what reads as "this is a CRT feed". Exported so a clip shown
+ * outside these feeds (world/VideoFeed.js with its own scanlines on) gets the
+ * same interlace.
+ */
+export const INTERLACE_ODD_LINE_GAIN = 0.82;
+
 /** Interlace + grain, drawn last so it sits over everything. */
 function grain(ctx, seconds, amount) {
   const img = ctx.getImageData(0, 0, W, H);
   const d = img.data;
   const seed = Math.floor(seconds * 24);
   for (let y = 0; y < H; y++) {
-    // Every other line dimmed: interlacing is most of "this is a CRT feed".
-    const inter = y % 2 === 0 ? 1 : 0.82;
+    const inter = y % 2 === 0 ? 1 : INTERLACE_ODD_LINE_GAIN;
     for (let x = 0; x < W; x += 1) {
       const i = (y * W + x) * 4;
       const g = (noise(x, y, seed) - 0.5) * amount * 90;
@@ -267,8 +315,28 @@ export function createCctvFeeds() {
   const canvases = {};
   const textures = {};
   const contexts = {};
+  /** The VideoFeed behind each camera that has a clip. Most have none. */
+  const clips = {};
 
   for (const id of FEED_IDS) {
+    /**
+     * A camera with a clip paints onto the CLIP'S canvas and shows the clip's
+     * texture, rather than the clip being copied onto a canvas of its own.
+     * Then `textures[id]` is one object for the life of the feed whichever
+     * picture is on it -- the level hands that texture to the screen once per
+     * button press, so swapping it later, on a clip failing, would leave the
+     * screen showing a texture nobody draws on. A failed clip instead gets
+     * the drawn room painted onto the same canvas.
+     */
+    if (CLIP_URLS[id]) {
+      const clip = createVideoFeed(CLIP_URLS[id], { width: W, height: H, scanlines: false });
+      clips[id] = clip;
+      canvases[id] = clip.canvas;
+      contexts[id] = clip.canvas.getContext('2d', { willReadFrequently: true });
+      textures[id] = clip.texture;
+      continue;
+    }
+
     const canvas = document.createElement('canvas');
     canvas.width = W;
     canvas.height = H;
@@ -463,9 +531,15 @@ export function createCctvFeeds() {
   function draw(id) {
     const ctx = contexts[id];
     ctx.save();
-    DRAWERS[id](ctx);
+    // The clip's frame when there is one; the drawn room while a clip is
+    // still loading, after a reset, or for good once it has failed.
+    const showingClip = clips[id]?.update() === true;
+    if (!showingClip) DRAWERS[id](ctx);
 
     // --- the two scripted sightings ---------------------------------------
+    // Drawn over a clip too, not left to it: these are story beats the level
+    // times to the second, and a clip that happens not to contain them must
+    // not be able to lose them.
     if (id === 'hallway' && hallwayDashAt !== null) {
       const t = (elapsed - hallwayDashAt) / 0.75;
       if (t >= 0 && t <= 1) {
@@ -519,7 +593,20 @@ export function createCctvFeeds() {
   }
 
   // Every feed drawn once up front, so switching to one is never a blank frame.
+  // A camera with a clip gets its drawn room here: nothing is loaded yet.
   for (const id of FEED_IDS) draw(id);
+
+  /**
+   * Runs the clip on the camera being watched and stops every other one.
+   * Only one is ever decoding, for the same reason only one feed is ever
+   * redrawn per frame.
+   */
+  function playOnly(id) {
+    for (const [clipId, clip] of Object.entries(clips)) {
+      if (clipId === id) clip.play();
+      else clip.pause();
+    }
+  }
 
   return {
     textures,
@@ -530,6 +617,7 @@ export function createCctvFeeds() {
     setActive(id) {
       if (!FEED_IDS.includes(id)) return false;
       active = id;
+      playOnly(id);
       draw(id);
       return true;
     },
@@ -578,6 +666,10 @@ export function createCctvFeeds() {
 
     update(dt) {
       elapsed += dt;
+      // The screen comes on showing camera one without setActive ever being
+      // called, so the watched camera's clip is started from here as well.
+      // play() is a no-op once running, so this costs nothing per frame.
+      clips[active]?.play();
       // ONLY the visible feed. Five 320x240 canvases with per-pixel grain would
       // cost more per frame than everything else in this game put together.
       draw(active);
@@ -591,10 +683,17 @@ export function createCctvFeeds() {
       basementLostAt = null;
       roomZoneLit.house = false;
       roomZoneLit.lab = true;
+      // Rewound and paused; the first update() of the next run starts camera
+      // one's clip again from its first frame.
+      for (const clip of Object.values(clips)) clip.reset();
       for (const id of FEED_IDS) draw(id);
     },
 
+    /** The clip behind each camera that has one, keyed by feed id. For debugging. */
+    clips,
+
     dispose() {
+      for (const clip of Object.values(clips)) clip.dispose();
       for (const id of FEED_IDS) textures[id].dispose();
     }
   };
