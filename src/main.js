@@ -4387,7 +4387,7 @@ function beginGame() {
   startSub.textContent = 'Project HOLLOW -- June 1987';
   startButton.textContent = 'Click to begin';
   // Keep the focused menu button from treating Enter/Space as a second start
-  // request while this deliberately unskippable sequence owns the screen.
+  // request while the opening sequence owns the screen.
   startButton.disabled = true;
   startScreen.classList.add('hidden');
   audio.start();
@@ -4397,16 +4397,28 @@ function beginGame() {
   // Start the opening image first, then prepare Level 1 behind it. Its movement
   // gate remains locked until the report has ended.
   const newsFinished = openingNewsCutscene.play();
+  const skipOpeningNews = (event) => {
+    if (event.code === 'KeyK' && openingNewsCutscene.skip()) event.preventDefault();
+  };
+  window.addEventListener('keydown', skipOpeningNews);
   const levelOneReady = Promise.all([initializeHands(), initializeHeldTorch()]);
   activateLevel('bedroom', { lockMovement: true });
 
   script.run(async (s) => {
     // The opening report runs while Level 1's presentation assets prepare.
-    await newsFinished;
+    const newsResult = await newsFinished;
+    window.removeEventListener('keydown', skipOpeningNews);
     if (!s.alive()) return;
     await levelOneReady;
     if (!s.alive()) return;
-    await waitForOpeningNewsContinue();
+    if (newsResult?.skipped) {
+      // K is itself a user gesture, so it can safely acquire the pointer lock
+      // and continue straight to the authored wake-up scene.
+      startButton.disabled = false;
+      player.lock();
+    } else {
+      await waitForOpeningNewsContinue();
+    }
     if (!s.alive()) return;
     await Promise.all([openingNewsCutscene.close(), fade.fadeOut(420)]);
     s.do(() => {

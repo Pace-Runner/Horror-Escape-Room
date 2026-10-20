@@ -67,6 +67,7 @@ export function createOpeningNewsCutscene({ root }) {
   let preloadPromise = null;
   let rafId = 0;
   let isPlaying = false;
+  let resolvePlayback = null;
 
   function preload() {
     if (!preloadPromise) {
@@ -108,12 +109,15 @@ export function createOpeningNewsCutscene({ root }) {
     photoCards[3].classList.toggle('is-final-radio', time >= FINAL_RADIO_TIME);
   }
 
-  function finish(resolve) {
+  function finish({ skipped = false } = {}) {
+    if (!isPlaying) return false;
     cancelAnimationFrame(rafId);
     audio.pause();
     subtitle.textContent = '';
     isPlaying = false;
-    resolve();
+    resolvePlayback?.({ skipped });
+    resolvePlayback = null;
+    return true;
   }
 
   function close() {
@@ -131,6 +135,9 @@ export function createOpeningNewsCutscene({ root }) {
   return {
     preload,
     close,
+    skip() {
+      return finish({ skipped: true });
+    },
     play() {
       if (isPlaying) return Promise.resolve();
       isPlaying = true;
@@ -149,12 +156,13 @@ export function createOpeningNewsCutscene({ root }) {
       audio.play().catch((error) => console.warn('Opening news audio could not start:', error));
 
       return new Promise((resolve) => {
+        resolvePlayback = resolve;
         const tick = () => {
           const elapsed = (performance.now() - startedAt) / 1000;
           const time = !audio.paused && audio.currentTime > 0 ? audio.currentTime : elapsed;
           update(time, state);
           if (audio.ended || time >= CUTSCENE_END_TIME) {
-            finish(resolve);
+            finish();
             return;
           }
           rafId = requestAnimationFrame(tick);
