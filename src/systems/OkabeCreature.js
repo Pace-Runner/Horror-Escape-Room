@@ -3,6 +3,9 @@ import { loadModel } from '../world/modelLoader.js';
 import okabeModelUrl from '../assets/models/okabe.glb?url';
 import okabeCleanModelUrl from '../assets/models/okabe_clean.glb?url';
 
+/** Scratch for getEyePosition(), which runs every frame a lens follows the eyes. */
+const _eyeOther = new THREE.Vector3();
+
 /**
  * The imported Okabe character -- the only monster in the game, and the
  * player's own body.
@@ -1428,6 +1431,8 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
   let flexAxis = null;          // elbow -> true hinge axis, MEASURED; see measureAxes
   let legRig = null;            // side -> the leg as measured for solveLeg; see measureLegs
   let morphMeshes = [];         // meshes carrying the Monster target
+  let headMeshes = [];          // hair, face, eyes, mouth -- see setHeadVisible()
+  let headVisible = true;
   let baseColors = null;        // material -> original colour, for silhouette
 
   let correction = restCorrection;  // 1 = the man, 0 = the monster
@@ -1547,6 +1552,19 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
       console.error('OkabeCreature: missing bones: ' + missing.join(', ')
         + '. Those joints will not move.');
     }
+
+    // THE HEAD'S MESHES, for a first-person view of this body (setHeadVisible).
+    // The model is one mesh per material, and the head's materials -- hair,
+    // face, eyes, mouth -- are the only ones that start above the shoulders:
+    // in the bind pose every other part reaches down below 1.1 m of a 1.85 m
+    // figure, and these all begin above 80% of its height.
+    let topY = -Infinity;
+    for (const mesh of skin) {
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+      topY = Math.max(topY, mesh.geometry.boundingBox.max.y);
+    }
+    headMeshes = skin.filter((mesh) => mesh.geometry.boundingBox.min.y > topY * 0.8);
+    for (const mesh of headMeshes) mesh.visible = headVisible;
 
     measureAxes(scene);
     listBones();
@@ -2904,6 +2922,51 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
      */
     setLayer(n) {
       group.traverse((o) => o.layers.set(n));
+    },
+    /**
+     * Adds rotations, in radians, on top of THIS FRAME's pose -- for acting in
+     * a cutscene: a head that tilts, a chest that leans. Keyed by bone name as
+     * the rig names them ('Head', 'Neck', 'Chest', 'Spine', 'Hips'...).
+     *
+     * Call it AFTER update(), every frame you want it held. update() puts every
+     * bone back to its rest pose before it adds the gait, so an offset written
+     * before it is wiped and one written once is gone the next frame. That is
+     * also what makes it safe: there is nothing to undo when the scene ends.
+     */
+    offsetBones(offsets, weight = 1) {
+      if (!bones || !(weight > 0)) return;
+      for (const [name, rotation] of Object.entries(offsets)) {
+        const bone = bones.get(canon(name));
+        if (!bone || !rotation) continue;
+        bone.rotation.x += (rotation[0] ?? 0) * weight;
+        bone.rotation.y += (rotation[1] ?? 0) * weight;
+        bone.rotation.z += (rotation[2] ?? 0) * weight;
+      }
+    },
+    /**
+     * Hides the head -- hair, face, eyes, mouth -- or shows it again. For
+     * looking down at this body from its own eyes: the lens sits inside the
+     * head, and the hair and the inside of the mouth are the parts that would
+     * otherwise hang in front of it. Safe before the model has loaded.
+     */
+    setHeadVisible(visible) {
+      headVisible = !!visible;
+      for (const mesh of headMeshes) mesh.visible = headVisible;
+    },
+    /**
+     * Between the two eye bones, world space -- where a lens goes to see from
+     * this body's own eyes. Falls back to the head bone, then the root, so a
+     * model without eye bones still gives somewhere sensible.
+     */
+    getEyePosition(out = new THREE.Vector3()) {
+      const left = bones && bones.get(canon('Eye_L'));
+      const right = bones && bones.get(canon('Eye_R'));
+      if (left && right) {
+        left.getWorldPosition(out);
+        return out.add(right.getWorldPosition(_eyeOther)).multiplyScalar(0.5);
+      }
+      const head = bones && bones.get(canon('Head'));
+      return head ? head.getWorldPosition(out) : out.copy(root.position);
     },
     setPosition(x, z) { root.position.set(x, 0, z); },
     get position() { return root.position; },

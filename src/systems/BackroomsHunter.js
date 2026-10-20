@@ -305,6 +305,11 @@ export function createBackroomsHunter({
   creature = null,
   getPlayer = () => ({ x: 0, z: 0, sprinting: false }),
   colliders = [],
+  /**
+   * Leg name -> [x0, x1, z0, z1]: the part of a room that can be stood in,
+   * where a partition has sealed the rest off (annabelleRooms' ROOM_FLOORS).
+   */
+  roomFloors = {},
   onCaught = () => {},
   onBreathing = () => {}
 } = {}) {
@@ -338,6 +343,18 @@ export function createBackroomsHunter({
   }
 
   /**
+   * Somewhere to stand in a leg: its midpoint, or for a partitioned room the
+   * middle of the half that is open. The leg midpoint of a partitioned room is
+   * ON the partition, and resolveCircle() then pushes it out to whichever side
+   * is nearer -- half the time the sealed one, where it spawned trapped or
+   * walked into the wall forever trying to reach its target.
+   */
+  function standIn(name) {
+    const f = roomFloors[name];
+    return f ? { x: (f[0] + f[1]) / 2, z: (f[2] + f[3]) / 2 } : legMid(name);
+  }
+
+  /**
    * A corridor to wander to that is not the one it is already standing in --
    * most of the time one near the player (DRIFT_SHARE).
    */
@@ -347,13 +364,13 @@ export function createBackroomsHunter({
     if (Math.random() < DRIFT_SHARE) {
       const p = getPlayer();
       const near = names.filter((n) => {
-        const m = legMid(n);
+        const m = standIn(n);
         return Math.hypot(m.x - p.x, m.z - p.z) <= DRIFT_RADIUS;
       });
       if (near.length) names = near;
     }
     const pick = names[Math.floor(Math.random() * names.length)];
-    return legMid(pick);
+    return standIn(pick);
   }
 
   function canSee(px, pz) {
@@ -533,7 +550,7 @@ export function createBackroomsHunter({
       // rejection-sampling until something passes, which can spin on a small
       // maze or a player standing in the middle of a big one.
       for (let i = 0; i < 10; i++) {
-        const p = legMid(names[Math.floor(Math.random() * names.length)]);
+        const p = standIn(names[Math.floor(Math.random() * names.length)]);
         const d = Math.hypot(p.x - player.x, p.z - player.z);
         if (d > bestD) {
           bestD = d;

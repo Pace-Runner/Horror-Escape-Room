@@ -22,6 +22,24 @@ import * as THREE from 'three';
  * own look -- because this camera exists to make footage, and footage wants
  * a dolly's ease-in and ease-out rather than the instant response that suits
  * play.
+ *
+ * SHOTS ARE AUTHORED HERE TOO. The in-engine cutscenes (core/Cutscene.js) are
+ * timelines of camera shots, and the easiest way to find a good framing is
+ * to fly to it. So the camera can write down where it is, two ways:
+ *
+ *   M marks a keyframe -- one framing. Each mark copies the whole list of
+ *     marks to the clipboard as a scene-ready shots array, one shot per mark,
+ *     each cut to and held for the real time until the next mark was made.
+ *     Fly, mark, fly, mark, paste.
+ *   J records a take -- a flown move, sampled at an even 30 Hz on real time
+ *     until J is pressed again (or the pause menu takes the pointer). The
+ *     finished take is copied as { seconds, samples }, which the runner
+ *     replays as it was flown.
+ *
+ * Backspace clears the marks to start a new list; takes are kept. Everything
+ * copied is also logged to the console, in case the clipboard refused it, and
+ * both lists are public, so window.__game.freeCamera.marks and .takes read
+ * them back.
  */
 
 /** Toggles the free camera on and off. N for noclip. */
@@ -64,13 +82,76 @@ const STATUS_VISIBLE_MILLISECONDS = 1800;
 /** The controls list is longer, so it stays up longer when the camera is first switched on. */
 const HELP_VISIBLE_MILLISECONDS = 6000;
 const HELP_TEXT = 'WASD move · E/Space up · Q down · Shift boost · wheel speed · '
-  + 'Z/X zoom · R reset zoom · T slow-mo · P freeze · B show body · H show HUD · N exit';
+  + 'Z/X zoom · R reset zoom · T slow-mo · P freeze · B show body · H show HUD · '
+  + 'M mark · J record take · Backspace clear marks · N exit';
+
+/**
+ * A take is sampled this often, on real time -- the camera's own clock -- so
+ * a move flown through slow-mo or a frozen world plays back at the speed it
+ * was flown, not the speed the world was running at.
+ */
+const TAKE_SAMPLES_PER_SECOND = 30;
+/** A take left running stops itself here rather than growing for ever. */
+const TAKE_MAX_SECONDS = 60;
+const TAKE_MAX_SAMPLE_INDEX = TAKE_MAX_SECONDS * TAKE_SAMPLES_PER_SECOND;
+/** Shown, and kept up, for as long as a take is recording. */
+const TAKE_STATUS_FLAG = 'REC';
+
+/**
+ * How far along the view a shot's lookAt point is put. Any distance frames
+ * the shot the same; a few metres is a point that still makes sense when the
+ * shot is edited by hand.
+ */
+const LOOK_AT_DISTANCE_METRES = 4;
+/** The last mark has no next mark to measure its hold to, so it gets this. */
+const LAST_SHOT_SECONDS = 1.5;
+
+/**
+ * What marks and take samples are rounded to: hundredths of a second,
+ * millimetres, a ten-thousandth of a radian (half a millimetre at the far
+ * end of a 4 m lookAt) and hundredths of a degree. Finer than anyone can
+ * see, and short enough that a pasted shot list stays readable.
+ *
+ * Two are finer, because a coarser value would show:
+ *
+ *   A take's sample times. The cutscene runner plays a take back by its
+ *     samples' t, and k / 30 rounded to hundredths runs 0, 0.03, 0.07, 0.1 --
+ *     gaps up to 17% off, so a steady pan would replay at a speed wobbling
+ *     ten times a second. To a ten-thousandth, it is under 0.3%.
+ *   A shot's lookAt. Looking almost straight down, the 4 m lookAt is only a
+ *     few millimetres off to the side of the camera, and rounding that to the
+ *     millimetre could swing the replayed heading by 8°. To five places it is
+ *     at most a tenth of a degree, at the very limit of the pitch.
+ */
+const SECONDS_DECIMALS = 2;
+const TAKE_SECONDS_DECIMALS = 4;
+const METRES_DECIMALS = 3;
+const LOOK_AT_DECIMALS = 5;
+const RADIANS_DECIMALS = 4;
+const DEGREES_DECIMALS = 2;
 
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
+const VIEW_AXIS = new THREE.Vector3(0, 0, -1);
 const FORWARD = new THREE.Vector3();
 const RIGHT = new THREE.Vector3();
 const WISH_DIRECTION = new THREE.Vector3();
 const LOOK = new THREE.Euler(0, 0, 0, 'YXZ');
+const LOOK_AT = new THREE.Vector3();
+const TAKE_POSITION = new THREE.Vector3();
+
+function round(value, decimals) {
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
+}
+
+function roundVector(vector, decimals) {
+  return [round(vector.x, decimals), round(vector.y, decimals), round(vector.z, decimals)];
+}
+
+/** A JSON array with one element per line: easy to read when pasted, and still plain JSON. */
+function formatJsonRows(rows) {
+  return `[\n${rows.map((row) => `  ${JSON.stringify(row)}`).join(',\n')}\n]`;
+}
 
 export class FreeCamera {
   /**
@@ -78,6 +159,11 @@ export class FreeCamera {
    * @param {THREE.PerspectiveCamera} options.sourceCamera The player's camera.
    *   Each time the free camera is switched on it starts from this camera's
    *   position, orientation and FOV, so the first frame is not a cut.
+   * @param {() => THREE.PerspectiveCamera} [options.getStartCamera] The camera
+   *   on screen when it is switched on, if that is not always the player's --
+   *   a cutscene films through its own. Defaults to sourceCamera. Only the
+   *   starting pose comes from it; zoom reset and zoom scaling stay relative
+   *   to the player's FOV.
    * @param {() => boolean} options.isInputLive Whether the game currently has
    *   the pointer. Input is only taken while this is true, so the pause menu,
    *   the settings screen and the diegetic close-ups all keep their keys.
@@ -87,8 +173,9 @@ export class FreeCamera {
    * @param {() => void} [options.onChange] Called whenever something main.js
    *   has to react to changes: switching on or off, or showing the body.
    */
-  constructor({ sourceCamera, isInputLive, getSensitivityMultiplier = () => 1, onChange = () => {} }) {
+  constructor({ sourceCamera, getStartCamera = null, isInputLive, getSensitivityMultiplier = () => 1, onChange = () => {} }) {
     this.sourceCamera = sourceCamera;
+    this.getStartCamera = getStartCamera ?? (() => sourceCamera);
     this.isInputLive = isInputLive;
     this.getSensitivityMultiplier = getSensitivityMultiplier;
     this.onChange = onChange;
@@ -116,6 +203,30 @@ export class FreeCamera {
     this.targetPitchInRadians = 0;
     this.targetFovInDegrees = sourceCamera.fov;
     this.statusHideTimer = null;
+
+    /**
+     * Keyframes made with M, each { t, pos:[x,y,z], yaw, pitch, fov }, with t
+     * the real seconds since the first one. Kept across switching the camera
+     * off and on, so the player can be walked somewhere between marks.
+     */
+    this.marks = [];
+    /**
+     * The clock marks are timed on: real seconds, but only those the game had
+     * the pointer for. Time on the pause menu or in another window, pasting
+     * the last list, is not counted -- a mark made after two minutes away
+     * would otherwise be a two-minute shot, and the runner cuts a scene off
+     * at 90 s. Seconds rather than performance.now() for the same reason.
+     */
+    this.markClockSeconds = 0;
+    this.firstMarkSeconds = 0;
+    /** Finished takes recorded with J, each { seconds, samples }, samples shaped like marks. */
+    this.takes = [];
+    /**
+     * The take J is recording, or null. `lastFrame` is the camera as it was at
+     * the end of the previous frame, so a sample that falls between two
+     * frames can be interpolated to its exact time -- see #updateTake.
+     */
+    this.takeInProgress = null;
 
     this.statusElement = this.#createStatusElement();
     this.#listenForInput();
@@ -148,6 +259,11 @@ export class FreeCamera {
    * Switches the free camera off and puts the world back on normal time.
    * Time has to be reset here: a world left frozen or slowed after the camera
    * is gone would look like the game had hung.
+   *
+   * A take still recording is finished here too. Left running, it would sit
+   * still while the camera was off and then jump to wherever the player was
+   * standing when it came back on. Its "Take n" line is left up to fade by
+   * itself, so leaving the camera does not hide whether the take was kept.
    */
   disable() {
     if (!this.isActive) return;
@@ -156,7 +272,8 @@ export class FreeCamera {
     this.isWorldFrozen = false;
     this.heldKeys.clear();
     this.#applyHudVisibility();
-    this.#hideStatus();
+    if (this.takeInProgress) this.#finishTake();
+    else this.#hideStatus();
     this.onChange();
   }
 
@@ -168,19 +285,30 @@ export class FreeCamera {
    *   world, and it would stop dead if it were on the world's clock.
    */
   update(realDtInSeconds) {
+    // Before the isActive check: walking the player between marks, with the
+    // camera off, is still time between marks.
+    if (this.isInputLive()) this.markClockSeconds += realDtInSeconds;
     if (!this.isActive) return;
     this.#updateLook(realDtInSeconds);
     this.#updateMove(realDtInSeconds);
     this.#updateFov(realDtInSeconds);
+    // Last, so a take samples the camera as this frame will draw it. Losing
+    // the pointer -- Escape to the pause menu, Alt-Tab -- ends the take, as
+    // switching the camera off does: J cannot reach it from the pause menu,
+    // the REC line is hidden under it, and a take left running there would
+    // fill with a camera sitting still, up to the cap.
+    if (this.isInputLive()) this.#updateTake(realDtInSeconds);
+    else if (this.takeInProgress) this.#finishTake();
   }
 
   #copySourceCamera() {
-    this.sourceCamera.updateMatrixWorld();
-    this.sourceCamera.getWorldPosition(this.camera.position);
-    LOOK.setFromQuaternion(this.sourceCamera.getWorldQuaternion(this.camera.quaternion), 'YXZ');
+    const start = this.getStartCamera() ?? this.sourceCamera;
+    start.updateMatrixWorld();
+    start.getWorldPosition(this.camera.position);
+    LOOK.setFromQuaternion(start.getWorldQuaternion(this.camera.quaternion), 'YXZ');
     this.yawInRadians = this.targetYawInRadians = LOOK.y;
     this.pitchInRadians = this.targetPitchInRadians = LOOK.x;
-    this.camera.fov = this.targetFovInDegrees = this.sourceCamera.fov;
+    this.camera.fov = this.targetFovInDegrees = start.fov;
     this.#updateAspect();
   }
 
@@ -298,6 +426,9 @@ export class FreeCamera {
       case 'KeyR': this.#resetFov(); break;
       case 'KeyB': this.#togglePlayerBody(); break;
       case 'KeyH': this.#toggleHud(); break;
+      case 'KeyM': this.#markKeyframe(); break;
+      case 'KeyJ': this.#toggleTake(); break;
+      case 'Backspace': this.#clearMarks(); break;
     }
   }
 
@@ -370,6 +501,196 @@ export class FreeCamera {
     document.body.classList.toggle('free-camera-clean', this.isActive && !this.isHudVisible);
   }
 
+  /**
+   * M. Writes down the framing as it is on screen -- the eased position, look
+   * and zoom, not where the mouse and keys are still asking it to go -- then
+   * copies every mark so far as shots.
+   *
+   * Times are on markClockSeconds -- real time, so the gaps between marks
+   * are however long the camera was being flown between them, whatever the
+   * world's clock was doing, but not time spent away from the game.
+   */
+  #markKeyframe() {
+    if (this.marks.length === 0) this.firstMarkSeconds = this.markClockSeconds;
+    const mark = this.#describeView(
+      this.markClockSeconds - this.firstMarkSeconds,
+      this.camera.position,
+      this.yawInRadians,
+      this.pitchInRadians,
+      this.camera.fov
+    );
+    this.marks.push(mark);
+    this.#exportJson(
+      `Mark ${this.marks.length} · ${mark.t.toFixed(2)} s`,
+      formatJsonRows(this.#marksAsShots())
+    );
+  }
+
+  /** Backspace. Only the marks: a take is a whole flown move, too costly to lose to a stray key. */
+  #clearMarks() {
+    this.marks.length = 0;
+    this.#showStatus('Marks cleared');
+  }
+
+  /**
+   * The marks in the shape a cutscene scene file takes its shots in. Each
+   * holds for the gap to the next mark; the last, having no next, holds for
+   * LAST_SHOT_SECONDS.
+   *
+   * Every one is a cut. Without `cut`, the runner (core/Cutscene.js) eases a
+   * shot in from wherever the last one ended and only arrives at its framing
+   * on its final frame -- so the first shot would open on the player's eye,
+   * no mark would ever be held, and each move would get the next gap's time.
+   * A mark is a framing, so it cuts to it. Turning a pair of them into a
+   * move is the scene's decision, made by dropping a `cut` by hand.
+   *
+   * lookAt rather than yaw and pitch, because that is what a scene file is
+   * written in. The camera never rolls, so a position and a point to look at
+   * give back exactly the framing that was marked.
+   */
+  #marksAsShots() {
+    return this.marks.map((mark, index) => {
+      const nextMark = this.marks[index + 1];
+      LOOK.set(mark.pitch, mark.yaw, 0, 'YXZ');
+      LOOK_AT.copy(VIEW_AXIS).applyEuler(LOOK).multiplyScalar(LOOK_AT_DISTANCE_METRES);
+      LOOK_AT.x += mark.pos[0];
+      LOOK_AT.y += mark.pos[1];
+      LOOK_AT.z += mark.pos[2];
+      return {
+        cut: true,
+        at: mark.pos,
+        lookAt: roundVector(LOOK_AT, LOOK_AT_DECIMALS),
+        fov: mark.fov,
+        // Rounded again: two 2-dp times can still subtract to 1.0999999999999999.
+        seconds: nextMark ? round(nextMark.t - mark.t, SECONDS_DECIMALS) : LAST_SHOT_SECONDS
+      };
+    });
+  }
+
+  /** J. Starts a take, or finishes the one that is running. */
+  #toggleTake() {
+    if (this.takeInProgress) {
+      this.#finishTake();
+      return;
+    }
+    this.takeInProgress = {
+      samples: [this.#describeView(0, this.camera.position, this.yawInRadians, this.pitchInRadians, this.camera.fov)],
+      lastFrame: {
+        seconds: 0,
+        position: this.camera.position.clone(),
+        yaw: this.yawInRadians,
+        pitch: this.pitchInRadians,
+        fov: this.camera.fov
+      }
+    };
+    // Empty, so the line reads just the flag -- see #showStatus.
+    this.#showStatus('');
+  }
+
+  /**
+   * Samples a running take on an exact grid of TAKE_SAMPLES_PER_SECOND.
+   *
+   * Frames do not land on that grid -- at 60 fps only every other one comes
+   * near a sample time, at 144 fps none is exactly on one -- so each sample
+   * is interpolated between the frame before its time and the frame after.
+   * That keeps sample k at exactly k / 30 s whatever the frame rate is doing,
+   * and an evenly spaced take can be played back as a path over its
+   * `seconds` without being retimed.
+   *
+   * The clock is the dt the camera itself moves by -- main.js's real frame
+   * time, capped at 0.05 s -- so a take times the move exactly as the camera
+   * flew it, hitches included.
+   */
+  #updateTake(dtInSeconds) {
+    const take = this.takeInProgress;
+    if (!take) return;
+    const { lastFrame } = take;
+    const frameEndSeconds = lastFrame.seconds + dtInSeconds;
+    let sampleIndex = take.samples.length;
+    let sampleSeconds = sampleIndex / TAKE_SAMPLES_PER_SECOND;
+    // Every sample time not yet taken lies after lastFrame.seconds, so alpha
+    // is in (0, 1] and a frame with a dt of 0 never reaches the division.
+    while (sampleIndex <= TAKE_MAX_SAMPLE_INDEX && sampleSeconds <= frameEndSeconds) {
+      const alpha = (sampleSeconds - lastFrame.seconds) / dtInSeconds;
+      TAKE_POSITION.lerpVectors(lastFrame.position, this.camera.position, alpha);
+      take.samples.push(this.#describeView(
+        sampleSeconds,
+        TAKE_POSITION,
+        THREE.MathUtils.lerp(lastFrame.yaw, this.yawInRadians, alpha),
+        THREE.MathUtils.lerp(lastFrame.pitch, this.pitchInRadians, alpha),
+        THREE.MathUtils.lerp(lastFrame.fov, this.camera.fov, alpha),
+        TAKE_SECONDS_DECIMALS
+      ));
+      sampleIndex += 1;
+      sampleSeconds = sampleIndex / TAKE_SAMPLES_PER_SECOND;
+    }
+    lastFrame.seconds = frameEndSeconds;
+    lastFrame.position.copy(this.camera.position);
+    lastFrame.yaw = this.yawInRadians;
+    lastFrame.pitch = this.pitchInRadians;
+    lastFrame.fov = this.camera.fov;
+    if (sampleIndex > TAKE_MAX_SAMPLE_INDEX) this.#finishTake();
+  }
+
+  /**
+   * Keeps the take and copies it. It ends on its last sample rather than at
+   * the moment J was pressed, up to a thirtieth of a second earlier, so every
+   * gap in it is the same and `seconds` is (samples - 1) / 30, to the
+   * ten-thousandth of a second the sample times are kept to.
+   */
+  #finishTake() {
+    const { samples } = this.takeInProgress;
+    this.takeInProgress = null;
+    const seconds = samples[samples.length - 1].t;
+    this.takes.push({ seconds, samples });
+    const sampleWord = samples.length === 1 ? 'sample' : 'samples';
+    const capNote = samples.length > TAKE_MAX_SAMPLE_INDEX ? ` · stopped at the ${TAKE_MAX_SECONDS} s cap` : '';
+    this.#exportJson(
+      `Take ${this.takes.length} · ${seconds.toFixed(1)} s · ${samples.length} ${sampleWord}${capNote}`,
+      `{"seconds":${seconds},"samples":${formatJsonRows(samples)}}`
+    );
+  }
+
+  /**
+   * One keyframe -- where the camera is, which way it looks and how wide --
+   * in the shape both marks and take samples are kept in. Rounded here, once,
+   * so what sits in marks and takes is exactly what was copied.
+   *
+   * Yaw is left unwrapped, as the mouse wound it, so a take that turns past
+   * ±π carries straight on. Wrapped, it would jump a whole turn between two
+   * samples, and anything interpolating between them would spin the camera
+   * the long way round.
+   */
+  #describeView(seconds, position, yawInRadians, pitchInRadians, fovInDegrees, secondsDecimals = SECONDS_DECIMALS) {
+    return {
+      t: round(seconds, secondsDecimals),
+      pos: roundVector(position, METRES_DECIMALS),
+      yaw: round(yawInRadians, RADIANS_DECIMALS),
+      pitch: round(pitchInRadians, RADIANS_DECIMALS),
+      fov: round(fovInDegrees, DEGREES_DECIMALS)
+    };
+  }
+
+  /**
+   * Copies what was just recorded to the clipboard, ready to paste into
+   * whatever is building the scene, and always logs it to the console as
+   * well. The clipboard can refuse -- a page served over plain http from
+   * another machine has no navigator.clipboard at all, and a take that hits
+   * its cap finishes inside a frame rather than a key press, which some
+   * browsers will not copy from -- and when it does, the status line says
+   * so, so an old clipboard is never pasted by mistake.
+   */
+  #exportJson(statusText, json) {
+    this.#showStatus(statusText);
+    console.log(`[FreeCamera] ${statusText}\n${json}`);
+    const reportNotCopied = () => this.#showStatus(`${statusText} · not copied, see console`);
+    try {
+      navigator.clipboard.writeText(json).catch(reportNotCopied);
+    } catch {
+      reportNotCopied();
+    }
+  }
+
   #describeState() {
     const timeLabel = this.isWorldFrozen ? 'frozen' : `${Math.round(this.timeScale * 100)}%`;
     return `FREE CAM · speed ${this.speedInMetresPerSecond.toFixed(2)} m/s`
@@ -386,11 +707,21 @@ export class FreeCamera {
   /**
    * Shows a line of text that fades out by itself, so it is never left
    * sitting in the frame while recording.
+   *
+   * The one exception is a take. While J is recording, every line is shown
+   * after TAKE_STATUS_FLAG and nothing fades: a take records the camera's
+   * path for a cutscene to replay, not the picture, so the flag costs the
+   * shot nothing, and a take left running unnoticed would be a minute of
+   * nothing.
    */
   #showStatus(text, visibleMilliseconds = STATUS_VISIBLE_MILLISECONDS) {
-    this.statusElement.textContent = text;
     this.statusElement.classList.add('visible');
     clearTimeout(this.statusHideTimer);
+    if (this.takeInProgress) {
+      this.statusElement.textContent = text ? `${TAKE_STATUS_FLAG} · ${text}` : TAKE_STATUS_FLAG;
+      return;
+    }
+    this.statusElement.textContent = text;
     this.statusHideTimer = setTimeout(() => this.#hideStatus(), visibleMilliseconds);
   }
 
