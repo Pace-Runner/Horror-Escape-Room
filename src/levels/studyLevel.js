@@ -308,7 +308,11 @@ export function createStudyLevel({
     memoryArchiveSolved: false,
     memoryVisorCollected: false,
     correctedTrailProgress: 0,
-    correctedTrailSolved: false
+    correctedTrailSolved: false,
+    truthRecordProgress: 0,
+    truthRecordsSolved: false,
+    truthRecordsComplete: false,
+    mirrorUnlocked: false
   };
 
   /**
@@ -1135,6 +1139,117 @@ export function createStudyLevel({
   hollowArchivePanel.position.set(0, 1, 0.6);
   hollowAlcove.add(hollowArchivePanel);
 
+  // Puzzle 5 lives entirely inside the restricted alcove. The old letter
+  // mesh below is reused as the drawer reward, rather than left accessible.
+  const truthRecordNames = ['CONSENT', 'PROCEDURE', 'OUTCOME'];
+  const truthNormalLines = [
+    ['Subject transferred', 'under emergency', 'authorization.'],
+    ['Adaptive Restoration', 'performed under', 'standard protocol.'],
+    ['Subject missing after', 'containment failure.']
+  ];
+  const truthCorrectedLines = [
+    ['SUBJECT 06 — MARK', 'VOLUNTARY CONSENT', 'CONFIRMED.'],
+    ['ADAPTIVE RESTORATION', 'SELF-AUTHORIZED', 'PROTOCOL.'],
+    ['POST-PROCEDURE:', 'MEMORY DEGRADATION.', 'IDENTITY INSTABILITY.', 'PERCEPTUAL DISTORTION.']
+  ];
+  const annabelleLetterBody = `Mark,
+
+If you're reading this, you've forgotten again.
+
+You knew what Project HOLLOW was.
+You helped design the containment system.
+You volunteered for the procedure because you believed it could work.
+
+It did change you.
+Just not in the way we hoped.
+
+The memory loss came first.
+Then the distortions.
+You stopped recognising the rooms.
+Then you stopped recognising me.
+
+You made me promise that if you ever forgot who you were,
+I would not let you leave.
+
+You said the containment had to hold.
+
+I stayed because I believed some part of you would remember.
+
+If you can still understand this —
+please remember me.
+
+Annabelle`;
+  const truthDesk = new THREE.Mesh(new THREE.BoxGeometry(1.68, 0.08, 0.65), shelfMat);
+  truthDesk.position.set(0, 0.65, 0.05);
+  hollowAlcove.add(truthDesk);
+  for (const x of [-0.74, 0.74]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.57, 0.07), shelfMat);
+    leg.position.set(x, 0.325, 0.24);
+    hollowAlcove.add(leg);
+  }
+  const truthDrawer = new THREE.Group();
+  truthDrawer.position.set(0, 0.45, 0.28);
+  hollowAlcove.add(truthDrawer);
+  const truthDrawerFront = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.26, 0.05), shelfMat);
+  truthDrawerFront.position.z = 0.08;
+  const truthDrawerFloor = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.03, 0.36), shelfMat);
+  truthDrawerFloor.position.set(0, -0.1, -0.1);
+  const truthDrawerHandle = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.035, 0.05), crestBrassMat);
+  truthDrawerHandle.position.z = 0.12;
+  truthDrawer.add(truthDrawerFront, truthDrawerFloor, truthDrawerHandle);
+  const truthRecordDisplays = [];
+  const truthRecordHits = [];
+  function updateTruthRecords(corrected = gameState.visorWorn) {
+    truthRecordDisplays.forEach((display, index) => {
+      const selected = puzzle.truthRecordsSolved || index < puzzle.truthRecordProgress;
+      const heading = `${selected ? `${index + 1}. ` : ''}${truthRecordNames[index]}`;
+      display.write([heading, ...(corrected ? truthCorrectedLines[index] : truthNormalLines[index])]);
+      truthRecordHits[index].userData.interact.label = `${selected ? 'Selected: ' : 'Select '}${truthRecordNames[index]}`;
+    });
+  }
+  truthRecordNames.forEach((name, index) => {
+    const x = (index - 1) * 0.56;
+    const display = makeArchiveLabel(0.5, 0.48);
+    display.mesh.position.set(x, 0.95, 0.24);
+    hollowAlcove.add(display.mesh);
+    truthRecordDisplays.push(display);
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(0.51, 0.5, 0.14), archiveHitMat);
+    hit.position.copy(display.mesh.position);
+    hit.userData.interact = {
+      label: `Select ${name}`,
+      onInteract: () => {
+        if (!puzzle.correctedTrailSolved || hollowArchivePanel.position.x < 1.7 || puzzle.truthRecordsSolved) return;
+        if (index !== puzzle.truthRecordProgress) {
+          puzzle.truthRecordProgress = 0;
+          updateTruthRecords();
+          onSfx('metal_click');
+          showCaption('The timeline resets.');
+          return;
+        }
+        puzzle.truthRecordProgress++;
+        showCaption((gameState.visorWorn ? truthCorrectedLines[index] : truthNormalLines[index]).join('\n'));
+        if (puzzle.truthRecordProgress === 3) {
+          if (!puzzle.memoryVisorCollected && !gameState.hasVisor) {
+            puzzle.truthRecordProgress = 0;
+            showCaption('Something about these records feels incomplete.');
+          } else {
+            puzzle.truthRecordsSolved = true;
+            letterPaper.visible = true;
+            letterHit.visible = true;
+            if (!interactables.includes(letterHit)) interactables.push(letterHit);
+            onSfx('latch');
+            showCaption('The final records drawer unlocks.');
+          }
+        }
+        updateTruthRecords();
+      }
+    };
+    hollowAlcove.add(hit);
+    truthRecordHits.push(hit);
+    interactables.push(hit);
+  });
+  updateTruthRecords();
+
   const trailMarkerPositions = [
     [-5.8, LOFT_Y + 1.2, -3.2],
     [-0.8, LOFT_Y + 1.2, -3.5],
@@ -1251,34 +1366,34 @@ export function createStudyLevel({
   );
   letterPaper.rotation.x = -Math.PI / 2;
   letterPaper.rotation.z = 0.24;
-  letterPaper.position.set(0.9, 0.007, -1.5);
-  group.add(letterPaper);
+  letterPaper.position.set(0, -0.075, -0.1);
+  letterPaper.visible = false;
+  truthDrawer.add(letterPaper);
 
   const letterHit = new THREE.Mesh(
     new THREE.BoxGeometry(0.34, 0.12, 0.4),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
-  letterHit.position.set(0.9, 0.06, -1.5);
+  letterHit.position.set(0, -0.02, -0.1);
+  letterHit.visible = false;
   letterHit.userData.interact = {
-    label: 'A sheet of paper',
-    onInteract: () => onReadLetter()
+    label: "Read Annabelle's letter",
+    onInteract: () => {
+      if (!puzzle.truthRecordsSolved || truthDrawer.position.z < 0.58) return;
+      onReadLetter({
+        body: annabelleLetterBody,
+        onFinished: () => {
+          if (puzzle.truthRecordsComplete || !puzzle.truthRecordsSolved) return;
+          puzzle.truthRecordsComplete = true;
+          puzzle.mirrorUnlocked = true;
+          gameState.letterRead = true;
+          if (!interactables.includes(mirrorGlass)) interactables.push(mirrorGlass);
+          showCaption('The mirror feels different now.');
+        }
+      });
+    }
   };
-  interactables.push(letterHit);
-  group.add(letterHit);
-
-  // Ink for it, in the same hidden-writing treatment as the walls, so a player
-  // holding it with the visor on can see there IS writing before they read it.
-  const letterInk = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.24, 0.3),
-    new THREE.MeshBasicMaterial({
-      map: createHiddenWritingTexture(['To Annabelle']),
-      transparent: true,
-      depthWrite: false
-    })
-  );
-  letterInk.rotation.copy(letterPaper.rotation);
-  letterInk.position.set(0.9, 0.009, -1.5);
-  visorOnly.add(letterInk);
+  truthDrawer.add(letterHit);
 
   // uncracked mirror (foreshadowing -- every other mirror in the house is broken)
   const mirrorFrame = new THREE.Mesh(
@@ -1294,9 +1409,10 @@ export function createStudyLevel({
   mirrorGlass.position.set(4.8, 1.45, -ROOM_D / 2 + 0.1);
   mirrorGlass.userData.interact = {
     label: 'Look into the mirror',
-    onInteract: () => onLookInMirror()
+    onInteract: () => {
+      if (puzzle.mirrorUnlocked) onLookInMirror();
+    }
   };
-  interactables.push(mirrorGlass);
   group.add(mirrorGlass);
 
   /**
@@ -1895,6 +2011,7 @@ export function createStudyLevel({
         // child of it, so the room cannot correct halfway.
         visorOnly.visible = on;
         distortedTrail.visible = !on;
+        updateTruthRecords(on);
         gateKey.visible = on && !puzzle.hasGateKey;
         const ki = interactables.indexOf(gateKeyHit);
         if (on && !puzzle.hasGateKey && ki < 0) interactables.push(gateKeyHit);
@@ -1926,6 +2043,7 @@ export function createStudyLevel({
       archiveKey,
       memoryArchive,
       hollowArchivePanel,
+      truthDrawer,
       gateHit,
       /** The four digits on lock 2, so a test never has to hardcode them. */
       code: FRONT_DOOR_CODE
@@ -2015,6 +2133,18 @@ export function createStudyLevel({
       updateTrailMarkers();
       const restrictedIndex = interactables.indexOf(restrictedPlaque.mesh);
       if (restrictedIndex >= 0) interactables.splice(restrictedIndex, 1);
+      puzzle.truthRecordProgress = 0;
+      puzzle.truthRecordsSolved = false;
+      puzzle.truthRecordsComplete = false;
+      puzzle.mirrorUnlocked = false;
+      truthDrawer.position.z = 0.28;
+      letterPaper.visible = false;
+      letterHit.visible = false;
+      for (const hit of [letterHit, mirrorGlass]) {
+        const index = interactables.indexOf(hit);
+        if (index >= 0) interactables.splice(index, 1);
+      }
+      updateTruthRecords(false);
       visorGroup.visible = false;
       visorHitbox.visible = false;
       const visorIndex = interactables.indexOf(visorHitbox);
@@ -2023,6 +2153,8 @@ export function createStudyLevel({
     },
 
     update(dt) {
+      const truthDrawerTarget = puzzle.truthRecordsSolved ? 0.7 : 0.28;
+      truthDrawer.position.z += (truthDrawerTarget - truthDrawer.position.z) * Math.min(1, dt * 5);
       const hollowPanelTarget = puzzle.correctedTrailSolved ? 1.95 : 0;
       hollowArchivePanel.position.x += (hollowPanelTarget - hollowArchivePanel.position.x) * Math.min(1, dt * 3);
       const archiveDoorTarget = puzzle.memoryArchiveUnlocked ? -Math.PI / 2 : 0;

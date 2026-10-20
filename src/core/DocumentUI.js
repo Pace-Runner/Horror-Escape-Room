@@ -39,6 +39,7 @@ export function createDocumentUI({ onClose = () => {} } = {}) {
   let open = false;
   let reachedEnd = false;
   let onReadCallback = null;
+  let onClosedCallback = null;
   /**
    * When the reader last opened, on the same clock as Event.timeStamp.
    *
@@ -118,7 +119,7 @@ export function createDocumentUI({ onClose = () => {} } = {}) {
    * @param image    optional picture URL, shown above the title
    * @param onRead   called once, when the bottom of the document is reached
    */
-  function open_({ title = '', body = '', variant = 'note', image = null, onRead } = {}) {
+  function open_({ title = '', body = '', variant = 'note', image = null, onRead, onClosed } = {}) {
     const paragraphs = Array.isArray(body) ? body : String(body).split(/\n{2,}/);
 
     imageEl.hidden = !image;
@@ -141,6 +142,7 @@ export function createDocumentUI({ onClose = () => {} } = {}) {
     panel.scrollTop = 0;
     reachedEnd = false;
     onReadCallback = onRead;
+    onClosedCallback = onClosed;
     openedAtMilliseconds = performance.now();
     isRightPressSinceOpen = false;
     open = true;
@@ -155,6 +157,9 @@ export function createDocumentUI({ onClose = () => {} } = {}) {
     open = false;
     view.classList.add('hidden');
     onReadCallback = null;
+    const closedCallback = onClosedCallback;
+    onClosedCallback = null;
+    closedCallback?.();
     onClose();
   }
 

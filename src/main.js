@@ -2717,7 +2717,20 @@ const study = createStudyLevel({
    * anything with the visor on -- the writing is not hidden from the room, it
    * is hidden from the player, exactly like the fourth figure in the portrait.
    */
-  onReadLetter: () => {
+  onReadLetter: ({ body, onFinished } = {}) => {
+    if (body) {
+      player.unlock();
+      documentUI.open({
+        title: "Annabelle's letter",
+        variant: 'letter',
+        body,
+        onClosed: () => {
+          onFinished?.();
+          objectiveEl.textContent = 'Look into the mirror.';
+        }
+      });
+      return;
+    }
     if (!gameState.visorWorn) {
       showCaption(line('dialog_letter_blank_without_visor'));
       return;
