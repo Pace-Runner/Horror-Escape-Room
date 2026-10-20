@@ -1220,6 +1220,24 @@ const bedroomHorrorEvents = new Set();
 // the two authored door beats; later levels keep their own intensity calls.
 const LEVEL_ONE_BREATHING_BASE = 0.035;
 const LEVEL_ONE_DOOR_BREATHING = 0.72;
+/**
+ * Level 2's breathing, on the same 0..1 dial. Was 0.6-0.95 and stayed there
+ * for the rest of the level after the first beat, against Level 1's 0.035:
+ * far too loud. Peaks are now about half that (-6 dB), and between beats it
+ * settles near Level 1's background rather than holding the peak.
+ */
+const LEVEL_TWO_BREATHING = {
+  /** Walking in: the same quiet background as Level 1. */
+  base: 0.05,
+  /** The blackout at the metal door: it is close. */
+  blackout: 0.45,
+  /** The CCTV hallway camera: something crosses the far end. */
+  cctvDash: 0.4,
+  /** Camera five: it is in this room. The loudest it gets. */
+  cctvBasement: 0.5,
+  /** After any of those, once it has gone. */
+  settled: 0.18
+};
 
 /** Runs each Level 1 environmental beat once and makes its delays reset-safe. */
 function runBedroomHorrorEvent(id, sequence) {
@@ -2525,10 +2543,10 @@ const hallwayBasement = createHallwayBasementLevel({
         sfx('power_down');
         spark();
         // It is close. The breathing says so without showing anything.
-        audio.setBreathing(0.9);
+        audio.setBreathing(LEVEL_TWO_BREATHING.blackout);
       });
       if (!await s.play(line('dialog_blackout'))) return;
-      s.do(() => audio.setBreathing(0.7));
+      s.do(() => audio.setBreathing(LEVEL_TWO_BREATHING.settled));
     });
   },
 
@@ -2587,7 +2605,7 @@ const hallwayBasement = createHallwayBasementLevel({
       hallwayBasement.refs.feeds.scheduleHallwayDash(1.1);
       script.run(async (s) => {
         if (!await s.wait(1.2)) return;
-        s.do(() => audio.setBreathing(0.8));
+        s.do(() => audio.setBreathing(LEVEL_TWO_BREATHING.cctvDash));
         await s.play(line('dialog_cctv_dash'));
       });
       return;
@@ -2598,7 +2616,7 @@ const hallwayBasement = createHallwayBasementLevel({
       hallwayBasement.refs.feeds.showBasementFigure(3.4);
       script.run(async (s) => {
         if (!await s.wait(0.6)) return;
-        s.do(() => audio.setBreathing(0.95));
+        s.do(() => audio.setBreathing(LEVEL_TWO_BREATHING.cctvBasement));
         if (!await s.play(line('dialog_cctv_basement'))) return;
         s.do(() => creak());
 
@@ -2626,7 +2644,7 @@ const hallwayBasement = createHallwayBasementLevel({
           hideCreature();
           hallwayBasement.refs.revealPool();
           // Back off: it has gone, and the room is only as bad as it was.
-          audio.setBreathing(0.6);
+          audio.setBreathing(LEVEL_TWO_BREATHING.settled);
         });
         if (!await s.wait(0.6)) return;
         await s.play(line('dialog_black_pool'));
@@ -3594,6 +3612,7 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   bedroomHorrorEvents.clear();
   stairsScareScript.cancel();
   if (key === 'bedroom') audio.setBreathing(LEVEL_ONE_BREATHING_BASE);
+  if (key === 'hallwayBasement') audio.setBreathing(LEVEL_TWO_BREATHING.base);
   player.movementEnabled = !lockMovement;
   player.sprintEnabled = !SPRINTLESS_LEVELS.has(key);
   // postFX.reset() above zeroes the visor dial, and the level just activated has
