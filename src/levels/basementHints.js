@@ -39,6 +39,17 @@ function isPastStage(progress, stage) {
 }
 
 /**
+ * Whether the session tape no longer needs guiding to: watched, or the player
+ * has got through the security lockout without it.
+ *
+ * @param {object} progress - the hint progress snapshot.
+ * @returns {boolean} true once the tape's stages are over, either way.
+ */
+function isTapeStagePast(progress) {
+  return progress.tapeWatched || progress.securityCleared;
+}
+
+/**
  * Level 2's stages, in the order the player is guided through them. Each
  * readHints returns its hints vaguest first.
  */
@@ -78,6 +89,27 @@ export const BASEMENT_HINT_STAGES = [
       line('dialog_hint_breakers_1'),
       line('dialog_hint_breakers_2'),
       line('dialog_hint_breakers_3')
+    ]
+  },
+  // The session tape: found in the camcorder on the floor, played in the deck
+  // on the CCTV desk. The desk has no power until the panel is routed, so this
+  // is the first point the tape can be guided to. It is the level's story, not
+  // its lock, so watching it OR getting past the lockout without it both count
+  // as done -- otherwise a player who skipped it could never be hinted the code.
+  {
+    id: 'findTape',
+    isComplete: (progress) => progress.tapePlace !== 'camcorder' || isTapeStagePast(progress),
+    readHints: () => [
+      line('dialog_hint_tape_find_1'),
+      line('dialog_hint_tape_find_2')
+    ]
+  },
+  {
+    id: 'playTape',
+    isComplete: (progress) => isTapeStagePast(progress),
+    readHints: () => [
+      line('dialog_hint_tape_play_1'),
+      line('dialog_hint_tape_play_2')
     ]
   },
   {

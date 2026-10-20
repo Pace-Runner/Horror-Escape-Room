@@ -57,7 +57,9 @@ const REST_ROTATION = {
   doorKey: FLAT,
   gateKey: FLAT,
   paperclip: FACE_DOWN,
-  visor: FACE_DOWN
+  visor: FACE_DOWN,
+  // Undoes the builder's quarter turn below: lying flat, label up.
+  sessionTape: [-Math.PI / 2, 0, 0]
 };
 
 /**
@@ -230,7 +232,13 @@ const BUILDERS = {
 
   // studyLevel.js: the band runs along X with the lenses facing +Z. Held by one
   // end of the band, the way you pick up a pair of glasses by an arm.
-  visor: (t) => (t ? fromTemplate(t, { rotation: [0, 0, Math.PI / 2], position: [0, 0.075, 0] }) : null)
+  visor: (t) => (t ? fromTemplate(t, { rotation: [0, 0, Math.PI / 2], position: [0, 0.075, 0] }) : null),
+
+  // hallwayBasementLevel.js's session tape (video8_cassette.glb): lying flat,
+  // label up, its lid edge toward +Z. A quarter turn about X stands it up with
+  // the label facing +Z and reading upright, and lifting it by half its depth
+  // puts the lid edge in the fist -- held up the way you would read a label.
+  sessionTape: (t) => (t ? fromTemplate(t, { rotation: [Math.PI / 2, 0, 0], position: [0, 0.03, 0] }) : null)
 };
 
 /** Every id this module can build -- the same set the hotbar has slots for. */

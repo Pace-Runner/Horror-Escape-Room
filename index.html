@@ -105,6 +105,15 @@
           <path d="M16 12v3M19 12v2.5"/>
         </svg>
       </div>
+      <div class="hotbar-slot" data-item="sessionTape" title="Video tape: SESSION 14">
+        <svg class="hotbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2.5" y="6" width="19" height="12" rx="1.5"/>
+          <rect x="6.5" y="8.5" width="11" height="4" rx="0.6"/>
+          <circle cx="9" cy="10.5" r="0.9"/>
+          <circle cx="15" cy="10.5" r="0.9"/>
+          <path d="M6 15.5h12"/>
+        </svg>
+      </div>
       <div class="hotbar-slot" data-item="visor" title="Annabelle's visor">
         <svg class="hotbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <circle cx="7" cy="12" r="3.4"/>
@@ -166,7 +175,7 @@
       <button id="settings-button">Settings</button>
       <button id="restart-button" class="hidden">Restart</button>
       <div id="start-controls">
-        WASD move &middot; SHIFT sprint &middot; CTRL crouch &middot; mouse look &middot; E or right-click interact &middot; Scroll switch item &middot; Q drop &middot; H hint &middot; F flashlight &middot; V visor &middot; T 1st/3rd person &middot; 3/4 preview rooms &middot; G skip to exit &middot; R restart &middot; C credits
+        WASD move &middot; SHIFT sprint &middot; CTRL crouch &middot; mouse look &middot; E or right-click interact &middot; Scroll switch item &middot; Q drop &middot; H hint &middot; F flashlight &middot; V visor &middot; T 1st/3rd person &middot; 2/3/4 preview rooms &middot; G skip to exit &middot; R restart &middot; C credits
         <br>Plays fullscreen, so crouch-walking (CTRL+W) cannot close the tab. ESC pauses.
       </div>
     </div>
@@ -216,6 +225,20 @@
       <button id="document-close">Put it down</button>
     </div>
     <div id="document-hint">there is more below</div>
+  </div>
+
+  <!-- The session tape, brought up off the lab's monitor. See
+       src/core/TapePlayerUI.js. The picture element (a video, or the
+       placeholder's canvas) is put into #tape-picture by the script. -->
+  <div id="tape-view" class="hidden">
+    <div id="tape-screen">
+      <div id="tape-picture"></div>
+      <div id="tape-subtitle"></div>
+    </div>
+    <div id="tape-footer">
+      <span id="tape-hint">E to step back</span>
+      <button id="tape-close" type="button">Step back</button>
+    </div>
   </div>
 
   <div id="settings-screen" class="hidden">

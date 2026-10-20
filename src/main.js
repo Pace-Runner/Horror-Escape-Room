@@ -26,6 +26,7 @@ import { MAIN_ONLY } from './core/RenderLayers.js';
 import { createMinimap } from './core/Minimap.js';
 import { CaptionSequencer } from './core/CaptionSequencer.js';
 import { createDocumentUI } from './core/DocumentUI.js';
+import { createTapePlayerUI } from './core/TapePlayerUI.js';
 import { createPostFX } from './world/Postprocessing.js';
 import { createHintSystem } from './core/HintSystem.js';
 import { BEDROOM_HINT_STAGES } from './levels/bedroomHints.js';
@@ -44,6 +45,7 @@ import { createAudioDirector } from './systems/AudioDirector.js';
 import { createBackroomsBarks } from './systems/BackroomsBarks.js';
 import { createVisor } from './core/Visor.js';
 import { DOCUMENTS } from './story/lines.js';
+import { SESSION_TAPE_SUBTITLES, SESSION_TAPE_PLACEHOLDER_SOUNDS } from './story/sessionTape.js';
 import { line, linePicker } from './dialogue/index.js';
 import { installUnloadGuard } from './core/KeyboardGuard.js';
 import { Hands } from './systems/hands/hands.js';
@@ -740,7 +742,7 @@ window.addEventListener('wheel', (e) => {
   if (!player.isLocked) return;
   e.preventDefault();
   if (player.cinematic) return;
-  if (photoBoardUI.isOpen || pinPadUI.isOpen || documentUI.isOpen) return;
+  if (photoBoardUI.isOpen || pinPadUI.isOpen || documentUI.isOpen || tapePlayerUI.isOpen) return;
   if (!creditsScreen.classList.contains('hidden')) return;
   // Sprint is held on Shift, and Chromium on Windows (and macOS for any mouse)
   // turns Shift+wheel into a sideways scroll: deltaY 0, the notch in deltaX.
@@ -1098,6 +1100,51 @@ const pinPadUI = createPinPadUI({
 const documentUI = createDocumentUI({
   onClose: () => player.lock()
 });
+
+/**
+ * The session tape off the lab's monitor, brought up in front of the player --
+ * see core/TapePlayerUI.js. The same unlock-to-show / re-lock-on-close contract
+ * as the three above, plus the interaction ray switched off while it is up:
+ * E puts the tape down, and must not also press whatever the crosshair was on
+ * (the deck's PLAY, as often as not).
+ *
+ * Subtitles follow the captions setting -- except over the silent placeholder,
+ * where they are all there is.
+ */
+const tapePlayerUI = createTapePlayerUI({
+  subtitles: SESSION_TAPE_SUBTITLES,
+  shouldShowSubtitles: (source) => settings.captions || !source.hasRecording,
+  onClose: () => {
+    hallwayBasement.refs.stopTape();
+    audio.stopTapeSounds();
+    interaction.setEnabled(true);
+    player.lock();
+    // Watched to the end: the player's reaction, once they are looking at the
+    // room again rather than at the picture.
+    if (tapeRanOutOnScreen) captions.play(line('dialog_tape_after'));
+    tapeRanOutOnScreen = false;
+  }
+});
+/** Which of the placeholder tape's sounds have already played this time through. */
+let tapeSoundsPlayed = 0;
+/** The tape ran to its end while up, this time it was shown. */
+let tapeRanOutOnScreen = false;
+
+/**
+ * Plays the placeholder tape's sounds as its clock reaches them. Real footage
+ * carries its own soundtrack, so this only runs for the painted stand-in.
+ */
+function updateTapeSounds() {
+  if (!tapePlayerUI.isOpen) return;
+  const source = hallwayBasement.refs.sessionTape;
+  if (source.hasRecording) return;
+  const time = source.currentTimeInSeconds;
+  while (tapeSoundsPlayed < SESSION_TAPE_PLACEHOLDER_SOUNDS.length
+    && SESSION_TAPE_PLACEHOLDER_SOUNDS[tapeSoundsPlayed].at <= time) {
+    audio.tapeSound(SESSION_TAPE_PLACEHOLDER_SOUNDS[tapeSoundsPlayed].sound);
+    tapeSoundsPlayed++;
+  }
+}
 
 // Scripted camera shots. Built here because it needs the hands and the dust
 // motes, both of which have to be hidden for any shot that leaves the player's
@@ -2195,6 +2242,35 @@ const hallwayBasement = createHallwayBasementLevel({
   },
   onSfx: (name) => sfx(name),
 
+  // The session tape, carried in the shared inventory between the camera and
+  // the deck. The deck takes it from the inventory, whatever is in the hand.
+  isCarrying: (id) => gameState.inventory.has(id),
+  onTapeTaken: () => pickUpItem('sessionTape'),
+  onTapeInserted: () => consumeItem('sessionTape'),
+  onTapeEjected: () => pickUpItem('sessionTape'),
+
+  /**
+   * The deck is playing and the monitor is on its input: the tape comes up in
+   * front of the player. Its sound -- the footage's own once it exists -- is
+   * routed through the mixer, so the volume slider and a pause both reach it.
+   */
+  onPlayTape: ({ source }) => {
+    if (source.hasRecording) audio.connectMediaElement(source.element);
+    else audio.setTapeHiss(true);
+    tapeSoundsPlayed = 0;
+    tapeRanOutOnScreen = false;
+    interaction.setEnabled(false);
+    // Open before unlocking: the unlock listener reads isOpen to know this is
+    // a close-up, not a pause.
+    tapePlayerUI.open({ source });
+    player.unlock();
+  },
+  onTapeEnded: () => {
+    tapeRanOutOnScreen = true;
+    audio.setTapeHiss(false);
+    tapePlayerUI.markEnded();
+  },
+
   onPowerRestored: () => {
     // The fuse seats, and the tubes strike as the lights ramp up.
     sfx('metal_click');
@@ -2213,6 +2289,8 @@ const hallwayBasement = createHallwayBasementLevel({
    * reads the other way round -- this is Annabelle cutting the power to keep
    * her brother away from the front door.
    */
+  // Thrown at the door, at the desk or by the clock running out (`cause`):
+  // the same hand on the same lever, so the same beat.
   onBlackout: () => {
     script.run(async (s) => {
       s.do(() => {
@@ -2243,6 +2321,11 @@ const hallwayBasement = createHallwayBasementLevel({
     sfx('main_lever');
     script.run(async (s) => {
       if (!await s.play(line('dialog_power_routed'))) return;
+      // The tape is the lit window's story, and a player who went for the door
+      // first never got it. One line, once, toward wherever it is.
+      const refs = hallwayBasement.refs;
+      if (refs.tapeWatched) return;
+      await s.play(line(refs.tapePlace === 'camcorder' ? 'dialog_tape_nudge_camera' : 'dialog_tape_nudge_deck'));
     });
   },
 
@@ -2493,6 +2576,10 @@ itemMeshes.setTemplate('bedroomKey', bedroom.refs.bedroomKey);
 itemMeshes.setTemplate('doorKey', study.refs.doorKey);
 itemMeshes.setTemplate('gateKey', study.refs.gateKey);
 itemMeshes.setTemplate('visor', study.refs.visorGroup);
+// The session tape's model is a download, so its template arrives with it.
+hallwayBasement.refs.tapeModelReady
+  .then((model) => itemMeshes.setTemplate('sessionTape', model))
+  .catch(() => {});
 
 // Not a "level 4": ONE interstitial instance, re-armed per crossing by
 // setRoute(). It hands its route back through onExit rather than reading a
@@ -3175,6 +3262,7 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   // was mid-sentence keeps talking over the freshly reset room.
   audio.stopVoice();
   documentUI.close();
+  tapePlayerUI.close();
   // Snapped rather than eased: a restart should not show the visor fading off.
   postFX.reset();
   // Otherwise a second run flicks to camera two and nothing crosses it.
@@ -3420,7 +3508,18 @@ window.addEventListener('keydown', (e) => {
   // Deliberately INSTANT, not faded: these are a mentor-demo tool and 1.7s of
   // black per press is friction. But each one aborts first, or a jump taken
   // mid-fade lands behind an overlay that will never lift.
-  // Levels 1 and 2 have no shortcut keys: they are only reached by playing.
+  // Level 1 has no shortcut key: it is only reached by playing. 2 drops the
+  // player straight into the basement for testing it, torch in hand -- the lab
+  // is pitch dark until the fuse goes in, and a jump skips the bedroom where
+  // the torch is found.
+  if (e.code === 'Digit2') {
+    abortTransition();
+    activateLevel('hallwayBasement');
+    flashlightFound = true;
+    if (!gameState.inventory.has('flashlight')) pickUpItem('flashlight', { animate: false });
+    else heldItems.select('flashlight');
+    setFlashlight(true);
+  }
   if (e.code === 'Digit3') { abortTransition(); activateLevel('study'); }
   if (e.code === 'Digit4') {
     // Routed off the CURRENT level, so the debug key exercises the same table
@@ -4032,6 +4131,7 @@ player.controls.addEventListener('unlock', () => {
   if (photoBoardUI.isOpen) return;
   if (pinPadUI.isOpen) return;
   if (documentUI.isOpen) return;
+  if (tapePlayerUI.isOpen) return;
 
   // 2. and 3. are both real pauses -- the credits screen and Esc -- and both
   //    should suspend everything. Captions pause on the same event as the
@@ -4144,7 +4244,11 @@ if (import.meta.env.DEV) {
     minimap,
     storm: bedroomStorm,
     captions,
+    // The crosshair's raycast. Headless has no pointer lock, so the frame loop
+    // never calls update() itself -- a harness aims the camera and calls it.
+    interaction,
     documentUI,
+    tapePlayerUI,
     audio,
     // audition(name), debug(), state, forceActive -- see docs/AUDIO.md.
     audioDirector,
@@ -4655,6 +4759,10 @@ function tick() {
   // The camera IS the player's position; the basement reads it to know when
   // they have walked up to the metal door.
   sceneManager.update(dt, camera.position);
+  // The tape's subtitles and the placeholder's sounds, on the tape's own clock,
+  // which the level has just advanced.
+  tapePlayerUI.update();
+  updateTapeSounds();
 
   if (player.isLocked) {
     interaction.update();
