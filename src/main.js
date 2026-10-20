@@ -17,6 +17,7 @@ import { createBedroomLevel } from './levels/bedroomLevel.js';
 import { createHallwayBasementLevel } from './levels/hallwayBasementLevel.js';
 import { createStudyLevel } from './levels/studyLevel.js';
 import { createBackroomsLevel } from './levels/backroomsLevel.js';
+import { ROOM_FLOORS } from './levels/annabelleRooms.js';
 import { createUpstairsHallwayLevel } from './levels/upstairsHallwayLevel.js';
 import { createScreenFade, wait } from './core/ScreenFade.js';
 import { gameState, resetState, addItem, removeItem, ITEMS } from './core/GameState.js';
@@ -2755,6 +2756,8 @@ const backroomsHunter = createBackroomsHunter({
     walking: player.moving > 0.5 && player.crouch < 0.5
   }),
   colliders: backrooms.colliders,
+  // Annabelle's rooms are partitioned; it must only ever aim for the open half.
+  roomFloors: ROOM_FLOORS,
   onBreathing: (level) => audio.setBreathing(level),
   onCaught: () => onHunterCaught()
 });
