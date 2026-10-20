@@ -2380,13 +2380,10 @@ const hallwayBasement = createHallwayBasementLevel({
       // Camera five is this room. There is a figure standing in it.
       hallwayBasement.refs.feeds.showBasementFigure(3.4);
       script.run(async (s) => {
-        if (!await s.wait(0.6)) return;
-        s.do(() => audio.setBreathing(0.95));
-        if (!await s.play(line('dialog_cctv_basement'))) return;
-        s.do(() => creak());
-
         /**
-         * And then it is behind you.
+         * And it is behind you -- the instant camera five comes up, not after
+         * a beat: the figure on the screen and the thing in the corner are
+         * there together.
          *
          * The storyline: "Turning around you see the creature standing in the
          * corner, staring at you, but not moving. Then it disappears back up
@@ -2396,14 +2393,16 @@ const hallwayBasement = createHallwayBasementLevel({
          * block anything here. It stands, it is looked at, it goes. The AI takes
          * over in Level 3, where the player has room to be chased.
          */
-        if (!await s.wait(0.7)) return;
         s.do(() => {
-          // Where it stands after camera five -- the level owns the spot, so it
-          // moves with the lab if the room is ever resized again. For as long
-          // as the line takes, its aura looping, rather than a fixed linger.
+          // Where it stands -- the level owns the spot, so it moves with the
+          // lab if the room is ever resized again. For as long as the lines
+          // take, its aura looping, rather than a fixed linger.
           const CORNER = hallwayBasement.refs.creatureCorner;
           showCreatureAt({ x: CORNER[0], z: CORNER[1], linger: null });
+          audio.setBreathing(0.95);
+          creak();
         });
+        if (!await s.play(line('dialog_cctv_basement'))) return;
         if (!await s.play(line('dialog_creature_corner'))) return;
         s.do(() => {
           hideCreature();
