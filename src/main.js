@@ -3954,7 +3954,8 @@ window.addEventListener('keydown', (e) => {
     }
   }
   if (e.code === 'KeyR' && !e.repeat) openRestartConfirm();
-  if (e.code === 'KeyC' && !transitionInFlight) toggleCredits(true);
+  // K, not C: C is crouch.
+  if (e.code === 'KeyK' && !transitionInFlight) toggleCredits(true);
 });
 
 // ---------- right-click = E ----------

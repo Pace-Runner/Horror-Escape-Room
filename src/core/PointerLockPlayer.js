@@ -259,7 +259,7 @@ export class PointerLockPlayer {
   }
 
   #onKey(e, isDown) {
-    // Ctrl is crouch, so every Ctrl+key is a thing the player does by accident
+    // Ctrl used to be crouch, and a Ctrl+key is still easy to hit by accident
     // mid-game. Cancel the browser's action for all of them while the game has
     // the pointer -- save page, bookmark, find. The ones a page is not allowed
     // to cancel (Ctrl+W above all) are core/KeyboardGuard.js's job. Not while
@@ -270,10 +270,11 @@ export class PointerLockPlayer {
       case 'KeyS': case 'ArrowDown': this.keys.back = isDown; break;
       case 'KeyA': case 'ArrowLeft': this.keys.left = isDown; break;
       case 'KeyD': case 'ArrowRight': this.keys.right = isDown; break;
-      // Ctrl rather than the more usual C, which this game already spends on
-      // the credits screen (see index.html). Ctrl+W crouch-walks instead of
-      // closing the tab because of core/KeyboardGuard.js.
-      case 'ControlLeft': case 'ControlRight': this.keys.crouch = isDown; break;
+      // C, not Ctrl. Crouch was Ctrl, which made crouch-walking Ctrl+W --
+      // the browser's "close tab" -- and KeyboardGuard.js can only stop that
+      // in fullscreen. Out of fullscreen it closed the game. The credits
+      // moved off C to K to make room.
+      case 'KeyC': this.keys.crouch = isDown; break;
       case 'ShiftLeft': case 'ShiftRight': this.keys.sprint = isDown; break;
     }
   }
