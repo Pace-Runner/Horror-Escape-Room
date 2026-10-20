@@ -52,6 +52,8 @@ import whiteRustMetalUrl from '../assets/textures/lab/texturelabs_metal_190.jpg?
 import steelColorUrl from '../assets/textures/lab/metal055b_color.jpg?url';
 import steelNormalUrl from '../assets/textures/lab/metal055b_normal_gl.jpg?url';
 import steelRoughnessUrl from '../assets/textures/lab/metal055b_roughness.jpg?url';
+// Level 1's bedside table wood, for the lab's wooden tables: one house, one furniture.
+import tableWoodUrl from '../assets/textures/bedside/wood.png?url';
 import steelMetalnessUrl from '../assets/textures/lab/metal055b_metalness.jpg?url';
 import scuffDecalUrl from '../assets/textures/lab/texturelabs_details_136.png?url';
 // The rust cut out of Texturelabs_Metal_190: its white paint made transparent,
@@ -3701,7 +3703,7 @@ export function createHallwayBasementLevel({
   deskTop.position.y = DESK_TOP_SIZE.standHeight;
   desk.add(deskTop);
   const deskLeg = (x) => {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.75, 0.06), frameWoodMat());
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.75, 0.06), frameWoodMat({ grain: 'up' }));
     leg.position.set(x, 0.375, 0);
     desk.add(leg);
   };
@@ -4832,8 +4834,23 @@ export function createHallwayBasementLevel({
   };
   lab.add(blackPool);
 
-  function frameWoodMat() {
-    return new THREE.MeshStandardMaterial({ color: 0x3a2c1e, roughness: 0.85 });
+  /**
+   * The wood of the lab's two tables, the CCTV desk and the workbench: the
+   * same dark, scuffed boards as the bedside table in Level 1
+   * (textures/bedside/wood.png), so the house's furniture reads as one house.
+   * The photo's grain runs across it, which is right along a table top; a leg
+   * turns it a quarter so the grain runs up the leg, as it would in real wood.
+   *
+   * @param {object} [options]
+   * @param {'along'|'up'} [options.grain] - along a top, or up a leg.
+   */
+  function frameWoodMat({ grain = 'along' } = {}) {
+    const map = loadPhoto(tableWoodUrl);
+    if (grain === 'up') {
+      map.center.set(0.5, 0.5);
+      map.rotation = Math.PI / 2;
+    }
+    return new THREE.MeshStandardMaterial({ map, roughness: 0.82 });
   }
 
   // ---------- central detail ----------
@@ -4850,7 +4867,7 @@ export function createHallwayBasementLevel({
   benchTop.position.y = 0.82;
   workbench.add(benchTop);
   [[-0.6, -0.35], [0.6, -0.35], [-0.6, 0.35], [0.6, 0.35]].forEach(([x, z]) => {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.82, 0.06), frameWoodMat());
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.82, 0.06), frameWoodMat({ grain: 'up' }));
     leg.position.set(x, 0.41, z);
     workbench.add(leg);
   });
