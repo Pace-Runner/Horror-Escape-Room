@@ -222,8 +222,9 @@ To replay it in dev: `__game.resetGame()`, then `__game.playCutscene('wakeUp')`.
 [src/cutscenes/hallwayReveal.js](../src/cutscenes/hallwayReveal.js). It plays
 when the bedroom door opens onto the upstairs hall, with the creature standing
 at the far end. Five seconds: the player's eyes turn onto it, a slow push on a
-long lens while its head goes over, a cut to behind its shoulder looking back
-up the hall at the player in the doorway, and a cut back to the player's eyes.
+long lens while its head goes over, a cut to its own eyes looking back up the
+hall at the player in the doorway (its head hidden from the lens, the frame
+cocked with it), and a cut back to the player's eyes.
 Then the hallway rush runs as before, in first person. The scene replaces most
 of the rush's one-second stare (`HALLWAY_RUSH_STARE_AFTER_REVEAL`). The G
 skip-through plays the bare rush.

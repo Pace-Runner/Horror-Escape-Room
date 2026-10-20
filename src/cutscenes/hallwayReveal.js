@@ -8,9 +8,9 @@
  *   1. the player's own eyes, turning onto it            (no cut from play)
  *   2. a slow push down the hall on a lengthening lens --
  *      it fills the frame, its head going over            (push in, FOV 70 -> 34)
- *   3. CUT: low, behind its shoulder, looking back up
- *      the hall at the player standing in the doorway,
- *      their own torch in the lens                        (the reverse)
+ *   3. CUT: from its own eyes, looking back up the hall
+ *      at the player standing in the doorway, their own
+ *      torch in the lens, the frame cocked with its head  (the reverse)
  *   4. CUT: back to the player's eyes, exactly where
  *      they are standing, looking at it                   (then handed back)
  *
@@ -19,8 +19,15 @@
  * the scare, and that stays the player's.
  *
  * WHY THE REVERSE SHOT. It is the one picture first person can never give: the
- * player, from where IT stands. Same model as the monster at correction 1 (see
- * playerBody in main.js), so the two figures in that frame are one body twice.
+ * player, through ITS eyes -- it is looking at you. Same model as the monster
+ * at correction 1 (see playerBody in main.js), so the figure in that frame is
+ * the body it is a distortion of.
+ *
+ * FROM ITS EYE LINE, not from low behind it. The reverse used to be filmed
+ * from its hip, behind its shoulder, which framed the shot round its leg. The
+ * lens now sits between its eyes (its head is hidden from the lens for the
+ * shot, so it does not see the inside of its own face) and follows them as
+ * the head goes over, and the frame rolls with the cocked head.
  *
  * Built per play rather than as a constant, because the shots are placed
  * relative to where the player actually opened the door from and where it
@@ -30,9 +37,10 @@
  * @param {object} p
  * @param {{x:number, y:number, z:number}} p.eye  the player's eye, world space.
  * @param {{x:number, z:number}} p.standing       where the creature stands.
+ * @param {{x:number, y:number, z:number}} p.creatureEyes  between its eyes, world space.
  * @param {number} p.baseFov                      the player's field of view.
  */
-export function hallwayReveal({ eye, standing, baseFov }) {
+export function hallwayReveal({ eye, standing, creatureEyes, baseFov }) {
   // Unit vector, on the floor, from the creature to the player -- and the one
   // at right angles to it, for putting the lens off its shoulder.
   const dx = eye.x - standing.x;
@@ -55,13 +63,22 @@ export function hallwayReveal({ eye, standing, baseFov }) {
   // degrees) and the lens does the rest of the move.
   const PUSH_METRES = Math.min(1.8, len * 0.2);
   const push = [eye.x - toPlayer[0] * PUSH_METRES, eye.y - 0.2, eye.z - toPlayer[1] * PUSH_METRES];
-  // The reverse: behind it and off its right shoulder, at its hip, on a long
-  // lens so the player -- ten metres off in the doorway -- reads as a figure
-  // rather than a speck.
-  const behind = (back, side, y) => [
-    standing.x - toPlayer[0] * back + across[0] * side,
-    y,
-    standing.z - toPlayer[1] * back + across[1] * side
+  // The reverse is from its eyes, on a long lens so the player -- ten metres
+  // off in the doorway -- reads as a figure rather than a speck. Its head is
+  // cocked over, so the frame rolls by part of that: `up` leans across the
+  // hall instead of straight up.
+  const REVERSE_FOV = 30;
+  const REVERSE_ROLL_SHARE = 0.6;
+  // A little under its eyes and a hand forward of them. The hall's pendant
+  // hangs half way down at its head height, dead in line with the player; from
+  // exactly its eyes the shade sat over the player's head. This much lower and
+  // the shade rises clear above them -- the same reason the push runs low.
+  const EYE_LINE_DROP_METRES = 0.14;
+  const EYE_LINE_FORWARD_METRES = 0.1;
+  const eyeLine = [
+    creatureEyes.x + toPlayer[0] * EYE_LINE_FORWARD_METRES,
+    creatureEyes.y - EYE_LINE_DROP_METRES,
+    creatureEyes.z + toPlayer[1] * EYE_LINE_FORWARD_METRES
   ];
 
   /** Its head going over, eased in across the push and held through the reverse. */
@@ -85,18 +102,35 @@ export function hallwayReveal({ eye, standing, baseFov }) {
       { at: push, lookAt: 'creature.head', fov: 34, seconds: PUSH },
       {
         cut: true,
-        path: [behind(1.0, 0.55, 1.1), behind(0.85, 0.5, 1.05)],
+        at: eyeLine,
         lookAt: 'player',
-        fov: 28,
+        up: () => {
+          const roll = HEAD_TILT_RADIANS * REVERSE_ROLL_SHARE;
+          return [across[0] * Math.sin(roll), Math.cos(roll), across[1] * Math.sin(roll)];
+        },
+        fov: REVERSE_FOV,
         seconds: REVERSE,
         ease: 'linear',
-        shake: 0.35
+        shake: 0.2
       },
       { cut: true, at: 'player', lookAt: 'creature.head', fov: baseFov, seconds: RETURN }
     ],
     cues: [
-      { t: CUT_TO_REVERSE, run: (ctx) => { ctx.showPlayerBody(true); ctx.sfx('creak'); } },
-      { t: CUT_BACK, run: (ctx) => ctx.showPlayerBody(false) }
+      {
+        t: CUT_TO_REVERSE,
+        run: (ctx) => {
+          ctx.showPlayerBody(true);
+          ctx.creature.setHeadVisible(false);
+          ctx.sfx('creak');
+        }
+      },
+      {
+        t: CUT_BACK,
+        run: (ctx) => {
+          ctx.showPlayerBody(false);
+          ctx.creature.setHeadVisible(true);
+        }
+      }
     ],
     onFrame(ctx, t) {
       const tilt = tiltAt(t);
@@ -107,6 +141,7 @@ export function hallwayReveal({ eye, standing, baseFov }) {
     },
     onEnd(ctx) {
       ctx.showPlayerBody(false);
+      ctx.creature.setHeadVisible(true);
     }
   };
 }

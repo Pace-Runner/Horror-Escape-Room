@@ -1435,6 +1435,7 @@ const SCENES = {
   hallwayReveal: () => hallwayReveal({
     eye: camera.getWorldPosition(new THREE.Vector3()),
     standing: { x: creature.position.x, z: creature.position.z },
+    creatureEyes: creature.getEyePosition(new THREE.Vector3()),
     baseFov: BASE_FOV
   })
 };
