@@ -2667,6 +2667,7 @@ const STUDY_LOCK_SFX = { deadbolt: 'deadbolt_open', combination: 'padlock_open',
 
 const study = createStudyLevel({
   showCaption,
+  getPlayerPosition: () => camera.position,
   onDoorOpening: (position) => audioDirector.door(position),
   // The study is the last room, so its exit is the ENDING rather than another
   // level. Unit 17 replaces this; until then it says so plainly instead of
@@ -4104,8 +4105,8 @@ window.addEventListener('keydown', (e) => {
  * third-person pan would otherwise fly a disembodied glove over the treeline.
  */
 const ENDING_TITLES = {
-  released: 'THE HOLLOW IS OUT',
-  contained: 'THE HOUSE HELD',
+  released: 'ENDING: RELEASED',
+  contained: 'ENDING: CONTAINED',
   timeout: 'OUT OF TIME'
 };
 
@@ -4156,48 +4157,45 @@ async function playOutOfTime() {
 }
 
 async function playEnding(which) {
-  if (endingInFlight) return;
+  const committedChoice = study.refs.puzzle.endingChoice;
+  if (endingInFlight || gameState.endingChosen || cutscene.isRunning
+    || (which === 'released' ? committedChoice !== 'RELEASE'
+      : which !== 'contained' || committedChoice !== 'RESEALED')) return;
   endingInFlight = true;
   gameState.endingChosen = which;
   try {
-    // Take the choice away immediately: both hitboxes are still in front of the
-    // player and a second E during the fade would start the other ending.
+    script.cancel();
+    captions.cancel();
+    audio.stopVoice();
     interaction.setEnabled(false);
-    // Her breathing fades under the ending rather than staying pinned at
-    // wherever her last approach left it (onBreathing ignores her from here).
+    player.movementEnabled = false;
+    player.lookEnabled = false;
+    player.clearKeys();
     audio.setBreathing(BREATH_BASE_LEVEL);
-
-    if (which === 'contained') {
-      // The door shuts, and the bolts go across. Heard, not just described.
-      study.refs.doorState.open = false;
-      creak();
-      script.run(async (s) => {
-        for (let i = 0; i < 3; i++) {
-          if (!await s.wait(0.55)) return;
-          s.do(() => { if (!sfx('deadbolt_open')) creak(); });
-        }
-      });
-      await wait(900);
-    }
-
-    // Out through the gate and up over the treeline, looking back at the house.
-    const from = which === 'released'
-      ? [2.5, 1.6, 7.2]
-      : [2.5, 1.6, 6.4];
-    const shotFinished = await cutscene.playToBlack({
-      points: [from, [2.2, 3.2, 12.0], [0.6, 7.5, 20.0], [-1.5, 12.0, 30.0]],
-      lookAt: (t) => [2.5, 1.4 + t * 1.2, 3.0],
-      seconds: 13,
-      fadeMs: 2200,
-      body: () => captions.play(line(`dialog_ending_${which}`))
+    const text = which === 'released'
+      ? ['CONTAINMENT RELEASED.', 'Annabelle may still have a chance.', 'But The Hollow is no longer contained.']
+      : ['CONTAINMENT RESTORED.', 'You remembered what you asked her to do.', 'Annabelle cannot leave.'];
+    const lookAt = camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()));
+    const shotFinished = await cutscene.playScene({
+      name: `studyEnding_${which}`,
+      letterbox: true,
+      skippable: false,
+      shots: [{ cut: true, at: 'player', lookAt, seconds: 11.6 }],
+      cues: [
+        { t: 0, run: () => captions.say({ text: text[0], duration: 2.4, always: true }) },
+        { t: 3.1, run: () => captions.say({ text: text[1], duration: 2.9, always: true }) },
+        { t: 6.6, run: () => captions.say({ text: text[2], duration: 3, always: true }) },
+        { t: 10.2, run: () => fade.fadeOut(1200) }
+      ],
+      onEnd: (_ctx, completed) => {
+        interaction.setEnabled(false);
+        captions.cancel();
+        if (!completed) fade.clear();
+      }
     });
-
-    // The morning's paper, on the black after the shot: the bulletin the player
-    // just heard, as the town will read it. Skipped only by a restart, which
-    // has already put the game somewhere an end screen must not appear over.
-    if (shotFinished && !await newspaperView.show(`ending_${which}`)) return;
-
-    showEndScreen(which);
+    if (!shotFinished || gameState.endingChosen !== which) return;
+    showEndScreen(which, false);
+    fade.clear();
   } finally {
     endingInFlight = false;
   }
@@ -4207,7 +4205,7 @@ async function playEnding(which) {
  * The end screen reuses #start-screen, which is already doing double duty as
  * the pause menu -- a third state rather than a third overlay.
  */
-function showEndScreen(which) {
+function showEndScreen(which, showCredits = true) {
   menuOverlayState = 'game';
   showLegacyStartScreen();
   creature.visible = false;
@@ -4223,7 +4221,7 @@ function showEndScreen(which) {
   promptEl.style.display = 'none';
   // Running out of time is not an ending, so no credits roll over it: the
   // title and Play again are what the player needs to see.
-  if (!ENDING_CREDITS[which]) {
+  if (!showCredits || !ENDING_CREDITS[which]) {
     buildCredits();
     if (player.isLocked) player.unlock();
     return;

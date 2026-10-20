@@ -13,70 +13,24 @@ import { gameState } from '../core/GameState.js';
 import { createHiddenWritingTexture, createFootmarkTexture } from '../world/textures.js';
 import { line } from '../dialogue/index.js';
 
-/**
- * The combination on lock 2. Written on the note in the desk drawer, so it is
- * discoverable in the room rather than guessable -- and it is the date on the
- * polaroid from Level 1, which is the first thing tying the two rooms together.
- */
-const FRONT_DOOR_CODE = '0687';
-
-/** Lock ids, in the order they are mounted up the door. */
-const LOCK_IDS = ['deadbolt', 'combination', 'containment'];
-
 const ROOM_W = 16;
 const ROOM_D = 13;
 const ROOM_H = 6.4;
 const LOFT_Y = 3.1;
 const LOFT_D = 5.8;
 
-/**
- * Level 3: the study, the biggest room in the house, ending in the front door.
- *
- * THE THREE LOCKS, which used to be caption-only stubs that checked nothing and
- * set nothing. They are now a real sequence, and the order is the storyline's:
- * two can be opened by an ordinary search of the room, and the third cannot be
- * opened at all until the player has worn the visor -- "before they open the 3rd
- * lock, they have to wear the visor".
- *
- *   1. DEADBOLT     - keyed. The key is in the desk drawer.
- *   2. COMBINATION  - four digits, written on the note beside the key.
- *   3. CONTAINMENT  - has no keyway a broken eye can resolve. This is the one
- *                     that forces the visor on, and therefore the one that
- *                     forces the player to look at the room properly.
- *
- * Lock state lives in GameState rather than in this closure, because it crosses
- * a level boundary: the ending needs to know how the door came open, and
- * resetState() already clears it on a restart so there is nothing to remember.
- *
- * Hierarchy note: the three locks are children of the front-door GROUP, not of
- * the frame, since each is mounted to the slab and has to travel with it when
- * the door swings.
- */
+/** Level 3 study: the archive puzzles lead to the final front exit. */
 export function createStudyLevel({
   showCaption = () => {},
-  onExit = () => {},
   // The front door starting to swing, with its world position. Not the later
   // press that walks through it.
   onDoorOpening = () => {},
-  onExaminePinpad = () => {},
   onTakeVisor = () => {},
-  onTakeGateKey = () => {},
-  onTakeDoorKey = () => {},
   onLookInMirror = () => {},
   onReadLetter = () => {},
   /** 'released' | 'contained'. The last decision in the game. */
   onChooseEnding = () => {},
-  onReadNote = () => {},
-  /**
-   * Is this item in the player's hand right now? The deadbolt and the gate both
-   * want their key HELD, not merely found -- the same rule as the bedroom's
-   * crowbar and keys. Defaults to "yes" so an unwired caller keeps the old
-   * behaviour rather than two locks that can never open.
-   */
-  isHolding = () => true,
-  /** Fired with the lock id each time one opens, and again when all three are. */
-  onLockOpened = () => {},
-  onAllLocksOpen = () => {},
+  getPlayerPosition = () => null,
   /** A sound effect by name (AudioDirector's SFX); the level has no audio of its own. */
   onSfx = () => {}
 } = {}) {
@@ -303,11 +257,6 @@ export function createStudyLevel({
    * open locks); what is only true inside this room lives here.
    */
   const puzzle = {
-    drawerOpen: false,
-    hasDoorKey: false,
-    noteRead: false,
-    hasGateKey: false,
-    gateOpen: false,
     clockHour: 10,
     clockMinute: 0,
     clockSolved: false,
@@ -328,16 +277,13 @@ export function createStudyLevel({
     mirrorUnlocked: false,
     mirrorRevealInProgress: false,
     mirrorRevealed: false,
-    hasHollowOverrideKey: false
+    hasHollowOverrideKey: false,
+    endingChoice: 'NONE',
+    endingSequenceStarted: false
   };
   let mirrorRevealGeneration = 0;
 
-  /**
-   * The desk drawer, which actually opens. A handle glued to a solid box is
-   * the sort of thing that reads fine in a screenshot and badly the moment a
-   * player pulls on it -- and this drawer holds the key to the first lock, so
-   * it has to be a drawer.
-   */
+  // Keep the original desk drawer as a closed, non-interactive room prop.
   const drawer = new THREE.Group();
   drawer.position.set(desk.position.x + 0.9, 0.5, desk.position.z + 0.61);
   group.add(drawer);
@@ -358,74 +304,8 @@ export function createStudyLevel({
   deskHandle.position.set(0, 0, 0.03);
   drawer.add(deskHandle);
 
-  /** What is in it. Hidden until it is open, so nothing floats in a shut drawer. */
+  // Shared brass material for the new Override Key reward.
   const keyMat = new THREE.MeshStandardMaterial({ color: 0xb9a55e, metalness: 0.85, roughness: 0.35 });
-  const doorKey = new THREE.Group();
-  doorKey.position.set(-0.12, -0.06, -0.2);
-  doorKey.visible = false;
-  drawer.add(doorKey);
-  const keyShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.11, 8), keyMat);
-  keyShaft.rotation.z = Math.PI / 2;
-  doorKey.add(keyShaft);
-  const keyBow = new THREE.Mesh(new THREE.TorusGeometry(0.018, 0.005, 6, 14), keyMat);
-  keyBow.position.x = -0.07;
-  keyBow.rotation.y = Math.PI / 2;
-  doorKey.add(keyBow);
-  const keyBit = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.018, 0.005), keyMat);
-  keyBit.position.set(0.045, -0.011, 0);
-  doorKey.add(keyBit);
-
-  const drawerNote = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.16, 0.11),
-    new THREE.MeshStandardMaterial({ color: 0xcfc5aa, roughness: 1 })
-  );
-  drawerNote.rotation.x = -Math.PI / 2;
-  drawerNote.rotation.z = 0.2;
-  drawerNote.position.set(0.11, -0.07, -0.24);
-  drawerNote.visible = false;
-  drawer.add(drawerNote);
-
-  const drawerHitbox = new THREE.Mesh(
-    new THREE.BoxGeometry(0.56, 0.24, 0.12),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
-  );
-  drawerHitbox.position.set(desk.position.x + 0.9, 0.5, desk.position.z + 0.65);
-  drawerHitbox.userData.interact = {
-    label: 'Open the desk drawer',
-    onInteract: () => {
-      if (puzzle.drawerOpen) {
-        showCaption(line('dialog_drawer_empty'));
-        return;
-      }
-      puzzle.drawerOpen = true;
-      puzzle.hasDoorKey = true;
-      // Left hidden: the key goes straight into the player's hand (onTakeDoorKey
-      // -> the held-item view), and the same key lying in the drawer as well
-      // would be two of it. The mesh is still the one the hand shows -- it is
-      // cloned for that, see world/itemMeshes.js.
-      doorKey.visible = false;
-      drawerNote.visible = true;
-      drawerHitbox.userData.interact.label = 'Search the drawer';
-      interactables.push(drawerNoteHitbox);
-      showCaption(line('dialog_drawer_opened'));
-      onTakeDoorKey();
-    }
-  };
-  interactables.push(drawerHitbox);
-  group.add(drawerHitbox);
-
-  const drawerNoteHitbox = new THREE.Mesh(
-    new THREE.BoxGeometry(0.2, 0.1, 0.16),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
-  );
-  drawerNoteHitbox.position.set(desk.position.x + 1.01, 0.44, desk.position.z + 0.41);
-  drawerNoteHitbox.userData.interact = {
-    label: 'Read the note',
-    onInteract: () => {
-      puzzle.noteRead = true;
-      onReadNote();
-    }
-  };
 
   // desk chair, tucked in
   const chairMat = new THREE.MeshStandardMaterial({ color: 0x2c2018, roughness: 0.8 });
@@ -1523,51 +1403,7 @@ Annabelle`;
   };
   group.add(hollowOverrideKeyHit);
 
-  /**
-   * The gate key, hanging on the side of the mirror frame.
-   *
-   * The storyline puts it here exactly: "you find the key hidden on the side of
-   * a mirror". It is in plain sight and has been the whole time -- the player
-   * simply could not see it, which is the same thing the room has been doing to
-   * them since they walked in. Visible only while the visor is on; taken, it
-   * stays taken.
-   */
-  const gateKeyMat = new THREE.MeshStandardMaterial({
-    color: 0xb9a55e, metalness: 0.85, roughness: 0.35,
-    emissive: 0x2a2410, emissiveIntensity: 0.4
-  });
-  const gateKey = new THREE.Group();
-  gateKey.position.set(4.8 + 0.82, 1.2, -ROOM_D / 2 + 0.07);
-  gateKey.visible = false;
-  group.add(gateKey);
-  const gkShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.09, 8), gateKeyMat);
-  gateKey.add(gkShaft);
-  const gkBow = new THREE.Mesh(new THREE.TorusGeometry(0.016, 0.004, 6, 12), gateKeyMat);
-  gkBow.position.y = 0.055;
-  gkBow.rotation.x = Math.PI / 2;
-  gateKey.add(gkBow);
-  const gkBit = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.005, 0.018), gateKeyMat);
-  gkBit.position.set(0.009, -0.038, 0);
-  gateKey.add(gkBit);
-
-  const gateKeyHit = new THREE.Mesh(
-    new THREE.SphereGeometry(0.1, 8, 8),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
-  );
-  gateKeyHit.position.copy(gateKey.position);
-  gateKeyHit.userData.interact = {
-    label: 'Take the key',
-    onInteract: () => {
-      puzzle.hasGateKey = true;
-      gateKey.visible = false;
-      const i = interactables.indexOf(gateKeyHit);
-      if (i >= 0) interactables.splice(i, 1);
-      onTakeGateKey();
-    }
-  };
-  group.add(gateKeyHit);
-
-  // front door, three locks mounted to the slab (children of the door group)
+  // The final front door is controlled by the Override Key sockets only.
   const frontDoor = new THREE.Group();
   frontDoor.position.set(DOOR_X, 0, ROOM_D / 2 - 0.05);
   group.add(frontDoor);
@@ -1579,139 +1415,7 @@ Annabelle`;
   doorSlab.position.y = 1.05;
   frontDoor.add(doorSlab);
 
-  const lockMat = new THREE.MeshStandardMaterial({ color: 0x8a8a8a, metalness: 0.8, roughness: 0.3 });
-  const openLockMat = new THREE.MeshStandardMaterial({ color: 0x4f6b4a, metalness: 0.7, roughness: 0.45 });
-  const lockMeshes = {};
-
-  function openLock(id) {
-    if (gameState.locksOpen.has(id)) return;
-    gameState.locksOpen.add(id);
-    const mesh = lockMeshes[id];
-    if (mesh) {
-      mesh.material = openLockMat;
-      // Thrown back: the bolt visibly moves, so progress is legible from across
-      // the room rather than only in a caption the player may have missed.
-      mesh.position.x = 0.24;
-    }
-    onLockOpened(id);
-    if (gameState.locksOpen.size === LOCK_IDS.length) {
-      frontDoorSlabHit.userData.interact.label = 'Open the front door';
-      onAllLocksOpen();
-    }
-  }
-
-  /**
-   * The three locks. Each one CHECKS something and SETS something -- they used
-   * to do neither, printing "all three have to open before this door will" and
-   * then never opening.
-   */
-  const LOCKS = [
-    {
-      id: 'deadbolt',
-      y: 0.5,
-      label: 'Deadbolt',
-      try: () => {
-        if (!puzzle.hasDoorKey) {
-          showCaption(line('dialog_deadbolt_no_key'));
-          return false;
-        }
-        if (!isHolding('doorKey')) {
-          showCaption(line('dialog_hold_door_key'));
-          return false;
-        }
-        showCaption(line('dialog_deadbolt_opened'));
-        return true;
-      }
-    },
-    {
-      id: 'combination',
-      y: 1.0,
-      label: 'Combination lock',
-      try: () => {
-        // Hands off to the same keypad the bedroom's drawer uses. The UI does
-        // not know the code; see core/PinPadUI.js.
-        onExaminePinpad({
-          length: FRONT_DOOR_CODE.length,
-          code: FRONT_DOOR_CODE,
-          onSolved: () => {
-            showCaption(line('dialog_combination_opened'));
-            openLock('combination');
-          }
-        });
-        return false;   // opened asynchronously, by the keypad
-      }
-    },
-    {
-      id: 'containment',
-      y: 1.5,
-      label: 'The third lock',
-      try: () => {
-        /**
-         * THE LOCK THAT FORCES THE VISOR ON.
-         *
-         * There is nothing wrong with this lock. There is something wrong with
-         * the player's eyes, and this is the first time the game makes that
-         * cost them something -- the storyline is explicit that the third lock
-         * cannot be opened until the visor is worn.
-         */
-        if (!gameState.visorWorn) {
-          showCaption(line(
-            gameState.hasVisor
-              ? 'dialog_third_lock_visor_off'
-              : 'dialog_third_lock_no_visor'
-          ));
-          return false;
-        }
-        showCaption(line('dialog_third_lock_opened'));
-        return true;
-      }
-    }
-  ];
-
-  /**
-   * The three locks, on the STUDY side of the door.
-   *
-   * They used to sit at z = +0.05, which is the porch side, and that broke
-   * them twice over for a player standing in the room:
-   *
-   *  - INVISIBLE. The slab spans z -0.035..+0.035, so a lock at 0.025..0.075
-   *    was entirely behind the slab's room-facing face. The three locks the
-   *    whole level is built around could only be seen from outside the house.
-   *  - UNCLICKABLE. `frontDoorSlabHit` is an invisible 0.2 m deep box reaching
-   *    forward to z = -0.05, and `Interaction` takes `hits[0]` -- the nearest.
-   *    So aiming at a lock always hit the door instead, and the prompt read
-   *    "The front door" everywhere on the slab.
-   *
-   * At z = -0.05 the body spans -0.075..-0.025: it stands 0.04 m proud of the
-   * slab so it reads as hardware bolted across the door, and its front face is
-   * 0.025 m nearer than the slab hitbox's, so the raycast resolves to the lock
-   * whenever the crosshair is actually on one.
-   */
-  LOCKS.forEach(({ id, y, label, try: attempt }) => {
-    const lock = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.16, 0.05), lockMat);
-    lock.position.set(0.35, y, -0.05);
-    lock.userData.interact = {
-      get label() {
-        return gameState.locksOpen.has(id) ? `${label} (open)` : label;
-      },
-      onInteract: () => {
-        if (gameState.locksOpen.has(id)) {
-          showCaption(line('dialog_lock_already_open'));
-          return;
-        }
-        if (attempt()) openLock(id);
-      }
-    };
-    interactables.push(lock);
-    frontDoor.add(lock);
-    lockMeshes[id] = lock;
-  });
-
-  /**
-   * The door itself. Separate from the locks, because "the locks are off" and
-   * "you have walked through it" are different moments and the second is the
-   * one the whole game has been about.
-   */
+  // No legacy lock objects or interaction volumes remain on the door.
   const frontDoorSlabHit = new THREE.Mesh(
     new THREE.BoxGeometry(1.05, 2.1, 0.2),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
@@ -1720,22 +1424,11 @@ Annabelle`;
   frontDoorSlabHit.userData.interact = {
     label: 'The front door',
     onInteract: () => {
-      const left = LOCK_IDS.filter((k) => !gameState.locksOpen.has(k)).length;
-      if (left > 0) {
-        showCaption(left === 1
-          ? line('dialog_front_door_one_lock_left')
-          : line('dialog_front_door_locks_left', { count: left }));
-        return;
-      }
-      if (!doorState.open) {
-        doorState.open = true;
-        // The doorway becomes walkable at the same moment it becomes open.
-        setDoorSolid(false);
-        onDoorOpening(frontDoorSlabHit.getWorldPosition(new THREE.Vector3()));
-        showCaption(line('dialog_front_door_opens'));
-        return;
-      }
-      onExit();
+      showCaption(puzzle.endingChoice === 'RELEASE'
+        ? 'The exit is open. Walk through.'
+        : puzzle.endingChoice === 'RESEALED'
+          ? 'Containment is permanently sealed.'
+          : 'Emergency release requires the HOLLOW OVERRIDE KEY.');
     }
   };
   interactables.push(frontDoorSlabHit);
@@ -1824,6 +1517,97 @@ Annabelle`;
     if (!solid && i >= 0) colliders.splice(i, 1);
   }
 
+  // One physical key, two irreversible sockets. The state is committed before
+  // any callback, so repeated inputs cannot spend the key twice.
+  const overrideSockets = [];
+  const resealBolts = new THREE.Group();
+  resealBolts.visible = false;
+  frontDoor.add(resealBolts);
+  for (const y of [0.45, 1.05, 1.65]) {
+    const bolt = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.1, 0.08), alcoveMat);
+    bolt.position.set(0, y, -0.13);
+    resealBolts.add(bolt);
+  }
+  function startCommittedEnding() {
+    if (puzzle.endingChoice === 'NONE' || puzzle.endingSequenceStarted) return;
+    puzzle.endingSequenceStarted = true;
+    onChooseEnding(puzzle.endingChoice === 'RELEASE' ? 'released' : 'contained');
+  }
+  function updateOverrideLabels(corrected = gameState.visorWorn) {
+    overrideSockets.forEach(({ display, choice }) => {
+      display.write(corrected
+        ? choice === 'RELEASE'
+          ? ['OVERRIDE FUNCTION:', 'RELEASE ALL', 'CONTAINMENT LOCKS']
+          : ['OVERRIDE FUNCTION:', 'PERMANENT', 'MANUAL RESEAL']
+        : choice === 'RELEASE' ? ['EMERGENCY RELEASE'] : ['CONTAINMENT RESEAL', 'MANUAL LOCKDOWN']);
+    });
+  }
+  function commitOverride(choice, socket) {
+    if (puzzle.endingChoice !== 'NONE' || gameState.endingChosen) return;
+    if (!puzzle.mirrorRevealed || !gameState.inventory.has('hollowOverrideKey')) {
+      showCaption('A HOLLOW OVERRIDE KEY is required.');
+      return;
+    }
+    puzzle.endingChoice = choice;
+    gameState.inventory.delete('hollowOverrideKey');
+    socket.installedKey.visible = true;
+    for (const { hit } of overrideSockets) {
+      const index = interactables.indexOf(hit);
+      if (index >= 0) interactables.splice(index, 1);
+    }
+    // The new sockets replace the old porch choices completely.
+    onSfx('latch');
+    if (choice === 'RELEASE') {
+      doorState.open = true;
+      setDoorSolid(false);
+      onDoorOpening(frontDoor.getWorldPosition(new THREE.Vector3()));
+      showCaption('Emergency release engaged. Walk through the front exit.');
+    } else {
+      doorState.open = false;
+      setDoorSolid(true);
+      resealBolts.visible = true;
+      resealBolts.scale.x = 0.05;
+      startCommittedEnding();
+    }
+  }
+  for (const [choice, x, z, rotation] of [
+    ['RELEASE', 1.55, 6.34, Math.PI],
+    ['RESEALED', 6.35, -6.32, 0]
+  ]) {
+    const socketGroup = new THREE.Group();
+    socketGroup.position.set(x, 1.35, z);
+    socketGroup.rotation.y = rotation;
+    group.add(socketGroup);
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 0.06), archiveCabinetMat);
+    const keyway = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.16, 0.015), crestBrassMat);
+    keyway.position.z = 0.04;
+    socketGroup.add(plate, keyway);
+    const installedKey = hollowOverrideKey.clone();
+    installedKey.position.set(0, 0.03, 0.09);
+    installedKey.rotation.set(0, 0, 0);
+    installedKey.scale.setScalar(0.75);
+    installedKey.visible = false;
+    socketGroup.add(installedKey);
+    const display = makeArchiveLabel(1.05, 0.42);
+    display.mesh.position.set(0, 0.5, 0.045);
+    socketGroup.add(display.mesh);
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.58, 0.18), archiveHitMat);
+    hit.position.z = 0.06;
+    const socket = { choice, display, hit, installedKey };
+    hit.userData.interact = {
+      get label() {
+        const action = choice === 'RELEASE' ? 'Emergency Release' : 'Manual Reseal';
+        return puzzle.mirrorRevealed && gameState.inventory.has('hollowOverrideKey')
+          ? `Use Override Key — ${action}` : `Override socket — ${action}`;
+      },
+      onInteract: () => commitOverride(choice, socket)
+    };
+    socketGroup.add(hit);
+    interactables.push(hit);
+    overrideSockets.push(socket);
+  }
+  updateOverrideLabels();
+
   /**
    * THE PORCH. Nothing existed past z = 3.25 at all, so the front door -- the
    * object the entire game is spent trying to reach -- opened onto the void.
@@ -1887,53 +1671,12 @@ Annabelle`;
     rail.position.set(0, by, 0);
     gate.add(rail);
   }
-  const padlock = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.12, 0.04), gateMat);
-  padlock.position.set(0.16, 1.0, 0.03);
-  gate.add(padlock);
-
-  const gateHit = new THREE.Mesh(
-    new THREE.BoxGeometry(2.7, 1.9, 0.2),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
-  );
-  gateHit.position.set(0, 0.95, 0);
-  gateHit.userData.interact = {
-    label: 'The fence gate',
-    onInteract: () => {
-      if (puzzle.gateOpen) { onExit(); return; }
-      if (!puzzle.hasGateKey) {
-        onSfx('gate_locked');
-        showCaption(line(gameState.visorWorn
-          ? 'dialog_fence_gate_locked_visor'
-          : 'dialog_fence_gate_locked'));
-        return;
-      }
-      if (!isHolding('gateKey')) {
-        showCaption(line('dialog_hold_gate_key'));
-        return;
-      }
-      puzzle.gateOpen = true;
-      setGateSolid(false);
-      onSfx('gate_open');
-      showCaption(line('dialog_fence_gate_opens'));
-      offerTheChoice();
-    }
-  };
-  interactables.push(gateHit);
-  gate.add(gateHit);
-
-  // Held so it can come out when the gate opens -- the same mistake the front
-  // door's collider made, which left an unwalkable slab in an open doorway.
+  // The existing porch fence remains static scenery/collision.
   const gateCollider = {
     minX: DOOR_X - 1.4, maxX: DOOR_X + 1.4,
     minZ: ROOM_D / 2 + PORCH_D - 0.12, maxZ: ROOM_D / 2 + PORCH_D + 0.05
   };
   colliders.push(gateCollider);
-  function setGateSolid(solid) {
-    const i = colliders.indexOf(gateCollider);
-    if (solid && i < 0) colliders.push(gateCollider);
-    if (!solid && i >= 0) colliders.splice(i, 1);
-  }
-
   /**
    * Porch lighting, and it has to be brighter than instinct says.
    *
@@ -1946,53 +1689,6 @@ Annabelle`;
    * The lamp over the door is the house; the cold fill from beyond the gate is
    * the night, and having them disagree in colour is what says "outside".
    */
-  /**
-   * THE CHOICE, and it is deliberately made of two things you can walk up to
-   * rather than a menu.
-   *
-   * The storyline gives two endings: walk out, which saves Annabelle and puts
-   * the Hollow into the world; or shut the door, which contains the Hollow and
-   * leaves her to bleed. Both are on the porch, facing opposite ways -- forward
-   * through the gate, or turn around and close what you just opened. Nothing
-   * labels either of them as the good one, because neither is.
-   *
-   * They only appear once the gate is open, so the player cannot stumble into
-   * the end of the game before they have been told what they are.
-   */
-  const leaveHit = new THREE.Mesh(
-    new THREE.BoxGeometry(2.6, 2.0, 0.5),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
-  );
-  leaveHit.position.set(DOOR_X, 1.0, ROOM_D / 2 + PORCH_D + 0.35);
-  leaveHit.userData.interact = {
-    label: 'Walk out',
-    onInteract: () => onChooseEnding('released')
-  };
-  group.add(leaveHit);
-
-  const shutHit = new THREE.Mesh(
-    new THREE.BoxGeometry(1.3, 2.1, 0.4),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
-  );
-  shutHit.position.set(DOOR_X, 1.05, ROOM_D / 2 + 0.42);
-  shutHit.userData.interact = {
-    label: 'Close the door behind you',
-    onInteract: () => onChooseEnding('contained')
-  };
-  group.add(shutHit);
-
-  function offerTheChoice() {
-    for (const h of [leaveHit, shutHit]) {
-      if (!interactables.includes(h)) interactables.push(h);
-    }
-  }
-  function withdrawTheChoice() {
-    for (const h of [leaveHit, shutHit]) {
-      const i = interactables.indexOf(h);
-      if (i >= 0) interactables.splice(i, 1);
-    }
-  }
-
   /**
    * THE OUTSIDE OF THE HOUSE.
    *
@@ -2120,24 +1816,15 @@ Annabelle`;
         visorOnly.visible = on;
         distortedTrail.visible = !on;
         updateTruthRecords(on);
+        updateOverrideLabels(on);
         annabelleCoatMat.color.setHex(on ? 0x5d5148 : 0x29232b);
         annabelleSkinMat.color.setHex(on ? 0x9d8271 : 0x4c414b);
-        gateKey.visible = on && !puzzle.hasGateKey;
-        const ki = interactables.indexOf(gateKeyHit);
-        if (on && !puzzle.hasGateKey && ki < 0) interactables.push(gateKeyHit);
-        if (!on && ki >= 0) interactables.splice(ki, 1);
       },
       visorGroup,
       visorHitbox,
       visorOnly,
-      gateKey,
-      // The desk-drawer key. Cloned by main.js for the held and dropped views,
-      // like gateKey and visorGroup above -- see world/itemMeshes.js.
-      doorKey,
       letterHit,
       exterior,
-      leaveHit,
-      shutHit,
       /** Where Annabelle stands once the letter has been read. */
       annabelleSpot: [-4.2, -4.2],
       annabelle,
@@ -2146,12 +1833,11 @@ Annabelle`;
         if (puzzle.mirrorRevealInProgress || puzzle.mirrorRevealed) annabelle.visible = true;
       },
       hollowOverrideKey,
+      overrideSockets,
       puzzle,
-      lockMeshes,
       doorState,
       frontDoorSlabHit,
       drawer,
-      drawerHitbox,
       clock,
       clockDrawer,
       archiveToken,
@@ -2159,21 +1845,13 @@ Annabelle`;
       archiveKey,
       memoryArchive,
       hollowArchivePanel,
-      truthDrawer,
-      gateHit,
-      /** The four digits on lock 2, so a test never has to hardcode them. */
-      code: FRONT_DOOR_CODE
+      truthDrawer
     },
     /**
      * Absent until now, which is why a restart left this level with its locks
      * thrown, its drawer open and its front door standing wide.
      */
     reset() {
-      // gameState.locksOpen is cleared centrally by resetState(); this puts the
-      // level's own view of that back in step.
-      puzzle.drawerOpen = false;
-      puzzle.hasDoorKey = false;
-      puzzle.noteRead = false;
       puzzle.clockHour = 10;
       puzzle.clockMinute = 0;
       puzzle.clockSolved = false;
@@ -2213,33 +1891,12 @@ Annabelle`;
       }
       if (!interactables.includes(archiveCabinetHit)) interactables.push(archiveCabinetHit);
       updateMemoryRecords();
-      doorKey.visible = false;
-      drawerNote.visible = false;
-      drawer.position.z = desk.position.z + 0.61;
-      drawerHitbox.userData.interact.label = 'Open the desk drawer';
-      const ni = interactables.indexOf(drawerNoteHitbox);
-      if (ni >= 0) interactables.splice(ni, 1);
-
-      for (const id of LOCK_IDS) {
-        const mesh = lockMeshes[id];
-        if (!mesh) continue;
-        mesh.material = lockMat;
-        mesh.position.x = 0.35;
-      }
       frontDoorSlabHit.userData.interact.label = 'The front door';
       doorState.open = false;
       doorHinge.rotation.y = 0;
       setDoorSolid(true);
       portraitMat.map = portraitTexPlain;
       portraitMat.needsUpdate = true;
-
-      withdrawTheChoice();
-      puzzle.hasGateKey = false;
-      puzzle.gateOpen = false;
-      setGateSolid(true);
-      gateKey.visible = false;
-      const gi = interactables.indexOf(gateKeyHit);
-      if (gi >= 0) interactables.splice(gi, 1);
 
       visorOnly.visible = false;
       distortedTrail.visible = true;
@@ -2257,6 +1914,15 @@ Annabelle`;
       puzzle.mirrorRevealInProgress = false;
       puzzle.mirrorRevealed = false;
       puzzle.hasHollowOverrideKey = false;
+      puzzle.endingChoice = 'NONE';
+      puzzle.endingSequenceStarted = false;
+      resealBolts.visible = false;
+      resealBolts.scale.x = 1;
+      for (const { hit, installedKey } of overrideSockets) {
+        installedKey.visible = false;
+        if (!interactables.includes(hit)) interactables.push(hit);
+      }
+      updateOverrideLabels(false);
       annabelle.visible = false;
       hollowOverrideKey.visible = false;
       hollowOverrideKeyHit.visible = false;
@@ -2280,6 +1946,12 @@ Annabelle`;
     },
 
     update(dt) {
+      if (resealBolts.visible) resealBolts.scale.x += (1 - resealBolts.scale.x) * Math.min(1, dt * 5);
+      if (puzzle.endingChoice === 'RELEASE' && !puzzle.endingSequenceStarted && doorHinge.rotation.y < -0.8) {
+        const position = getPlayerPosition();
+        if (position && Math.abs(position.x - DOOR_X) < DOORWAY_W / 2
+          && position.z >= frontZ + 0.2 && position.y < 2.5) startCommittedEnding();
+      }
       const truthDrawerTarget = puzzle.truthRecordsSolved ? 0.7 : 0.28;
       truthDrawer.position.z += (truthDrawerTarget - truthDrawer.position.z) * Math.min(1, dt * 5);
       const hollowPanelTarget = puzzle.correctedTrailSolved ? 1.95 : 0;
@@ -2290,16 +1962,12 @@ Annabelle`;
       visorCompartmentCover.position.x += (visorCoverTarget - visorCompartmentCover.position.x) * Math.min(1, dt * 5);
       // The drawer slides, and the door swings. Eased rather than snapped, the
       // same treatment the bedroom's door and corkboard get.
-      const drawerTargetZ = desk.position.z + 0.61 + (puzzle.drawerOpen ? 0.34 : 0);
-      drawer.position.z += (drawerTargetZ - drawer.position.z) * Math.min(1, dt * 6);
       const clockDrawerTargetX = 0.24 + (puzzle.clockSolved ? 0.28 : 0);
       clockDrawer.position.x += (clockDrawerTargetX - clockDrawer.position.x) * Math.min(1, dt * 6);
       const crestTargetX = puzzle.crestSolved ? 1.35 : 0;
       crestCover.position.x += (crestTargetX - crestCover.position.x) * Math.min(1, dt * 5);
       const doorTarget = doorState.open ? DOOR_OPEN_SWING : 0;
       doorHinge.rotation.y += (doorTarget - doorHinge.rotation.y) * Math.min(1, dt * 2.6);
-      const gateTarget = puzzle.gateOpen ? -1.05 : 0;
-      gate.rotation.y += (gateTarget - gate.rotation.y) * Math.min(1, dt * 2.2);
     }
   };
 }
