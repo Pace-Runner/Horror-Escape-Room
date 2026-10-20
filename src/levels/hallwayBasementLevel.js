@@ -54,6 +54,12 @@ import whiteRustMetalUrl from '../assets/textures/lab/texturelabs_metal_190.jpg?
 import steelColorUrl from '../assets/textures/lab/metal055b_color.jpg?url';
 import steelNormalUrl from '../assets/textures/lab/metal055b_normal_gl.jpg?url';
 import steelRoughnessUrl from '../assets/textures/lab/metal055b_roughness.jpg?url';
+import doorScratchesUrl from '../assets/textures/lab/door_scratches.png?url';
+// The steel door at the far end: one photo of a whole riveted, rusting door,
+// made from door_height_map.png and door_normal_map.png (both cropped to the door).
+import steelDoorAlbedoUrl from '../assets/textures/lab/steel_door_albedo.jpg?url';
+import steelDoorNormalUrl from '../assets/textures/lab/steel_door_normal.jpg?url';
+import steelDoorRoughnessUrl from '../assets/textures/lab/steel_door_roughness.jpg?url';
 // Level 1's bedside table wood, for the lab's wooden tables: one house, one furniture.
 import tableWoodUrl from '../assets/textures/bedside/wood.png?url';
 import steelMetalnessUrl from '../assets/textures/lab/metal055b_metalness.jpg?url';
@@ -97,6 +103,19 @@ const LAB_Z = HALL_LEN + LAB_D / 2 + 0.2;
  * pivots stand. The frame's back sits on the hallway's end, z = HALL_LEN.
  */
 const LAB_DOOR = { openHalf: 0.904, openH: 2.104, frameHalf: 0.994, frameTop: 2.194, pivotOffset: 0.06 };
+/**
+ * A lab door leaf's faces, in its own frame (blender/build_lab_door.py): along
+ * the leaf from its pivot (`u`), up it, and how far each face is off its
+ * mid-plane. `panel` is the flat inside the raised rim; `bezel` the window's
+ * frame, which the panel goes round. The scratches are laid on the panel.
+ */
+const LAB_DOOR_LEAF = {
+  faceOffset: 0.025,
+  panel: { u0: 0.065, u1: 0.835, y0: 0.067, y1: 2.037 },
+  bezel: { u0: 0.3, u1: 0.6, y0: 1.35, y1: 1.77 }
+};
+/** How much of a leaf one copy of the scratch photo covers, in metres: its own proportions. */
+const DOOR_SCRATCH_TILE = { width: 0.55, height: 0.55 * 464 / 828 };
 
 /**
  * The metal door at the far end. Up here with the room dimensions rather than
@@ -106,6 +125,20 @@ const LAB_DOOR = { openHalf: 0.904, openH: 2.104, frameHalf: 0.994, frameTop: 2.
  */
 const DOOR_WIDTH_IN_METRES = 1.1;
 const DOOR_HEIGHT_IN_METRES = 2.1;
+/**
+ * Where the hardware painted into the door's photo is, so the raised parts
+ * built over it land on it: each as a rectangle across the photo (`u`, 0 at
+ * its left as the player faces the door) and down it (`v`, 0 at its top).
+ * Measured off steel_door_albedo.jpg.
+ */
+const STEEL_DOOR_HARDWARE = {
+  hinges: [{ u0: 0.71, u1: 1.0, v0: 0.11, v1: 0.16 }, { u0: 0.73, u1: 1.0, v0: 0.83, v1: 0.874 }],
+  viewingPlate: { u0: 0.374, u1: 0.626, v0: 0.169, v1: 0.248 },
+  latch: { u0: 0.0, u1: 0.19, v0: 0.363, v1: 0.392 },
+  handlePlate: { u0: 0.04, u1: 0.15, v0: 0.465, v1: 0.58 },
+  // The lever: out from the plate at this height, its tip this far across.
+  lever: { v: 0.497, tipU: 0.25 }
+};
 
 /**
  * One glass cartridge fuse (fuse.glb). Every fuse in the level is this same
@@ -1083,6 +1116,64 @@ export function createHallwayBasementLevel({
     return [name, hit];
   }));
 
+  /**
+   * The scratches worn into a leaf's paint, on both faces: a see-through layer
+   * just off each face, inside the raised rim and round the window, carried
+   * by the leaf as it swings. Only the scratches are in the image -- the rest
+   * is clear -- so the leaf's own grey shows through between them.
+   *
+   * The image was made seamless from the photo, so it tiles without an edge
+   * showing (textures/lab/door_scratches.png).
+   *
+   * @param {number} sign - +1 for the left leaf, -1 for the right: which way along x the leaf runs from its pivot.
+   * @returns {THREE.Mesh} both faces' layers, in the leaf's frame.
+   */
+  function createDoorScratches(sign) {
+    const { panel, bezel, faceOffset } = LAB_DOOR_LEAF;
+    // The panel in four pieces round the bezel.
+    const pieces = [
+      [panel.u0, panel.u1, panel.y0, bezel.y0],
+      [panel.u0, panel.u1, bezel.y1, panel.y1],
+      [panel.u0, bezel.u0, bezel.y0, bezel.y1],
+      [bezel.u1, panel.u1, bezel.y0, bezel.y1]
+    ];
+    const positions = [];
+    const uvs = [];
+    for (const face of [1, -1]) {
+      const z = face * (faceOffset + 0.0007);
+      for (const [u0, u1, y0, y1] of pieces) {
+        // Corners counter-clockwise as seen from the side this face looks out of.
+        let corners = [[u0, y0], [u1, y0], [u1, y1], [u0, y1]];
+        if (sign * face < 0) corners = corners.reverse();
+        const [a, b, c, d] = corners;
+        for (const [u, y] of [a, b, c, a, c, d]) {
+          positions.push(sign * u, y, z);
+          uvs.push(u / DOOR_SCRATCH_TILE.width, y / DOOR_SCRATCH_TILE.height);
+        }
+      }
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geometry.computeVertexNormals();
+    const scratches = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
+      map: loadPhoto(doorScratchesUrl),
+      transparent: true,
+      depthWrite: false,
+      // Bare steel where the paint is gone: brighter and shinier than the coat.
+      metalness: 0.6,
+      roughness: 0.35,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1
+    }));
+    scratches.name = 'LabDoorScratches';
+    // No shadows on a layer 0.7 mm off the face: the face's own shadow would
+    // stripe it.
+    scratches.receiveShadow = false;
+    return scratches;
+  }
+
   const labLeaves = [];
   loadModel(labDoorModelUrl).then((model) => {
     model.traverse((child) => {
@@ -1119,6 +1210,7 @@ export function createHallwayBasementLevel({
       const hit = labDoorHits.get(name);
       hit.position.set(sign * LAB_DOOR_LEAF_CENTRE_X, LAB_DOOR_LEAF_CENTRE_Y, 0);
       node.add(hit);
+      node.add(createDoorScratches(sign));
     }
     labDoorHost.add(model);
   }).catch((err) => console.error('[lab] lab_door.glb failed to load', err));
@@ -4447,51 +4539,113 @@ export function createHallwayBasementLevel({
   // wall instead, which meant the player would walk straight past it on
   // the way in rather than having to cross the room to reach it.
   /**
-   * TEXTURE PREVIEW: the door is steel under dark grey paint, rusting through.
+   * A riveted steel door, its grey paint flaking off and rust running down it
+   * from every pit -- one photo of a whole door (steel_door_albedo.jpg, with
+   * its normal and roughness maps) across each face once, since a box's UVs
+   * run 0..1 over each face and this photo IS a door. Its rivets, its seams
+   * and the paper stuck to it are in the photo; the hardware that stands off
+   * a door -- hinge straps, the viewing plate's frame, the latch, the handle
+   * -- is built over it, where the photo has it, by addSteelDoorHardware().
    *
-   * The paint is the bare-steel photo tinted dark, not a flat colour: the
-   * steel's brush streaks and dents still show through it as wear, and its
-   * normal map keeps the surface relief. Paint is not metal, so metalness is
-   * low. Over it, the same transparent rust layer the generator wears, laid
-   * larger here (one copy of the photo across DOOR_RUST_METRES) so it does not
-   * repeat down a door twice the generator's height, and a little lighter.
+   * The player faces its -z side, on which a box's u runs toward -x: the
+   * photo reads the right way round from the room.
    */
-  const doorFace = [DOOR_WIDTH_IN_METRES, DOOR_HEIGHT_IN_METRES];   // about a metre a copy
   const metalDoor = new THREE.Mesh(
     new THREE.BoxGeometry(DOOR_WIDTH_IN_METRES, DOOR_HEIGHT_IN_METRES, 0.08),
-    new THREE.MeshStandardMaterial({
-      map: loadPhoto(steelColorUrl, { repeat: doorFace }),
-      normalMap: loadPhoto(steelNormalUrl, { colour: false, repeat: doorFace }),
-      color: 0x4a4d4d,
-      metalness: 0.15,
-      roughness: 0.6
-    })
+    (() => {
+      const face = new THREE.MeshStandardMaterial({
+        map: loadPhoto(steelDoorAlbedoUrl, { wrap: THREE.ClampToEdgeWrapping }),
+        normalMap: loadPhoto(steelDoorNormalUrl, { colour: false, wrap: THREE.ClampToEdgeWrapping }),
+        roughnessMap: loadPhoto(steelDoorRoughnessUrl, { colour: false, wrap: THREE.ClampToEdgeWrapping }),
+        metalness: 0.35,
+        roughness: 1
+      });
+      const edge = new THREE.MeshStandardMaterial({ color: 0x3a3632, metalness: 0.5, roughness: 0.7 });
+      // A box's faces: +x, -x, +y, -y, +z (against the wall), -z (the room).
+      return [edge, edge, edge, edge, face, face];
+    })()
   );
   metalDoor.position.set(0, DOOR_HEIGHT_IN_METRES / 2, LAB_D / 2 - 0.05);
+  addSteelDoorHardware(metalDoor);
+
+  /**
+   * The raised parts of the steel door, built where its photo has them, as
+   * children of the door so they go wherever it goes. Rusted iron: duller
+   * and browner than the door's own steel.
+   *
+   * @param {THREE.Mesh} door - the door slab, centred, its room face at -z.
+   */
+  function addSteelDoorHardware(door) {
+    const iron = new THREE.MeshStandardMaterial({ color: 0x4d3a2c, metalness: 0.45, roughness: 0.82 });
+    const frontZ = -0.04;
+    // A point on the photo, in the door's own frame.
+    const x = (u) => -(u - 0.5) * DOOR_WIDTH_IN_METRES;
+    const y = (v) => (0.5 - v) * DOOR_HEIGHT_IN_METRES;
+    const plate = ({ u0, u1, v0, v1 }, proud) => {
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(Math.abs(x(u1) - x(u0)), Math.abs(y(v1) - y(v0)), proud),
+        iron
+      );
+      mesh.position.set((x(u0) + x(u1)) / 2, (y(v0) + y(v1)) / 2, frontZ - proud / 2);
+      mesh.castShadow = true;
+      door.add(mesh);
+      return mesh;
+    };
+    const { hinges, viewingPlate, latch, handlePlate, lever } = STEEL_DOOR_HARDWARE;
+    for (const hinge of hinges) {
+      plate(hinge, 0.012);
+      // The knuckle the strap turns on, at the door's edge.
+      const knuckle = new THREE.Mesh(new THREE.CylinderGeometry(0.019, 0.019, Math.abs(y(hinge.v1) - y(hinge.v0)) + 0.03, 14), iron);
+      knuckle.position.set(x(1) - 0.012, (y(hinge.v0) + y(hinge.v1)) / 2, frontZ + 0.01);
+      door.add(knuckle);
+    }
+    // The viewing plate's frame: four bars standing round it.
+    const bar = 0.016;
+    const { u0, u1, v0, v1 } = viewingPlate;
+    const du = bar / DOOR_WIDTH_IN_METRES;
+    const dv = bar / DOOR_HEIGHT_IN_METRES;
+    plate({ u0, u1, v0, v1: v0 + dv }, 0.012);
+    plate({ u0, u1, v0: v1 - dv, v1 }, 0.012);
+    plate({ u0, u1: u0 + du, v0, v1 }, 0.012);
+    plate({ u0: u1 - du, u1, v0, v1 }, 0.012);
+    plate(latch, 0.016);
+    plate(handlePlate, 0.012);
+    // The lever: a stem out of the plate, and the grip turned across the door.
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.05, 12), iron);
+    stem.rotation.x = Math.PI / 2;
+    stem.position.set(x((handlePlate.u0 + handlePlate.u1) / 2), y(lever.v), frontZ - 0.012 - 0.025);
+    door.add(stem);
+    const leverLength = Math.abs(x(lever.tipU) - stem.position.x);
+    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, leverLength, 12), iron);
+    grip.rotation.z = Math.PI / 2;
+    grip.position.set(stem.position.x - leverLength / 2, y(lever.v), frontZ - 0.012 - 0.05);
+    grip.castShadow = true;
+    door.add(grip);
+  }
+
+  /**
+   * The steel frame the door hangs in, round it in the wall: two jambs and a
+   * head, deeper than the door so it stands out of the wall it is set in.
+   */
   {
-    // A box's UVs run 0..1 across each face, so the rust is scaled by the
-    // door's own size: DOOR_RUST_METRES of photo across, its height to match.
-    const DOOR_RUST_METRES = 2.2;
-    const rustAspect = 524 / 768;   // the overlay image's height over its width
-    const doorRust = new THREE.Mesh(
-      metalDoor.geometry,
-      new THREE.MeshStandardMaterial({
-        map: loadPhoto(rustOverlayUrl, {
-          repeat: [DOOR_WIDTH_IN_METRES / DOOR_RUST_METRES, DOOR_HEIGHT_IN_METRES / (DOOR_RUST_METRES * rustAspect)],
-          wrap: THREE.MirroredRepeatWrapping
-        }),
-        transparent: true,
-        opacity: 0.85,
-        depthWrite: false,
-        polygonOffset: true,
-        polygonOffsetFactor: -1,
-        polygonOffsetUnits: -1,
-        roughness: 0.95,
-        metalness: 0
-      })
-    );
-    // A child, so it goes wherever the door goes when it opens.
-    metalDoor.add(doorRust);
+    const frameMat = new THREE.MeshStandardMaterial({
+      map: loadPhoto(steelColorUrl, { repeat: [0.4, 1.6] }),
+      normalMap: loadPhoto(steelNormalUrl, { colour: false, repeat: [0.4, 1.6] }),
+      color: 0x55524d,
+      metalness: 0.5,
+      roughness: 0.6
+    });
+    const FRAME_W = 0.07;
+    const FRAME_D = 0.12;
+    const z = metalDoor.position.z;
+    for (const side of [-1, 1]) {
+      const jamb = new THREE.Mesh(new THREE.BoxGeometry(FRAME_W, DOOR_HEIGHT_IN_METRES + FRAME_W, FRAME_D), frameMat);
+      jamb.position.set(side * (DOOR_WIDTH_IN_METRES + FRAME_W) / 2, (DOOR_HEIGHT_IN_METRES + FRAME_W) / 2, z);
+      lab.add(jamb);
+    }
+    const head = new THREE.Mesh(new THREE.BoxGeometry(DOOR_WIDTH_IN_METRES + FRAME_W * 2, FRAME_W, FRAME_D), frameMat);
+    head.position.set(0, DOOR_HEIGHT_IN_METRES + FRAME_W / 2, z);
+    lab.add(head);
   }
 
   /** What the door says at each stage, so the label always names the real
@@ -4618,11 +4772,12 @@ export function createHallwayBasementLevel({
    * player to make that one connection is the difference between a clue and an
    * instruction.
    *
-   * 1.55 m is head height for a 1.7 m eye position looking slightly down at a
-   * door they are standing in front of. The note sits 0.05 m proud of the
-   * slab's front face so it never z-fights with it.
+   * 1.4 m sits it just under the door's viewing plate (1.58-1.75 m), still at
+   * the eye of someone standing in front of the door looking slightly down.
+   * The note sits 0.05 m proud of the slab's front face so it never z-fights
+   * with it -- and clear of the plate's frame, which stands 0.012 m out.
    */
-  const DOOR_NOTE_EYE_LEVEL_IN_METRES = 1.55;
+  const DOOR_NOTE_EYE_LEVEL_IN_METRES = 1.4;
   const DOOR_SLAB_HALF_DEPTH_IN_METRES = 0.04;
   doorNote.position.set(
     metalDoor.position.x,
