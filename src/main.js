@@ -35,11 +35,13 @@ import { enableSinglePassForFlatDecals, createDarkShadowSkipper, findShadowCasti
 import { createCutsceneRunner } from './core/Cutscene.js';
 import { hallwayReveal } from './cutscenes/hallwayReveal.js';
 import { wakeUp } from './cutscenes/wakeUp.js';
+import { stairsBehind } from './cutscenes/stairsBehind.js';
 import { createCutsceneExport } from './core/CutsceneExport.js';
 import { createCutsceneSkip } from './core/CutsceneSkip.js';
 import { createNewspaper } from './core/Newspaper.js';
 import { createOpeningNewsCutscene } from './core/OpeningNewsCutscene.js';
 import { createJumpScare } from './core/JumpScare.js';
+import { createStairsScare } from './core/StairsScare.js';
 import { DIFFICULTIES, DEFAULT_DIFFICULTY, createRunTimer } from './core/Difficulty.js';
 import { FreeCamera } from './core/FreeCamera.js';
 import { createScriptRunner } from './core/Script.js';
@@ -497,6 +499,19 @@ camera.add(dustMotes.points);
 
 scene.add(camera);
 
+/**
+ * A key light for scripted moments in the dark: the stairs scare's glow on the
+ * hand while the torch is dead, and its shot of the monster behind the player
+ * (ctx.keyLight in a scene). Off (intensity 0) the rest of the time.
+ *
+ * ALWAYS IN THE SCENE, never added for a moment and removed after: three.js
+ * compiles the light count into every material's shader, so adding a light
+ * mid-game recompiles everything and freezes the game for a moment, right as
+ * the shot starts.
+ */
+const cinematicLight = new THREE.PointLight(0xbcd0ff, 0, 4.5, 2);
+scene.add(cinematicLight);
+
 // ---------- first-person hands ----------
 // A VIEW MODEL, not a physical object: two rigged hands parented to the
 // camera, so they travel with the view, have no colliders and are not in any
@@ -626,6 +641,19 @@ const handMotion = { lookDeltaX: 0, lookDeltaY: 0, bobPhase: 0, speed: 0, crouch
 let flashlightFound = false;
 let flashlightSwitchOn = false;
 let flashlightOn = false;
+/**
+ * 0..1, how much of its light the torch is giving, on top of the fault below.
+ * 1 normally; the stairs scare drops it to make the torch sputter and die on
+ * cue WITHOUT touching the switch, so putting the power back needs no memory
+ * of the switch.
+ */
+let torchPower = 1;
+
+/** Sets torchPower and pushes it straight through to the beam. */
+function setTorchPower(scale) {
+  torchPower = THREE.MathUtils.clamp(scale, 0, 1);
+  applyFlashlightBeam();
+}
 
 /**
  * THE TORCH FAILS. Every 67.5-90 s of it actually shining, it gives out for
@@ -688,7 +716,7 @@ function applyFlashlightBeam() {
   // would just be a brighter blob.
   // A failing torch is switched on but dark, but for its stutter.
   const failing = torchFault.left > 0;
-  const level = !flashlightOn ? 0 : !failing ? 1 : torchFault.flickerOn ? torchFault.flickerLevel : 0;
+  const level = torchPower * (!flashlightOn ? 0 : !failing ? 1 : torchFault.flickerOn ? torchFault.flickerLevel : 0);
   flashlightSpot.intensity = 1.75 * level;
   flashlightHot.intensity = 3.35 * level;
   dustMotes.setBeamOn(level > 0);
@@ -1437,7 +1465,18 @@ const SCENES = {
     standing: { x: creature.position.x, z: creature.position.z },
     creatureEyes: creature.getEyePosition(new THREE.Vector3()),
     baseFov: BASE_FOV
-  })
+  }),
+  /** The stairs scare's shot of it behind the player. Stands it there, too. */
+  stairsBehind: ({ standing }) => {
+    const def = stairsBehind({
+      standing,
+      stairsYaw: upstairsHallway.refs.stairsYaw,
+      wallX: upstairsHallway.refs.wallX
+    });
+    // No stalking breath: the growl is what the player hears.
+    showCreatureAt({ ...def.monster, linger: null, stalkAudio: false });
+    return def;
+  }
 };
 
 /**
@@ -1476,6 +1515,8 @@ const cutsceneContext = {
   setBreathing: (level) => audio.setBreathing(level),
   /** The level the room being played normally breathes at, to settle back to. */
   restingBreath: () => (sceneManager.activeKey === 'bedroom' ? LEVEL_ONE_BREATHING_BASE : BREATH_BASE_LEVEL),
+  /** A light that is always in the scene and off: a scene positions and lights it, and turns it off in onEnd. */
+  keyLight: cinematicLight,
   /** Puts the player's body in the shot (or takes it out); the views that show it anyway keep it. */
   showPlayerBody(on) {
     cutsceneBodyShown = !!on;
@@ -1486,14 +1527,21 @@ const cutsceneContext = {
 /** Hold Space to skip, for the scenes that allow it -- see core/CutsceneSkip.js. */
 const cutsceneSkip = createCutsceneSkip({ cutscene, isInputLive: () => player.isLocked });
 
-/** Plays a scene from SCENES. Resolves as cutscene.playScene() does: true if it played out. */
-function playCutscene(name) {
+/**
+ * Plays a scene from SCENES. Resolves as cutscene.playScene() does: true if it
+ * played out.
+ *
+ * @param {string} name - a key of SCENES.
+ * @param {object} [params] - handed to the scene's builder, for a scene framed
+ *   off something only its caller knows (the stairs scare's standing spot).
+ */
+function playCutscene(name, params) {
   const build = SCENES[name];
   if (!build) {
     console.warn(`[cutscene] no scene called "${name}"`);
     return Promise.resolve(false);
   }
-  const done = cutscene.playScene(build(), cutsceneContext);
+  const done = cutscene.playScene(build(params), cutsceneContext);
   // The scene has taken the view: the body goes until the scene asks for it.
   applyViewVisibility();
   return done;
@@ -1952,7 +2000,9 @@ const upstairsHallway = createUpstairsHallwayLevel({
   onExit: () => exitLevel('upstairsHallway'),
   // The flash, then the thunder a moment later -- it is a few miles off.
   onLightning: () => setTimeout(() => thunder(), 350 + Math.random() * 900),
-  onSfx: (name, opts) => sfx(name, opts)
+  onSfx: (name, opts) => sfx(name, opts),
+  // Read at call time: the scare is built further down, once the jump scare is.
+  onReachStairs: () => playStairsScare()
 });
 sceneManager.register('upstairsHallway', upstairsHallway);
 
@@ -3394,6 +3444,76 @@ function onHunterCaught() {
 let jumpScareRunning = false;
 const jumpScare = createJumpScare({ camera, fade, postFX, audio });
 
+/**
+ * Drops the player out of third person for a beat that has to be seen from
+ * their own eyes, snapping rather than easing so it does not open on a swing.
+ *
+ * @returns {() => void} puts back whichever view the player had chosen.
+ */
+function forceFirstPerson() {
+  const wasThirdPerson = thirdPerson;
+  if (wasThirdPerson) {
+    setThirdPerson(false);
+    thirdAmount = 0;
+  }
+  return () => {
+    if (wasThirdPerson) setThirdPerson(true);
+  };
+}
+
+/**
+ * The scare at the top of the upstairs hallway's stairs -- see
+ * core/StairsScare.js. Its own script runner rather than `script`, because
+ * any new script.run() cancels the one before, and nothing else starting a
+ * beat should be able to cut this one off half way with the camera taken.
+ */
+const stairsScareScript = createScriptRunner({ captions });
+const stairsScare = createStairsScare({
+  camera,
+  player,
+  interaction,
+  hands,
+  creature,
+  jumpScare,
+  audio,
+  sfx,
+  fade,
+  handLight: cinematicLight,
+  setHouseLightsOut,
+  forceFirstPerson,
+  torch: {
+    isAvailable: () => flashlightFound && gameState.inventory.has('flashlight'),
+    // Into the hand and switched on, so there is a torch there to die.
+    bringOut: () => {
+      if (!flashlightFound || !gameState.inventory.has('flashlight')) return;
+      if (!heldItems.isHolding('flashlight')) heldItems.select('flashlight');
+      setFlashlight(true);
+    },
+    setPower: setTorchPower,
+    // It works again afterwards, whatever failure it was in before the scare.
+    repair: () => {
+      resetTorchFault();
+      applyFlashlightBeam();
+    }
+  },
+  hallway: upstairsHallway.refs,
+  playBehindShot: async (standing) => {
+    const finished = await playCutscene('stairsBehind', { standing });
+    hideCreature();
+    return finished;
+  }
+});
+
+/** Plays the stairs scare, once, when the hallway says the player has reached the top step. */
+function playStairsScare() {
+  if (sceneManager.activeKey !== 'upstairsHallway') return;
+  if (transitionInFlight || cutscene.isRunning || hallwayRush || stairsScare.isRunning) return;
+  // Before the scare starts, so whatever was being said does not carry on over it.
+  script.cancel();
+  captions.cancel();
+  stairsScareScript.run((s) => stairsScare.run({ isAlive: s.alive }));
+}
+
 function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   // A prior restrained bedroom view must never clamp the spawn orientation of
   // another level during SceneManager.activate()'s player.spawn() call.
@@ -3466,6 +3586,7 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   script.cancel();
   bedroomHorrorScript.cancel();
   bedroomHorrorEvents.clear();
+  stairsScareScript.cancel();
   if (key === 'bedroom') audio.setBreathing(LEVEL_ONE_BREATHING_BASE);
   player.movementEnabled = !lockMovement;
   // postFX.reset() above zeroes the visor dial, and the level just activated has
@@ -4406,6 +4527,9 @@ if (import.meta.env.DEV) {
     // So a harness can see the backrooms catch and its jump scare without
     // having to be run down in the maze.
     onHunterCaught,
+    // The stairs scare normally waits for the player to walk to the top step.
+    playStairsScare,
+    stairsScare,
     hands,
     THREE,
     sceneManager,
@@ -4907,7 +5031,7 @@ function tick() {
   if (isPlaying) HINTS_BY_LEVEL[sceneManager.activeKey]?.update(dt);
   // The difficulty's clock. Stopped by the same things, and by every moment
   // the player has no control: a fade between rooms, a cutscene, an ending.
-  if (isPlaying && !transitionInFlight && !cutscene.isRunning && !endingInFlight) runTimer.update(dt);
+  if (isPlaying && !transitionInFlight && !cutscene.isRunning && !stairsScare.isRunning && !endingInFlight) runTimer.update(dt);
   if (isPlaying && !transitionInFlight && !endingInFlight) updateTorchFault(dt);
   captions.update(dt);
   // Only while it is actually on screen. The AI is not driving it in Level 2 --
@@ -5037,6 +5161,8 @@ function tick() {
   // which the restart dialog's see-through backdrop would otherwise show
   // snapping upright. See core/Cutscene.js.
   cutscene.update(captions.paused ? 0 : dt);
+  // On the same clock, so Esc holds it too -- see core/StairsScare.js.
+  stairsScare.update(captions.paused ? 0 : dt);
   // On real time: slow motion must not make a skip take longer.
   cutsceneSkip.update(captions.paused ? 0 : realDt);
   // Switched on the blend rather than the flag, so the swap happens once the
