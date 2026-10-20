@@ -3,10 +3,10 @@ import * as THREE from 'three';
 /**
  * Scripted camera work: a timeline of shots, filmed through a camera of its own.
  *
- * Shaped after transitionTo() in main.js, and for the same reasons: a
- * generation counter so a restart taken mid-scene cannot be resumed by the
- * scene unwinding behind it, and one place (give) that hands everything back
- * whatever happened. Those two are not optional. A scene holds the view, hides
+ * Shaped after transitionTo() in main.js, and for the same reasons: one
+ * scene at a time (`current`), so a restart taken mid-scene cannot be resumed
+ * by the scene unwinding behind it, and one place (give) that hands everything
+ * back whatever happened. Those two are not optional. A scene holds the view, hides
  * the hands and freezes the player, so a scene that ends without restoring them
  * does not produce a glitch -- it produces an unplayable game with a frozen
  * view, and no way out but a page reload.
@@ -107,7 +107,6 @@ export function createCutsceneRunner({
   /** The lens every shot is filmed through. main.js renders through it while a scene runs. */
   const shotCamera = new THREE.PerspectiveCamera(camera.fov, camera.aspect, camera.near, camera.far);
 
-  let generation = 0;
   /** The scene playing now, or null. Everything about it lives here, so cancel() has one thing to drop. */
   let current = null;
 
@@ -499,7 +498,6 @@ export function createCutsceneRunner({
         console.warn('[cutscene] a scene needs at least one shot');
         return Promise.resolve(false);
       }
-      generation++;
       const scene = compile(def, ctx);
       scene.borrowed = take(def);
       current = scene;
@@ -548,7 +546,6 @@ export function createCutsceneRunner({
      * first, exactly as every instant level jump calls abortTransition().
      */
     cancel() {
-      generation++;
       if (current) finish(current, false);
       captions?.cancel();
     },

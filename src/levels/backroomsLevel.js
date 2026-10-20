@@ -37,7 +37,7 @@ import { gameState } from '../core/GameState.js';
 import { line } from '../dialogue/index.js';
 import doorModelUrl from '../assets/models/door.glb?url';
 import {
-  CORRIDOR_W, T, CORRIDORS, ROUTE, BOX, LEGS, CROSSINGS, DOORWAYS, buildWallRuns, runCollider,
+  CORRIDORS, ROUTE, BOX, LEGS, CROSSINGS, DOORWAYS, buildWallRuns, runCollider,
   validateMaze, junctions, deadEnd, sideWall, legMid, spawnPoint, exitPoint, nameNoise, crossingFor
 } from './backroomsMaze.js';
 import { dressAnnabelleRooms } from './annabelleRooms.js';

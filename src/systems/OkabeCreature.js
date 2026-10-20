@@ -897,110 +897,12 @@ const PLANT_HEIGHT = 0.005;
 const SINK_LIMIT = 0.012;
 /**
  * The boot sweep's per-sample slip allowance for a planted shoe, as a share of
- * body speed: "slipping at under a fifth of body speed", the rule SLIP_LIMIT's
- * note below describes. It was referenced but never declared, and the
+ * body speed: "slipping at under a fifth of body speed". It was referenced
+ * but never declared, and the
  * ReferenceError it threw inside attach() stopped the GLB from loading at all
  * -- every Okabe figure in the game, monster and player body alike.
  */
 const PLANT_SLIP = 0.2;
-/**
- * HOW FAR A DOWN SHOE MAY TRAVEL ACROSS THE FLOOR IN ONE STANCE, metres, and
- * how far it may turn on it, radians: totals over the stance, in the floor's
- * own frame, which is what the eye sees.
- *
- * TOTALS, NOT A RATE. This used to pass any sample slipping at under a fifth
- * of body speed for 85% of the stance, and that let a 15% under-travel through
- * every check -- a 132 mm slide a stance on the player's walk and 165 mm on
- * the monster's -- while the gait itself slid 3-9 mm. A rate tight enough to
- * catch that failed on the swing-to-stance edge instead. See the sweep.
- */
-const SLIP_LIMIT = 0.02;
-const SLIP_LIMIT_CROUCH = 0.045;
-const TWIST_LIMIT = 0.05;
-
-/**
- * A PLANTED FOOT IS HELD IN THE WORLD, NOT IN THE BODY'S FRAME.
- *
- * footPath lays stance out in the body's own frame, and that is exact only
- * while the body goes straight ahead at `speed` with nothing else changing.
- * Anything else carried a foot that was on the floor along with the body.
- * MEASURED, world-space travel of the contact per stance, against 6 mm walking
- * straight: every yaw change swung both shoes round the body's centre like a
- * turntable (66 mm a stance at a 1 rad/s walk, 129 at 2, 290 crouch-walking
- * round a corner, 300-370 on the hunter's search corners); backpedalling and
- * strafing moonwalked them 1.2-1.7 m; and every crouch, sprint, start and stop
- * slid them 120-300 mm as the stance numbers re-blended under a foot already
- * down. So each foot is ANCHORED at touchdown -- where on the floor it landed
- * and which way the shoe points -- in root's parent space, and held there
- * until it lifts. The path still says when it lifts and where it lands; the
- * anchor says where it IS. The swing then carries it from wherever it left to
- * wherever the path lands it.
- *
- * SNAP_*: more than this in one frame is a teleport or a snap (a beat placing
- * the figure, CreatureAI.facePoint jumping to a new target), not motion, and
- * the feet are re-planted where the path puts them, as they always were.
- */
-const SNAP_DIST = 0.5;
-const SNAP_YAW = 1.0;
-/**
- * Radians a planted shoe may stay turned from the body while the body turns
- * over it. That is the hip's own rotation, solved as a twist of the whole leg
- * about its hip-to-ankle line, so the knee follows the shoe the way a real one
- * does. Past it the shoe pivots on whichever edge is down -- the ball or the
- * heel -- which is a pivot, not a slide. And how far a landing shoe is turned
- * INTO a turn: half what its stance will see, so it spends the stance going
- * from one side of the body's heading to the other rather than all of it on
- * one side.
- */
-const PSI_MAX = 0.6;
-const PSI_LEAD = 0.5;
-/**
- * Share of a planted leg's reach past which its anchor is dragged after the
- * body, rather than solveLeg clamping and the shoe hanging short of the floor.
- * A body that outruns its own planted foot -- a caller whose speed lags the
- * motion, a turn sharper than the gait can step -- drags it, which is honest.
- */
-const ANCHOR_REACH = 0.99;
-/**
- * A down foot is lifted into the path's swing only this early in it; later
- * there is no swing left to carry it to the landing in, and it waits on the
- * floor for its next stance instead of snapping across.
- */
-const LIFT_LATE = 0.6;
-/**
- * STANDING STEPS. Below walkFrom the path stops driving the legs and both feet
- * stay anchored. A foot the body has turned away from (STEP_YAW) or that sits
- * off its mark (STEP_DIST: after a crouch, a stop, a creep) is stepped back to
- * it, one foot at a time, the hips moving over the other foot (STEP_SWAY) --
- * a re-plant, where the feet used to skate there. A turning body's step lands
- * STEP_LEAD seconds of turn ahead, capped at STEP_YAW, so BackroomsHunter's
- * 1.1 rad/s scan is a step every 0.3 s or so, each foot turning ~0.7 rad.
- */
-const STEP_TIME = 0.28;
-const STEP_LIFT = 0.035;
-const STEP_SWAY = 0.02;
-const STEP_YAW = 0.35;
-const STEP_DIST = 0.02;
-const STEP_LEAD = 0.3;
-/**
- * TURNING SHORTENS THE STRIDE, the way a person takes quicker, shorter steps
- * round a tight corner. Radians the body may turn during one stance before the
- * stride starts to give, and the shortest it gets. Without it a planted foot
- * had to absorb the whole stance's turn: 1.67 rad on the hunter's 2.2 rad/s
- * search corner, three times what a hip turns, so it pivoted most of the way.
- */
-const TURN_ROT_BUDGET = 1.0;
-const TURN_STRIDE_MIN = 0.5;
-/**
- * FACING THE WAY IT GOES, for a profile that sets facesTravel: seconds to
- * settle onto the direction of travel, and the fastest it turns, radians per
- * second -- 180 degrees in about a third of a second.
- */
-const FACE_TAU = 0.09;
-const FACE_RATE = 9;
-/** Most the head leads a turn by, radians; see headLead. */
-const HEAD_LEAD_MAX = 0.4;
-
 /**
  * The speeds each profile is actually asked for, swept at boot.
  *

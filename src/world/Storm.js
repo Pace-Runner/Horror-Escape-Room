@@ -1,5 +1,3 @@
-import * as THREE from 'three';
-
 /**
  * How long the bulb takes to die. Long enough to be an event you watch, short
  * enough that it is not a light show -- a filament failing is quick.
