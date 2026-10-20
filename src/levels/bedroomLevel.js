@@ -2716,6 +2716,17 @@ export function createBedroomLevel({
     looseFloorboard.add(floorboardModel);
   }).catch((error) => console.error('Could not load the Level 1 loose floorboard remodel:', error));
 
+  /**
+   * The crowbar has two jobs, the planks on the door and the loose floorboard,
+   * and they can be done in either order. It is used up (out of the hotbar)
+   * only once both are done: used up on the planks while the board was still
+   * down, it left the key under the floor with nothing to lift it -- a
+   * softlock.
+   */
+  function useUpCrowbarIfDone() {
+    if (puzzleState.planksRemoved && puzzleState.floorboardPried) onCrowbarUsed();
+  }
+
   const looseFloorboardHitbox = new THREE.Mesh(
     new THREE.BoxGeometry(0.78, 0.16, 0.36),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
@@ -2734,6 +2745,7 @@ export function createBedroomLevel({
         return;
       }
       puzzleState.floorboardPried = true;
+      useUpCrowbarIfDone();
       looseFloorboard.visible = false;
       looseFloorboardHitbox.visible = false;
       const floorboardIndex = interactables.indexOf(looseFloorboardHitbox);
@@ -2805,16 +2817,14 @@ export function createBedroomLevel({
     onInteract: () => {
       if (!puzzleState.planksRemoved) {
         if (puzzleState.hasCrowbar) {
-          if (!puzzleState.floorboardPried) {
-            showCaption(line('dialog_door_planks_floorboard_first'));
-            return;
-          }
           if (!isHolding('crowbar')) {
             showCaption(line('dialog_hold_crowbar'));
             return;
           }
+          // The planks come off whenever the crowbar is brought to them, key
+          // or no key -- the door just stays locked until the key is found.
           puzzleState.planksRemoved = true;
-          onCrowbarUsed();
+          useUpCrowbarIfDone();
           startDoorPlankPryAnimation();
           onDoorPlankRemoved();
           showCaption(line('dialog_door_planks_pried_off'));

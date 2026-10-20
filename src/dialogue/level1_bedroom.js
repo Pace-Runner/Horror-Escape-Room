@@ -91,7 +91,6 @@ export const dialog_floorboard_pried_up = ["The crowbar lifts the board. A steel
 
 export const dialog_pickup_bedroom_key = ["A bedroom door key. The lock on the boarded door should take it.", "level1/pickup_bedroom_key.m4a"];
 
-export const dialog_door_planks_floorboard_first = ["The planks can wait. Use the crowbar on the loose floorboard first — the door still needs a key.", "level1/door_planks_floorboard_first.m4a"];
 
 export const dialog_door_planks_pried_off = ["You wedge the crowbar behind the planks and pry them off the door.", "level1/door_planks_pried_off.m4a"];
 
