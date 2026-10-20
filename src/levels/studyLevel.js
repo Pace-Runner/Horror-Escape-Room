@@ -306,7 +306,9 @@ export function createStudyLevel({
     memoryArchiveUnlocked: false,
     memoryRecordSelections: [0, 0, 0],
     memoryArchiveSolved: false,
-    memoryVisorCollected: false
+    memoryVisorCollected: false,
+    correctedTrailProgress: 0,
+    correctedTrailSolved: false
   };
 
   /**
@@ -1026,6 +1028,167 @@ export function createStudyLevel({
   visorOnly.visible = false;
   group.add(visorOnly);
 
+  // Puzzle 4: the exact same stains read differently through corrected sight.
+  const distortedTrail = new THREE.Group();
+  distortedTrail.name = 'DistortedArchiveTrail';
+  distortedTrail.visible = !gameState.visorWorn;
+  group.add(distortedTrail);
+  const bloodTrail = new THREE.Group();
+  bloodTrail.name = 'CorrectedBloodTrail';
+  visorOnly.add(bloodTrail);
+  const stainGeometry = new THREE.CircleGeometry(1, 9);
+  const blackStainMat = new THREE.MeshBasicMaterial({ color: 0x080709, transparent: true, opacity: 0.72, depthWrite: false });
+  const bloodStainMat = new THREE.MeshBasicMaterial({ color: 0x671514, transparent: true, opacity: 0.85, depthWrite: false });
+  const trailRoute = [
+    [-1.8, 2.25], [1.9, 2.8], [4.9, 3.25], [6.5, 2.6],
+    [6.5, stairTopZ], [4.8, -2.5], [2.5, -3.6], [0.3, -4.6]
+  ];
+  let stainIndex = 0;
+  for (let segment = 1; segment < trailRoute.length; segment++) {
+    const [fromX, fromZ] = trailRoute[segment - 1];
+    const [toX, toZ] = trailRoute[segment];
+    const count = Math.ceil(Math.hypot(toX - fromX, toZ - fromZ) / 0.48);
+    for (let step = 0; step < count; step++, stainIndex++) {
+      const t = step / count;
+      const x = fromX + (toX - fromX) * t;
+      const z = fromZ + (toZ - fromZ) * t;
+      const onStairs = x >= stairX - stairHalfWidth && x <= stairX + stairHalfWidth
+        && z >= stairTopZ && z <= stairBottomZ;
+      const stain = new THREE.Mesh(stainGeometry, blackStainMat);
+      stain.position.set(x, groundAt(x, z) + 0.025, z);
+      stain.rotation.set(-Math.PI / 2 + (onStairs ? Math.atan(LOFT_Y / stairRun) : 0), 0, Math.sin(stainIndex * 2.1) * 0.5);
+      stain.scale.set(0.07 + (stainIndex % 3) * 0.02, 0.16 + (stainIndex % 4) * 0.025, 1);
+      distortedTrail.add(stain);
+      const blood = new THREE.Mesh(stainGeometry, bloodStainMat);
+      blood.position.copy(stain.position);
+      blood.rotation.copy(stain.rotation);
+      blood.scale.copy(stain.scale);
+      bloodTrail.add(blood);
+    }
+  }
+
+  const trailSymbolMat = new THREE.MeshBasicMaterial({ color: 0xbc9c83, side: THREE.DoubleSide });
+  const trailLineGeometry = new THREE.PlaneGeometry(0.035, 0.32);
+  function makeTrailSymbol(index) {
+    const symbol = new THREE.Group();
+    if (index === 1) {
+      for (const x of [-0.11, 0, 0.11]) {
+        const stroke = new THREE.Mesh(trailLineGeometry, trailSymbolMat);
+        stroke.position.x = x;
+        symbol.add(stroke);
+      }
+    } else {
+      const outline = new THREE.Mesh(new THREE.RingGeometry(0.15, 0.19, index === 0 ? 3 : 24), trailSymbolMat);
+      if (index === 0) outline.rotation.z = Math.PI / 2;
+      symbol.add(outline);
+    }
+    return symbol;
+  }
+  const hiddenTrailPositions = [
+    [-1.8, 0.035, 2.25],
+    [6.5, LOFT_Y + 0.035, -2.1],
+    [2.5, LOFT_Y + 0.035, -3.6]
+  ];
+  hiddenTrailPositions.forEach((position, index) => {
+    const clue = makeTrailSymbol(index);
+    clue.position.set(...position);
+    clue.rotation.x = -Math.PI / 2;
+    const numeral = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.28, 0.22),
+      new THREE.MeshBasicMaterial({ map: createHiddenWritingTexture([['I', 'II', 'III'][index]]), transparent: true, depthWrite: false })
+    );
+    numeral.position.set(0.38, 0, 0.002);
+    clue.add(numeral);
+    visorOnly.add(clue);
+  });
+
+  // A shallow restricted archive alcove stands in front of the rear shelves;
+  // no wall, shelf, or stair geometry needs to be moved to reveal it.
+  const hollowAlcove = new THREE.Group();
+  hollowAlcove.position.set(0.3, LOFT_Y, -5.45);
+  group.add(hollowAlcove);
+  const alcoveMat = new THREE.MeshStandardMaterial({ color: 0x211d19, roughness: 1 });
+  for (const x of [-0.9, 0.9]) {
+    const side = new THREE.Mesh(new THREE.BoxGeometry(0.08, 2, 1), alcoveMat);
+    side.position.set(x, 1, 0.05);
+    hollowAlcove.add(side);
+  }
+  for (const y of [0.04, 2]) {
+    const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.08, 1), alcoveMat);
+    shelf.position.set(0, y, 0.05);
+    hollowAlcove.add(shelf);
+  }
+  const alcoveBack = new THREE.Mesh(new THREE.BoxGeometry(1.8, 2, 0.08), alcoveMat);
+  alcoveBack.position.set(0, 1, -0.45);
+  hollowAlcove.add(alcoveBack);
+  const restrictedPlaque = makeArchiveLabel(1.35, 0.45);
+  restrictedPlaque.write(['PROJECT HOLLOW', '— RESTRICTED RECORDS']);
+  restrictedPlaque.mesh.position.set(0, 1.3, -0.39);
+  restrictedPlaque.mesh.userData.interact = {
+    label: 'Restricted archive records',
+    onInteract: () => {
+      if (puzzle.correctedTrailSolved) showCaption('PROJECT HOLLOW — RESTRICTED RECORDS');
+    }
+  };
+  hollowAlcove.add(restrictedPlaque.mesh);
+  const hollowArchivePanel = new THREE.Mesh(new THREE.BoxGeometry(1.82, 2, 0.1), shelfMat);
+  hollowArchivePanel.position.set(0, 1, 0.6);
+  hollowAlcove.add(hollowArchivePanel);
+
+  const trailMarkerPositions = [
+    [-5.8, LOFT_Y + 1.2, -3.2],
+    [-0.8, LOFT_Y + 1.2, -3.5],
+    [3.5, LOFT_Y + 1.2, -4.4]
+  ];
+  const trailMarkerMaterials = [];
+  function updateTrailMarkers() {
+    trailMarkerMaterials.forEach((material, index) => {
+      material.color.setHex(puzzle.correctedTrailSolved || index < puzzle.correctedTrailProgress ? 0x71654b : 0x39342d);
+    });
+  }
+  trailMarkerPositions.forEach((position, index) => {
+    const material = new THREE.MeshStandardMaterial({ color: 0x39342d, roughness: 0.95 });
+    trailMarkerMaterials.push(material);
+    const marker = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.58, 0.12), material);
+    marker.position.set(...position);
+    group.add(marker);
+    const stand = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.94, 0.09), shelfMat);
+    stand.position.set(position[0], LOFT_Y + 0.47, position[2]);
+    group.add(stand);
+    const glyph = makeTrailSymbol(index);
+    glyph.position.set(position[0], position[1], position[2] + 0.065);
+    visorOnly.add(glyph);
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.72, 0.24), archiveHitMat);
+    hit.position.copy(marker.position);
+    hit.userData.interact = {
+      label: 'Activate archive marker',
+      onInteract: () => {
+        if (puzzle.correctedTrailSolved) return;
+        if (!gameState.hasVisor || !gameState.visorWorn) {
+          showCaption('The marker is unreadable.');
+          return;
+        }
+        if (index !== puzzle.correctedTrailProgress) {
+          puzzle.correctedTrailProgress = 0;
+          updateTrailMarkers();
+          onSfx('metal_click');
+          showCaption('The archive mechanism resets.');
+          return;
+        }
+        puzzle.correctedTrailProgress++;
+        onSfx('latch');
+        if (puzzle.correctedTrailProgress === 3) {
+          puzzle.correctedTrailSolved = true;
+          interactables.push(restrictedPlaque.mesh);
+          showCaption('A panel slides open in the upper archive.');
+        }
+        updateTrailMarkers();
+      }
+    };
+    group.add(hit);
+    interactables.push(hit);
+  });
+
   // Writing on the walls, in the same hand as everything else Mark wrote.
   const wallInkMat = new THREE.MeshBasicMaterial({
     map: createHiddenWritingTexture(["DON'T LET IT OUT"]),
@@ -1731,6 +1894,7 @@ export function createStudyLevel({
         // One group, one flag. Everything the broken eye cannot resolve is a
         // child of it, so the room cannot correct halfway.
         visorOnly.visible = on;
+        distortedTrail.visible = !on;
         gateKey.visible = on && !puzzle.hasGateKey;
         const ki = interactables.indexOf(gateKeyHit);
         if (on && !puzzle.hasGateKey && ki < 0) interactables.push(gateKeyHit);
@@ -1761,6 +1925,7 @@ export function createStudyLevel({
       shadowCrest,
       archiveKey,
       memoryArchive,
+      hollowArchivePanel,
       gateHit,
       /** The four digits on lock 2, so a test never has to hardcode them. */
       code: FRONT_DOOR_CODE
@@ -1843,6 +2008,13 @@ export function createStudyLevel({
       if (gi >= 0) interactables.splice(gi, 1);
 
       visorOnly.visible = false;
+      distortedTrail.visible = true;
+      puzzle.correctedTrailProgress = 0;
+      puzzle.correctedTrailSolved = false;
+      hollowArchivePanel.position.x = 0;
+      updateTrailMarkers();
+      const restrictedIndex = interactables.indexOf(restrictedPlaque.mesh);
+      if (restrictedIndex >= 0) interactables.splice(restrictedIndex, 1);
       visorGroup.visible = false;
       visorHitbox.visible = false;
       const visorIndex = interactables.indexOf(visorHitbox);
@@ -1851,6 +2023,8 @@ export function createStudyLevel({
     },
 
     update(dt) {
+      const hollowPanelTarget = puzzle.correctedTrailSolved ? 1.95 : 0;
+      hollowArchivePanel.position.x += (hollowPanelTarget - hollowArchivePanel.position.x) * Math.min(1, dt * 3);
       const archiveDoorTarget = puzzle.memoryArchiveUnlocked ? -Math.PI / 2 : 0;
       archiveDoorHinge.rotation.y += (archiveDoorTarget - archiveDoorHinge.rotation.y) * Math.min(1, dt * 5);
       const visorCoverTarget = puzzle.memoryArchiveSolved ? 0.78 : 0;
