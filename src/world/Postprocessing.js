@@ -118,12 +118,16 @@ export function createPostFX(renderer, scene, camera) {
      * wake-up scene -- no easing here, because a blink is a shape only the
      * scene knows. See WakePass.js.
      *
-     * @param open 0 shut .. 1 open
-     * @param blur 0 sharp .. 1 unfocused
+     * @param open   0 shut .. 1 open
+     * @param blur   0 sharp .. 1 unfocused
+     * @param double 0 one image .. 1 the two eyes not yet agreeing
+     * @param glow   0 none .. 1 lights blooming into halos
      */
-    setWake(open, blur = 0) {
+    setWake(open, blur = 0, { double = 0, glow = 0 } = {}) {
       wakePass.open = open;
       wakePass.blur = blur;
+      wakePass.double = double;
+      wakePass.glow = glow;
     },
 
     /** Snaps every dial to rest. For restart, where easing is wrong. */
@@ -134,6 +138,8 @@ export function createPostFX(renderer, scene, camera) {
       visorPass.caught = 0;
       wakePass.open = 1;
       wakePass.blur = 0;
+      wakePass.double = 0;
+      wakePass.glow = 0;
     },
 
     get visorAmount() {

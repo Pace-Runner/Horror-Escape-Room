@@ -1932,7 +1932,64 @@ body.free-camera-clean #caption-box {
    src/core/Cutscene.js. */
 body.cutscene #hud,
 body.cutscene #crosshair {
+  opacity: 0;
   visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0s linear 0.2s;
+}
+
+/* And back in slowly when the scene hands back, rather than snapping on over
+   the first frame of play: visibility returns at once, opacity eases up. */
+#hud,
+#crosshair {
+  transition: opacity 0.9s ease 0.15s;
+}
+
+/* Hold Space to skip -- only once a key is pressed during a skippable scene
+   (core/CutsceneSkip.js). Over the letterbox (17) and captions (18), under
+   the fade (30). */
+#cutscene-skip {
+  position: fixed;
+  right: 28px;
+  bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  color: rgba(216, 210, 196, 0.78);
+  font-size: 0.72rem;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  z-index: 19;
+}
+
+#cutscene-skip.visible {
+  opacity: 1;
+}
+
+#cutscene-skip kbd {
+  font-family: inherit;
+  padding: 1px 6px;
+  border: 1px solid rgba(216, 210, 196, 0.45);
+  border-radius: 3px;
+}
+
+.cutscene-skip-bar {
+  width: 120px;
+  height: 2px;
+  background: rgba(216, 210, 196, 0.18);
+  overflow: hidden;
+}
+
+.cutscene-skip-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: rgba(216, 210, 196, 0.85);
+  transform: scaleX(0);
+  transform-origin: left center;
 }
 
 /* Letterbox, for a scene that asks for it. Made by the runner itself. Under

@@ -445,6 +445,38 @@ export function createCutsceneRunner({
       return current?.duration ?? 0;
     },
 
+    /** Whether the playing scene may be skipped -- its def says `skippable: true`. */
+    get skippable() {
+      return !!current?.def.skippable;
+    },
+
+    /**
+     * Ends a skippable scene now, the way it would have ended: on its last
+     * shot's final frame (so a scene that cuts back to the player's eyes still
+     * hands over with no snap), after the scene's own onSkip(ctx, t) has done
+     * whatever must not be lost by skipping -- a plot line not shown yet. Cues
+     * still to come do not fire. Returns false if there is nothing to skip.
+     */
+    skip() {
+      const scene = current;
+      if (!scene || !scene.def.skippable) return false;
+      try {
+        scene.def.onSkip?.(scene.ctx, scene.time);
+      } catch (err) {
+        console.error(`[cutscene] onSkip in "${scene.def.name}" threw`, err);
+      }
+      if (current !== scene) return true;
+      scene.held = false;
+      scene.time = scene.duration;
+      try {
+        poseAt(scene, scene.duration);
+      } catch (err) {
+        console.error(`[cutscene] could not pose the end of "${scene.def.name}"`, err);
+      }
+      finish(scene, true);
+      return true;
+    },
+
     /** Where each shot of the playing scene starts and how long it runs, in scene seconds. */
     get shotTimes() {
       return current ? current.shots.map((s) => ({ t0: s.t0, seconds: s.seconds })) : [];

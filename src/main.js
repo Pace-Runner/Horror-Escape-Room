@@ -35,6 +35,7 @@ import { createCutsceneRunner } from './core/Cutscene.js';
 import { hallwayReveal } from './cutscenes/hallwayReveal.js';
 import { wakeUp } from './cutscenes/wakeUp.js';
 import { createCutsceneExport } from './core/CutsceneExport.js';
+import { createCutsceneSkip } from './core/CutsceneSkip.js';
 import { createNewspaper } from './core/Newspaper.js';
 import { createJumpScare } from './core/JumpScare.js';
 import { DIFFICULTIES, DEFAULT_DIFFICULTY, createRunTimer } from './core/Difficulty.js';
@@ -1427,12 +1428,21 @@ const cutsceneContext = {
   postFX,
   /** A lightning strike in the bedroom window on the next frame. */
   flashLightning: () => bedroomStorm.flashNow(),
+  /** The bedroom's locked cuff, for a scene that tugs on it. */
+  get cuff() { return bedroom.refs.cuff; },
+  /** The breathing loop's level, 0..1 (ramped by the engine). */
+  setBreathing: (level) => audio.setBreathing(level),
+  /** The level the room being played normally breathes at, to settle back to. */
+  restingBreath: () => (sceneManager.activeKey === 'bedroom' ? LEVEL_ONE_BREATHING_BASE : BREATH_BASE_LEVEL),
   /** Puts the player's body in the shot (or takes it out); the views that show it anyway keep it. */
   showPlayerBody(on) {
     cutsceneBodyShown = !!on;
     applyViewVisibility();
   }
 };
+
+/** Hold Space to skip, for the scenes that allow it -- see core/CutsceneSkip.js. */
+const cutsceneSkip = createCutsceneSkip({ cutscene, isInputLive: () => player.isLocked });
 
 /** Plays a scene from SCENES. Resolves as cutscene.playScene() does: true if it played out. */
 function playCutscene(name) {
@@ -4945,6 +4955,8 @@ function tick() {
   // which the restart dialog's see-through backdrop would otherwise show
   // snapping upright. See core/Cutscene.js.
   cutscene.update(captions.paused ? 0 : dt);
+  // On real time: slow motion must not make a skip take longer.
+  cutsceneSkip.update(captions.paused ? 0 : realDt);
   // Switched on the blend rather than the flag, so the swap happens once the
   // camera has actually left the head instead of on the frame the key is hit.
   // The free camera outranks a scene, so a scene can be watched from outside.

@@ -11,7 +11,8 @@ the free camera, and how to get pictures out of the game to try AI video with.
 | [src/cutscenes/](../src/cutscenes/) | One file per scene. Each exports a function that builds the scene from where things are when it plays. |
 | [src/core/FreeCamera.js](../src/core/FreeCamera.js) | The fly camera (N). M marks framings and J records moves, both copied as shot data ready to paste into a scene. |
 | [src/core/CutsceneExport.js](../src/core/CutsceneExport.js) | Dev only. Saves stills, character turnarounds and webm recordings as references for AI video. |
-| [src/world/WakePass.js](../src/world/WakePass.js) | Eyelids and the blur of just waking, as a post-processing pass. Driven by `postFX.setWake(open, blur)`; switched off while the eyes are open. |
+| [src/world/WakePass.js](../src/world/WakePass.js) | Eyes just waking, as a post-processing pass: lids (with light glowing red through them when shut), blur, double vision, and halos round lights. Driven by `postFX.setWake(open, blur, { double, glow })`; switched off at rest. |
+| [src/core/CutsceneSkip.js](../src/core/CutsceneSkip.js) | Hold Space to skip, for scenes marked `skippable`. The prompt only appears once a key is pressed during the scene. |
 | [src/world/VideoFeed.js](../src/world/VideoFeed.js) | Plays a clip on a CCTV feed through the monitor's phosphor look. |
 
 `main.js` owns the scene registry (`SCENES`), the context every scene acts with
@@ -126,6 +127,8 @@ A target name that doesn't exist logs a warning, and that point is skipped.
 | `onFrame(ctx, t, dt)` | Runs every frame, after the figures' own update and BEFORE the camera is posed, so a shot that follows a figure films this frame's pose. This is where acting goes. |
 | `onEnd(ctx, completed)` | Runs when the scene finishes or is cancelled, after everything has been handed back, so it can start the next scene. Clean up anything the scene staged here. |
 | `returnTo` | `{x, z, yaw, pitch}`: where to put the player down afterwards. |
+| `skippable` | `true` lets the player hold Space to skip it. The scene ends on its last shot's final frame, as if it had played out. |
+| `onSkip(ctx, t)` | Runs before a skip, for anything that must not be lost by skipping (a plot line not yet shown). Cues still to come do not fire. |
 | `restoreBeam` | `false` leaves the torch's dust motes off afterwards (the endings). |
 
 ### Targets and context
@@ -136,8 +139,10 @@ body's eye bones, for seeing from inside it), plus `'player'`, which is built
 in. They are read every frame, so a target that moves is followed.
 
 `ctx` holds everything a scene can act with: `creature`, `playerBody`, `sfx`,
-`audio`, `captions`, `line`, `postFX`, `flashLightning()` (a strike in the
-bedroom window next frame) and `showPlayerBody(on)`. Scene files never import
+`audio` (including `audio.setMuffle(amount, seconds)`, which muffles the whole
+mix), `captions`, `line`, `postFX`, `flashLightning()` (a strike in the
+bedroom window next frame), `cuff`, `setBreathing(level)`, `restingBreath()`
+and `showPlayerBody(on)`. Scene files never import
 `main.js`; if a scene needs something new, add it to `cutsceneContext`.
 
 ### Acting
@@ -193,7 +198,15 @@ prologue's front page, about 15 seconds, first person throughout:
    lights it. And up into sitting.
 3. A blink as they come upright, opening on exactly the view play starts from.
 
-The three wake-up lines play under it. The player lies with their head at the
+Each of the three wake-up lines lands on the moment it describes: the first
+as the eyes open, "your wrist is chained" when the wrist is seen, the last as
+they sit up. Waking is the senses coming back at different speeds. The sound
+is muffled and clears as the eyes do. The breath is slow, catches hard when
+the chain holds, and settles. Lights halo and the two eyes see double, the
+double vision clearing last. A slow breathing sway on the head steadies as
+they come round, with one flinch when the chain holds. Lightning is what wakes
+them: the first crack of light is its flash. Hold Space to skip. A skip still
+shows whichever lines had not been reached. The player lies with their head at the
 FOOT of the bed, because play starts sitting up and facing the headboard. That
 is the only way to lie down that sits up into it, and it puts the cuffed (right)
 wrist on the right. The body is the player's own `playerBody`: it is laid down

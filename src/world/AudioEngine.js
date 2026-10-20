@@ -98,6 +98,14 @@ const BREATH_LOOP_END = 12.08;
 // restart still feels immediate.
 const BREATH_FADE = 0.6;
 
+/**
+ * The hearing filter's two ends (setMuffle). Open is above anything the game
+ * plays, so the filter is transparent; shut is the dull, close, underwater
+ * sound of a room heard while still mostly asleep.
+ */
+const MUFFLE_OPEN_HZ = 20000;
+const MUFFLE_SHUT_HZ = 380;
+
 // Intensity changes are story beats (the bulb blowing, the creature getting
 // nearer), so they slide over about a breath rather than a frame.
 const BREATH_LEVEL_RAMP = 1.1;
@@ -464,7 +472,13 @@ export class AudioEngine {
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.master = this.ctx.createGain();
     this.master.gain.value = this.masterVolume;
-    this.master.connect(this.ctx.destination);
+    // Hearing, after everything else: a lowpass that is wide open (and so
+    // does nothing) except while someone is coming round -- see setMuffle().
+    this.muffle = this.ctx.createBiquadFilter();
+    this.muffle.type = 'lowpass';
+    this.muffle.frequency.value = MUFFLE_OPEN_HZ;
+    this.muffle.Q.value = 0;
+    this.master.connect(this.muffle).connect(this.ctx.destination);
     this.#startWindDrone();
 
     // Its own gain node on the way to the master, so breathing intensity can
@@ -662,6 +676,25 @@ export class AudioEngine {
   stopBreathing() {
     this.breathWanted = false;
     this.#releaseBreathing(BREATH_FADE);
+  }
+
+  /**
+   * How muffled the whole world sounds, 0 (clear) .. 1 (through water, or
+   * through sleep). For waking: the room comes in dull and close, and clears
+   * as the eyes do. Ramped over `seconds` on a log scale, which is how a
+   * filter sweep is heard -- a linear sweep in Hz sounds like it does nothing
+   * until the very end. Safe before start(): it simply does nothing.
+   */
+  setMuffle(amount, seconds = 0) {
+    if (!this.ctx || !this.muffle) return;
+    const a = Math.min(1, Math.max(0, amount));
+    const hz = MUFFLE_OPEN_HZ * Math.pow(MUFFLE_SHUT_HZ / MUFFLE_OPEN_HZ, a);
+    const f = this.muffle.frequency;
+    const now = this.ctx.currentTime;
+    f.cancelScheduledValues(now);
+    f.setValueAtTime(f.value, now);
+    if (seconds > 0) f.exponentialRampToValueAtTime(hz, now + seconds);
+    else f.setValueAtTime(hz, now);
   }
 
   /** Breathing volume, 0..1, independent of every other sound. */

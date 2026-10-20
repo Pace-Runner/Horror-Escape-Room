@@ -4,14 +4,15 @@ import * as THREE from 'three';
  * WAKING UP -- the first thing the player sees, after the prologue's front
  * page. First person throughout, from the player's own eyes:
  *
- *   1. eyes opening slowly, as after a very long sleep: a crack of light that
- *      falls shut again, then most of the way, blurred and grey; two blinks
- *      and the ceiling comes into focus                     (lying on the bed)
+ *   1. eyes opening slowly, as after a very long sleep: a crack of light (and
+ *      lightning, which is what woke them) that falls shut again, then most of
+ *      the way, blurred, doubled and grey; two blinks and the ceiling bulb
+ *      comes into focus                                    (lying on the bed)
  *   2. then ONE unbroken movement of the head: down the length of their own
  *      body to the headboard rail the chain is wrapped round; across to the
- *      right, to their wrist in a cuff on the end of it -- they pull, and it
- *      holds; back across the bed to the window on the left as lightning
- *      lights it; and up, sitting, into the room
+ *      right, to their wrist in a cuff on the end of it -- they yank it, it
+ *      holds, and their breath goes; back across the bed to the window on the
+ *      left as lightning lights it; and up, sitting, into the room
  *   3. the eyes close for a moment as they come upright ...   (blink)
  *   4. ... and open on exactly the view play starts from
  *
@@ -22,6 +23,17 @@ import * as THREE from 'three';
  * curves through keyed moments (`keyed()` below): continuous in speed as well
  * as position, so the head slows as it reaches something it wants to look at
  * (`linger`) and drifts on from it, but never stops until they are sitting.
+ * On top of it, a slow breathing drift -- never a jitter -- that is loose at
+ * first and steadies as they wake, and one flinch, when the chain holds.
+ *
+ * WAKING IS ALL THE SENSES COMING BACK AT DIFFERENT SPEEDS:
+ *   sight   lids, blur, double vision and halos round the lights
+ *           (WakePass, via ctx.postFX.setWake) -- each clearing on its own
+ *           schedule, the double vision last of all
+ *   hearing the whole mix muffled, clearing as the eyes do (setMuffle)
+ *   breath  slow and asleep, catching hard at the cuff, settling as they sit
+ *   words   each of the three wake-up lines on the moment it describes, not
+ *           as one block -- "your wrist is chained" when the wrist is seen
  *
  * THE PLAYER LIES WITH THEIR HEAD AT THE FOOT OF THE BED. Not where the
  * pillows are, and deliberately: play starts sitting up and facing the
@@ -38,8 +50,9 @@ import * as THREE from 'three';
  * person, so the body goes while the eyes are shut in the last blink -- the
  * same blink that hides the lens settling onto the player's own camera.
  *
- * Eyelids and blur are the WakePass (world/WakePass.js), driven here frame by
- * frame through ctx.postFX.setWake(open, blur).
+ * SKIPPABLE (hold Space -- core/CutsceneSkip.js), because it plays on every
+ * new game. A skip still shows whichever of the three lines had not been
+ * reached: the second one is how a player learns they are chained.
  *
  * @param {object} p
  * @param {number} p.bedX       the bed's centre line, world x
@@ -65,6 +78,7 @@ export function wakeUp({ bedX, bedZ, duvetTop, cuff, windowAt, bulbAt, ahead, ba
   // ---------- the timeline, in seconds ----------
   // Slow on purpose: someone coming round turns their head at well under
   // 100 degrees a second, and anything quicker reads as the camera snapping.
+  const T_CRACK = 2.3;      // the first crack of light -- lightning
   const T_FOCUSED = 5.8;    // eyes open and focused on the ceiling; the head starts to move
   const T_FEET = 8.2;       // down the body, to the headboard rail
   const T_CUFF = 10.2;      // across to the wrist
@@ -77,6 +91,11 @@ export function wakeUp({ bedX, bedZ, duvetTop, cuff, windowAt, bulbAt, ahead, ba
   const OPEN_HOLD = 0.6;
   const T_BLINK_SHUT = T_SAT - 0.2;
   const T_BLINK_OPEN = T_SAT + SETTLE;
+  /** The yank on the chain, while they are looking at it. */
+  const T_TUG = T_CUFF + 0.35;
+
+  // The three wake-up lines (dialogue/level1_bedroom.js), each on its moment.
+  const T_LINE = [3.0, T_CUFF + 0.25, T_SAT - 0.7];
 
   const smooth = (u) => {
     const c = Math.min(1, Math.max(0, u));
@@ -140,20 +159,49 @@ export function wakeUp({ bedX, bedZ, duvetTop, cuff, windowAt, bulbAt, ahead, ba
     return [d.x, d.y, d.z];
   };
 
+  /** A smooth bump: 0 before `start`, up to 1 over `rise`, back to 0 over `fall`. */
+  const bump = (t, start, rise, fall) => {
+    if (t <= start) return 0;
+    if (t <= start + rise) return smooth((t - start) / rise);
+    return 1 - smooth((t - start - rise) / fall);
+  };
+
   // ---------- the eyes ----------
   // Lids fall fast and lift slowly; each opening gets a little further.
-  const lidsAt = stepped([
+  const lidsKeyed = stepped([
     [0, 0], [1.0, 0],
-    [2.3, 0.3], [2.75, 0.05],          // a crack of light, and it falls shut again
+    [T_CRACK, 0.3], [2.75, 0.05],      // a crack of light, and it falls shut again
     [3.9, 0.55], [4.3, 0.55],
     [4.42, 0], [4.55, 0], [4.85, 0.78], // first blink
     [5.15, 0.78], [5.25, 0], [5.35, 0], [5.7, 1], // second
     [T_BLINK_SHUT, 1], [T_BLINK_SHUT + 0.15, 0],
     [T_BLINK_OPEN, 0], [T_BLINK_OPEN + 0.35, 1]
   ]);
+  /**
+   * Heavy lids do not hold still half open: a small tremble while they fight
+   * to stay up, only before the eyes have properly opened.
+   */
+  const lidsAt = (t) => {
+    const v = lidsKeyed(t);
+    if (t >= T_FOCUSED || v < 0.04 || v > 0.96) return v;
+    return Math.min(1, Math.max(0, v + 0.035 * Math.sin(t * 31) * Math.sin(t * 7.3)));
+  };
   const blurAt = stepped([
     [0, 1], [2.75, 1], [3.9, 0.85], [4.6, 0.7],
     [4.85, 0.5], [5.35, 0.45], [5.7, 0.2], [7.0, 0]
+  ]);
+  /**
+   * The two eyes agreeing last of all, a while after the blur has gone -- and
+   * swimming apart again for a moment when the chain holds and the breath goes.
+   */
+  const doubleKeyed = stepped([
+    [0, 1], [2.75, 1], [3.9, 0.8], [4.6, 0.7], [4.85, 0.45],
+    [5.35, 0.4], [5.7, 0.2], [7.4, 0]
+  ]);
+  const doubleAt = (t) => Math.min(1, doubleKeyed(t) + 0.3 * bump(t, T_TUG, 0.25, 1.4));
+  /** Pupils wide from the dark: lights bloom, then settle as they adjust. */
+  const glowAt = stepped([
+    [0, 1], [3.9, 0.9], [5.7, 0.55], [8.5, 0.2], [T_SIT, 0.1], [T_SAT - 0.3, 0]
   ]);
 
   // ---------- the head ----------
@@ -199,23 +247,48 @@ export function wakeUp({ bedX, bedZ, duvetTop, cuff, windowAt, bulbAt, ahead, ba
   const fovAt = keyed(LOOK_KEYS, (k) => [k.fov]);
   const liftAt = keyed(LOOK_KEYS, (k) => [k.lift]);
 
+  /**
+   * How loose the head still is: the breathing drift's size. Most at first,
+   * steadying as they come round, never quite still.
+   */
+  const groggyAt = stepped([[0, 1], [T_FOCUSED, 0.8], [T_FOCUSED + 3, 0.45], [T_SAT, 0.3]]);
+  const DRIFT_DEGREES = 1.1;
+  const FLINCH_DEGREES = 1.6;
+  const TAU = Math.PI * 2;
+  /**
+   * Slow, breathing-paced wander (well under 1 Hz, incommensurate so it never
+   * visibly repeats), plus the flinch when the chain holds: a hard, fast
+   * shudder that dies in a third of a second. In degrees, per world axis.
+   */
+  function wanderAt(t) {
+    const g = groggyAt(t) * DRIFT_DEGREES / 1.45;
+    const k = t - T_TUG;
+    const flinch = k > 0 && k < 0.9 ? FLINCH_DEGREES * Math.exp(-k / 0.2) * Math.sin(k * 26) : 0;
+    return [
+      g * (Math.sin(TAU * 0.13 * t + 0.7) + 0.45 * Math.sin(TAU * 0.31 * t + 2.1)) + flinch * 0.5,
+      g * (Math.sin(TAU * 0.19 * t + 1.9) + 0.45 * Math.sin(TAU * 0.41 * t + 0.4)) + flinch,
+      g * (Math.sin(TAU * 0.11 * t + 2.6) + 0.45 * Math.sin(TAU * 0.27 * t + 1.2))
+    ];
+  }
+
   /** Far along the current direction, so a few centimetres of eye movement cannot swing the aim. */
   const LOOK_DISTANCE = 50;
+  const METRES_PER_DEGREE = LOOK_DISTANCE * Math.tan(THREE.MathUtils.degToRad(1));
   const lookAt = (t) => {
     const d = dirAt(t);
     const len = Math.hypot(d[0], d[1], d[2]) || 1;
+    const w = wanderAt(t);
     return [
-      LYING_EYE[0] + (d[0] / len) * LOOK_DISTANCE,
-      LYING_EYE[1] + (d[1] / len) * LOOK_DISTANCE,
-      LYING_EYE[2] + (d[2] / len) * LOOK_DISTANCE
+      LYING_EYE[0] + (d[0] / len) * LOOK_DISTANCE + w[0] * METRES_PER_DEGREE,
+      LYING_EYE[1] + (d[1] / len) * LOOK_DISTANCE + w[1] * METRES_PER_DEGREE,
+      LYING_EYE[2] + (d[2] / len) * LOOK_DISTANCE + w[2] * METRES_PER_DEGREE
     ];
   };
 
   // ---------- the body ----------
   /** 0 lying flat .. 1 sitting up. */
   const sitAt = (t) => smooth((t - T_SIT) / (T_SAT - T_SIT));
-  /** The cuffed arm pulled once against the chain, while they are looking at it. */
-  const T_TUG = T_CUFF + 0.35;
+  /** The cuffed arm yanked once against the chain. */
   const tugAt = (t) => {
     const u = (t - T_TUG) / 0.55;
     return u > 0 && u < 1 ? Math.sin(u * Math.PI) * (1 - u * 0.4) : 0;
@@ -226,7 +299,11 @@ export function wakeUp({ bedX, bedZ, duvetTop, cuff, windowAt, bulbAt, ahead, ba
   // neck and head curls forward.
   const ARM_OUT = 0.6;          // the right wrist out to where the cuff lies
   const ARM_DOWN = -0.15;       // and down onto the duvet
-  const TUG = 0.22;
+  // Small: the cuff can only follow the wrist a few centimetres (CUFF_GIVE)
+  // before the chain is taut, and a bigger yank would pull the hand out of it.
+  const TUG = 0.12;
+  /** How far the cuff comes with the wrist before the chain stops it, metres, in its parent's frame. */
+  const CUFF_GIVE = new THREE.Vector3(0.03, 0.012, 0.01);
   // The lift is a small curl, spread down the spine so no one joint kinks:
   // about 25 cm of rise at the eyes at full lift.
   const SPINE_LIFT = 0.25;
@@ -235,6 +312,8 @@ export function wakeUp({ bedX, bedZ, duvetTop, cuff, windowAt, bulbAt, ahead, ba
   const HEAD_LIFT = 0.25;
 
   const _hips = new THREE.Vector3();
+  /** Where the cuff rests, captured on the first frame and put back on the last. */
+  let cuffRest = null;
 
   function poseBody(body, t) {
     const sit = sitAt(t);
@@ -260,14 +339,28 @@ export function wakeUp({ bedX, bedZ, duvetTop, cuff, windowAt, bulbAt, ahead, ba
     root.position.z += HIPS.z - _hips.z;
   }
 
+  /** The cuff comes a little way with the yank, and is snapped back by the chain. */
+  function poseCuff(cuffObject, t) {
+    if (!cuffObject) return;
+    if (!cuffRest) cuffRest = cuffObject.position.clone();
+    cuffObject.position.copy(cuffRest).addScaledVector(CUFF_GIVE, tugAt(t));
+  }
+
   // ---------- the lens ----------
   // One shot from the first crack of light to sitting upright, on the scene's
   // own clock: the shot starts at t = 0, so its u maps straight onto it.
   const MOVEMENT = T_SAT;
   const sceneTime = (u) => u * MOVEMENT;
 
+  /** Plays wake-up lines `from`..`to` (indices) as one sequence. */
+  const sayLines = (ctx, from, to = from) => {
+    const lines = ctx.line('dialog_wake').slice(from, to + 1);
+    if (lines.length) ctx.captions.play(lines);
+  };
+
   return {
     name: 'wakeUp',
+    skippable: true,
     shots: [
       {
         cut: true,
@@ -276,7 +369,6 @@ export function wakeUp({ bedX, bedZ, duvetTop, cuff, windowAt, bulbAt, ahead, ba
         up: (u) => upAt(sceneTime(u)),
         fov: (u) => fovAt(sceneTime(u))[0],
         ease: 'linear',
-        shake: 0.1,
         seconds: MOVEMENT
       },
       // Eyes shut: onto the player's own eye and view, which play starts from.
@@ -284,20 +376,53 @@ export function wakeUp({ bedX, bedZ, duvetTop, cuff, windowAt, bulbAt, ahead, ba
       { at: 'player', seconds: OPEN_HOLD }
     ],
     cues: [
-      { t: 0, run: (ctx) => { ctx.playerBody.setHeadVisible(false); ctx.showPlayerBody(true); } },
-      { t: 1.6, run: (ctx) => ctx.captions.play(ctx.line('dialog_wake')) },
-      { t: T_TUG + 0.08, run: (ctx) => ctx.sfx('chain_drop', { gainDb: -9 }) },
+      {
+        t: 0,
+        run: (ctx) => {
+          ctx.playerBody.setHeadVisible(false);
+          ctx.showPlayerBody(true);
+          // Asleep: the room dull and far away, the breath slow.
+          ctx.audio.setMuffle(1);
+          ctx.setBreathing(0.22);
+        }
+      },
+      // What woke them: lightning, and the first crack of light is its flash.
+      { t: T_CRACK - 0.12, run: (ctx) => { ctx.flashLightning(); ctx.audio.setMuffle(0.6, 1.0); } },
+      { t: T_LINE[0], run: (ctx) => sayLines(ctx, 0) },
+      { t: 4.4, run: (ctx) => ctx.audio.setMuffle(0.3, 1.2) },
+      { t: T_FOCUSED, run: (ctx) => { ctx.audio.setMuffle(0, 2.5); ctx.setBreathing(0.3); } },
+      { t: T_LINE[1], run: (ctx) => sayLines(ctx, 1) },
+      // The chain holds: metal, and the breath catches.
+      {
+        t: T_TUG + 0.06,
+        run: (ctx) => {
+          ctx.sfx('chain_drop', { gainDb: -9 });
+          ctx.sfx('gasp', { gainDb: -4 });
+          ctx.setBreathing(0.85);
+        }
+      },
+      { t: T_ACROSS, run: (ctx) => ctx.setBreathing(0.6) },
       { t: T_WINDOW - 0.25, run: (ctx) => ctx.flashLightning() },
-      { t: T_SIT + 0.05, run: (ctx) => ctx.sfx('cloth') },
+      { t: T_SIT + 0.05, run: (ctx) => { ctx.sfx('cloth'); ctx.setBreathing(0.45); } },
+      { t: T_LINE[2], run: (ctx) => sayLines(ctx, 2) },
       // Gone while the eyes are shut: play has no body in first person.
       { t: T_BLINK_SHUT + 0.15, run: (ctx) => ctx.showPlayerBody(false) }
     ],
     onFrame(ctx, t) {
-      ctx.postFX.setWake(lidsAt(t), blurAt(t));
+      ctx.postFX.setWake(lidsAt(t), blurAt(t), { double: doubleAt(t), glow: glowAt(t) });
       poseBody(ctx.playerBody, t);
+      poseCuff(ctx.cuff, t);
+    },
+    /** A skip still delivers the lines not reached -- the second is how they learn they are chained. */
+    onSkip(ctx, t) {
+      const next = T_LINE.findIndex((at) => at > t);
+      if (next !== -1) sayLines(ctx, next, T_LINE.length - 1);
     },
     onEnd(ctx) {
       ctx.postFX.setWake(1, 0);
+      ctx.audio.setMuffle(0, 0.4);
+      ctx.setBreathing(ctx.restingBreath());
+      if (cuffRest && ctx.cuff) ctx.cuff.position.copy(cuffRest);
       ctx.playerBody.refs.root.rotation.set(0, 0, 0);
       ctx.playerBody.setHeadVisible(true);
       ctx.showPlayerBody(false);
