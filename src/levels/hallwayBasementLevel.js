@@ -33,10 +33,12 @@ import labChairModelUrl from '../assets/models/lab_chair.glb?url';
 import storageShelfModelUrl from '../assets/models/storage_shelf.glb?url';
 import containmentChamberModelUrl from '../assets/models/containment_chamber.glb?url';
 import biosafetyCabinetModelUrl from '../assets/models/biosafety_cabinet.glb?url';
-import camcorderModelUrl from '../assets/models/camcorder.glb?url';
-import video8CassetteModelUrl from '../assets/models/video8_cassette.glb?url';
-import video8DeckModelUrl from '../assets/models/video8_deck.glb?url';
-import video8TapeStackModelUrl from '../assets/models/video8_tape_stack.glb?url';
+import cassetteRecorderModelUrl from '../assets/models/cassette_recorder.glb?url';
+import audioCassetteModelUrl from '../assets/models/audio_cassette.glb?url';
+import cassetteDeckModelUrl from '../assets/models/cassette_deck.glb?url';
+import cassetteStackModelUrl from '../assets/models/cassette_stack.glb?url';
+import microscopeModelUrl from '../assets/models/microscope.glb?url';
+import glassSlidesModelUrl from '../assets/models/glass_slides.glb?url';
 // TEXTURE PREVIEW (branch lvl2-texture-preview): photo textures the user found,
 // to judge the look. Tiles141, Concrete030 and Metal055B are ambientCG (CC0);
 // the rest are Texturelabs.
@@ -4999,6 +5001,45 @@ export function createHallwayBasementLevel({
   interactables.push(tornNotes);
   workbench.add(tornNotes);
 
+  /**
+   * The microscope at the clear end of the bench, past the tools, turned to
+   * show its side to someone walking in from the hallway -- and three of the
+   * session's slides scattered beside it, one snapped. Both are in the
+   * bench's own space; the top is at y = 0.845. Plain boxes are their click
+   * targets, since Interaction never reaches inside a loaded model.
+   */
+  const WORKBENCH_TOP = 0.845;
+  const microscope = new THREE.Group();
+  microscope.position.set(0.53, WORKBENCH_TOP, 0.2);
+  microscope.rotation.y = -2.2;
+  workbench.add(microscope);
+  loadModel(microscopeModelUrl)
+    .then((model) => microscope.add(shadowed(model)))
+    .catch((err) => console.error('[lab] microscope.glb failed to load', err));
+  const microscopeHit = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.35, 0.16), hiddenHitMat);
+  microscopeHit.position.y = 0.175;
+  microscopeHit.userData.interact = {
+    label: 'Examine the microscope',
+    onInteract: () => showCaption(line('dialog_microscope'))
+  };
+  microscope.add(microscopeHit);
+  interactables.push(microscopeHit);
+
+  const slidesOnBench = new THREE.Group();
+  slidesOnBench.position.set(0.5, WORKBENCH_TOP + 0.0005, -0.02);
+  slidesOnBench.rotation.y = 0.4;
+  workbench.add(slidesOnBench);
+  loadModel(glassSlidesModelUrl)
+    .then((model) => slidesOnBench.add(model))
+    .catch((err) => console.error('[lab] glass_slides.glb failed to load', err));
+  const slidesHit = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.02, 0.15), hiddenHitMat);
+  slidesHit.position.y = 0.01;
+  slidesHit.userData.interact = {
+    label: 'Examine the slides',
+    onInteract: () => showCaption(line('dialog_slides'))
+  };
+  slidesOnBench.add(slidesHit);
+  interactables.push(slidesHit);
 
   // ---------- the operating corner ----------
 

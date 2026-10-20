@@ -272,6 +272,11 @@ export const dialog_black_pool_examine = ["Whatever it is, it is not water, and 
 
 export const dialog_torn_notes = ["\"SUBJECT UNSTABLE. CONTAINMENT REQUIRED. MEMORY DETERIORATION OBSERVED. VISUAL DISTORTION INCREASING.\"", "level2/torn_notes.m4a"];
 
+// The microscope on the workbench, a slide still under its clips, and the
+// slides left beside it. One caption each, like every examine line.
+export const dialog_microscope = ["A microscope, a slide still under the clips. S14 / 1. Tissue, stained near black. Whoever was looking at it never came back to put it away.", "level2/microscope.m4a", 6];
+
+export const dialog_slides = ["More slides from the same session, the same marker. One has been snapped in two.", "level2/slides.m4a", 4.5];
 
 export const dialog_operating_table = ["Straps at the wrists, the chest, the ankles. The ankle cuffs have been unbuckled, and so has the far wrist. This wrist was not. Its strap is torn straight through.", "level2/operating_table.m4a"];
 
