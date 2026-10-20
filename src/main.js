@@ -4163,6 +4163,20 @@ async function playEnding(which) {
       : which !== 'contained' || committedChoice !== 'RESEALED')) return;
   endingInFlight = true;
   gameState.endingChosen = which;
+  let resealFadeTimer = null;
+  let resealFinishTimer = null;
+  let resolveResealFinish;
+  const resealFinished = which === 'contained'
+    ? new Promise((resolve) => { resolveResealFinish = resolve; }) : null;
+  function continueAfterResealLine() {
+    if (!resealFinished || resealFinishTimer !== null) return;
+    // The ending's last beat must finish even if pointer-lock loss pauses the
+    // shared caption/cutscene clock. Keep the original 10.2/11.6s timings.
+    resealFadeTimer = window.setTimeout(() => {
+      if (gameState.endingChosen === 'contained') fade.fadeOut(1200);
+    }, 3600);
+    resealFinishTimer = window.setTimeout(() => resolveResealFinish(true), 5000);
+  }
   try {
     script.cancel();
     captions.cancel();
@@ -4176,7 +4190,7 @@ async function playEnding(which) {
       ? ['CONTAINMENT RELEASED.', 'Annabelle may still have a chance.', 'But The Hollow is no longer contained.']
       : ['CONTAINMENT RESTORED.', 'You remembered what you asked her to do.', 'Annabelle cannot leave.'];
     const lookAt = camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()));
-    const shotFinished = await cutscene.playScene({
+    const sceneFinished = cutscene.playScene({
       name: `studyEnding_${which}`,
       letterbox: true,
       skippable: false,
@@ -4184,7 +4198,13 @@ async function playEnding(which) {
       cues: [
         { t: 0, run: () => captions.say({ text: text[0], duration: 2.4, always: true }) },
         { t: 3.1, run: () => captions.say({ text: text[1], duration: 2.9, always: true }) },
-        { t: 6.6, run: () => captions.say({ text: text[2], duration: 3, always: true }) },
+        { t: 6.6, run: () => {
+          try {
+            captions.say({ text: text[2], duration: 3, always: true });
+          } finally {
+            continueAfterResealLine();
+          }
+        } },
         { t: 10.2, run: () => fade.fadeOut(1200) }
       ],
       onEnd: (_ctx, completed) => {
@@ -4193,10 +4213,17 @@ async function playEnding(which) {
         if (!completed) fade.clear();
       }
     });
+    const shotFinished = await (resealFinished
+      ? Promise.race([sceneFinished, resealFinished]) : sceneFinished);
     if (!shotFinished || gameState.endingChosen !== which) return;
+    // A stalled reseal timeline still owns input/camera until explicitly
+    // cancelled. Its normal cleanup runs before the shared end screen opens.
+    if (which === 'contained' && cutscene.name === 'studyEnding_contained') cutscene.cancel();
     showEndScreen(which, false);
     fade.clear();
   } finally {
+    window.clearTimeout(resealFadeTimer);
+    window.clearTimeout(resealFinishTimer);
     endingInFlight = false;
   }
 }
