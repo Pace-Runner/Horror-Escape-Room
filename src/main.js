@@ -38,6 +38,7 @@ import { wakeUp } from './cutscenes/wakeUp.js';
 import { createCutsceneExport } from './core/CutsceneExport.js';
 import { createCutsceneSkip } from './core/CutsceneSkip.js';
 import { createNewspaper } from './core/Newspaper.js';
+import { createOpeningNewsCutscene } from './core/OpeningNewsCutscene.js';
 import { createJumpScare } from './core/JumpScare.js';
 import { DIFFICULTIES, DEFAULT_DIFFICULTY, createRunTimer } from './core/Difficulty.js';
 import { FreeCamera } from './core/FreeCamera.js';
@@ -56,6 +57,8 @@ import { setHandAssetUrl } from './systems/hands/hand-mesh.js';
 import handsModelUrl from './assets/models/hands.glb?url';
 import { loadModel } from './world/modelLoader.js';
 import flashlightModelUrl from './assets/models/flashlight.glb?url';
+
+console.time('APP_BOOT');
 
 // ---------- DOM ----------
 const canvas = document.getElementById('scene');
@@ -97,6 +100,7 @@ const creditsCloseBtn = document.getElementById('credits-close');
 const quitScreen = document.getElementById('quit-screen');
 const quitBackButton = document.getElementById('quit-back');
 const fadeOverlay = document.getElementById('fade-overlay');
+const openingNewsContinue = document.getElementById('opening-news-continue');
 const settingsButton = document.getElementById('settings-button');
 const settingsScreen = document.getElementById('settings-screen');
 const settingsCloseBtn = document.getElementById('settings-close');
@@ -117,6 +121,12 @@ const fade = createScreenFade(fadeOverlay);
 const newspaperView = createNewspaper({
   root: document.getElementById('newspaper-view'),
   onShow: () => paperRustle()
+});
+
+// Only replaces the opening prologue. The Newspaper controller above remains
+// responsible for every paper shown after Level 1.
+const openingNewsCutscene = createOpeningNewsCutscene({
+  root: document.getElementById('opening-news-cutscene')
 });
 
 /**
@@ -507,17 +517,21 @@ scene.add(camera);
 setHandAssetUrl(handsModelUrl);
 
 const hands = new Hands({ camera, renderer });
-// Deliberately not awaited: the hands are presentation, so they pop in when
-// the 167 KB model lands rather than holding up the rest of the boot. A load
+// Deliberately deferred until a game begins: the hands are presentation, so
+// the 167 KB model never holds up the menu. A load
 // failure warns and leaves the game entirely playable -- every method on Hands
 // is safe to call before init() has finished. Nothing has to be re-equipped
 // when it lands: the held-item system reconciles every frame (see
 // core/HeldItems.js), so whatever is selected appears the frame the hand does.
-// Kept so the loading screen can wait for it: the glove's shaders are built in
-// warmUp(), which needs the glove to exist.
-const handsReady = hands.init().catch((err) => {
-  console.error('Failed to initialise the first-person hands:', err);
-});
+let handsReady = null;
+function initializeHands() {
+  if (!handsReady) {
+    handsReady = hands.init().catch((err) => {
+      console.error('Failed to initialise the first-person hands:', err);
+    });
+  }
+  return handsReady;
+}
 
 // ---------- the items in hand ----------
 /**
@@ -548,11 +562,37 @@ const itemMeshes = createItemMeshes();
 // RIGHT hand, not the left the README's handedness convention asks for: the
 // game builds the right hand only (ACTIVE_SIDES in systems/hands/hands.js), and
 // that file's own note says a torch then goes in the right hand's grip socket.
-const heldTorchReady = loadModel(flashlightModelUrl).then((torch) => {
-  itemMeshes.setTemplate('flashlight', torch);
-}).catch((err) => {
-  console.error('Failed to load the held flashlight, it will not appear in hand:', err);
-});
+let heldTorchReady = null;
+function initializeHeldTorch() {
+  if (!heldTorchReady) {
+    heldTorchReady = loadModel(flashlightModelUrl).then((torch) => {
+      itemMeshes.setTemplate('flashlight', torch);
+    }).catch((err) => {
+      console.error('Failed to load the held flashlight, it will not appear in hand:', err);
+    });
+  }
+  return heldTorchReady;
+}
+
+/** Fetches menu-safe Level 1 presentation files without parsing or building them. */
+function preloadMenuAssets() {
+  for (const url of [handsModelUrl, flashlightModelUrl]) {
+    fetch(url).catch((err) => console.warn('Menu asset preload failed:', err));
+  }
+  openingNewsCutscene.preload();
+}
+
+/** Runs a small raw-file preload only while the launch menu is idle. */
+function scheduleMenuPreload() {
+  const preload = () => {
+    if (!gameStarted) preloadMenuAssets();
+  };
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(preload, { timeout: 1200 });
+  } else {
+    window.setTimeout(preload, 250);
+  }
+}
 
 /**
  * The frame's player motion, handed to the hands' procedural layers.
@@ -3506,6 +3546,8 @@ async function transitionTo(key, { lockMovement = false, outMs = 700, holdMs = 1
       await newspaperView.show(interlude);
       if (mine !== transitionGeneration) return null;  // restarted while reading
     }
+    await warmLevelForTransition(key);
+    if (mine !== transitionGeneration) return null;
     const level = activateLevel(key, { lockMovement: true });
     if (!level) {
       // Fade back in rather than leaving a black screen: a bad route must never
@@ -4195,47 +4237,76 @@ function beginGame() {
   startTitle.textContent = "DON'T LET IT OUT";
   startSub.textContent = 'Project HOLLOW -- June 1987';
   startButton.textContent = 'Click to begin';
+  // Keep the focused menu button from treating Enter/Space as a second start
+  // request while this deliberately unskippable sequence owns the screen.
+  startButton.disabled = true;
+  startScreen.classList.add('hidden');
   audio.start();
-  // Something in the house is already breathing when the player wakes up, so
-  // this comes in with the wind rather than at a puzzle beat, and then runs
-  // unbroken for the rest of the session -- it is deliberately not tied to a
-  // level or an event, only its intensity is. Safe whether or not the loop
-  // file is actually there, and safe before it has decoded -- see AudioEngine.
-  audio.startBreathing();
-  // Before the room: activateLevel() starts the bedroom's clock, full and
-  // still -- it only counts once the first newspaper is put away.
   runTimer.configure(currentDifficulty);
-  activateLevel('bedroom', { lockMovement: true });
-  player.lock();
+  backroomsHunter.setReady(true);
 
-  /**
-   * The wake-up. The fade overlay has existed since the transition system went
-   * in and beginGame() never used it -- the game simply cut to a lit room with
-   * the player already in it, which is not waking up, it is loading a save.
-   *
-   * Black first, then the wake-up scene (cutscenes/wakeUp.js): eyes opening
-   * on the ceiling, a look down their own body, the cuff, the window, and
-   * sitting up into play, while the first three lines play.
-   */
+  // Start the opening image first, then prepare Level 1 behind it. Its movement
+  // gate remains locked until the report has ended.
+  const newsFinished = openingNewsCutscene.play();
+  const levelOneReady = Promise.all([initializeHands(), initializeHeldTorch()]);
+  activateLevel('bedroom', { lockMovement: true });
+
   script.run(async (s) => {
-    s.do(() => fade.snapToBlack());
-    // The first front page, on the black before the eyes open: what the town
-    // read in January, before the player knows where they are. A restart
-    // while it is up cancels it, and the wake-up then does not run on top of
-    // the restarted room.
-    if (!await newspaperView.show('prologue') || !s.alive()) return;
-    if (!await s.wait(0.9)) return;
+    // The opening report runs while Level 1's presentation assets prepare.
+    await newsFinished;
+    if (!s.alive()) return;
+    await levelOneReady;
+    if (!s.alive()) return;
+    await waitForOpeningNewsContinue();
+    if (!s.alive()) return;
+    await Promise.all([openingNewsCutscene.close(), fade.fadeOut(420)]);
+    s.do(() => {
+      // The continue click acquired pointer lock. The wake-up scene now owns
+      // the camera and temporarily freezes these controls itself.
+      audio.startBreathing();
+      interaction.setEnabled(true);
+      player.lookEnabled = true;
+      player.movementEnabled = true;
+    });
     const waking = playCutscene('wakeUp');
     if (!cutscene.isRunning) {
-      // Could not start (another scene somehow running): the old fade.
+      // Preserve the established fallback if another scene prevented wake-up.
       fade.fadeIn(2600);
       await s.play(line('dialog_wake'));
       return;
     }
-    // The scene opens with the eyes shut -- black under its own lids -- so the
-    // overlay's black can go in the same frame without anything showing.
+    // The wake-up scene begins with closed eyes, so lifting the black here
+    // exposes only its authored first frame rather than Level 1 prematurely.
     fade.clear();
     await waking;
+  });
+}
+
+/** Restores pointer lock from a fresh click after the non-interactive opening. */
+function waitForOpeningNewsContinue() {
+  const button = openingNewsContinue.querySelector('button');
+  openingNewsContinue.classList.add('is-open');
+  openingNewsContinue.setAttribute('aria-hidden', 'false');
+  button.focus();
+
+  return new Promise((resolve) => {
+    let hasContinued = false;
+    const continueGame = (event) => {
+      if (hasContinued) return;
+      hasContinued = true;
+      event?.preventDefault();
+      openingNewsContinue.removeEventListener('click', continueGame);
+      window.removeEventListener('keydown', continueGame);
+      openingNewsContinue.classList.remove('is-open');
+      openingNewsContinue.setAttribute('aria-hidden', 'true');
+      startButton.disabled = false;
+      // This click is the browser-approved gesture that safely reacquires
+      // pointer lock before the wake-up scene takes the camera.
+      player.lock();
+      resolve();
+    };
+    openingNewsContinue.addEventListener('click', continueGame, { once: true });
+    window.addEventListener('keydown', continueGame, { once: true });
   });
 }
 
@@ -4542,8 +4613,11 @@ function showViewModelsForWarmUp() {
   };
 }
 
-async function warmUp() {
-  const keys = [...sceneManager.levels.keys()];
+async function warmUp({
+  keys = [...sceneManager.levels.keys()],
+  waitForAssets = true,
+  includeCreatures = true
+} = {}) {
   // The creature counts as a step of its own: it is a network fetch rather
   // than a compile, and it is the one the maze cannot open without.
   const steps = keys.length + 2;
@@ -4559,10 +4633,10 @@ async function warmUp() {
   // The hands and the held torch are drawn in every room's warm-up below, so
   // they have to have arrived. Both promises already swallow a failed load,
   // so a missing model costs that model's warm-up, never the whole boot.
-  await Promise.all([handsReady, heldTorchReady]);
+  await Promise.all([initializeHands(), initializeHeldTorch()]);
   // And every room's own models, which can bring lights with them: a room
   // warmed before its candles arrive is warmed for the wrong lighting.
-  await waitForAllLoads();
+  if (waitForAssets) await waitForAllLoads();
 
   // Everything off, so each room is warmed on its own and nothing is paid
   // twice. Restored at the end from what it actually was.
@@ -4637,6 +4711,8 @@ async function warmUp() {
   scene.fog = wasFog;
   camera.position.copy(camPos);
   camera.quaternion.copy(camQuat);
+
+  if (!includeCreatures) return;
 
   // Both bodies: the monster, and the player's own, which is the same mesh at
   // the other end of the dial. Waiting on each is a 1.8 MB fetch the browser
@@ -4774,20 +4850,22 @@ async function warmUp() {
   await advance('something is already inside...');
 }
 
-warmUp()
-  .catch((err) => console.error('warmUp failed; starting anyway', err))
-  .finally(() => {
-    setLoadProgress(1);
-    // The world is ready either way: a warm-up that failed costs stutter, not
-    // a game nobody can start.
-    backroomsHunter.setReady(true);
-    setTimeout(() => loadingScreen.classList.add('is-done'), 250);
-    // Print every page's photograph now, while the player is on the menu, so
-    // each one is already on its plate when its page lands.
-    for (const id of ['prologue', 'afterBedroom', 'afterBasement', 'ending_released', 'ending_contained']) {
-      newspaperView.preload(id);
-    }
-  });
+const warmedLevelKeys = new Set();
+
+/** Warms exactly one destination level while a transition already owns the screen. */
+async function warmLevelForTransition(key) {
+  if (warmedLevelKeys.has(key)) return;
+  await warmUp({ keys: [key], waitForAssets: false, includeCreatures: false });
+  warmedLevelKeys.add(key);
+}
+
+// The menu is interactive before any tracked game-content loads or shader
+// warm-ups. Those begin only from beginGame() after the player chooses a run.
+setLoadProgress(1);
+showMainMenu();
+loadingScreen.classList.add('is-done');
+console.timeEnd('APP_BOOT');
+scheduleMenuPreload();
 
 // ---------- render loop ----------
 const clock = new THREE.Clock();

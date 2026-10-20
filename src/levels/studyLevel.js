@@ -23,9 +23,11 @@ const FRONT_DOOR_CODE = '0687';
 /** Lock ids, in the order they are mounted up the door. */
 const LOCK_IDS = ['deadbolt', 'combination', 'containment'];
 
-const ROOM_W = 7.5;
-const ROOM_D = 6.5;
-const ROOM_H = 3.0;
+const ROOM_W = 16;
+const ROOM_D = 13;
+const ROOM_H = 6.4;
+const LOFT_Y = 3.1;
+const LOFT_D = 5.8;
 
 /**
  * Level 3: the study, the biggest room in the house, ending in the front door.
@@ -123,9 +125,9 @@ export function createStudyLevel({
    * reaching opened onto solid plaster, and there was nothing beyond z = 3.25
    * at all. Same two-jamb-and-lintel treatment as the basement doorway.
    */
-  const DOOR_X = 2.5;
-  const DOORWAY_W = 1.15;
-  const DOORWAY_H = 2.15;
+  const DOOR_X = 0;
+  const DOORWAY_W = 1.8;
+  const DOORWAY_H = 3;
   const frontZ = ROOM_D / 2;
   {
     const leftW = (DOOR_X - DOORWAY_W / 2) - (-ROOM_W / 2);
@@ -155,21 +157,88 @@ export function createStudyLevel({
 
   addBaseboard(group, { width: ROOM_W, depth: ROOM_D, color: 0x161208 });
 
-  const ambient = new THREE.AmbientLight(0x342c24, 0.43);
+  const ambient = new THREE.AmbientLight(0x342c24, 0.58);
   group.add(ambient);
-  const lamp = new THREE.PointLight(0xffcf8a, 0.99, 10, 2);
-  lamp.position.set(0, 2.4, -0.5);
+  const lamp = new THREE.PointLight(0xffcf8a, 1.15, 20, 2);
+  lamp.position.set(0, 4.8, 0.8);
   group.add(lamp);
-  const doorLamp = new THREE.PointLight(0xffcf8a, 0.49, 6, 2);
-  doorLamp.position.set(1.5, 2.2, 2.2);
+  const doorLamp = new THREE.PointLight(0xffcf8a, 0.55, 11, 2);
+  doorLamp.position.set(0, 2.8, 5.1);
   group.add(doorLamp);
+
+  // Graybox loft: the rear archive is a real second storey, leaving the front
+  // half of the study open to the full ceiling height.
+  const balconyMat = new THREE.MeshStandardMaterial({ color: 0x302820, roughness: 0.9 });
+  const railingMat = new THREE.MeshStandardMaterial({ color: 0x171513, roughness: 0.85 });
+  const loftWidth = 15;
+  const loftFrontZ = -ROOM_D / 2 + LOFT_D;
+  const loft = new THREE.Mesh(new THREE.BoxGeometry(loftWidth, 0.28, LOFT_D), balconyMat);
+  loft.position.set(0, LOFT_Y - 0.14, -ROOM_D / 2 + LOFT_D / 2);
+  loft.receiveShadow = true;
+  group.add(loft);
+
+  function addRailing(length, x, z, alongX) {
+    const railHeight = 1.05;
+    const rail = new THREE.Mesh(
+      new THREE.BoxGeometry(alongX ? length : 0.08, 0.08, alongX ? 0.08 : length),
+      railingMat
+    );
+    rail.position.set(x, LOFT_Y + railHeight, z);
+    group.add(rail);
+    for (let offset = -length / 2; offset <= length / 2; offset += 1.5) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.08, railHeight, 0.08), railingMat);
+      post.position.set(x + (alongX ? offset : 0), LOFT_Y + railHeight / 2, z + (alongX ? 0 : offset));
+      group.add(post);
+    }
+  }
+
+  const stairBottomZ = 2.6;
+  const stairWidth = 1.5;
+  const stairCount = 16;
+  const stairRun = 4.48;
+  const stairDepth = stairRun / stairCount;
+  const stairRise = LOFT_Y / stairCount;
+  const stairX = 6.5;
+  const stairTopZ = stairBottomZ - stairRun;
+  const stairHalfWidth = stairWidth / 2;
+  // A single front rail stops before the stair opening.
+  const loftRailEndX = stairX - stairHalfWidth + 0.1;
+  addRailing(loftRailEndX + loftWidth / 2, (loftRailEndX - loftWidth / 2) / 2, loftFrontZ, true);
+
+  // The existing player uses 2D footprint colliders. Do not register the loft
+  // rail here: a vertical rail collider would also seal the ground floor below.
+  // Stair sides remain solid while groundAt() supplies the tread height.
+  const railingThickness = 0.12;
+  colliders.push(
+    { minX: stairX - stairHalfWidth - railingThickness, maxX: stairX - stairHalfWidth + railingThickness, minZ: stairTopZ, maxZ: stairBottomZ },
+    { minX: stairX + stairHalfWidth - railingThickness, maxX: stairX + stairHalfWidth + railingThickness, minZ: stairTopZ, maxZ: stairBottomZ }
+  );
+
+  // Human-scale steps along the right wall: 0.19 m rise, 0.28 m tread.
+  const stairGeometry = new THREE.BoxGeometry(stairWidth, 1, stairDepth);
+  for (let index = 0; index < stairCount; index++) {
+    const stepHeight = stairRise * (index + 1);
+    const step = new THREE.Mesh(stairGeometry, balconyMat);
+    step.scale.y = stepHeight;
+    step.position.set(stairX, stepHeight / 2, stairBottomZ - stairDepth * (index + 0.5));
+    step.receiveShadow = true;
+    group.add(step);
+  }
+  /** The floor under the player: ground, stair treads, then the rear loft. */
+  function groundAt(x, z) {
+    const isOnStair = x >= stairX - stairHalfWidth && x <= stairX + stairHalfWidth
+      && z >= stairTopZ && z <= stairBottomZ;
+    if (isOnStair) return ((stairBottomZ - z) / stairRun) * LOFT_Y;
+    if (x >= -loftWidth / 2 && x <= loftWidth / 2 && z <= loftFrontZ) return LOFT_Y;
+    return 0;
+  }
 
   // study desk + bookshelves
   const woodMat = new THREE.MeshStandardMaterial({ color: 0x3c2c1e, roughness: 0.85 });
-  const desk = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.75, 0.7), woodMat);
-  desk.position.set(-2, 0.375, -2);
+  const desk = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.75, 1.2), woodMat);
+  desk.position.set(0, 0.375, 1);
   group.add(desk);
-  colliders.push({ minX: desk.position.x - 0.85, maxX: desk.position.x + 0.85, minZ: desk.position.z - 0.4, maxZ: desk.position.z + 0.4 });
+  colliders.push({ minX: desk.position.x - 1.4, maxX: desk.position.x + 1.4, minZ: desk.position.z - 0.65, maxZ: desk.position.z + 0.65 });
 
   /**
    * Level 3's own puzzle state. What crosses levels lives in GameState (the
@@ -190,7 +259,7 @@ export function createStudyLevel({
    * it has to be a drawer.
    */
   const drawer = new THREE.Group();
-  drawer.position.set(desk.position.x + 0.5, 0.5, desk.position.z + 0.36);
+  drawer.position.set(desk.position.x + 0.9, 0.5, desk.position.z + 0.61);
   group.add(drawer);
   const drawerFront = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.2, 0.03), woodMat);
   drawer.add(drawerFront);
@@ -240,7 +309,7 @@ export function createStudyLevel({
     new THREE.BoxGeometry(0.56, 0.24, 0.12),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
-  drawerHitbox.position.set(desk.position.x + 0.5, 0.5, desk.position.z + 0.4);
+  drawerHitbox.position.set(desk.position.x + 0.9, 0.5, desk.position.z + 0.65);
   drawerHitbox.userData.interact = {
     label: 'Open the desk drawer',
     onInteract: () => {
@@ -269,7 +338,7 @@ export function createStudyLevel({
     new THREE.BoxGeometry(0.2, 0.1, 0.16),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
-  drawerNoteHitbox.position.set(desk.position.x + 0.61, 0.44, desk.position.z + 0.16);
+  drawerNoteHitbox.position.set(desk.position.x + 1.01, 0.44, desk.position.z + 0.41);
   drawerNoteHitbox.userData.interact = {
     label: 'Read the note',
     onInteract: () => {
@@ -281,7 +350,7 @@ export function createStudyLevel({
   // desk chair, tucked in
   const chairMat = new THREE.MeshStandardMaterial({ color: 0x2c2018, roughness: 0.8 });
   const chairGroup = new THREE.Group();
-  chairGroup.position.set(desk.position.x, 0, desk.position.z + 0.65);
+  chairGroup.position.set(desk.position.x, 0, desk.position.z + 0.9);
   const chairSeat = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.42), chairMat);
   chairSeat.position.y = 0.45;
   chairGroup.add(chairSeat);
@@ -297,33 +366,34 @@ export function createStudyLevel({
   });
   group.add(chairGroup);
 
-  const bookMat = [0x6b2e2a, 0x2e4a3a, 0x3a3560, 0x6b5620, 0x2a2a2a].map(
-    (color) => new THREE.MeshStandardMaterial({ color, roughness: 0.75 })
-  );
-  for (let i = 0; i < 3; i++) {
-    const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.2, 2.2, 0.35), woodMat);
-    shelf.position.set(ROOM_W / 2 - 0.9, 1.1, -2 + i * 1.6);
+  const shelfMat = new THREE.MeshStandardMaterial({ color: 0x251b14, roughness: 0.95 });
+  const shelfAlongWallGeometry = new THREE.BoxGeometry(2.8, 2.8, 0.45);
+  const shelfAcrossWallGeometry = new THREE.BoxGeometry(0.45, 2.8, 2.8);
+  function addShelf(x, y, z, alongX, solid = false) {
+    const shelf = new THREE.Mesh(alongX ? shelfAlongWallGeometry : shelfAcrossWallGeometry, shelfMat);
+    shelf.position.set(x, y, z);
     group.add(shelf);
-    colliders.push({ minX: shelf.position.x - 0.65, maxX: shelf.position.x + 0.65, minZ: shelf.position.z - 0.22, maxZ: shelf.position.z + 0.22 });
-
-    // a row of books on each of three shelf boards per case, leaning at
-    // slightly random angles so the shelves don't read as solid blocks
-    [-0.7, 0, 0.7].forEach((shelfY) => {
-      let x = -0.5;
-      while (x < 0.5) {
-        const w = 0.04 + Math.random() * 0.04;
-        const h = 0.22 + Math.random() * 0.08;
-        const book = new THREE.Mesh(
-          new THREE.BoxGeometry(w, h, 0.22),
-          bookMat[Math.floor(Math.random() * bookMat.length)]
-        );
-        book.position.set(x, shelfY + h / 2, 0); // local to the shelf, which is its parent
-        book.rotation.z = (Math.random() - 0.5) * 0.08;
-        shelf.add(book);
-        x += w + 0.005;
-      }
-    });
+    if (solid) {
+      const halfWidth = alongX ? 1.4 : 0.225;
+      const halfDepth = alongX ? 0.225 : 1.4;
+      colliders.push({ minX: x - halfWidth, maxX: x + halfWidth, minZ: z - halfDepth, maxZ: z + halfDepth });
+    }
   }
+  [-4.8, -2, 1, 4.2].forEach((z) => addShelf(-7.75, 1.4, z, false, true));
+  [-4.8, 3.8, 5.5].forEach((z) => addShelf(7.75, 1.4, z, false, true));
+  [-2.4, 0.4, 3.2].forEach((x) => addShelf(x, 1.4, -6.25, true, true));
+  [-4.8, -2].forEach((z) => addShelf(-7.75, LOFT_Y + 1.4, z, false));
+  [-4.8, -2].forEach((z) => addShelf(7.75, LOFT_Y + 1.4, z, false));
+  [-5.3, -2.5, 0.3, 3.1, 5.3].forEach((x) => addShelf(x, LOFT_Y + 1.4, -6.25, true));
+
+  // Landmark-only placeholders for the later art pass.
+  const fireplace = new THREE.Mesh(
+    new THREE.BoxGeometry(2.6, 2.4, 0.6),
+    new THREE.MeshStandardMaterial({ color: 0x403b36, roughness: 1 })
+  );
+  fireplace.position.set(-5.3, 1.4, -5.45);
+  group.add(fireplace);
+  colliders.push({ minX: -6.9, maxX: -3.7, minZ: -5.8, maxZ: -5.1 });
 
   const rug = new THREE.Mesh(
     new THREE.PlaneGeometry(2.2, 1.6),
@@ -371,7 +441,7 @@ export function createStudyLevel({
    * out can walk past it several times before the third lock forces them back.
    */
   const visorGroup = new THREE.Group();
-  visorGroup.position.set(-2.4, 0.02, 1.6);
+  visorGroup.position.set(-2.4, 0.02, 1.8);
   visorGroup.rotation.set(-Math.PI / 2, 0, 0.6);
   group.add(visorGroup);
 
@@ -526,16 +596,16 @@ export function createStudyLevel({
 
   // uncracked mirror (foreshadowing -- every other mirror in the house is broken)
   const mirrorFrame = new THREE.Mesh(
-    new THREE.BoxGeometry(0.7, 1.1, 0.06),
+    new THREE.BoxGeometry(1.6, 2.6, 0.08),
     new THREE.MeshStandardMaterial({ color: 0x1c1712, roughness: 0.6 })
   );
-  mirrorFrame.position.set(0.5, 1.4, -ROOM_D / 2 + 0.05);
+  mirrorFrame.position.set(4.8, 1.45, -ROOM_D / 2 + 0.05);
   group.add(mirrorFrame);
   const mirrorGlass = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.55, 0.95),
+    new THREE.PlaneGeometry(1.35, 2.25),
     new THREE.MeshStandardMaterial({ color: 0x9fb3c8, metalness: 1, roughness: 0.05 })
   );
-  mirrorGlass.position.set(0.5, 1.4, -ROOM_D / 2 + 0.09);
+  mirrorGlass.position.set(4.8, 1.45, -ROOM_D / 2 + 0.1);
   mirrorGlass.userData.interact = {
     label: 'Look into the mirror',
     onInteract: () => onLookInMirror()
@@ -557,7 +627,7 @@ export function createStudyLevel({
     emissive: 0x2a2410, emissiveIntensity: 0.4
   });
   const gateKey = new THREE.Group();
-  gateKey.position.set(0.5 + 0.37, 1.34, -ROOM_D / 2 + 0.07);
+  gateKey.position.set(4.8 + 0.82, 1.2, -ROOM_D / 2 + 0.07);
   gateKey.visible = false;
   group.add(gateKey);
   const gkShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.09, 8), gateKeyMat);
@@ -589,7 +659,7 @@ export function createStudyLevel({
 
   // front door, three locks mounted to the slab (children of the door group)
   const frontDoor = new THREE.Group();
-  frontDoor.position.set(2.5, 0, ROOM_D / 2 - 0.05);
+  frontDoor.position.set(DOOR_X, 0, ROOM_D / 2 - 0.05);
   group.add(frontDoor);
 
   const doorSlab = new THREE.Mesh(
@@ -1044,7 +1114,7 @@ export function createStudyLevel({
   // house reads as a solid object from any angle the ending flies through.
   const sidingMat = new THREE.MeshStandardMaterial({ color: 0x1d1a16, roughness: 0.95 });
   const OUT = 0.22;
-  const SHELL_H = 3.4;
+  const SHELL_H = ROOM_H + 0.4;
   const shellSpecs = [
     [ROOM_W + OUT * 2, 0, -ROOM_D / 2 - OUT, Math.PI],
     [ROOM_D + OUT * 2, -ROOM_W / 2 - OUT, 0, -Math.PI / 2],
@@ -1116,7 +1186,8 @@ export function createStudyLevel({
     group,
     interactables,
     colliders,
-    spawn: [-1, 2],
+    groundAt,
+    spawn: [0, 4.7],
     // face -Z, back toward the desk/bookshelves/mirror rather than out
     // through the front door, so the room reads immediately on entry.
     spawnYaw: 0,
@@ -1153,7 +1224,7 @@ export function createStudyLevel({
       leaveHit,
       shutHit,
       /** Where Annabelle stands once the letter has been read. */
-      annabelleSpot: [-2.9, -2.4],
+      annabelleSpot: [-4.2, -4.2],
       puzzle,
       lockMeshes,
       doorState,
@@ -1176,7 +1247,7 @@ export function createStudyLevel({
       puzzle.noteRead = false;
       doorKey.visible = false;
       drawerNote.visible = false;
-      drawer.position.z = desk.position.z + 0.36;
+      drawer.position.z = desk.position.z + 0.61;
       drawerHitbox.userData.interact.label = 'Open the desk drawer';
       const ni = interactables.indexOf(drawerNoteHitbox);
       if (ni >= 0) interactables.splice(ni, 1);
@@ -1212,7 +1283,7 @@ export function createStudyLevel({
     update(dt) {
       // The drawer slides, and the door swings. Eased rather than snapped, the
       // same treatment the bedroom's door and corkboard get.
-      const drawerTargetZ = desk.position.z + 0.36 + (puzzle.drawerOpen ? 0.34 : 0);
+      const drawerTargetZ = desk.position.z + 0.61 + (puzzle.drawerOpen ? 0.34 : 0);
       drawer.position.z += (drawerTargetZ - drawer.position.z) * Math.min(1, dt * 6);
       const doorTarget = doorState.open ? DOOR_OPEN_SWING : 0;
       doorHinge.rotation.y += (doorTarget - doorHinge.rotation.y) * Math.min(1, dt * 2.6);
