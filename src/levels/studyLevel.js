@@ -235,6 +235,14 @@ export function createStudyLevel({
       post.position.set(x + (alongX ? offset : 0), LOFT_Y + railHeight / 2, z + (alongX ? 0 : offset));
       group.add(post);
     }
+    colliders.push({
+      minX: x - (alongX ? length / 2 : 0.04),
+      maxX: x + (alongX ? length / 2 : 0.04),
+      minZ: z - (alongX ? 0.04 : length / 2),
+      maxZ: z + (alongX ? 0.04 : length / 2),
+      minY: LOFT_Y - 0.1,
+      maxY: LOFT_Y + railHeight + 0.04
+    });
   }
 
   const stairBottomZ = 2.6;
@@ -250,9 +258,8 @@ export function createStudyLevel({
   const loftRailEndX = stairX - stairHalfWidth + 0.1;
   addRailing(loftRailEndX + loftWidth / 2, (loftRailEndX - loftWidth / 2) / 2, loftFrontZ, true);
 
-  // The existing player uses 2D footprint colliders. Do not register the loft
-  // rail here: a vertical rail collider would also seal the ground floor below.
-  // Stair sides remain solid while groundAt() supplies the tread height.
+  // Stair sides remain solid while groundAt() supplies the walkable rise.
+  // The loft rail above has vertical bounds so the ground floor stays open.
   const railingThickness = 0.12;
   colliders.push(
     { minX: stairX - stairHalfWidth - railingThickness, maxX: stairX - stairHalfWidth + railingThickness, minZ: stairTopZ, maxZ: stairBottomZ },
@@ -269,12 +276,18 @@ export function createStudyLevel({
     step.receiveShadow = true;
     group.add(step);
   }
-  /** The floor under the player: ground, stair treads, then the rear loft. */
-  function groundAt(x, z) {
+  /** Resolve stacked floors using feet height, never just their shared X/Z. */
+  function groundAt(x, z, currentGroundY = null) {
     const isOnStair = x >= stairX - stairHalfWidth && x <= stairX + stairHalfWidth
       && z >= stairTopZ && z <= stairBottomZ;
-    if (isOnStair) return ((stairBottomZ - z) / stairRun) * LOFT_Y;
-    if (x >= -loftWidth / 2 && x <= loftWidth / 2 && z <= loftFrontZ) return LOFT_Y;
+    if (isOnStair) {
+      const stairY = ((stairBottomZ - z) / stairRun) * LOFT_Y;
+      // A nearby tread is reachable; a flight overhead is not a new floor.
+      if (currentGroundY === null || Math.abs(stairY - currentGroundY) <= 0.6) return stairY;
+    }
+    const onLoftFootprint = x >= -loftWidth / 2 && x <= loftWidth / 2
+      && z >= -ROOM_D / 2 && z <= loftFrontZ;
+    if (onLoftFootprint && (currentGroundY === null || currentGroundY >= LOFT_Y - 0.6)) return LOFT_Y;
     return 0;
   }
 

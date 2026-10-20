@@ -156,7 +156,7 @@ export class PointerLockPlayer {
     this.colliders = [];
     this.bodyRadius = 0.35;
     // The floor under the player, for the one level with stairs to walk down:
-    // a level may hand over groundAt(x, z) -> floor height in metres (see
+    // a level may hand over groundAt(x, z, currentGroundY) -> floor height (see
     // setGround). Everywhere else the floor is y = 0, as it always was.
     this.groundAt = null;
     this.groundY = 0;
@@ -499,11 +499,12 @@ export class PointerLockPlayer {
   /** The active level's floor height function, or null for a flat floor at 0. */
   setGround(fn) {
     this.groundAt = typeof fn === 'function' ? fn : null;
+    this.groundY = 0;
     this.groundY = this.#groundUnder(this.object.position.x, this.object.position.z);
   }
 
   #groundUnder(x, z) {
-    return this.groundAt ? this.groundAt(x, z) : 0;
+    return this.groundAt ? this.groundAt(x, z, this.groundY) : 0;
   }
 
   // Moved to core/collision.js when the creature needed to walk. Two copies of
@@ -514,7 +515,12 @@ export class PointerLockPlayer {
   #resolveCollision(nextPos) {
     // The player, unlike the creature, can shove pushable boxes -- see
     // resolveCircle.
-    resolveCircle(nextPos, this.bodyRadius, this.colliders, this.pushContact);
+    // Optional vertical bounds keep upper-storey rails clear of the room below.
+    // Unbounded colliders retain their existing behaviour in every other level.
+    const boxes = this.colliders.filter((box) =>
+      (box.minY === undefined || this.groundY + this.eyeHeight > box.minY)
+      && (box.maxY === undefined || this.groundY < box.maxY));
+    resolveCircle(nextPos, this.bodyRadius, boxes, this.pushContact);
     return nextPos;
   }
 
