@@ -423,6 +423,62 @@ def add_tube(bm, points, radius, sides=6, samples_per_segment=3):
             bm.faces.new((a[k], a[(k + 1) % sides], b[(k + 1) % sides], b[k]))
 
 
+def make_text_mesh(name, text, material, size, font_path=None, location=(0, 0, 0),
+                   rotation=(0, 0, 0), align_x='CENTER', align_y='CENTER', spacing=1.0,
+                   weight=0.0, resolution=3):
+    """
+    Lettering as real geometry: a flat mesh of the glyphs, lying in its local XY
+    plane and facing +Z, then moved to `location` and turned by the Euler
+    `rotation` (radians, XYZ).
+
+    WHY GEOMETRY AND NOT A TEXTURE. Printed and handwritten labels on small
+    props -- a tape's label, a deck's logo -- are read from a hand's length
+    away, where a texture small enough to be cheap is a blur. Glyph outlines
+    stay sharp at any distance and need no UVs, image or canvas. A short
+    string costs a few hundred triangles.
+
+    `font_path` is any .ttf or .otf. When it is missing (another machine, a
+    font that is not installed) Blender's built-in font is used instead, so a
+    rebuild never fails over lettering -- it just loses the hand.
+
+    `size` is the cap height in metres, roughly. `spacing` scales the gap
+    between characters (1 is the font's own). `weight` fattens every stroke by
+    that many metres -- a fine-nibbed handwriting font becomes marker pen.
+    `resolution` is how many segments each curve in a glyph is cut into: the
+    default of 12 made a nine-letter label cost more than the prop under it,
+    and nobody can see the difference at this size.
+    """
+    curve = bpy.data.curves.new(name + '_text', type='FONT')
+    curve.body = text
+    curve.size = size
+    curve.align_x = align_x
+    curve.align_y = align_y
+    curve.space_character = spacing
+    curve.extrude = 0.0
+    curve.offset = weight
+    curve.resolution_u = resolution
+    if font_path and os.path.exists(font_path):
+        curve.font = bpy.data.fonts.load(font_path, check_existing=True)
+    text_obj = bpy.data.objects.new(name + '_text', curve)
+    bpy.context.collection.objects.link(text_obj)
+
+    # A text object only becomes a mesh through the depsgraph; the glTF
+    # exporter would otherwise skip it entirely.
+    depsgraph = bpy.context.evaluated_depsgraph_get()
+    mesh = bpy.data.meshes.new_from_object(text_obj.evaluated_get(depsgraph))
+    mesh.name = name + '_mesh'
+    bpy.data.objects.remove(text_obj, do_unlink=True)
+    bpy.data.curves.remove(curve)
+
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    obj.data.materials.clear()
+    obj.data.materials.append(material)
+    obj.location = location
+    obj.rotation_euler = rotation
+    return obj
+
+
 def object_keeping_uvs(name, bm, material, smooth=False):
     """
     new_object() without the box projection, for geometry that has already
