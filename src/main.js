@@ -3511,18 +3511,7 @@ window.addEventListener('keydown', (e) => {
   // Deliberately INSTANT, not faded: these are a mentor-demo tool and 1.7s of
   // black per press is friction. But each one aborts first, or a jump taken
   // mid-fade lands behind an overlay that will never lift.
-  // Level 1 has no shortcut key: it is only reached by playing. 2 drops the
-  // player straight into the basement for testing it, torch in hand -- the lab
-  // is pitch dark until the fuse goes in, and a jump skips the bedroom where
-  // the torch is found.
-  if (e.code === 'Digit2') {
-    abortTransition();
-    activateLevel('hallwayBasement');
-    flashlightFound = true;
-    if (!gameState.inventory.has('flashlight')) pickUpItem('flashlight', { animate: false });
-    else heldItems.select('flashlight');
-    setFlashlight(true);
-  }
+  // Levels 1 and 2 have no shortcut key: they are only reached by playing.
   if (e.code === 'Digit3') { abortTransition(); activateLevel('study'); }
   if (e.code === 'Digit4') {
     // Routed off the CURRENT level, so the debug key exercises the same table
