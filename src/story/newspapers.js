@@ -154,7 +154,7 @@ export const NEWSPAPERS = {
     },
     briefs: [
       ['Council', 'Vote on demolishing the house delayed again.'],
-      ['Wanted', 'Lab camcorder, missing since January. Box 114.'],
+      ['Wanted', 'Lab cassette recorder, missing since January. Box 114.'],
       ['Notice', 'Ravensmoor Road: lock up after dark.']
     ]
   },

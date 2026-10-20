@@ -791,6 +791,17 @@ export class AudioEngine {
   // ---------- voice ----------
 
   /**
+   * Whether a voice clip has been recorded for `key` -- for text that should
+   * stand in for a line nobody has voiced yet.
+   *
+   * @param {string} key - the line's voice key, as a dialogue file writes it.
+   * @returns {boolean} true if playVoice(key) would have a clip to play.
+   */
+  hasVoice(key) {
+    return Boolean(key && voiceUrl(key));
+  }
+
+  /**
    * Play one voice clip, cutting off whatever was speaking.
    *
    * One voice at a time on purpose, and it matches the caption box: two lines
@@ -1560,7 +1571,7 @@ export class AudioEngine {
   // ---------- the session tape ----------
 
   /**
-   * Routes a <video> element's sound through the master gain, so the tape in
+   * Routes a media element's sound through the master gain, so the tape in
    * the basement is as loud as the volume slider says and falls silent with
    * everything else when the game pauses (pause() suspends the whole context).
    *
@@ -1568,7 +1579,7 @@ export class AudioEngine {
    * ever, so a second call is a no-op. Before start(), or if the browser
    * refuses, the element simply keeps playing through its own output.
    *
-   * @param {HTMLMediaElement} element - the tape's video.
+   * @param {HTMLMediaElement} element - the tape's recording.
    */
   connectMediaElement(element) {
     if (!this.ctx || !element || this.mediaSources?.has(element)) return;
@@ -1583,8 +1594,8 @@ export class AudioEngine {
   }
 
   /**
-   * The placeholder tape's hiss: band-passed noise, looped while the tape
-   * runs. Only for the placeholder -- real footage brings its own.
+   * The stand-in tape's hiss: band-passed noise, looped while the tape runs.
+   * Only for the stand-in -- the real recording brings its own.
    *
    * @param {boolean} on - start (true) or stop (false) it.
    */
@@ -1673,7 +1684,7 @@ export class AudioEngine {
   }
 
   /**
-   * A lab alarm heard through a camcorder's microphone: a two-tone square wave,
+   * A lab alarm heard through a fallen recorder's microphone: a two-tone square wave,
    * muffled, for as long as the tape has left. stopTapeSounds() cuts it.
    */
   #tapeAlarm() {

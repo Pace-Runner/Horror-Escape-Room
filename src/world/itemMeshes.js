@@ -234,10 +234,10 @@ const BUILDERS = {
   // end of the band, the way you pick up a pair of glasses by an arm.
   visor: (t) => (t ? fromTemplate(t, { rotation: [0, 0, Math.PI / 2], position: [0, 0.075, 0] }) : null),
 
-  // hallwayBasementLevel.js's session tape (video8_cassette.glb): lying flat,
-  // label up, its lid edge toward +Z. A quarter turn about X stands it up with
+  // hallwayBasementLevel.js's session tape (audio_cassette.glb): lying flat,
+  // label up, its tape edge toward +Z. A quarter turn about X stands it up with
   // the label facing +Z and reading upright, and lifting it by half its depth
-  // puts the lid edge in the fist -- held up the way you would read a label.
+  // puts the tape edge in the fist -- held up the way you would read a label.
   sessionTape: (t) => (t ? fromTemplate(t, { rotation: [Math.PI / 2, 0, 0], position: [0, 0.03, 0] }) : null)
 };
 

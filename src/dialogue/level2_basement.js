@@ -110,42 +110,39 @@ export const dialog_black_pool = [
 ];
 
 // ---- the session tape --------------------------------------------------------
-// The camcorder on the floor by the restraint table, the tape in it, the deck on
-// the CCTV desk. What is ON the tape (its subtitles) is in src/story/sessionTape.js.
+// The cassette recorder on the floor by the restraint table, the tape in it, the
+// deck on the CCTV desk. What is ON the tape (its subtitles) is in
+// src/story/sessionTape.js.
 
-// The first look at the camcorder, as its cassette door springs open. One
-// caption on purpose, here and below: an examine line of two or more captions
-// holds the caption box, and anything the player presses while it runs shows
-// no caption at all.
-export const dialog_camcorder_examine = ["A video camera on its side, lens cracked, viewfinder knocked crooked. The cassette door springs open. There is still a tape in it.", "level2/camcorder_examine.m4a", 6];
+// The first look at the recorder, as its cassette door lifts. One caption on
+// purpose, here and below: an examine line of two or more captions holds the
+// caption box, and anything the player presses while it runs shows no caption
+// at all.
+export const dialog_recorder_examine = ["A cassette recorder, knocked off the trolley. The case is split and the PLAY key is jammed down. The door lifts. There is still a tape in it.", "level2/recorder_examine.m4a", 6.5];
 
-export const dialog_tape_taken = ["SESSION 14 — 14.1.87, in marker on the label. Whatever this camera saw, it is on here.", "level2/tape_taken.m4a", 5];
+export const dialog_tape_taken = ["SESSION 14 — 14.1.87, in marker on the label. Whatever was said in here that night, it is on this.", "level2/tape_taken.m4a", 5];
 
-export const dialog_camcorder_empty = ["The camera is finished. The tape was the only thing in it worth having.", "level2/camcorder_empty.m4a"];
+export const dialog_recorder_empty = ["The recorder is finished. The tape was the only thing in it worth having.", "level2/recorder_empty.m4a"];
 
-export const dialog_tape_stack = ["Tapes in cases, stacked by hand. SESSION 1 at the bottom, SESSION 13 on top, the same marker on every one.", "level2/tape_stack.m4a"];
+export const dialog_tape_stack = ["Cassettes in cases, stacked by hand. SESSION 1 at the bottom, SESSION 13 on top, the same marker on every one.", "level2/tape_stack.m4a"];
 
-export const dialog_tape_stack_after = ["SESSION 1 to SESSION 13. The fourteenth was still in the camera on the floor.", "level2/tape_stack_after.m4a"];
+export const dialog_tape_stack_after = ["SESSION 1 to SESSION 13. The fourteenth was still in the recorder on the floor.", "level2/tape_stack_after.m4a"];
 
-export const dialog_deck_examine = ["A deck for the little Video8 tapes, wired into the back of the monitor. It is empty.", "level2/deck_examine.m4a"];
+export const dialog_deck_examine = ["A cassette deck, plugged in beside the monitor. It is empty.", "level2/deck_examine.m4a"];
 
-export const dialog_deck_hold_tape = ["The flap would take the tape, if you had it on you.", "level2/deck_hold_tape.m4a"];
+export const dialog_deck_hold_tape = ["The deck would take the tape, if you had it on you.", "level2/deck_hold_tape.m4a"];
 
-export const dialog_deck_tape_in = ["The flap tips in, and the deck draws the tape down with a clunk.", "level2/deck_tape_in.m4a"];
+export const dialog_deck_tape_in = ["The door tips open, the tape clips in, and it shuts with a clunk.", "level2/deck_tape_in.m4a"];
 
 export const dialog_deck_has_tape = ["The Session 14 tape is in the deck.", "level2/deck_has_tape.m4a"];
 
-export const dialog_deck_tape_out = ["The deck pushes the tape back out into your hand.", "level2/deck_tape_out.m4a"];
+export const dialog_deck_tape_out = ["The door tips open and gives the tape back.", "level2/deck_tape_out.m4a"];
 
 export const dialog_deck_no_power = ["You press {button}. Nothing. Nothing on this desk has power.", "level2/deck_no_power.m4a"];
 
 export const dialog_deck_play_empty = ["The deck whirs and stops. There is no tape in it.", "level2/deck_play_empty.m4a"];
 
-export const dialog_deck_eject_empty = ["The flap clicks. There is nothing in the deck.", "level2/deck_eject_empty.m4a"];
-
-export const dialog_monitor_input_tape_idle = ["The cameras give way to snow. Nothing is coming in on the tape input.", "level2/monitor_input_tape_idle.m4a"];
-
-export const dialog_monitor_on_tape_input = ["The monitor is on its tape input. The rocker under the screen puts it back on the cameras.", "level2/monitor_on_tape_input.m4a"];
+export const dialog_deck_eject_empty = ["The door tips open on an empty deck.", "level2/deck_eject_empty.m4a"];
 
 // After the tape, once the player steps back from it.
 export const dialog_tape_after = [
@@ -153,9 +150,9 @@ export const dialog_tape_after = [
   ["Whatever was on that table, it is still down here.", "level2/tape_after_2.m4a"]
 ];
 
-// Once the panel is routed, if the tape has not been watched yet -- one line,
+// Once the panel is routed, if the tape has not been heard yet -- one line,
 // depending on whether the player ever found it.
-export const dialog_tape_nudge_camera = ["Somewhere on the floor, a small red light is still blinking.", "level2/tape_nudge_camera.m4a"];
+export const dialog_tape_nudge_recorder = ["Somewhere on the floor, a small red light is still blinking.", "level2/tape_nudge_recorder.m4a"];
 
 export const dialog_tape_nudge_deck = ["The deck beside the monitor has power now.", "level2/tape_nudge_deck.m4a"];
 
@@ -275,6 +272,7 @@ export const dialog_black_pool_examine = ["Whatever it is, it is not water, and 
 
 export const dialog_torn_notes = ["\"SUBJECT UNSTABLE. CONTAINMENT REQUIRED. MEMORY DETERIORATION OBSERVED. VISUAL DISTORTION INCREASING.\"", "level2/torn_notes.m4a"];
 
+
 export const dialog_operating_table = ["Straps at the wrists, the chest, the ankles. The ankle cuffs have been unbuckled, and so has the far wrist. This wrist was not. Its strap is torn straight through.", "level2/operating_table.m4a"];
 
 export const dialog_surgical_lamp_no_power = ["The switch in the handle clicks over. Nothing. There is no power down here.", "level2/surgical_lamp_no_power.m4a"];
@@ -316,7 +314,7 @@ export const dialog_hint_fuse_2 = ["The maintenance log wants the correct rating
 export const dialog_hint_fuse_3 = ["Open the fuse box cover and seat the 30A fuse in the empty slot.", ""];
 
 export const dialog_hint_tape_find_1 = ["Something on the floor near the restraint table is blinking.", ""];
-export const dialog_hint_tape_find_2 = ["A video camera lies on the floor off the foot of the restraint table. Open it and take the tape.", ""];
+export const dialog_hint_tape_find_2 = ["A cassette recorder lies on the floor off the foot of the restraint table. Open it and take the tape.", ""];
 
 export const dialog_hint_tape_play_1 = ["The deck beside the monitor plays tapes like that one.", ""];
 export const dialog_hint_tape_play_2 = ["With the tape on you, press PLAY on the deck beside the monitor.", ""];

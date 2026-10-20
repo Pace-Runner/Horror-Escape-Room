@@ -22,7 +22,7 @@ Generator", "Puzzle 3 -- Breaker / Circuit Panel").
 | 4 | **Generator** | Work three controls in the order on the plate | Current reaches the breaker panel, nothing else |
 | 5 | **Breaker panel** | Set the three circuits that fit the 60A rating | Nothing yet -- the panel is dead until the main goes in |
 | 6 | **Main lever** | Push it up | The bolts come live, the CCTV desk wakes for the first time, and the whole house lights up |
-| 7 | **Session tape** *(the story, not a lock)* | Take the tape from the camcorder on the floor, press PLAY on the deck | What happened on the restraint table |
+| 7 | **Session tape** *(the story, not a lock)* | Take the tape from the recorder on the floor, press PLAY on the deck | What happened on the restraint table |
 | 8 | **Security code** | Count the panels on the study door through CAM 4, enter it at the door | The lockout releases |
 | 9 | **Exit** | Open the door | On to the study |
 
@@ -153,8 +153,7 @@ now on a slightly bowed plane set into the bezel's recess.
   nothing on the desk; the `powerRestored` caption says so ("Only the lights.
   The desk and the door at the far end are as dead as before.").
 - **It starts switched off**, and stays dark until the player presses the
-  power button under the screen -- or presses PLAY on the deck beside it,
-  which switches it on and over to the tape itself.
+  power button under the screen.
 - **The button only works with power.** Pressed while the desk is dead it
   does nothing and says so. That is the clearest "no power" message, and it
   means the monitor can never end up switched on unseen.
@@ -162,9 +161,6 @@ now on a slightly bowed plane set into the bezel's recess.
   a faint green light on the bezel. The picture opens out from a thin bright
   line and collapses back to one when it goes off (`uPower` in
   `StaticScreenMaterial.js`).
-- **Its input rocker**, in the middle of the chin under a label-maker strip
-  reading CAMERAS / TAPE, chooses between the camera switcher and the deck.
-  PLAY sets it to TAPE; the rocker and the remote's buttons set it back.
 - The remote needs a picture, not just power. Pressed with the monitor off,
   it says the monitor is switched off.
 
@@ -641,65 +637,87 @@ it to open the door.
 
 ### What the player does
 
-1. **Finds the camcorder.** It lies on its left side on the floor off the foot
-   of the restraint table, toward the entrance -- where a camera on a tripod
-   filming the table would have stood, and where it landed when it was knocked
-   over. In the dark before the fuse, its battery lamp winking red at floor
-   level is the only light in the lab, and the only nudge it gets.
-2. **E on it** looks at it and springs the cassette door; **E again** takes the
+1. **Finds the recorder.** A black handheld cassette recorder lies face up on
+   the floor off the foot of the restraint table, toward the entrance -- it
+   stood on the instrument trolley to take the session down, and landed here
+   when it was knocked off. In the dark before the fuse, its battery lamp
+   winking red at floor level is the only light in the lab, and the only nudge
+   it gets. Its PLAY key is jammed and its case split, so it cannot play the
+   tape itself.
+2. **E on it** looks at it and lifts the cassette door; **E again** takes the
    tape, SESSION 14 -- 14.1.87, into the inventory (`sessionTape`).
 3. **Presses PLAY on the deck** beside the monitor -- once the panel is routed,
-   because the desk has no power before then. With the tape on them, PLAY loads
-   it, switches the monitor on and over to its TAPE input, and plays it. (The
-   flap also takes the tape on its own, and EJECT gives it back.)
-4. The tape **comes up in front of them**, seventy per cent of the screen
-   (`core/TapePlayerUI.js`), dressed as the monitor shows it. **E** steps back
-   at any point; stepping back rewinds it, and PLAY runs it again.
+   because the desk has no power before then. With the tape on them, PLAY tips
+   the deck's door open, clips the tape in, and plays it. (The door also takes
+   the tape on its own.)
+4. **The tape plays out into the room.** Nothing is taken from the player: they
+   can stand at the deck and listen, or walk off. The reels turn behind the
+   door's window, the counter runs, and the subtitles run along the bottom of
+   the screen (`core/TapeSubtitles.js`). **STOP/EJECT** stops it part way --
+   pressed again, it gives the tape back -- and PLAY runs it from the top. When
+   it runs out the deck stops by itself and the player says what they make of
+   it.
+
+The deck's four keys are 26 x 21 mm and their click targets bigger still, so
+either can be pressed from a normal stance at the desk.
 
 Sessions 1 to 13 are stacked on the desk behind the deck. The fourteenth is the
-one still in the camera on the floor.
+one still in the recorder on the floor.
 
 ### What is on it
 
 `src/story/sessionTape.js` holds the subtitles with their timings. A sedated
-subject on the table, a scientist dictating the session behind the camera, and
-a woman beside him. The subject wakes, does not know them, and comes at the
-camera; it goes over, and the rest is sound -- something heavy moving away,
-glass, an alarm. The only name spoken is "Mark".
+subject on the table, a scientist dictating the session into the recorder, and
+a woman beside him. The subject wakes, does not know them, and comes at them;
+the recorder is knocked to the floor, and from there it hears the room muffled
+-- something heavy moving away, glass, an alarm -- until someone stops it. The
+only name spoken is "Mark".
 
-The two voices are never seen and the woman is never named: she is Annabelle,
-and the only thing that may tell the player so is the letter in Level 3.
+The two voices are never named: the woman is Annabelle, and the only thing that
+may tell the player so is the letter in Level 3.
 
-### The footage
+### The sound
 
-`world/SessionTapeSource.js` plays `src/assets/video/session_14.mp4` if it
-exists -- found with an `import.meta.glob`, so dropping the file in is the whole
-change. Until then it paints a placeholder (tape noise, the camcorder's date
-stamp, the deck's PLAY marker, the tumble when the camera goes over, the roll
-into static) and `AudioEngine` plays stand-in sounds at the cue sheet's times.
-Subtitles always show over the silent placeholder; over real footage they follow
-the captions setting.
+`world/SessionTapeSource.js` plays `src/assets/audio/tape/session_14.m4a` if it
+exists -- found with an `import.meta.glob`, so the file is the whole change.
+Without it, the tape runs on a clock of its own and `AudioEngine` plays stand-in
+sounds at the cue sheet's times.
+
+The soundtrack is synthesised -- noise, filters and envelopes, nothing recorded
+-- and encoded by Blender, which carries FFmpeg:
+
+    blender --background --python blender/build_session_tape_audio.py
+
+writes `src/assets/audio/tape/session_14.m4a` (47 s, AAC). Its times are the
+subtitles' times; the script's docstring lists them.
+
+**The voices are not in the soundtrack.** Each spoken subtitle names a clip
+(`src/assets/voice/level2/tape_01_man.m4a` to `tape_10_woman.m4a`) and the game
+starts it as the tape reaches the line, so a voice can be recorded or replaced
+without rebuilding the tape. Subtitles follow the captions setting, except
+where they are all there is: a line whose clip has not been recorded yet always
+shows, and so does everything over the stand-in.
 
 ### Props
 
 | Model | Script |
 |-------|--------|
-| `camcorder.glb` | `blender/build_camcorder.py` -- a 1985-86 Video8 shoulder camcorder, lens cracked, viewfinder knocked crooked; `CassetteDoor` hinged on its bottom edge |
-| `video8_cassette.glb` | `blender/build_video8_cassette.py` -- the tape, with its handwritten label |
-| `video8_deck.glb` | `blender/build_video8_deck.py` -- the player; `DeckFlap`, `DeckPlayButton`, `DeckEjectButton` and `DeckPowerLamp` are moved and lit by the level |
-| `video8_tape_stack.glb` | `blender/build_video8_tape_stack.py` -- Sessions 1-13 in their cases |
+| `cassette_recorder.glb` | `blender/build_cassette_recorder.py` -- a black handheld dictation recorder after a Panasonic RQ-series machine: counter, speed switch and volume wheel across the far end, the door with its window and 0-50-100 scale, keys down the left side, a wrist strap. Case cracked, PLAY key jammed. `CassetteDoor` hinged on its near edge; `RecorderBody` is everything but the strap |
+| `audio_cassette.glb` | `blender/build_audio_cassette.py` -- the tape, with its handwritten label. Its hubs, `CassetteReelLeft` and `CassetteReelRight`, have their origins on their spindles so the deck can turn them |
+| `cassette_deck.glb` | `blender/build_cassette_deck.py` -- the front-loading player; `DeckFlap` (the door), `DeckPlayButton`, `DeckEjectButton` and `DeckPowerLamp` are moved and lit by the level |
+| `cassette_stack.glb` | `blender/build_cassette_stack.py` -- Sessions 1-13 in their cases |
 
-No maker's name on any of them, only the format's own marks. Lettering is real
-geometry (`common.make_text_mesh`), not textures. The deck's counter is painted
-by `world/DeckCounterDisplay.js`; the input rocker's label strip by
-`createDymoLabelTexture`.
+No maker's name on any of them. Lettering is real geometry
+(`common.make_text_mesh`), not textures. The deck's counter is painted by
+`world/DeckCounterDisplay.js`.
 
 ### Hints and the nudge
 
 Two hint stages, `findTape` and `playTape`, sit after the breakers. They count
-as done once the tape is watched **or** the security lockout is cleared, so a
-player who skips the tape can still be hinted the code. When the panel routes,
-a player who has not watched it hears one line toward wherever it is.
+as done once the tape is heard to its end **or** the security lockout is
+cleared, so a player who skips the tape can still be hinted the code. When the
+panel routes, a player who has not heard it hears one line toward wherever it
+is.
 
 ---
 
@@ -719,9 +737,10 @@ creature, and the one flag that outlives the level.
 | `onOverload` | the breaker panel trips |
 | `onPowerRouted` | the main switch commits |
 | `onEnterSecurityCode` | the player uses the door with the lockout still on. Passed `{ code, onSolved }` |
-| `onTapeTaken` / `onTapeInserted` / `onTapeEjected` | the session tape moves between the camera, the inventory and the deck |
-| `onPlayTape` | the deck is playing and the monitor is on its input. Passed `{ source }` |
-| `onTapeEnded` | the tape has run out, with its picture still up |
+| `onTapeTaken` / `onTapeInserted` / `onTapeEjected` | the session tape moves between the recorder, the inventory and the deck |
+| `onPlayTape` | the deck starts playing the tape. Passed `{ source }`, its sound and clock |
+| `onTapeStopped` | the tape is stopped part way: STOP/EJECT, or a restart |
+| `onTapeEnded` | the tape has run to its end and the deck has stopped |
 
 And one question the level asks: `isCarrying(id)`, whether the inventory holds
 an item -- the deck takes the tape from the inventory, not only from the hand.
@@ -794,8 +813,8 @@ if (!interactables.includes(doorNote)) interactables.push(doorNote);
 ```
 
 It also clears the lit window's clock (`blackoutTimerSecondsLeft`) and puts the
-session tape back: in the camera on the floor, its door shut, the deck empty and
-the monitor on its cameras (`resetSessionTape`).
+session tape back: in the recorder on the floor, its door shut, and the deck
+stopped and empty (`resetSessionTape`).
 
 Without these an `R` after a solved panel restarts the level with the
 generator's sequence half-entered, every breaker showing green, the main
@@ -846,11 +865,13 @@ passing:
 
 **The session tape** (headless Chrome against the running game, through the
 real crosshair raycast)
-- Two presses on the camcorder take the tape into the inventory.
-- PLAY with the tape carried loads it and brings it up; the tape runs to its
-  end, and stepping back mid-tape rewinds it. EJECT gives it back. The remote
-  returns the monitor to the cameras.
-- A restart puts the tape back in the camera and the monitor on its cameras.
+- Two presses on the recorder take the tape into the inventory.
+- PLAY with the tape carried loads it into the deck's door and plays it in the
+  room: the pointer stays locked to the game, interaction stays on, the hubs
+  turn and the subtitles follow the soundtrack's clock.
+- STOP mid-tape stops and rewinds it; PLAY runs it again from the top. Left to
+  run, it stops by itself at its end and counts as heard. EJECT then gives it
+  back.
 
 `npx vite build` is clean. The harnesses are not in the repo -- the project has
 no test setup to hang them on.

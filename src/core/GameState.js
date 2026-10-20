@@ -87,7 +87,7 @@ export const ITEMS = {
   crowbar: { label: 'Crowbar', name: 'crowbar' },
   brassKey: { label: 'Brass safe key', name: 'brass key' },
   bedroomKey: { label: 'Bedroom door key', name: 'bedroom key' },
-  sessionTape: { label: 'Video tape: SESSION 14', name: 'tape' },
+  sessionTape: { label: 'Cassette: SESSION 14', name: 'tape' },
   visor: { label: "Annabelle's visor", name: 'visor', hint: 'V to toggle' },
   doorKey: { label: 'Desk drawer key', name: 'desk drawer key' },
   gateKey: { label: 'Gate key', name: 'gate key' }

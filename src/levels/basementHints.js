@@ -91,14 +91,14 @@ export const BASEMENT_HINT_STAGES = [
       line('dialog_hint_breakers_3')
     ]
   },
-  // The session tape: found in the camcorder on the floor, played in the deck
+  // The session tape: found in the recorder on the floor, played in the deck
   // on the CCTV desk. The desk has no power until the panel is routed, so this
   // is the first point the tape can be guided to. It is the level's story, not
-  // its lock, so watching it OR getting past the lockout without it both count
+  // its lock, so hearing it OR getting past the lockout without it both count
   // as done -- otherwise a player who skipped it could never be hinted the code.
   {
     id: 'findTape',
-    isComplete: (progress) => progress.tapePlace !== 'camcorder' || isTapeStagePast(progress),
+    isComplete: (progress) => progress.tapePlace !== 'recorder' || isTapeStagePast(progress),
     readHints: () => [
       line('dialog_hint_tape_find_1'),
       line('dialog_hint_tape_find_2')

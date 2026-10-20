@@ -26,7 +26,7 @@ import { MAIN_ONLY } from './core/RenderLayers.js';
 import { createMinimap } from './core/Minimap.js';
 import { CaptionSequencer } from './core/CaptionSequencer.js';
 import { createDocumentUI } from './core/DocumentUI.js';
-import { createTapePlayerUI } from './core/TapePlayerUI.js';
+import { createTapeSubtitles } from './core/TapeSubtitles.js';
 import { createPostFX } from './world/Postprocessing.js';
 import { createHintSystem } from './core/HintSystem.js';
 import { BEDROOM_HINT_STAGES } from './levels/bedroomHints.js';
@@ -742,7 +742,7 @@ window.addEventListener('wheel', (e) => {
   if (!player.isLocked) return;
   e.preventDefault();
   if (player.cinematic) return;
-  if (photoBoardUI.isOpen || pinPadUI.isOpen || documentUI.isOpen || tapePlayerUI.isOpen) return;
+  if (photoBoardUI.isOpen || pinPadUI.isOpen || documentUI.isOpen) return;
   if (!creditsScreen.classList.contains('hidden')) return;
   // Sprint is held on Shift, and Chromium on Windows (and macOS for any mouse)
   // turns Shift+wheel into a sideways scroll: deltaY 0, the notch in deltaX.
@@ -1102,43 +1102,48 @@ const documentUI = createDocumentUI({
 });
 
 /**
- * The session tape off the lab's monitor, brought up in front of the player --
- * see core/TapePlayerUI.js. The same unlock-to-show / re-lock-on-close contract
- * as the three above, plus the interaction ray switched off while it is up:
- * E puts the tape down, and must not also press whatever the crosshair was on
- * (the deck's PLAY, as often as not).
- *
- * Subtitles follow the captions setting -- except over the silent placeholder,
- * where they are all there is.
+ * The session tape's subtitles, while the deck on the lab's desk plays it --
+ * see core/TapeSubtitles.js. The tape plays in the room, so nothing is taken
+ * from the player: they can stand and listen, or walk off.
  */
-const tapePlayerUI = createTapePlayerUI({
-  subtitles: SESSION_TAPE_SUBTITLES,
-  shouldShowSubtitles: (source) => settings.captions || !source.hasRecording,
-  onClose: () => {
-    hallwayBasement.refs.stopTape();
-    audio.stopTapeSounds();
-    interaction.setEnabled(true);
-    player.lock();
-    // Watched to the end: the player's reaction, once they are looking at the
-    // room again rather than at the picture.
-    if (tapeRanOutOnScreen) captions.play(line('dialog_tape_after'));
-    tapeRanOutOnScreen = false;
-  }
-});
-/** Which of the placeholder tape's sounds have already played this time through. */
-let tapeSoundsPlayed = 0;
-/** The tape ran to its end while up, this time it was shown. */
-let tapeRanOutOnScreen = false;
+const tapeSubtitles = createTapeSubtitles({ subtitles: SESSION_TAPE_SUBTITLES });
+/** The deck is running the tape, so its voices and stand-in sounds are due as its clock reaches them. */
+let tapePlaying = false;
 
 /**
- * Plays the placeholder tape's sounds as its clock reaches them. Real footage
- * carries its own soundtrack, so this only runs for the painted stand-in.
+ * Everything the host started for the tape, stopped: the stand-in's sounds,
+ * a line cut off mid-sentence rather than left talking over the room, and the
+ * subtitles.
+ */
+function silenceTape() {
+  tapePlaying = false;
+  audio.stopTapeSounds();
+  audio.stopVoice();
+  tapeSubtitles.stop();
+}
+/** Which of the stand-in tape's sounds have already played this time through. */
+let tapeSoundsPlayed = 0;
+/** The tape's spoken lines, in order, and how many have been started this time through. */
+const TAPE_VOICE_CUES = SESSION_TAPE_SUBTITLES.filter((cue) => cue.voice);
+let tapeVoicesPlayed = 0;
+
+/**
+ * Plays the tape's voices, and the stand-in's sound effects, as its clock
+ * reaches them. The voices play over the recording too, since they are
+ * recorded apart from it; the effects only over the stand-in, because the
+ * recording carries its own.
  */
 function updateTapeSounds() {
-  if (!tapePlayerUI.isOpen) return;
+  if (!tapePlaying) return;
   const source = hallwayBasement.refs.sessionTape;
-  if (source.hasRecording) return;
   const time = source.currentTimeInSeconds;
+  // The voices, for the recording and the stand-in alike: they are recorded
+  // apart from the tape's own sound, so each is started as it reaches its line.
+  while (tapeVoicesPlayed < TAPE_VOICE_CUES.length && TAPE_VOICE_CUES[tapeVoicesPlayed].start <= time) {
+    audio.playVoice(TAPE_VOICE_CUES[tapeVoicesPlayed].voice);
+    tapeVoicesPlayed++;
+  }
+  if (source.hasRecording) return;
   while (tapeSoundsPlayed < SESSION_TAPE_PLACEHOLDER_SOUNDS.length
     && SESSION_TAPE_PLACEHOLDER_SOUNDS[tapeSoundsPlayed].at <= time) {
     audio.tapeSound(SESSION_TAPE_PLACEHOLDER_SOUNDS[tapeSoundsPlayed].sound);
@@ -2242,7 +2247,7 @@ const hallwayBasement = createHallwayBasementLevel({
   },
   onSfx: (name) => sfx(name),
 
-  // The session tape, carried in the shared inventory between the camera and
+  // The session tape, carried in the shared inventory between the recorder and
   // the deck. The deck takes it from the inventory, whatever is in the hand.
   isCarrying: (id) => gameState.inventory.has(id),
   onTapeTaken: () => pickUpItem('sessionTape'),
@@ -2250,25 +2255,24 @@ const hallwayBasement = createHallwayBasementLevel({
   onTapeEjected: () => pickUpItem('sessionTape'),
 
   /**
-   * The deck is playing and the monitor is on its input: the tape comes up in
-   * front of the player. Its sound -- the footage's own once it exists -- is
-   * routed through the mixer, so the volume slider and a pause both reach it.
+   * The deck is playing the tape, in the room. Its sound -- the recording's
+   * own once it exists -- is routed through the mixer, so the volume slider
+   * and a pause both reach it; the voices and the subtitles follow its clock.
    */
   onPlayTape: ({ source }) => {
-    if (source.hasRecording) audio.connectMediaElement(source.element);
+    if (source.hasRecording) audio.connectMediaElement(source.audio);
     else audio.setTapeHiss(true);
     tapeSoundsPlayed = 0;
-    tapeRanOutOnScreen = false;
-    interaction.setEnabled(false);
-    // Open before unlocking: the unlock listener reads isOpen to know this is
-    // a close-up, not a pause.
-    tapePlayerUI.open({ source });
-    player.unlock();
+    tapeVoicesPlayed = 0;
+    tapePlaying = true;
+    tapeSubtitles.start(source);
   },
+  /** STOP/EJECT pressed while it played, or the level put it back: everything it started stops. */
+  onTapeStopped: () => silenceTape(),
+  /** It ran to its end: the deck stops, and the player says what they make of it. */
   onTapeEnded: () => {
-    tapeRanOutOnScreen = true;
-    audio.setTapeHiss(false);
-    tapePlayerUI.markEnded();
+    silenceTape();
+    captions.play(line('dialog_tape_after'));
   },
 
   onPowerRestored: () => {
@@ -2325,7 +2329,7 @@ const hallwayBasement = createHallwayBasementLevel({
       // first never got it. One line, once, toward wherever it is.
       const refs = hallwayBasement.refs;
       if (refs.tapeWatched) return;
-      await s.play(line(refs.tapePlace === 'camcorder' ? 'dialog_tape_nudge_camera' : 'dialog_tape_nudge_deck'));
+      await s.play(line(refs.tapePlace === 'recorder' ? 'dialog_tape_nudge_recorder' : 'dialog_tape_nudge_deck'));
     });
   },
 
@@ -3262,7 +3266,7 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   // was mid-sentence keeps talking over the freshly reset room.
   audio.stopVoice();
   documentUI.close();
-  tapePlayerUI.close();
+  silenceTape();
   // Snapped rather than eased: a restart should not show the visor fading off.
   postFX.reset();
   // Otherwise a second run flicks to camera two and nothing crosses it.
@@ -4131,7 +4135,6 @@ player.controls.addEventListener('unlock', () => {
   if (photoBoardUI.isOpen) return;
   if (pinPadUI.isOpen) return;
   if (documentUI.isOpen) return;
-  if (tapePlayerUI.isOpen) return;
 
   // 2. and 3. are both real pauses -- the credits screen and Esc -- and both
   //    should suspend everything. Captions pause on the same event as the
@@ -4248,7 +4251,7 @@ if (import.meta.env.DEV) {
     // never calls update() itself -- a harness aims the camera and calls it.
     interaction,
     documentUI,
-    tapePlayerUI,
+    tapeSubtitles,
     audio,
     // audition(name), debug(), state, forceActive -- see docs/AUDIO.md.
     audioDirector,
@@ -4759,9 +4762,13 @@ function tick() {
   // The camera IS the player's position; the basement reads it to know when
   // they have walked up to the metal door.
   sceneManager.update(dt, camera.position);
-  // The tape's subtitles and the placeholder's sounds, on the tape's own clock,
-  // which the level has just advanced.
-  tapePlayerUI.update();
+  // The tape's subtitles and the stand-in's sounds, on the tape's own clock,
+  // which the level has just advanced. Subtitles follow the captions setting
+  // -- except where they are all there is: over the stand-in, which has no
+  // sound of its own, and for a line whose voice has not been recorded yet.
+  const tapeSource = hallwayBasement.refs.sessionTape;
+  tapeSubtitles.update((cue) => settings.captions || !tapeSource.hasRecording
+    || Boolean(cue.voice && !audio.hasVoice(cue.voice)));
   updateTapeSounds();
 
   if (player.isLocked) {

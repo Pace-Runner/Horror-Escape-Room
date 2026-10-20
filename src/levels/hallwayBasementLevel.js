@@ -17,8 +17,7 @@ import {
   createCrtVentTexture,
   createCrtTopVentTexture,
   createPowerSymbolTexture,
-  createSwitchLabelTexture,
-  createDymoLabelTexture
+  createSwitchLabelTexture
 } from '../world/textures.js';
 import { loadModel } from '../world/modelLoader.js';
 import labDoorModelUrl from '../assets/models/lab_door.glb?url';
@@ -351,91 +350,96 @@ const TROLLEY_TABLE_GAP = 0.5;
 const LAB_CHAIR = { castorReach: 0.295, castorHeight: 0.025, seatRadius: 0.212, seatEdgeHeight: 0.49 };
 
 /**
- * The camcorder that filmed Session 14 (camcorder.glb), in the model's own
- * space: lens toward +z, its right-hand side toward +x, standing on y = 0
- * under the middle of its body. `wellCentre` is the middle of the cassette
- * well behind the door; `batteryLamp` the little red lamp up on the right-hand
- * side; `bounds` a box round the whole camera, for its click target. The door
- * is the model's CassetteDoor node, hinged along its bottom edge. Mirrors
- * WELL_CENTRE and DOOR_HINGE in build_camcorder.py.
+ * The cassette recorder that took down Session 14 (cassette_recorder.glb), in
+ * the model's own space: a handheld slab lying on its back, its near end
+ * toward +z, its keys down its -x side, on y = 0 under the middle of it.
+ * `wellCentre` is the middle of the tape lying in the well under the door,
+ * which lies lengthwise -- `tapeYawInRadians` turns the cassette's length
+ * down the recorder and its tape edge toward the keys. `batteryLamp` is the
+ * little red lamp right of the door; `bounds` a box round the case, for its
+ * click target. The door is the model's CassetteDoor node, hinged along its
+ * near edge; RecorderBody is the case and everything on it, without the
+ * wrist strap lying beside it. Mirrors WELL_CENTRE and BATTERY_LAMP in
+ * build_cassette_recorder.py.
  */
-const CAMCORDER = {
-  wellCentre: [0.048, 0.07, -0.136],
-  batteryLamp: [0.0585, 0.132, -0.185],
-  bounds: { centre: [0.009, 0.12, 0.0075], size: [0.15, 0.25, 0.44] }
+const CASSETTE_RECORDER = {
+  wellCentre: [0, 0.0215, -0.015],
+  tapeYawInRadians: -Math.PI / 2,
+  batteryLamp: [0.047, 0.031, -0.058],
+  bounds: { centre: [-0.002, 0.016, 0], size: [0.12, 0.036, 0.18] }
 };
 /**
- * How the tape sits in the camcorder's well, as where its own axes go: its
- * length runs back along the camera, its face looks out of the right-hand
- * side, and its label reads the right way up with the camera standing.
+ * Where the recorder lies: on the floor off the foot of the restraint table,
+ * toward the entrance. It stood on the instrument trolley beside the table to
+ * take the session down, and this is where it landed when it was knocked off
+ * -- face up, turned askew, its wrist strap flung out beside it.
  */
-const TAPE_IN_WELL_AXES = { x: [0, 0, -1], y: [1, 0, 0], z: [0, -1, 0] };
-/**
- * Where the camcorder lies: on the floor off the foot of the restraint table,
- * toward the entrance. A camera on a tripod filming the table stood about
- * here, and this is where it landed when it was knocked over -- on its left
- * side, door up, its lens turned back toward the table it was filming and a
- * little off it.
- */
-const CAMCORDER_REST = {
+const RECORDER_REST = {
   x: OPERATING_TABLE.x + OPERATING_TABLE.halfLength + 0.75,
   z: OPERATING_TABLE.z - 0.45,
-  lensOffTableInRadians: 0.35
+  yawInRadians: 2.6
 };
-/** How far the cassette door swings open, past upright, and how long it takes. */
-const CASSETTE_DOOR_OPEN_ANGLE_IN_RADIANS = 1.75;
+/** How far the cassette door lifts on its near edge, and how long it takes. */
+const CASSETTE_DOOR_OPEN_ANGLE_IN_RADIANS = 1.15;
 const CASSETTE_DOOR_OPEN_SECONDS = 0.45;
-/** The battery lamp: a short wink, this often. It is the camera's only light in a dark lab. */
+/** The battery lamp: a short wink, this often. It is the recorder's only light in a dark lab. */
 const BATTERY_LAMP_BLINK_PERIOD_SECONDS = 1.7;
 const BATTERY_LAMP_ON_SECONDS = 0.14;
 
 /**
- * The Video8 deck (video8_deck.glb), in the model's own space: facing +z,
- * standing on y = 0, origin under the middle. `slot` is the cassette flap's
- * opening, `play` and `eject` the buttons' centres on the front, `display` the
- * counter's window and the depth of its recess, `videoJack` and `powerLead`
- * on the back. The flap, the two buttons and the lamp are the model's
- * DeckFlap, DeckPlayButton, DeckEjectButton and DeckPowerLamp. Mirrors
- * build_video8_deck.py.
+ * The cassette deck (cassette_deck.glb), in the model's own space: facing +z,
+ * standing on y = 0, origin under the middle. `door` is the cassette door's
+ * hinge -- its bottom edge -- and its size; `tapeInDoor` where the middle of a
+ * tape clipped into the door sits, in the door's own frame. `play` and `eject`
+ * are the keys' centres on the front, `display` the counter's window and the
+ * depth of its recess, `powerLead` on the back. The door, the two keys and the
+ * lamp are the model's DeckFlap, DeckPlayButton, DeckEjectButton and
+ * DeckPowerLamp. Mirrors build_cassette_deck.py.
  */
-const VIDEO8_DECK = {
-  frontZ: 0.13,
-  slot: { x0: -0.079, x1: 0.031, y0: 0.038, y1: 0.064 },
-  play: [0.0655, 0.034],
-  eject: [-0.1, 0.036],
-  buttonFrontZ: 0.1342,
-  display: { x0: 0.044, x1: 0.114, y0: 0.056, y1: 0.074, depth: 0.003 },
-  videoJack: [0.055, 0.045, -0.134],
-  powerLead: [-0.09, 0.03, -0.135]
+const CASSETTE_DECK = {
+  frontZ: 0.11,
+  door: { hinge: [-0.062, 0.0175, 0.11], width: 0.111, height: 0.071 },
+  tapeInDoor: [0, 0.0339, -0.0095],
+  play: [0.047, 0.04],
+  eject: [0.105, 0.04],
+  buttonFrontZ: 0.1145,
+  display: { x0: 0.012, x1: 0.07, y0: 0.07, y1: 0.086, depth: 0.003 },
+  powerLead: [-0.09, 0.03, -0.115]
 };
 /** Where the deck stands on the CCTV desk, in desk space: right of the monitor, past the remote's lead. */
 const DECK_ON_DESK = { x: 0.44, z: 0.085 };
 /** Where the earlier session tapes are stacked, in desk space: behind the deck. */
 const TAPE_STACK_ON_DESK = { x: 0.47, z: -0.19, yaw: 0.06 };
-/** How far the flap tips in as a tape goes through it, and how long loading takes. */
-const DECK_FLAP_TIP_IN_RADIANS = 1.2;
-const DECK_LOAD_SECONDS = 0.5;
-/** How far a deck button goes in when pressed, and for how long. */
-const DECK_BUTTON_TRAVEL_IN_METRES = 0.0022;
+/**
+ * Loading and ejecting, as one movement each: the door tips open, the tape
+ * slides into (or up out of) its clips, the door shuts. How far it tips, how
+ * far above its seat the tape starts, and how long the whole of it takes.
+ */
+const DECK_DOOR_OPEN_ANGLE_IN_RADIANS = 0.5;
+const DECK_TAPE_SLIDE_IN_METRES = 0.085;
+const DECK_LOAD_SECONDS = 0.9;
+/**
+ * The click targets over the deck's two keys: a good deal bigger than the
+ * 26 x 21 mm keys, so either can be pressed without lining the crosshair up
+ * on it from across the desk.
+ */
+const DECK_KEY_TARGET_SIZE = [0.029, 0.03, 0.03];
+/**
+ * How fast the tape's two hubs turn while it plays, in radians a second: a
+ * cassette runs at 4.76 cm a second, so the reel with less tape on it turns
+ * faster. Left (still mostly full) and right.
+ */
+const DECK_REEL_SPEEDS_IN_RADIANS_PER_SECOND = [0.0476 / 0.0215, 0.0476 / 0.0135];
+/** How far a deck key goes in when pressed, and for how long. */
+const DECK_BUTTON_TRAVEL_IN_METRES = 0.003;
 const DECK_BUTTON_PRESS_SECONDS = 0.18;
 
 /**
- * The monitor's input rocker, in the monitor's own space: it sits over the
- * model's own rocker in the middle of the chin, and tips toward whichever
- * input is selected. The label-maker strip under it says which end is which.
- */
-const MONITOR_INPUT_ROCKER = { y: 0.066, z: 0.1835, size: [0.035, 0.0115, 0.007], tiltInRadians: 0.14 };
-const MONITOR_INPUT_LABEL = { y: 0.0466, size: [0.072, 0.009] };
-
-/**
- * The CRT's picture, as the shader crossfades it. A camera feed fights through
- * a little interference; the tape is a recording, played straight, so it is
- * cleaner; and an input with nothing on it is snow.
+ * The CRT's picture, as the shader crossfades it: a camera feed fights through
+ * a little interference.
  */
 const CCTV_FEED_NOISE_STRENGTH = 0.35;
 const CCTV_FEED_STATIC_MIX = 0.18;
-const TAPE_NOISE_STRENGTH = 0.22;
-const TAPE_STATIC_MIX = 0.06;
 
 /**
  * How long the fuse's lit window lasts before someone throws the main anyway,
@@ -525,9 +529,8 @@ export function createHallwayBasementLevel({
   /**
    * Fired when the main is thrown. The level handles its own lights and
    * screen; this is the sound and the story beat, and the nearness of whoever
-   * pulled it. Called with `{ cause }`: 'door' when the player went for the
-   * exit, 'tape' when the session tape ran out on the monitor -- in which case
-   * the tape is still up in front of the player when the power goes.
+   * pulled it. Called with `{ cause }`: 'door' or 'desk' when the player went
+   * for the exit or the CCTV desk, 'timer' when the lit window ran out.
    */
   onBlackout = () => {},
   /** Fired when the generator restart sequence completes. */
@@ -570,19 +573,21 @@ export function createHallwayBasementLevel({
    * takes the tape from the inventory, whatever is in the player's hand.
    */
   isCarrying = () => false,
-  /** Fired when the session tape comes out of the camcorder: the host puts it in the inventory. */
+  /** Fired when the session tape comes out of the recorder: the host puts it in the inventory. */
   onTapeTaken = () => {},
   /** Fired when the tape goes into the deck: the host takes it out of the inventory. */
   onTapeInserted = () => {},
   /** Fired when the deck ejects the tape: the host puts it back in the player's hand. */
   onTapeEjected = () => {},
   /**
-   * Asked to bring the tape up in front of the player, once the deck is
-   * playing and the monitor is showing its input. Called with `{ source }`,
-   * the tape's picture (world/SessionTapeSource.js).
+   * Fired when the deck starts playing the tape, in the room. Called with
+   * `{ source }`, the tape's sound and clock (world/SessionTapeSource.js), for
+   * the host's voices and subtitles to follow.
    */
   onPlayTape = () => {},
-  /** Fired when the tape has run out, with its picture still up. */
+  /** Fired when the tape is stopped part way: STOP/EJECT, or a restart. */
+  onTapeStopped = () => {},
+  /** Fired when the tape has run to its end and the deck has stopped. */
   onTapeEnded = () => {}
 } = {}) {
   const group = new THREE.Group();
@@ -3571,55 +3576,42 @@ export function createHallwayBasementLevel({
 
   // ---------- the session tape ----------
   /**
-   * The tape the camcorder was recording when it was knocked off the restraint
-   * table: SESSION 14 -- 14.1.87. The player finds the camera on the floor,
-   * takes the tape out and plays it in the deck on the CCTV desk; the tape then
-   * comes up in front of them (the host's TapePlayerUI). The desk has no power
-   * until the panel is routed, so that is the earliest it can be watched. Full
-   * reasoning in docs/LEVEL2_POWER_CHAIN.md, "The session tape".
+   * The tape the cassette recorder was taking down when it was knocked off the
+   * instrument trolley: SESSION 14 -- 14.1.87. The player finds the recorder on
+   * the floor, takes the tape out and plays it in the deck on the CCTV desk,
+   * where it plays out into the room with its subtitles along the bottom of
+   * the screen (the host's TapeSubtitles). The desk has no power until the
+   * panel is routed, so that is the earliest it can be heard. Full reasoning
+   * in docs/LEVEL2_POWER_CHAIN.md, "The session tape".
    *
    * The tape is in one of three places, and only ever one.
    */
-  const TAPE_PLACE = { CAMCORDER: 'camcorder', CARRIED: 'carried', DECK: 'deck' };
-  /** The monitor's two inputs: the camera switcher, or the deck. */
-  const MONITOR_INPUT = { CAMERAS: 'cameras', TAPE: 'tape' };
+  const TAPE_PLACE = { RECORDER: 'recorder', CARRIED: 'carried', DECK: 'deck' };
 
-  let tapePlace = TAPE_PLACE.CAMCORDER;
+  let tapePlace = TAPE_PLACE.RECORDER;
   let cassetteDoorOpen = false;
-  /** PLAY has been pressed with the tape in: the deck is running. */
+  /** PLAY has been pressed with the tape in: the deck is running it. */
   let deckPlaying = false;
-  let monitorInput = MONITOR_INPUT.CAMERAS;
-  /** The tape is up in front of the player and running. */
-  let tapeShowing = false;
-  /** It ran to its end and its last frame is still up; cleared when the player steps back. */
+  /** It ran to its end; the counter stays there until it is played again or ejected. */
   let tapeRanOut = false;
-  /** Watched to the end at least once this run. */
+  /** Heard to the end at least once this run. */
   let tapeWatchedToEnd = false;
 
-  /** The tape's picture: footage once it exists, the painted placeholder until then. */
+  /** The tape's sound and clock: the recording once it exists, a stand-in until then. */
   const tapeSource = createSessionTapeSource();
 
   /**
    * The tape as a prop. One download, cloned for each place a tape is seen --
-   * in the camcorder, sliding into the deck -- and handed to the host as the
+   * in the recorder, in the deck's door -- and handed to the host as the
    * template for the one in the player's hand.
    */
-  const cassetteModelPromise = loadModel(video8CassetteModelUrl);
-  cassetteModelPromise.catch((err) => console.error('[lab] video8_cassette.glb failed to load', err));
+  const cassetteModelPromise = loadModel(audioCassetteModelUrl);
+  cassetteModelPromise.catch((err) => console.error('[lab] audio_cassette.glb failed to load', err));
 
   /**
-   * Whether the monitor is on the deck's input and has a picture at all.
-   *
-   * @returns {boolean} true when switched on, powered, and on the TAPE input.
-   */
-  function isTapeOnMonitor() {
-    return monitorInput === MONITOR_INPUT.TAPE && isMonitorShowing();
-  }
-
-  /**
-   * Sets what the CRT's picture is made of, from the power, the input and the
-   * tape. The one place that decides it: the fuse, the blackout, the panel,
-   * the remote, the rocker and the tape all come through here.
+   * Sets what the CRT's picture is made of, from the power and the camera the
+   * remote last picked. The one place that decides it: the fuse, the
+   * blackout, the panel and the remote all come through here.
    */
   function syncScreenSignal() {
     const uniforms = screenMaterial.uniforms;
@@ -3628,76 +3620,59 @@ export function createHallwayBasementLevel({
       uniforms.uStaticMix.value = 1;
       return;
     }
-    if (monitorInput === MONITOR_INPUT.CAMERAS) {
-      uniforms.uFeed.value = feeds.textures[activeFeedId];
-      uniforms.uNoiseStrength.value = CCTV_FEED_NOISE_STRENGTH;
-      uniforms.uStaticMix.value = CCTV_FEED_STATIC_MIX;
-      return;
-    }
-    // The tape input: its picture while it plays and once it has run out, and
-    // snow when nothing is coming in on it.
-    const hasSignal = tapeShowing || tapeRanOut;
-    uniforms.uFeed.value = tapeSource.texture;
-    uniforms.uNoiseStrength.value = hasSignal ? TAPE_NOISE_STRENGTH : 1.0;
-    uniforms.uStaticMix.value = hasSignal ? TAPE_STATIC_MIX : 1;
+    uniforms.uFeed.value = feeds.textures[activeFeedId];
+    uniforms.uNoiseStrength.value = CCTV_FEED_NOISE_STRENGTH;
+    uniforms.uStaticMix.value = CCTV_FEED_STATIC_MIX;
   }
 
-  /**
-   * Brings the tape up if everything it needs is in place: the deck running,
-   * and the monitor on, powered and on the deck's input. PLAY puts all of that
-   * in place itself; the rocker and the monitor's power button call this too,
-   * for a deck left running while the monitor was switched away from it.
-   *
-   * @returns {boolean} true if the tape started.
-   */
-  function tryShowTape() {
-    if (!deckPlaying || tapeShowing || tapeRanOut || !isTapeOnMonitor()) return false;
-    tapeShowing = true;
-    tapeSource.play();
-    syncScreenSignal();
-    onPlayTape({ source: tapeSource });
-    return true;
-  }
-
-  /**
-   * Stops the deck and rewinds the tape. The host calls this when the player
-   * steps back from the tape, finished or not.
-   */
-  function stopTape() {
-    tapeSource.stop();
-    tapeShowing = false;
+  /** Runs the tape from the start: it plays out into the room. */
+  function playTape() {
+    deckPlaying = true;
     tapeRanOut = false;
-    deckPlaying = false;
-    syncScreenSignal();
+    tapeSource.play();
+    onPlayTape({ source: tapeSource });
   }
 
-  /** The tape has run out while up: its last frame stays until the player steps back. */
-  function finishTape() {
-    tapeShowing = false;
-    tapeRanOut = true;
+  /** Stops the deck part way and rewinds the tape. Says so only if it was running. */
+  function stopTape() {
+    const wasPlaying = deckPlaying;
+    tapeSource.stop();
     deckPlaying = false;
+    tapeRanOut = false;
+    if (wasPlaying) onTapeStopped();
+  }
+
+  /** The tape has run to its end: the deck stops by itself. */
+  function finishTape() {
+    deckPlaying = false;
+    tapeRanOut = true;
     tapeWatchedToEnd = true;
     onTapeEnded();
   }
 
   /**
-   * Runs the tape while it is up and notices it running out.
+   * Runs the tape while the deck plays it and notices it running out -- or
+   * the desk losing its power under it.
    *
    * @param {number} deltaTimeInSeconds - frame time.
    */
   function updateSessionTape(deltaTimeInSeconds) {
-    if (!tapeShowing) return;
+    if (!deckPlaying) return;
+    if (!isCctvPowered()) {
+      stopTape();
+      return;
+    }
     tapeSource.update(deltaTimeInSeconds);
     if (tapeSource.hasEnded) finishTape();
   }
 
   /**
-   * Puts the tape back in the camera on the floor, the camera's door shut, the
-   * deck empty and the monitor on its cameras. For a restart.
+   * Puts the tape back in the recorder on the floor, the recorder's door shut
+   * and the deck empty. For a restart.
    */
   function resetSessionTape() {
     stopTape();
-    tapePlace = TAPE_PLACE.CAMCORDER;
+    tapePlace = TAPE_PLACE.RECORDER;
     cassetteDoorOpen = false;
     tapeWatchedToEnd = false;
   }
@@ -3892,11 +3867,7 @@ export function createHallwayBasementLevel({
       monitorSwitchedOn = !monitorSwitchedOn;
       syncMonitor();
       syncScreenSignal();
-      // Switched on with the deck already running and the input on it: the
-      // tape comes up, and that says more than the caption would.
-      if (monitorSwitchedOn && !tryShowTape()) {
-        showCaption(line('dialog_monitor_switched_on'));
-      }
+      if (monitorSwitchedOn) showCaption(line('dialog_monitor_switched_on'));
     }
   };
   interactables.push(powerButton);
@@ -3929,10 +3900,6 @@ export function createHallwayBasementLevel({
       }
       if (!monitorSwitchedOn) {
         showCaption(line('dialog_monitor_off'));
-        return;
-      }
-      if (monitorInput === MONITOR_INPUT.TAPE) {
-        showCaption(line('dialog_monitor_on_tape_input'));
         return;
       }
       // Said "No power" even after the breaker was flipped, which told the
@@ -3979,9 +3946,7 @@ export function createHallwayBasementLevel({
         }
         feeds.setActive(id);
         activeFeedId = id;
-        // The remote is the camera switcher: choosing a camera puts the
-        // monitor back on the cameras, whatever the rocker was set to.
-        setMonitorInput(MONITOR_INPUT.CAMERAS);
+        syncScreenSignal();
         syncMonitor();
         onViewFeed(id);
       }
@@ -4127,67 +4092,14 @@ export function createHallwayBasementLevel({
   interactables.push(sticky);
   monitor.add(sticky);
 
+  // ---------- the cassette deck ----------
   /**
-   * The monitor's input rocker, in the middle of its chin: CAMERAS at one end,
-   * TAPE at the other, as the label-maker strip under it says. Switching it is
-   * the one thing standing between a playing deck and the picture -- the
-   * cameras keep showing until it is pressed.
-   */
-  const inputRocker = new THREE.Mesh(
-    new THREE.BoxGeometry(...MONITOR_INPUT_ROCKER.size),
-    new THREE.MeshStandardMaterial({ color: 0xb8b097, roughness: 0.5 })
-  );
-  inputRocker.position.set(0, MONITOR_INPUT_ROCKER.y, MONITOR_INPUT_ROCKER.z);
-  monitor.add(inputRocker);
-
-  const inputLabel = new THREE.Mesh(
-    new THREE.PlaneGeometry(...MONITOR_INPUT_LABEL.size),
-    new THREE.MeshStandardMaterial({ map: createDymoLabelTexture('CAMERAS    TAPE'), roughness: 0.35 })
-  );
-  inputLabel.position.set(0, MONITOR_INPUT_LABEL.y, CRT_BODY.front + 0.0006);
-  monitor.add(inputLabel);
-
-  /**
-   * Sets the monitor's input and tips the rocker toward it.
+   * The lab's tape player, beside the monitor. The tape clips into its door
+   * from the player's pocket; PLAY runs it; STOP/EJECT gives it back. It
+   * shares the desk's circuit with the monitor, so it has power exactly when
+   * the cameras do.
    *
-   * @param {string} input - MONITOR_INPUT.CAMERAS or MONITOR_INPUT.TAPE.
-   */
-  function setMonitorInput(input) {
-    monitorInput = input;
-    // The end that is pressed in is the one selected: CAMERAS on the left.
-    inputRocker.rotation.y = (input === MONITOR_INPUT.CAMERAS ? -1 : 1) * MONITOR_INPUT_ROCKER.tiltInRadians;
-    syncScreenSignal();
-  }
-  setMonitorInput(MONITOR_INPUT.CAMERAS);
-
-  /** The rocker's click target: a good deal bigger than the rocker, which is 35 mm across. */
-  const inputRockerHit = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.03, 0.02), hiddenHitMat);
-  inputRockerHit.position.set(0, (MONITOR_INPUT_ROCKER.y + MONITOR_INPUT_LABEL.y) / 2, CRT_BODY.front + 0.008);
-  inputRockerHit.userData.interact = {
-    get label() {
-      return monitorInput === MONITOR_INPUT.CAMERAS ? 'Switch the input to TAPE' : 'Switch the input to CAMERAS';
-    },
-    onInteract: () => {
-      onSfx('switch_click');
-      const toTape = monitorInput === MONITOR_INPUT.CAMERAS;
-      setMonitorInput(toTape ? MONITOR_INPUT.TAPE : MONITOR_INPUT.CAMERAS);
-      // Back to the cameras, the picture says it. Over to the deck with it
-      // running, the tape comes up. Only an idle deck needs words.
-      if (!toTape || tryShowTape() || !isMonitorShowing()) return;
-      showCaption(line('dialog_monitor_input_tape_idle'));
-    }
-  };
-  monitor.add(inputRockerHit);
-  interactables.push(inputRockerHit);
-
-  // ---------- the Video8 deck ----------
-  /**
-   * The lab's tape player, beside the monitor and wired into its TAPE input.
-   * The tape goes in through the flap from the hand; PLAY runs it; EJECT gives
-   * it back. It shares the desk's circuit with the monitor, so it has power
-   * exactly when the cameras do.
-   *
-   * Its flap, its two buttons and its lamp are parts of video8_deck.glb the
+   * Its door, its two keys and its lamp are parts of cassette_deck.glb the
    * level moves and lights; the counter is painted (world/DeckCounterDisplay.js)
    * onto a plane in the display's recess. Every click target is a plain box,
    * since Interaction never reaches inside a loaded model.
@@ -4196,8 +4108,23 @@ export function createHallwayBasementLevel({
   deck.position.set(DECK_ON_DESK.x, DESK_TOP_Y, DECK_ON_DESK.z);
   desk.add(deck);
 
+  /**
+   * The tape as it rides in the deck's door: clipped in standing up, its label
+   * to the room, and slid up out of the clips by `slide` while it goes in or
+   * comes out. A child of the door once the model is in, so it tips with it.
+   */
+  const deckTape = new THREE.Group();
+  deckTape.rotation.x = Math.PI / 2;
+  deckTape.visible = false;
+  cassetteModelPromise.then((model) => deckTape.add(model.clone())).catch(() => {});
+  function placeDeckTape(slide) {
+    const [x, y, z] = CASSETTE_DECK.tapeInDoor;
+    deckTape.position.set(x, y + slide, z);
+  }
+  placeDeckTape(0);
+
   const deckParts = { flap: null, play: null, eject: null, lampMat: null };
-  loadModel(video8DeckModelUrl).then((model) => {
+  loadModel(cassetteDeckModelUrl).then((model) => {
     deckParts.flap = model.getObjectByName('DeckFlap');
     deckParts.play = model.getObjectByName('DeckPlayButton');
     deckParts.eject = model.getObjectByName('DeckEjectButton');
@@ -4207,38 +4134,22 @@ export function createHallwayBasementLevel({
     model.traverse((child) => {
       if (child.isMesh && child.material.name === 'DeckPowerLamp') deckParts.lampMat = child.material;
     });
+    deckParts.flap?.add(deckTape);
     deck.add(shadowed(model));
-  }).catch((err) => console.error('[lab] video8_deck.glb failed to load', err));
+  }).catch((err) => console.error('[lab] cassette_deck.glb failed to load', err));
 
   const counterDisplay = createDeckCounterDisplay();
   {
-    const { x0, x1, y0, y1, depth } = VIDEO8_DECK.display;
+    const { x0, x1, y0, y1, depth } = CASSETTE_DECK.display;
     const counter = new THREE.Mesh(
       new THREE.PlaneGeometry(x1 - x0 - 0.002, y1 - y0 - 0.002),
       // Unlit: a fluorescent display makes its own light, and with the room
       // dark it is meant to be the only thing on the deck that shows.
       new THREE.MeshBasicMaterial({ map: counterDisplay.texture, toneMapped: false })
     );
-    counter.position.set((x0 + x1) / 2, (y0 + y1) / 2, VIDEO8_DECK.frontZ - depth + 0.0005);
+    counter.position.set((x0 + x1) / 2, (y0 + y1) / 2, CASSETTE_DECK.frontZ - depth + 0.0005);
     deck.add(counter);
   }
-
-  /**
-   * The tape as it goes in and comes out of the slot: lying flat, lid first,
-   * sliding between a point clear of the front and one inside the deck.
-   */
-  const slotCentre = {
-    x: (VIDEO8_DECK.slot.x0 + VIDEO8_DECK.slot.x1) / 2,
-    y: (VIDEO8_DECK.slot.y0 + VIDEO8_DECK.slot.y1) / 2
-  };
-  const DECK_TAPE_OUTSIDE_Z = VIDEO8_DECK.frontZ + 0.07;
-  const DECK_TAPE_INSIDE_Z = VIDEO8_DECK.frontZ - 0.07;
-  const deckTape = new THREE.Group();
-  deckTape.position.set(slotCentre.x, slotCentre.y, DECK_TAPE_OUTSIDE_Z);
-  deckTape.rotation.y = Math.PI;
-  deckTape.visible = false;
-  deck.add(deckTape);
-  cassetteModelPromise.then((model) => deckTape.add(model.clone())).catch(() => {});
 
   /** A tape on its way in (+1) or out (-1), and how far through it is. */
   const deckLoad = { direction: 0, elapsedInSeconds: 0 };
@@ -4250,7 +4161,7 @@ export function createHallwayBasementLevel({
     deckPress.elapsedInSeconds = 0;
   }
 
-  /** Starts the tape moving through the flap: +1 in, -1 out. */
+  /** Starts the door's movement with the tape: +1 in, -1 out. */
   function startDeckLoad(direction) {
     deckLoad.direction = direction;
     deckLoad.elapsedInSeconds = 0;
@@ -4273,26 +4184,13 @@ export function createHallwayBasementLevel({
     showCaption(line('dialog_deck_tape_in'));
   }
 
-  /**
-   * Runs the tape and puts it on the monitor: switches the monitor on and over
-   * to the deck's input if it is not already, so PLAY is all it takes. The
-   * rocker is still there for going back to the cameras.
-   */
-  function startPlaying() {
-    deckPlaying = true;
-    monitorSwitchedOn = true;
-    setMonitorInput(MONITOR_INPUT.TAPE);
-    syncMonitor();
-    tryShowTape();
-  }
-
   function ejectTape() {
-    deckPlaying = false;
+    stopTape();
     startDeckLoad(-1);
     onSfx('latch');
   }
 
-  /** The tape has come all the way out: it goes back into the player's hand. */
+  /** The tape is out of the door and the door is shut: it goes back into the player's hand. */
   function finishEject() {
     deckTape.visible = false;
     tapePlace = TAPE_PLACE.CARRIED;
@@ -4322,14 +4220,20 @@ export function createHallwayBasementLevel({
       playAfterLoading = true;
       return;
     }
-    if (deckLoad.direction === 0) startPlaying();
+    // Already running, PLAY has nothing to do; run out, it plays from the top.
+    if (deckLoad.direction === 0 && !deckPlaying) playTape();
   }
 
+  /** STOP/EJECT, the way a deck's does it: a running tape stops; a stopped one comes out. */
   function pressEject() {
     pressDeckButton(deckParts.eject);
     onSfx('switch_click');
     if (!isCctvPowered()) {
-      showCaption(line('dialog_deck_no_power', { button: 'EJECT' }));
+      showCaption(line('dialog_deck_no_power', { button: 'STOP/EJECT' }));
+      return;
+    }
+    if (deckPlaying) {
+      stopTape();
       return;
     }
     if (tapePlace !== TAPE_PLACE.DECK || deckLoad.direction !== 0) {
@@ -4340,10 +4244,10 @@ export function createHallwayBasementLevel({
   }
 
   /**
-   * What the slot does: takes the tape if the player has it on them -- it does
+   * What the door does: takes the tape if the player has it on them -- it does
    * not have to be the thing in their hand -- or says what the deck holds.
    */
-  function useDeckSlot() {
+  function useDeckDoor() {
     if (deckLoad.direction !== 0) return;
     if (isCarryingTape()) {
       insertTape();
@@ -4368,48 +4272,69 @@ export function createHallwayBasementLevel({
     return target;
   }
 
-  addDeckTarget(
-    [VIDEO8_DECK.slot.x1 - VIDEO8_DECK.slot.x0 + 0.004, 0.032, 0.03],
-    [slotCentre.x, slotCentre.y, VIDEO8_DECK.frontZ],
-    {
-      get label() {
-        return isCarryingTape() ? 'Put the tape in the deck' : 'Examine the deck';
-      },
-      onInteract: useDeckSlot
-    }
-  );
-  addDeckTarget([0.024, 0.018, 0.016], [...VIDEO8_DECK.play, VIDEO8_DECK.buttonFrontZ],
+  {
+    const { hinge, width, height } = CASSETTE_DECK.door;
+    addDeckTarget(
+      [width + 0.004, height + 0.004, 0.03],
+      [hinge[0], hinge[1] + height / 2, CASSETTE_DECK.frontZ],
+      {
+        get label() {
+          return isCarryingTape() ? 'Put the tape in the deck' : 'Examine the deck';
+        },
+        onInteract: useDeckDoor
+      }
+    );
+  }
+  addDeckTarget(DECK_KEY_TARGET_SIZE, [...CASSETTE_DECK.play, CASSETTE_DECK.buttonFrontZ],
     { label: 'Press PLAY', onInteract: pressPlay });
-  addDeckTarget([0.03, 0.018, 0.016], [...VIDEO8_DECK.eject, VIDEO8_DECK.buttonFrontZ],
-    { label: 'Press EJECT', onInteract: pressEject });
+  addDeckTarget(DECK_KEY_TARGET_SIZE, [...CASSETTE_DECK.eject, CASSETTE_DECK.buttonFrontZ],
+    { get label() { return deckPlaying ? 'Press STOP' : 'Press EJECT'; }, onInteract: pressEject });
 
-  /** Eases a 0..1 progress so a slide starts and stops gently. */
+  /** The tape's two hubs, once its model is in the door: what turns while it plays. */
+  const deckReels = [];
+  cassetteModelPromise.then(() => {
+    for (const name of ['CassetteReelLeft', 'CassetteReelRight']) {
+      const reel = deckTape.getObjectByName(name);
+      if (reel) deckReels.push(reel);
+    }
+  }).catch(() => {});
+
+  /** Eases a 0..1 progress so a movement starts and stops gently. */
   const smoothStep = (t) => t * t * (3 - 2 * t);
+  /** How far through the span from `from` to `to` the 0..1 `progress` is, eased. */
+  const phase = (progress, from, to) => smoothStep(THREE.MathUtils.clamp((progress - from) / (to - from), 0, 1));
 
   dynamics.push({
     update: (dt) => {
-      // The tape through the flap, the flap tipping in as it passes.
+      // The door tipping open, the tape sliding into or up out of its clips,
+      // the door shutting again.
       if (deckLoad.direction !== 0) {
         deckLoad.elapsedInSeconds += dt;
         const progress = Math.min(1, deckLoad.elapsedInSeconds / DECK_LOAD_SECONDS);
-        const eased = smoothStep(progress);
-        const inward = deckLoad.direction > 0 ? eased : 1 - eased;
-        deckTape.position.z = THREE.MathUtils.lerp(DECK_TAPE_OUTSIDE_Z, DECK_TAPE_INSIDE_Z, inward);
-        if (deckParts.flap) deckParts.flap.rotation.x = DECK_FLAP_TIP_IN_RADIANS * Math.sin(Math.PI * progress);
+        const open = phase(progress, 0, 0.3) * (1 - phase(progress, 0.72, 1));
+        const seated = deckLoad.direction > 0 ? phase(progress, 0.25, 0.7) : 1 - phase(progress, 0.3, 0.72);
+        placeDeckTape(DECK_TAPE_SLIDE_IN_METRES * (1 - seated));
+        if (deckParts.flap) deckParts.flap.rotation.x = DECK_DOOR_OPEN_ANGLE_IN_RADIANS * open;
         if (progress >= 1) {
           const direction = deckLoad.direction;
           deckLoad.direction = 0;
           if (deckParts.flap) deckParts.flap.rotation.x = 0;
           if (direction > 0) {
-            deckTape.visible = false;
+            // Seated, behind the door's window, until it is ejected.
+            placeDeckTape(0);
             if (playAfterLoading) {
               playAfterLoading = false;
-              startPlaying();
+              playTape();
             }
           } else {
             finishEject();
           }
         }
+      }
+      // The hubs turning behind the door's window while the tape runs --
+      // clockwise seen from the label, which faces the room.
+      if (tapeSource.isRunning) {
+        deckReels.forEach((reel, i) => { reel.rotation.y -= DECK_REEL_SPEEDS_IN_RADIANS_PER_SECOND[i] * dt; });
       }
       // A pressed button goes in and springs back.
       if (deckPress.button) {
@@ -4426,8 +4351,8 @@ export function createHallwayBasementLevel({
       }
       counterDisplay.show({
         powered,
-        mode: tapePlace !== TAPE_PLACE.DECK ? '' : deckPlaying || tapeShowing ? 'PLAY' : 'STOP',
-        seconds: tapeShowing || tapeRanOut ? tapeSource.currentTimeInSeconds : 0
+        mode: tapePlace !== TAPE_PLACE.DECK ? '' : deckPlaying ? 'PLAY' : 'STOP',
+        seconds: deckPlaying || tapeRanOut ? tapeSource.currentTimeInSeconds : 0
       });
     }
   });
@@ -4441,23 +4366,22 @@ export function createHallwayBasementLevel({
   tapeStack.position.set(TAPE_STACK_ON_DESK.x, DESK_TOP_Y, TAPE_STACK_ON_DESK.z);
   tapeStack.rotation.y = TAPE_STACK_ON_DESK.yaw;
   desk.add(tapeStack);
-  loadModel(video8TapeStackModelUrl)
+  loadModel(cassetteStackModelUrl)
     .then((model) => tapeStack.add(shadowed(model)))
-    .catch((err) => console.error('[lab] video8_tape_stack.glb failed to load', err));
-  const tapeStackHit = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.28, 0.085), hiddenHitMat);
-  tapeStackHit.position.y = 0.14;
+    .catch((err) => console.error('[lab] cassette_stack.glb failed to load', err));
+  const tapeStackHit = new THREE.Mesh(new THREE.BoxGeometry(0.125, 0.23, 0.08), hiddenHitMat);
+  tapeStackHit.position.y = 0.115;
   tapeStackHit.userData.interact = {
     label: 'Examine the tapes',
     // Once the player has the fourteenth, the pile reads differently.
-    onInteract: () => showCaption(line(tapePlace === TAPE_PLACE.CAMCORDER ? 'dialog_tape_stack' : 'dialog_tape_stack_after'))
+    onInteract: () => showCaption(line(tapePlace === TAPE_PLACE.RECORDER ? 'dialog_tape_stack' : 'dialog_tape_stack_after'))
   };
   tapeStack.add(tapeStackHit);
   interactables.push(tapeStackHit);
 
   /**
-   * The deck's two leads, in desk space: video from the socket on its back to
-   * the monitor's back panel -- the TAPE input made real -- and power, off the
-   * back of the desk and down to a socket of its own on the wall.
+   * The deck's power lead, in desk space: off the back of the desk and down
+   * to a socket of its own on the wall.
    */
   {
     const WALL_Z = -(LAB_D / 2 - DESK_POSITION.z);
@@ -4468,37 +4392,11 @@ export function createHallwayBasementLevel({
       const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(...p)));
       desk.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 64, radius, 6, false), leadMat));
     };
-    const plug = (position) => {
-      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.0062, 0.0062, 0.016, 12), plugMat);
-      mesh.rotation.x = Math.PI / 2;
-      mesh.position.set(...position);
-      desk.add(mesh);
-    };
-
-    const jack = [
-      DECK_ON_DESK.x + VIDEO8_DECK.videoJack[0],
-      DESK_TOP_Y + VIDEO8_DECK.videoJack[1],
-      DECK_ON_DESK.z + VIDEO8_DECK.videoJack[2] - 0.006
-    ];
-    const monitorBack = [0.03, DESK_TOP_Y + 0.155, monitor.position.z + CRT_BODY.back - 0.008];
-    lead([
-      jack,
-      [jack[0] - 0.003, jack[1] - 0.006, jack[2] - 0.026],
-      [jack[0] - 0.025, onDesk, jack[2] - 0.06],
-      [0.36, onDesk, -0.12],
-      [0.24, onDesk, -0.235],
-      [0.12, onDesk, -0.27],
-      [0.05, DESK_TOP_Y + 0.08, monitorBack[2] - 0.02],
-      [0.035, monitorBack[1] - 0.015, monitorBack[2] - 0.008],
-      monitorBack
-    ], 0.0035);
-    plug(jack);
-    plug(monitorBack);
 
     const powerLeadStart = [
-      DECK_ON_DESK.x + VIDEO8_DECK.powerLead[0],
-      DESK_TOP_Y + VIDEO8_DECK.powerLead[1],
-      DECK_ON_DESK.z + VIDEO8_DECK.powerLead[2] - 0.004
+      DECK_ON_DESK.x + CASSETTE_DECK.powerLead[0],
+      DESK_TOP_Y + CASSETTE_DECK.powerLead[1],
+      DECK_ON_DESK.z + CASSETTE_DECK.powerLead[2] - 0.004
     ];
     const SOCKET = { x: 0.4, y: 0.3 };
     lead([
@@ -5084,6 +4982,7 @@ export function createHallwayBasementLevel({
   interactables.push(tornNotes);
   workbench.add(tornNotes);
 
+
   // ---------- the operating corner ----------
 
   /** Loaded props cast and catch the lamp's shadow: the straps across the pad are the point of it. */
@@ -5319,117 +5218,102 @@ export function createHallwayBasementLevel({
   }).catch((err) => console.error('[lab] lab_chair.glb failed to load', err));
 
   /**
-   * The camcorder that filmed Session 14, on the floor where it landed:
-   * camcorder.glb, off the foot of the restraint table toward the entrance,
-   * on its left side with its lens turned back toward the table.
+   * The cassette recorder that took Session 14 down, on the floor where it
+   * landed: cassette_recorder.glb, off the foot of the restraint table toward
+   * the entrance, turned askew, its hand microphone flung out on its lead.
    *
    * It is the first thing in the lab that asks to be picked up. In the dark,
    * before the fuse, the only light down here is its battery lamp winking red
    * at floor level -- which is all the nudge it gets.
    *
-   * One click target for the whole camera, whose prompt moves the player
-   * through it: look at it, open the cassette door, take the tape.
+   * One click target for the whole recorder, whose prompt moves the player
+   * through it: look at it, lift the cassette door, take the tape.
    */
-  const camcorderRoot = new THREE.Group();
-  camcorderRoot.position.set(CAMCORDER_REST.x, 0, CAMCORDER_REST.z);
-  // The model's lens is +z, so this yaw points it at the table's middle,
-  // then turns it a little off.
-  camcorderRoot.rotation.y = Math.atan2(OPERATING_TABLE.x - CAMCORDER_REST.x, OPERATING_TABLE.z - CAMCORDER_REST.z)
-    + CAMCORDER_REST.lensOffTableInRadians;
-  lab.add(camcorderRoot);
-  // A quarter turn about its own lens axis lays it on its left side, which
-  // puts the right-hand side -- door, strap and decal -- uppermost.
-  const camcorderLying = new THREE.Group();
-  camcorderLying.rotation.z = Math.PI / 2;
-  camcorderRoot.add(camcorderLying);
+  const recorder = new THREE.Group();
+  recorder.position.set(RECORDER_REST.x, 0, RECORDER_REST.z);
+  recorder.rotation.y = RECORDER_REST.yawInRadians;
+  lab.add(recorder);
 
-  /** The tape in the well behind the door, face out, until it is taken. */
+  /** The tape lying lengthwise in the well under the door, label up, until it is taken. */
   const wellTape = new THREE.Group();
-  wellTape.position.fromArray(CAMCORDER.wellCentre);
-  wellTape.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(
-    new THREE.Vector3(...TAPE_IN_WELL_AXES.x),
-    new THREE.Vector3(...TAPE_IN_WELL_AXES.y),
-    new THREE.Vector3(...TAPE_IN_WELL_AXES.z)
-  ));
-  camcorderLying.add(wellTape);
+  wellTape.position.fromArray(CASSETTE_RECORDER.wellCentre);
+  wellTape.rotation.y = CASSETTE_RECORDER.tapeYawInRadians;
+  recorder.add(wellTape);
   cassetteModelPromise.then((model) => wellTape.add(shadowed(model.clone()))).catch(() => {});
 
-  /** The door, once the model is in: its hinge is its origin, along its bottom edge. */
+  /** The door, once the model is in: its hinge is its origin, along its near edge. */
   let cassetteDoor = null;
   /** How far open the door is, in radians, easing toward open or shut. */
   let cassetteDoorAngle = 0;
-  loadModel(camcorderModelUrl).then((model) => {
+  loadModel(cassetteRecorderModelUrl).then((model) => {
     cassetteDoor = model.getObjectByName('CassetteDoor');
-    camcorderLying.add(shadowed(model));
-    // Sat down on the floor: whatever hangs lowest is lifted to it, the way
-    // the stool is. The lab floor is world y = 0 and the camera is only ever
-    // turned about y as a whole, so a world height is a local one.
-    camcorderRoot.updateWorldMatrix(true, true);
-    const bounds = new THREE.Box3().setFromObject(model, true);
-    camcorderLying.position.y = -bounds.min.y;
-    camcorderRoot.updateWorldMatrix(true, true);
-    const lying = new THREE.Box3().setFromObject(model, true);
-    colliders.push({ minX: lying.min.x, maxX: lying.max.x, minZ: lying.min.z, maxZ: lying.max.z });
-  }).catch((err) => console.error('[lab] camcorder.glb failed to load', err));
+    recorder.add(shadowed(model));
+    // Only the case blocks the player: the strap lies flat on the floor, and
+    // walking over it is what anyone would do.
+    recorder.updateWorldMatrix(true, true);
+    const body = model.getObjectByName('RecorderBody') ?? model;
+    const box = new THREE.Box3().setFromObject(body, true);
+    colliders.push({ minX: box.min.x, maxX: box.max.x, minZ: box.min.z, maxZ: box.max.z });
+  }).catch((err) => console.error('[lab] cassette_recorder.glb failed to load', err));
 
   /**
-   * The battery lamp: still winking, years on, at floor level -- and with a
-   * light of its own, so the wink catches the concrete round it.
+   * The battery lamp: still winking, at floor level -- and with a light of its
+   * own, so the wink catches the concrete round it.
    */
   const batteryLampMat = new THREE.MeshStandardMaterial({ color: 0x2a0503, emissive: 0xff2010, emissiveIntensity: 0 });
   const batteryLamp = new THREE.Mesh(new THREE.SphereGeometry(0.003, 10, 8), batteryLampMat);
-  batteryLamp.position.fromArray(CAMCORDER.batteryLamp);
-  camcorderLying.add(batteryLamp);
+  batteryLamp.position.fromArray(CASSETTE_RECORDER.batteryLamp);
+  recorder.add(batteryLamp);
   const batteryGlow = new THREE.PointLight(0xff2010, 0, 0.7, 2);
-  batteryGlow.position.fromArray(CAMCORDER.batteryLamp);
-  batteryGlow.position.x += 0.02;
-  camcorderLying.add(batteryGlow);
+  batteryGlow.position.fromArray(CASSETTE_RECORDER.batteryLamp);
+  batteryGlow.position.y += 0.02;
+  recorder.add(batteryGlow);
 
-  function takeTapeFromCamcorder() {
+  function takeTapeFromRecorder() {
     wellTape.visible = false;
     tapePlace = TAPE_PLACE.CARRIED;
     onTapeTaken();
     showCaption(line('dialog_tape_taken'));
   }
 
-  const camcorderHit = new THREE.Mesh(new THREE.BoxGeometry(...CAMCORDER.bounds.size), hiddenHitMat);
-  camcorderHit.position.fromArray(CAMCORDER.bounds.centre);
+  const recorderHit = new THREE.Mesh(new THREE.BoxGeometry(...CASSETTE_RECORDER.bounds.size), hiddenHitMat);
+  recorderHit.position.fromArray(CASSETTE_RECORDER.bounds.centre);
   /**
-   * Two presses: the first looks at it and springs the cassette door, so the
+   * Two presses: the first looks at it and lifts the cassette door, so the
    * player sees something happen at once rather than only reading about it;
    * the second takes the tape.
    */
-  camcorderHit.userData.interact = {
+  recorderHit.userData.interact = {
     get label() {
-      if (tapePlace !== TAPE_PLACE.CAMCORDER) return 'Examine the video camera';
-      return cassetteDoorOpen ? 'Take the tape' : 'Examine the video camera';
+      if (tapePlace !== TAPE_PLACE.RECORDER) return 'Examine the tape recorder';
+      return cassetteDoorOpen ? 'Take the tape' : 'Examine the tape recorder';
     },
     onInteract: () => {
-      if (tapePlace !== TAPE_PLACE.CAMCORDER) {
-        showCaption(line('dialog_camcorder_empty'));
+      if (tapePlace !== TAPE_PLACE.RECORDER) {
+        showCaption(line('dialog_recorder_empty'));
       } else if (!cassetteDoorOpen) {
         cassetteDoorOpen = true;
         onSfx('latch');
-        showCaption(line('dialog_camcorder_examine'));
+        showCaption(line('dialog_recorder_examine'));
       } else {
-        takeTapeFromCamcorder();
+        takeTapeFromRecorder();
       }
     }
   };
-  camcorderLying.add(camcorderHit);
-  interactables.push(camcorderHit);
+  recorder.add(recorderHit);
+  interactables.push(recorderHit);
 
   dynamics.push({
     update: (dt, elapsed) => {
       const lampOn = elapsed % BATTERY_LAMP_BLINK_PERIOD_SECONDS < BATTERY_LAMP_ON_SECONDS;
       batteryLampMat.emissiveIntensity = lampOn ? 3 : 0;
       batteryGlow.intensity = lampOn ? 0.08 : 0;
-      // The door swings on its bottom edge. Turning the model's +z hinge axis
-      // the negative way takes its top edge out from the camera's side.
+      // The door lifts on its near edge. Turning the hinge's +x axis the
+      // positive way takes its far end, which reaches toward -z, up off the case.
       const target = cassetteDoorOpen ? CASSETTE_DOOR_OPEN_ANGLE_IN_RADIANS : 0;
       const step = (CASSETTE_DOOR_OPEN_ANGLE_IN_RADIANS / CASSETTE_DOOR_OPEN_SECONDS) * dt;
       cassetteDoorAngle = easeToward(cassetteDoorAngle, target, step);
-      if (cassetteDoor) cassetteDoor.rotation.z = -cassetteDoorAngle;
+      if (cassetteDoor) cassetteDoor.rotation.x = cassetteDoorAngle;
     }
   });
 
@@ -5581,15 +5465,13 @@ export function createHallwayBasementLevel({
       get generatorRunning() { return isGeneratorRunning(); },
       /** The lab lights' ramp, 0 dark to 1 lit, which the tubes' hum follows. */
       get powerLevel() { return powerLevel; },
-      /** The session tape's picture and clock, for the host's TapePlayerUI and its sound. */
+      /** The session tape's sound and clock, for the host's voices and subtitles. */
       sessionTape: tapeSource,
       /** Resolves with the tape's model: the template for the one in the player's hand. */
       tapeModelReady: cassetteModelPromise,
-      /** The player has stepped back from the tape: the deck stops and rewinds it. */
-      stopTape,
-      /** True once the tape has been watched to its end this run. */
+      /** True once the tape has been heard to its end this run. */
       get tapeWatched() { return tapeWatchedToEnd; },
-      /** Where the tape is: 'camcorder', 'carried' or 'deck'. */
+      /** Where the tape is: 'recorder', 'carried' or 'deck'. */
       get tapePlace() { return tapePlace; },
       /**
        * A fresh snapshot of how far the player is, for the H-key hints (see
@@ -5604,7 +5486,6 @@ export function createHallwayBasementLevel({
           securityCode: SECURITY_CODE,
           tapePlace,
           deckPlaying,
-          monitorInput,
           tapeWatched: tapeWatchedToEnd
         };
       }
@@ -5691,13 +5572,13 @@ export function createHallwayBasementLevel({
 
       resetSessionTape();
       cassetteDoorAngle = 0;
-      if (cassetteDoor) cassetteDoor.rotation.z = 0;
+      if (cassetteDoor) cassetteDoor.rotation.x = 0;
       wellTape.visible = true;
       deckLoad.direction = 0;
       playAfterLoading = false;
       deckTape.visible = false;
+      placeDeckTape(0);
       if (deckParts.flap) deckParts.flap.rotation.x = 0;
-      setMonitorInput(MONITOR_INPUT.CAMERAS);
 
       setFuseCoverOpen(false, { quiet: true });
       fuseCover.everOpened = false;

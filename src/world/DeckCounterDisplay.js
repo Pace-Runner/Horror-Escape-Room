@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 
 /**
- * The counter on the lab's Video8 deck: a small vacuum-fluorescent readout,
- * blue-green on black, behind the smoked window over the transport buttons.
+ * The counter on the lab's cassette deck: a small vacuum-fluorescent readout,
+ * blue-green on black, in its window over the transport keys.
  *
  * It shows what the deck is doing and how far into the tape it is -- STOP or
  * PLAY on the left, the counter on the right -- and nothing at all without

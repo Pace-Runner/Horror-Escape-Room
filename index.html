@@ -105,7 +105,7 @@
           <path d="M16 12v3M19 12v2.5"/>
         </svg>
       </div>
-      <div class="hotbar-slot" data-item="sessionTape" title="Video tape: SESSION 14">
+      <div class="hotbar-slot" data-item="sessionTape" title="Cassette: SESSION 14">
         <svg class="hotbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <rect x="2.5" y="6" width="19" height="12" rx="1.5"/>
           <rect x="6.5" y="8.5" width="11" height="4" rx="0.6"/>
@@ -227,19 +227,9 @@
     <div id="document-hint">there is more below</div>
   </div>
 
-  <!-- The session tape, brought up off the lab's monitor. See
-       src/core/TapePlayerUI.js. The picture element (a video, or the
-       placeholder's canvas) is put into #tape-picture by the script. -->
-  <div id="tape-view" class="hidden">
-    <div id="tape-screen">
-      <div id="tape-picture"></div>
-      <div id="tape-subtitle"></div>
-    </div>
-    <div id="tape-footer">
-      <span id="tape-hint">E to step back</span>
-      <button id="tape-close" type="button">Step back</button>
-    </div>
-  </div>
+  <!-- The session tape's subtitles, while the deck on the lab's desk plays
+       it. See src/core/TapeSubtitles.js. -->
+  <div id="tape-subtitle" class="hidden"></div>
 
   <div id="settings-screen" class="hidden">
     <div id="settings-panel">

@@ -1028,35 +1028,6 @@ export function createPowerSymbolTexture() {
  * Drawn from the level's circuit table rather than baked anywhere, so a label
  * can never disagree with the load chart or the puzzle.
  */
-/**
- * A strip of embossed label-maker tape: white capitals pressed up out of black
- * plastic, the way a lab labels its own kit. The monitor's input rocker wears
- * one -- the staff wrote on it what each end of the switch was for.
- *
- * @param {string} text - what was punched into it, e.g. "CAMERAS  TAPE".
- * @returns {THREE.CanvasTexture} a 512 x 64 strip.
- */
-export function createDymoLabelTexture(text) {
-  const W = 512;
-  const H = 64;
-  const canvas = makeCanvas(W, H);
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#0b0b0c';
-  ctx.fillRect(0, 0, W, H);
-  ctx.font = 'bold 38px "Arial Narrow", Arial, Helvetica, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  // Embossed: a dark drop under each letter, the white standing up out of it.
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
-  ctx.fillText(text, W / 2 + 2, H / 2 + 3);
-  ctx.fillStyle = '#e9e7e0';
-  ctx.fillText(text, W / 2, H / 2 + 1);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
-  return tex;
-}
-
 export function createSwitchLabelTexture(name, amps) {
   const W = 256;
   const H = 176;
