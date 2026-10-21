@@ -2001,7 +2001,7 @@ const bedroom = createBedroomLevel({
     });
   },
   onReadDrawerClue: () => {
-    thought('l1_14');
+    thought('l1_11');
     player.unlock();
     documentUI.open({
       title: 'PROJECT HOLLOW â€” Drawer Note',
@@ -2010,6 +2010,7 @@ const bedroom = createBedroomLevel({
     });
   },
   onReadSafeTag: () => {
+    thought('l1_14');
     player.unlock();
     documentUI.open({
       title: 'PROJECT HOLLOW â€” Evidence Tag',
@@ -4094,7 +4095,15 @@ window.addEventListener('keydown', (e) => {
   // Deliberately INSTANT, not faded: these are a mentor-demo tool and 1.7s of
   // black per press is friction. But each one aborts first, or a jump taken
   // mid-fade lands behind an overlay that will never lift.
-  // Levels 1 and 2 have no shortcut key: they are only reached by playing.
+  // DEV TEST HOTKEY — L = LEVEL 2
+  if (import.meta.env.DEV && e.code === 'KeyL') {
+    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey
+      || e.target?.closest?.('input, textarea, select, [contenteditable], [role="textbox"]')) return;
+    e.preventDefault();
+    abortTransition();
+    activateLevel('hallwayBasement');
+    return;
+  }
   if (e.code === 'Digit3') { abortTransition(); activateLevel('study'); }
   if (e.code === 'Digit4') {
     // Routed off the CURRENT level, so the debug key exercises the same table
