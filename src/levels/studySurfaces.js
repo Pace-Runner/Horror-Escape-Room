@@ -1,14 +1,16 @@
 import * as THREE from 'three';
-import wallpaperUrl from '../assets/textures/study/aged_taupe_wallpaper_1k.jpg?url';
-import floorUrl from '../assets/textures/study/aged_walnut_floorboards_1k.jpg?url';
-import ceilingUrl from '../assets/textures/study/smoke_plaster_ceiling_1k.jpg?url';
-import woodUrl from '../assets/textures/study/straight_walnut_512.jpg?url';
+import wallpaperUrl from '../assets/textures/study/weathered_victorian_damask_wallpaper.png?url';
+import floorUrl from '../assets/textures/study/weathered_dark_hardwood_floor_texture.png?url';
+import ceilingUrl from '../assets/textures/study/weathered_peeling_plaster_texture.png?url';
+import builtInWoodUrl from '../assets/textures/study/aged_dark_brown_wood_grain_texture.png?url';
+import trimWoodUrl from '../assets/textures/study/aged_espresso_wood_grain_texture.png?url';
+import featureWoodUrl from '../assets/textures/study/polished_mahogany_wood_grain_texture.png?url';
 import wallRoughnessUrl from '../assets/textures/study/wall_roughness_512.png?url';
 import floorRoughnessUrl from '../assets/textures/study/floor_roughness_512.png?url';
 import woodRoughnessUrl from '../assets/textures/study/wood_roughness_512.png?url';
 
-// Compact derivatives of the existing Level 1 wallpaper/floor/plaster and bedside
-// wood images. Sized on disk: no runtime image baking or large source uploads.
+// Supplied study images, resized on disk: 1024px architecture / 512px wood.
+// No runtime image baking, duplicated texture loads or large source uploads.
 const surfaceTextures = new Map();
 function loadSurface(url, color = true, mirrored = false) {
   if (!surfaceTextures.has(url)) {
@@ -21,27 +23,41 @@ function loadSurface(url, color = true, mirrored = false) {
   return surfaceTextures.get(url);
 }
 
-/** Study architecture palette; authored furniture maps remain separate. */
+/** Shared study palette. Replace synthetic wood only; preserve other authored channels. */
 export function createStudySurfaces() {
   const wallMap = loadSurface(wallpaperUrl, true, true);
   const wallRoughness = loadSurface(wallRoughnessUrl, false, true);
   const floorMap = loadSurface(floorUrl);
   const floorRoughness = loadSurface(floorRoughnessUrl, false);
   const ceilingMap = loadSurface(ceilingUrl);
-  const woodMap = loadSurface(woodUrl);
+  const woodMaps = {
+    builtIn: loadSurface(builtInWoodUrl), trim: loadSurface(trimWoodUrl), feature: loadSurface(featureWoodUrl)
+  };
+  // Supplied grain runs vertically. Existing metre-based UVs use U along the
+  // timber, so rotate the shared samplers instead of stretching/rotating meshes.
+  for (const map of Object.values(woodMaps)) {
+    map.center.set(0.5, 0.5);
+    map.rotation = Math.PI / 2;
+  }
   const woodRoughness = loadSurface(woodRoughnessUrl, false);
   const woodMaterials = new Map();
+  const materialCache = new Map();
   const seenMaterials = new WeakSet();
   const loftFloorMaterial = new THREE.MeshStandardMaterial({
     name: 'StudyLoftFloorboards', map: floorMap, roughnessMap: floorRoughness,
     color: 0xe0d9cf, roughness: 1, envMapIntensity: 0.2
   });
-  function woodMaterial(shade = 1) {
+  function woodMaterial(shade = 1, family = 'builtIn') {
+    const key = `${family}:${shade}`;
+    if (materialCache.has(key)) return materialCache.get(key);
     const material = new THREE.MeshStandardMaterial({
-      map: woodMap, roughnessMap: woodRoughness,
-      color: new THREE.Color().setScalar(shade), roughness: 1, envMapIntensity: 0.25
+      name: `StudyWood_${family}_${shade}`,
+      map: woodMaps[family], roughnessMap: woodRoughness,
+      color: new THREE.Color(family === 'feature' ? 0xc2c7c2 : family === 'trim' ? 0xc4c0b8 : 0xddd5ca).multiplyScalar(shade),
+      roughness: family === 'feature' ? 0.86 : 1, envMapIntensity: family === 'feature' ? 0.3 : 0.2
     });
     woodMaterials.set(material, shade);
+    materialCache.set(key, material);
     return material;
   }
   function floorSurface(mesh, edgeMaterial = null) {
@@ -61,18 +77,26 @@ export function createStudySurfaces() {
       mesh.material = [edgeMaterial, loftFloorMaterial];
     }
   }
-  function harmoniseAsset(model) {
+  function harmoniseAsset(model, woodFamily = 'feature') {
+    model.updateMatrixWorld(true);
     model.traverse((object) => {
       if (!object.isMesh) return;
-      for (const material of [].concat(object.material)) {
-        if (seenMaterials.has(material)) continue;
-        seenMaterials.add(material);
+      const woodSlots = new Set();
+      const materials = [].concat(object.material);
+      materials.forEach((material, index) => {
         const name = material.name.toLowerCase();
+        if (name.includes('walnut')) woodSlots.add(index);
+        if (seenMaterials.has(material)) return;
+        seenMaterials.add(material);
         if (name.includes('walnut')) {
-          material.color.multiply(new THREE.Color().setRGB(0.77, 0.82, 0.88));
+          const shared = woodMaterial(0.95, woodFamily);
+          material.map = shared.map;
+          material.roughnessMap = shared.roughnessMap;
+          material.color.copy(shared.color);
           material.metalness = 0;
-          material.roughness = 1;
-          material.envMapIntensity = 0.3;
+          material.roughness = shared.roughness;
+          material.envMapIntensity = shared.envMapIntensity;
+          material.needsUpdate = true;
           if ('clearcoat' in material) { material.clearcoat = 0; material.clearcoatRoughness = 0.85; }
         } else if (name.includes('brass')) {
           material.color.multiplyScalar(0.76);
@@ -90,7 +114,32 @@ export function createStudySurfaces() {
           material.color.multiply(new THREE.Color().setRGB(0.88, 0.86, 0.79));
           material.roughness = Math.max(material.roughness, 0.92);
         }
+      });
+      if (!woodSlots.size) return;
+      // Imported Blender meshes can carry a Z-up transform. Project in the
+      // converted model space, touching UVs only on wood material primitives.
+      const geometry = object.geometry = object.geometry.clone();
+      const positions = geometry.attributes.position, normals = geometry.attributes.normal;
+      const uv = geometry.attributes.uv;
+      if (!uv) return;
+      const vertices = new Set();
+      if (!geometry.groups.length) {
+        for (let i = 0; i < positions.count; i++) vertices.add(i);
+      } else for (const section of geometry.groups) {
+        if (!woodSlots.has(section.materialIndex)) continue;
+        for (let i = section.start; i < section.start + section.count; i++) vertices.add(geometry.index ? geometry.index.getX(i) : i);
       }
+      const point = new THREE.Vector3(), normal = new THREE.Vector3();
+      const normalMatrix = new THREE.Matrix3().getNormalMatrix(object.matrixWorld);
+      for (const i of vertices) {
+        point.fromBufferAttribute(positions, i).applyMatrix4(object.matrixWorld);
+        normal.fromBufferAttribute(normals, i).applyMatrix3(normalMatrix).normalize();
+        const horizontal = Math.abs(normal.y) > 0.7;
+        const along = horizontal ? point.x : point.y;
+        const across = horizontal || Math.abs(normal.x) > 0.7 ? point.z : point.x;
+        uv.setXY(i, along / 0.85, across / 0.25);
+      }
+      uv.needsUpdate = true;
     });
     return model;
   }
@@ -123,7 +172,8 @@ export function createStudySurfaces() {
       // Unit-box fixtures can share geometry but have different physical scales.
       // Cache by scale instead of changing shared UVs according to the first mesh.
       const source = object.geometry;
-      const key = `${scale.x.toFixed(5)},${scale.y.toFixed(5)},${scale.z.toFixed(5)}`;
+      const grainOffset = object.userData.studyGrainOffset || 0;
+      const key = `${scale.x.toFixed(5)},${scale.y.toFixed(5)},${scale.z.toFixed(5)},${grainOffset}`;
       if (wood && !object.isInstancedMesh && !object.userData.studyFloorSurface) {
         let variants = mappedGeometry.get(source);
         if (!variants) { variants = new Map(); mappedGeometry.set(source, variants); }
@@ -184,7 +234,7 @@ export function createStudySurfaces() {
           } else {
             along = depth > width ? point.z : point.x; across = point.y;
           }
-          uv.setXY(i, along / 0.85, across / 0.25);
+          uv.setXY(i, along / 0.85 + grainOffset, across / 0.25 + grainOffset * 0.37);
         }
       }
       uv.needsUpdate = true;

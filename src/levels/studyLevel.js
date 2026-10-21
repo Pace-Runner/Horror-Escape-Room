@@ -53,7 +53,9 @@ export function createStudyLevel({
   const colliders = [];
 
   const studySurfaces = createStudySurfaces();
-  const loadStudyModel = (url) => loadModel(url).then(studySurfaces.harmoniseAsset);
+  const loadStudyModel = (url) => loadModel(url).then(model => studySurfaces.harmoniseAsset(
+    model, url === archiveCabinetUrl || url === annabelleChairUrl ? 'builtIn' : 'feature'
+  ));
   const floorTex = studySurfaces.floorMap;
   const wallTex = studySurfaces.wallMap;
 
@@ -76,7 +78,7 @@ export function createStudyLevel({
   ceiling.geometry.attributes.uv.array.forEach((value, i, array) => { array[i] = value * (i % 2 ? ROOM_D : ROOM_W) / 4; });
   group.add(ceiling);
 
-  const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughnessMap: studySurfaces.wallRoughness, roughness: 1, vertexColors: true });
+  const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughnessMap: studySurfaces.wallRoughness, color: 0xbbb4a7, roughness: 1, vertexColors: true });
   const wallGeometry = (w, h) => new THREE.PlaneGeometry(w, h, Math.max(1, Math.ceil(w / 1.6)), Math.max(1, Math.ceil(h / 0.32)));
   function wall(w, x, z, ry) {
     const m = new THREE.Mesh(wallGeometry(w, ROOM_H), wallMat);
@@ -154,7 +156,7 @@ export function createStudyLevel({
     entryDoor.position.set(rightX - 0.06, ENTRY_DOOR_H / 2, ENTRY_DOOR_Z);
     const doorSlab = new THREE.Mesh(
       new THREE.BoxGeometry(0.08, ENTRY_DOOR_H, ENTRY_DOOR_W),
-      studySurfaces.woodMaterial(0.86)
+      studySurfaces.woodMaterial(0.86, 'trim')
     );
     const handle = new THREE.Mesh(
       new THREE.SphereGeometry(0.045, 8, 6),
@@ -173,7 +175,7 @@ export function createStudyLevel({
 
   // Deep stained casings make both openings read as part of the old house,
   // while leaving the authored slabs, hinges and collision untouched.
-  const trimMat = studySurfaces.woodMaterial(0.58);
+  const trimMat = studySurfaces.woodMaterial(0.86, 'trim');
   function addDoorCasing(x, z, width, height, facesFront) {
     const casing = new THREE.Group();
     casing.position.set(x, 0, z);
@@ -216,8 +218,9 @@ export function createStudyLevel({
   const balconyMat = studySurfaces.woodMaterial(0.82);
   // Compact straight-grained architectural walnut stays independent of furniture UVs.
   const architectureWoodMat = studySurfaces.woodMaterial(0.96);
-  const handrailWoodMat = studySurfaces.woodMaterial(0.78);
-  const treadWoodMat = studySurfaces.woodMaterial(1.02);
+  const handrailWoodMat = studySurfaces.woodMaterial(0.78, 'trim');
+  const treadWoodMat = studySurfaces.woodMaterial(1.02, 'trim');
+  const stairWoodMat = studySurfaces.woodMaterial(0.92, 'trim');
   const newelShaftGeometry = new RoundedBoxGeometry(0.13, 1.08, 0.13, 1, 0.006);
   const newelFootGeometry = new RoundedBoxGeometry(0.18, 0.13, 0.18, 1, 0.006);
   const newelCapGeometry = new RoundedBoxGeometry(0.19, 0.055, 0.19, 1, 0.008);
@@ -252,7 +255,7 @@ export function createStudyLevel({
     return mesh;
   }
   function addBalusters(placements) {
-    const mesh = new THREE.InstancedMesh(balusterGeometry, architectureWoodMat, placements.length);
+    const mesh = new THREE.InstancedMesh(balusterGeometry, handrailWoodMat, placements.length);
     placements.forEach(([x, bottom, z, height], index) => {
       architecturePosition.set(x, bottom, z);
       architectureScale.set(1, height / 0.84, 1);
@@ -354,7 +357,7 @@ export function createStudyLevel({
   const riserGeometry = new THREE.BoxGeometry(stairWidth - 0.07, stairRise - 0.015, 0.022);
   for (let index = 0; index < stairCount; index++) {
     const stepHeight = stairRise * (index + 1);
-    const step = new THREE.Mesh(stairGeometry, architectureWoodMat);
+    const step = new THREE.Mesh(stairGeometry, stairWoodMat);
     step.scale.y = stepHeight;
     step.position.set(stairX, stepHeight / 2, stairBottomZ - stairDepth * (index + 0.5));
     step.receiveShadow = true;
@@ -363,7 +366,7 @@ export function createStudyLevel({
     tread.position.set(stairX, stepHeight + 0.028, step.position.z + 0.015);
     tread.receiveShadow = true;
     group.add(tread);
-    addTimber(riserGeometry, stairX, stepHeight - stairRise / 2, stairBottomZ - stairDepth * index + 0.012);
+    addTimber(riserGeometry, stairX, stepHeight - stairRise / 2, stairBottomZ - stairDepth * index + 0.012, stairWoodMat);
   }
   const stringerLength = Math.hypot(stairRun, LOFT_Y);
   const stringerAngle = Math.atan2(LOFT_Y, stairRun);
@@ -373,7 +376,7 @@ export function createStudyLevel({
     const wallSide = side === 1;
     const stringer = addTimber(wallSide ? wallSkirtGeometry : stringerGeometry,
       wallSide ? ROOM_W / 2 - 0.018 : stairX - stairHalfWidth + 0.05,
-      LOFT_Y / 2 + 0.025, (stairBottomZ + stairTopZ) / 2);
+      LOFT_Y / 2 + 0.025, (stairBottomZ + stairTopZ) / 2, stairWoodMat);
     stringer.rotation.x = stringerAngle;
   }
   const stairRailX = stairX - stairHalfWidth + 0.05;
@@ -483,7 +486,7 @@ export function createStudyLevel({
   const keyMat = new THREE.MeshStandardMaterial({ color: 0x978258, metalness: 0.72, roughness: 0.66 });
 
   // desk chair, tucked in
-  const chairMat = studySurfaces.woodMaterial(0.90);
+  const chairMat = studySurfaces.woodMaterial(0.90, 'feature');
   const chairGroup = new THREE.Group();
   chairGroup.position.set(0, 0, 1.9);
   const chairSeat = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.42), chairMat);
@@ -509,7 +512,7 @@ export function createStudyLevel({
   clock.position.set(clockX, 0, clockZ);
   group.add(clock);
 
-  const clockWoodMat = studySurfaces.woodMaterial(0.82);
+  const clockWoodMat = studySurfaces.woodMaterial(0.82, 'feature');
   const clockHandMat = new THREE.MeshStandardMaterial({ color: 0x15120f, roughness: 0.75 });
   // The GLB supplies only the static case/dial. Its authored +Z faces into +X here.
   loadStudyModel(grandfatherClockUrl).then((model) => {
@@ -840,6 +843,9 @@ export function createStudyLevel({
       group.add(bookcase);
     } else {
       const shelf = new THREE.Mesh(alongX ? shelfAlongWallGeometry : shelfAcrossWallGeometry, shelfMat);
+      const variation = Math.abs(Math.round(x * 7 + z * 13)) % 3;
+      shelf.material = studySurfaces.woodMaterial([0.70, 0.76, 0.82][variation]);
+      shelf.userData.studyGrainOffset = variation * 0.27;
       shelf.position.set(x, y, z);
       group.add(shelf);
       // Applied pilasters, crown and shelf lines turn the simple collision block
@@ -1336,7 +1342,11 @@ Annabelle`;
       object.receiveShadow = true;
     });
     const shell = model.getObjectByName('Victorian_Archive_Static_Shell');
-    const walnut = [].concat(shell.material).find((material) => material.name === 'Archive aged walnut');
+    // Multi-material GLTF exports wrap primitives in a Group, not a Mesh.
+    let walnut;
+    shell?.traverse((object) => {
+      walnut ??= [].concat(object.material || []).find(material => material.name === 'Archive aged walnut');
+    });
     if (walnut) {
       archiveDoor.material = walnut;
       visorCompartmentCover.material = walnut;
