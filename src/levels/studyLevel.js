@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { loadModel } from '../world/modelLoader.js';
+import annabelleChairUrl from '../assets/models/study/annabelle_wingback_chair.glb?url';
 import {
   createWoodFloorTexture,
   createWoodFloorBumpTexture,
@@ -1493,40 +1495,22 @@ Annabelle`;
   annabelle.rotation.y = -Math.PI / 2;
   annabelle.visible = false;
   group.add(annabelle);
-  // The concealment chair keeps its authored footprint, but reads as a large,
-  // worn armchair rather than a pair of gray boxes. Annabelle and her reward
-  // remain at their exact existing positions, peeking past its right edge.
+  // The GLB is authored at metre scale, floor-centred, facing +Z into the study.
+  // Keep Annabelle's position and the existing collision footprint unchanged.
   const concealmentChair = new THREE.Group();
-  concealmentChair.name = 'Annabelle_Worn_Armchair';
+  concealmentChair.name = 'Annabelle_Wingback_Chair';
   concealmentChair.position.set(-4.65, 0, -3.45);
-  const wornChairMat = new THREE.MeshStandardMaterial({ color: 0x49352f, roughness: 1 });
-  const wornEdgeMat = new THREE.MeshStandardMaterial({ color: 0x2b211c, roughness: 0.95 });
-  const concealmentSeat = new THREE.Mesh(new THREE.BoxGeometry(1.16, 0.32, 0.86), wornChairMat);
-  concealmentSeat.position.y = 0.42;
-  const concealmentBack = new THREE.Mesh(new THREE.BoxGeometry(1.22, 1.35, 0.24), wornChairMat);
-  concealmentBack.position.set(0, 1.02, -0.34);
-  concealmentBack.rotation.x = -0.08;
-  concealmentChair.add(concealmentSeat, concealmentBack);
-  for (const x of [-0.5, 0.5]) {
-    const armPost = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.62, 0.76), wornChairMat);
-    armPost.position.set(x, 0.55, -0.02);
-    const armRoll = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.78, 10), wornChairMat);
-    armRoll.rotation.x = Math.PI / 2;
-    armRoll.position.set(x, 0.83, -0.02);
-    concealmentChair.add(armPost, armRoll);
-  }
-  const chairCushion = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.18, 0.68), wornChairMat);
-  chairCushion.position.set(0, 0.66, 0.03);
-  chairCushion.rotation.x = -0.04;
-  concealmentChair.add(chairCushion);
-  for (const x of [-0.44, 0.44]) {
-    for (const z of [-0.29, 0.29]) {
-      const foot = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.065, 0.25, 6), wornEdgeMat);
-      foot.position.set(x, 0.125, z);
-      concealmentChair.add(foot);
-    }
-  }
+  concealmentChair.scale.setScalar(1);
+  concealmentChair.rotation.y = 0;
   group.add(concealmentChair);
+  loadModel(annabelleChairUrl).then((model) => {
+    model.traverse((object) => {
+      if (!object.isMesh) return;
+      object.castShadow = false;
+      object.receiveShadow = true;
+    });
+    concealmentChair.add(model);
+  }).catch((error) => console.warn('Annabelle chair could not load:', error));
   colliders.push({ minX: -5.225, maxX: -4.075, minZ: -3.89, maxZ: -3.025, minY: 0, maxY: 1.6 });
   const annabelleCoatMat = new THREE.MeshStandardMaterial({ color: 0x5d5148, roughness: 1 });
   const annabelleSkinMat = new THREE.MeshStandardMaterial({ color: 0x9d8271, roughness: 0.95 });
