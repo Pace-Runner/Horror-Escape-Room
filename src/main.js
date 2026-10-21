@@ -2274,7 +2274,7 @@ function hideCreature() {
  * The two ambients are swapped by INTENSITY, never by switching one off: a
  * light count is part of every shader's key, so turning a light off mid-game
  * recompiles every material in view -- the very stall this is meant to avoid.
- * Both lit sets (both rooms, and the hall alone) are built in warmUp().
+ * Both lit sets (both rooms, and the hall alone) are built in warmLevelOne().
  */
 const HALL_ENTER_DEPTH = 0.8;
 const HALL_AMBIENT = 0.31;
@@ -4570,6 +4570,10 @@ function beginGame() {
   window.addEventListener('keydown', skipOpeningNews);
   const levelOneReady = Promise.all([initializeHands(), initializeHeldTorch()]);
   activateLevel('bedroom', { lockMovement: true });
+  // Level 1's rooms are warmed behind the report, so opening the bedroom door
+  // onto the hallway does not freeze. See warmLevelOne().
+  let roomsAreWarm = false;
+  const roomsWarmed = warmLevelOne().then(() => { roomsAreWarm = true; });
 
   script.run(async (s) => {
     // The opening report runs while Level 1's presentation assets prepare.
@@ -4578,7 +4582,14 @@ function beginGame() {
     if (!s.alive()) return;
     await levelOneReady;
     if (!s.alive()) return;
-    if (newsResult?.skipped) {
+    // Skipped, or a slow machine: the loading bar stays up until the warm-up
+    // is done. A wait here is better than a freeze at a door later.
+    const hadToWait = !roomsAreWarm;
+    if (hadToWait) await showLoadingUntil(roomsWarmed);
+    if (!s.alive()) return;
+    // After a wait, K is no longer a fresh enough gesture to take the pointer
+    // lock, so the player clicks through like an unskipped report.
+    if (newsResult?.skipped && !hadToWait) {
       // K is itself a user gesture, so it can safely acquire the pointer lock
       // and continue straight to the authored wake-up scene.
       startButton.disabled = false;
@@ -4950,12 +4961,9 @@ function showViewModelsForWarmUp() {
 
 async function warmUp({
   keys = [...sceneManager.levels.keys()],
-  waitForAssets = true,
-  includeCreatures = true
+  waitForAssets = true
 } = {}) {
-  // The creature counts as a step of its own: it is a network fetch rather
-  // than a compile, and it is the one the maze cannot open without.
-  const steps = keys.length + 2;
+  const steps = keys.length;
   let done = 0;
   const advance = async (hint) => {
     done++;
@@ -5046,84 +5054,95 @@ async function warmUp({
   scene.fog = wasFog;
   camera.position.copy(camPos);
   camera.quaternion.copy(camQuat);
+}
 
-  if (!includeCreatures) return;
-
-  // Both bodies: the monster, and the player's own, which is the same mesh at
-  // the other end of the dial. Waiting on each is a 1.8 MB fetch the browser
-  // serves the second one from cache, then its own pile of programs.
-  setLoadProgress(done / steps, 'something is already inside...');
-  await nextFrame();
-  await Promise.all([okabe.ready, playerBody.ready, creature.ready]);
-  await advance('something is already inside...');
+/**
+ * The backrooms monster, in the maze with only the maze showing, under the
+ * maze's fog and lights and in front of the camera -- the exact conditions of
+ * the frame it walks into view on. Warmed anywhere else, it compiles again on
+ * arrival. The player's body (T) is drawn there too.
+ *
+ * Starting the hunter on a creature whose shaders have never been built is the
+ * one stall a fade cannot cover, because it lands the moment the thing becomes
+ * visible in the corridor -- so this runs on the fade into the maze.
+ */
+async function warmMazeCreature() {
+  const maze = sceneManager.get('backrooms');
+  if (!maze) return;
+  await Promise.all([okabe.ready, playerBody.ready]);
+  const levelWasVisible = new Map([...sceneManager.levels].map(([key, level]) => [key, level.group.visible]));
   const creatureWasVisible = okabe.visible;
+  const bodyWasVisible = playerBody.visible;
   const fogBefore = scene.fog;
   const posBefore = camera.position.clone();
-  const maze = sceneManager.get('backrooms');
-  const mazeWasVisible = maze ? maze.group.visible : false;
-  okabe.visible = true;
-  // In the maze, under the maze's fog, lit by the maze's lights and with the
-  // creature in front of the camera -- the exact conditions of the frame it
-  // walks into view on. Warmed anywhere else and it compiles again on arrival.
-  if (maze) maze.group.visible = true;
+  for (const level of sceneManager.levels.values()) level.group.visible = level === maze;
   scene.fog = LEVEL_FOG.backrooms ?? null;
-  if (maze?.spawn) {
+  if (maze.spawn) {
     camera.position.set(maze.spawn[0], 1.6, maze.spawn[1]);
     okabe.setPosition(maze.spawn[0], maze.spawn[1] - 4);
   }
+  okabe.visible = true;
   okabe.setCorrection(0);
   okabe.setSilhouette(true);
   okabe.update(1 / 60);
   okabe.setLayer(0);
-  const unculled = [];
-  okabe.group.traverse((o) => {
-    if (o.isMesh || o.isSkinnedMesh) { unculled.push([o, o.frustumCulled]); o.frustumCulled = false; }
-  });
-  try {
-    await renderer.compileAsync(okabe.group, camera, scene);
-    postFX.render();
-  } catch (err) {
-    console.warn('warmUp: could not warm the creature', err);
-  }
-  // And the player's body, in the bedroom where the view is first switched,
-  // so the first press of T is not its own half-second stall.
-  const bodyWasVisible = playerBody.visible;
   playerBody.visible = true;
   playerBody.setPosition(camera.position.x, camera.position.z);
   playerBody.update(1 / 60);
-  playerBody.group.traverse((o) => {
-    if (o.isMesh || o.isSkinnedMesh) { unculled.push([o, o.frustumCulled]); o.frustumCulled = false; }
-  });
+  const unculled = [];
+  for (const figure of [okabe, playerBody]) {
+    figure.group.traverse((o) => {
+      if (o.isMesh || o.isSkinnedMesh) { unculled.push([o, o.frustumCulled]); o.frustumCulled = false; }
+    });
+  }
   try {
+    await renderer.compileAsync(okabe.group, camera, scene);
     await renderer.compileAsync(playerBody.group, camera, scene);
     postFX.render();
   } catch (err) {
-    console.warn('warmUp: could not warm the player body', err);
+    console.warn('warmMazeCreature: could not warm the creature', err);
   }
+  // Put back what each mesh HAD, not true: OkabeCreature turns culling off on
+  // its skinned meshes on purpose (their bounding sphere freezes at the first
+  // pose), and blanket-restoring true here quietly undid that.
+  for (const [o, was] of unculled) o.frustumCulled = was;
+  okabe.visible = creatureWasVisible;
+  okabe.setSilhouette(false);
   playerBody.visible = bodyWasVisible;
+  for (const [key, level] of sceneManager.levels) level.group.visible = levelWasVisible.get(key);
+  scene.fog = fogBefore;
+  camera.position.copy(posBefore);
+}
 
-  // And the house creature, at the monster reading every house beat shows, in
-  // EACH house room it can appear in, with only that room showing.
-  //
-  // A shader is built for one exact set of lights and fog. This used to be done
-  // once, under the bedroom's fog but with the maze still switched on from the
-  // hunter's warm-up above -- a mix of two rooms' lights that play never
-  // produces -- so the creature built its shaders again on its first
-  // appearance in every room: entering the basement froze for ~2-3 s. The
-  // player's body (T) is drawn alongside it for the same reason.
+/**
+ * The house creature, at the monster reading every house beat shows, in each
+ * of `houseSets`, with only those rooms showing. A set of more than one room
+ * also draws every material in those rooms under their joined lights, or
+ * opening the bedroom door stalls.
+ *
+ * A shader is built for one exact set of lights and fog. This used to be done
+ * once, under the bedroom's fog but with the maze still switched on from the
+ * hunter's warm-up -- a mix of two rooms' lights that play never produces --
+ * so the creature built its shaders again on its first appearance in every
+ * room: entering the basement froze for ~2-3 s. The player's body (T) is drawn
+ * alongside it for the same reason.
+ *
+ * @param {string[][]} houseSets - level keys drawn together, one set at a time.
+ */
+async function warmHouseCreature(houseSets) {
+  await Promise.all([creature.ready, playerBody.ready]);
   const houseWasVisible = creature.visible;
   const bodyWasShown = playerBody.visible;
   const levelWasVisible = new Map([...sceneManager.levels].map(([key, level]) => [key, level.group.visible]));
+  const fogBefore = scene.fog;
+  const posBefore = camera.position.clone();
+  const unculled = [];
   creature.visible = true;
   playerBody.visible = true;
   creature.group.traverse((o) => {
     if (o.isMesh || o.isSkinnedMesh) { unculled.push([o, o.frustumCulled]); o.frustumCulled = false; }
   });
-  // Each lit set it can be seen in: every house room on its own, plus the
-  // bedroom and the hallway drawn together (the door open between them, see
-  // openToHallway) -- a light set no single room has, so every material in
-  // both rooms is drawn under it here too, or opening the door stalls.
-  for (const houseKeys of [['bedroom'], ['bedroom', 'upstairsHallway'], ['upstairsHallway'], ['hallwayBasement'], ['study']]) {
+  for (const houseKeys of houseSets) {
     const houseKey = houseKeys[houseKeys.length - 1];
     const houseLevel = sceneManager.get(houseKey);
     if (!houseLevel) continue;
@@ -5164,33 +5183,52 @@ async function warmUp({
   for (const [key, level] of sceneManager.levels) level.group.visible = levelWasVisible.get(key);
   creature.visible = houseWasVisible;
   playerBody.visible = bodyWasShown;
-
-  // Put back what each mesh HAD, not true: OkabeCreature turns culling off on
-  // its skinned meshes on purpose (their bounding sphere freezes at the first
-  // pose), and blanket-restoring true here quietly undid that.
   for (const [o, was] of unculled) o.frustumCulled = was;
-  okabe.visible = creatureWasVisible;
-  okabe.setSilhouette(false);
-  if (maze) maze.group.visible = mazeWasVisible;
   scene.fog = fogBefore;
   camera.position.copy(posBefore);
-  // Leave the map showing the room the game actually opens in, not whichever
-  // level was warmed last.
-  minimap.setMode(sceneManager.active?.minimap);
-  await minimap.warmUp();
-  // IT MAY HUNT NOW, and not before. Starting the hunter on a creature whose
-  // shaders have never been built is the one stall a fade cannot cover,
-  // because it lands the moment the thing becomes visible in the corridor.
-  backroomsHunter.setReady(true);
-  await advance('something is already inside...');
 }
 
 const warmedLevelKeys = new Set();
 
+/**
+ * Warms Level 1 -- the bedroom, the upstairs hallway, the two drawn together
+ * with the door open, and the creature that rushes down the hall -- behind
+ * the 72 s opening news report.
+ *
+ * The hallway is walked into, never faded into, so nothing else warms it: its
+ * shaders were built the moment the bedroom door opened, and the game froze.
+ * Later rooms still warm on their own fades (warmLevelForTransition).
+ */
+async function warmLevelOne() {
+  try {
+    await warmUp({ keys: ['bedroom', 'upstairsHallway'] });
+    setLoadProgress(0.75, 'something is already inside...');
+    await warmHouseCreature([['bedroom'], ['bedroom', 'upstairsHallway'], ['upstairsHallway']]);
+    minimap.setMode(sceneManager.active?.minimap);
+    await minimap.warmUp();
+    setLoadProgress(1);
+    warmedLevelKeys.add('bedroom');
+    warmedLevelKeys.add('upstairsHallway');
+  } catch (err) {
+    console.warn('warmLevelOne: warm-up failed', err);
+  }
+}
+
+/** Shows the loading bar over the opening until `work` is done. */
+async function showLoadingUntil(work) {
+  loadingScreen.classList.remove('is-done');
+  await work;
+  loadingScreen.classList.add('is-done');
+}
+
 /** Warms exactly one destination level while a transition already owns the screen. */
 async function warmLevelForTransition(key) {
   if (warmedLevelKeys.has(key)) return;
-  await warmUp({ keys: [key], waitForAssets: false, includeCreatures: false });
+  await warmUp({ keys: [key], waitForAssets: false });
+  // And whatever creature can show up there, or its first appearance is a
+  // freeze of its own, seconds into the room.
+  if (key === 'backrooms') await warmMazeCreature();
+  else await warmHouseCreature([[key]]);
   warmedLevelKeys.add(key);
 }
 
