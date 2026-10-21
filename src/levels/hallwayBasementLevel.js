@@ -481,11 +481,10 @@ const CCTV_FEED_STATIC_MIX = 0.18;
 
 /**
  * How long the fuse's lit window lasts before someone throws the main anyway,
- * in seconds: a fresh draw between these two every time the fuse goes in, so
- * a player who has been caught by it once cannot count it down the next time.
- * Going for the door or the CCTV desk throws it sooner -- see triggerBlackout.
+ * in seconds, from the moment the fuse goes in. Going for the door or the CCTV
+ * desk throws it sooner -- see triggerBlackout.
  */
-const BLACKOUT_TIMER_RANGE_IN_SECONDS = [20, 30];
+const BLACKOUT_TIMER_IN_SECONDS = 20;
 
 /**
  * The volume in front of the CCTV desk that throws the main while the lab is
@@ -530,7 +529,7 @@ const FUSE_CRATE = CRATE_LAYOUT.reduce((a, b) => (b.stackY > a.stackY ? b : a));
  * The objective is a chain of four electrical puzzles, tracked by
  * `powerStage`. Seat the right fuse (30A among four) to light the lab -- and
  * only the lab: not the CCTV desk, not the door, which is the point. Then
- * someone throws the main on you, after 20-30 s or the moment you go for the
+ * someone throws the main on you, after 20 s or the moment you go for the
  * door or the desk, whichever comes first. Restart the generator in the order on its plate to
  * get current back to the breaker panel, then route the panel's 60A across
  * the three circuits that matter without tripping it. Only that last step
@@ -4884,15 +4883,14 @@ export function createHallwayBasementLevel({
   }
 
   /**
-   * Seconds left of the fuse's lit window, from BLACKOUT_TIMER_RANGE_IN_SECONDS,
+   * Seconds left of the fuse's lit window, from BLACKOUT_TIMER_IN_SECONDS,
    * counting only while the lab is LIT.
    */
   let blackoutTimerSecondsLeft = 0;
 
   /** Starts the lit window's clock. The fuse calls this as it seats. */
   function startBlackoutTimer() {
-    const [shortest, longest] = BLACKOUT_TIMER_RANGE_IN_SECONDS;
-    blackoutTimerSecondsLeft = shortest + Math.random() * (longest - shortest);
+    blackoutTimerSecondsLeft = BLACKOUT_TIMER_IN_SECONDS;
   }
 
   /**
