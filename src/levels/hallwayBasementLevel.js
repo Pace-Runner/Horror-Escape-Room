@@ -55,6 +55,7 @@ import steelColorUrl from '../assets/textures/lab/metal055b_color.jpg?url';
 import steelNormalUrl from '../assets/textures/lab/metal055b_normal_gl.jpg?url';
 import steelRoughnessUrl from '../assets/textures/lab/metal055b_roughness.jpg?url';
 import doorScratchesUrl from '../assets/textures/lab/door_scratches.png?url';
+import cardboardUrl from '../assets/textures/lab/cardboard.jpg?url';
 // The steel door at the far end: one photo of a whole riveted, rusting door,
 // made from door_height_map.png and door_normal_map.png (both cropped to the door).
 import steelDoorAlbedoUrl from '../assets/textures/lab/steel_door_albedo.jpg?url';
@@ -2028,8 +2029,9 @@ export function createHallwayBasementLevel({
     },
     {
       // Flat top face of the crate stack, just off its centre.
+      // Off the seam between the lid's flaps, which runs across its middle.
       x: FUSE_CRATE.x + 0.05,
-      z: FUSE_CRATE.z + 0.05,
+      z: FUSE_CRATE.z + 0.09,
       surfaceY: FUSE_CRATE_TOP_Y
     }
   ];
@@ -5048,7 +5050,72 @@ export function createHallwayBasementLevel({
     minZ: LAB_Z + workbench.position.z - 0.45, maxZ: LAB_Z + workbench.position.z + 0.45
   });
 
-  const crateMat = new THREE.MeshStandardMaterial({ color: 0x2e2418, roughness: 0.9 });
+  /**
+   * Cardboard boxes: a photo of corrugated board, creased, across every face
+   * once (a box's UVs run 0..1 over each face), its own light and shade as a
+   * bump so the corrugation catches the light, and dulled a little for a
+   * basement. Each box has the photo flipped its own way, so the crease
+   * across it never lines up from one box to the next.
+   */
+  const CARDBOARD_FLIPS = [[1, 1], [-1, 1], [1, -1]];
+  const cardboardMats = CARDBOARD_FLIPS.map((repeat) => new THREE.MeshStandardMaterial({
+    map: loadPhoto(cardboardUrl, { repeat }),
+    bumpMap: loadPhoto(cardboardUrl, { colour: false, repeat }),
+    bumpScale: 1.5,
+    color: 0xc9bca6,
+    roughness: 0.92
+  }));
+  /** How far a box's sides bow out, its lid flaps' thickness and rise, and the gap at their seam. */
+  const BOX_BULGE = 0.006;
+  const BOX_FLAP_THICKNESS = 0.004;
+  const BOX_FLAP_RISE_IN_RADIANS = 0.01;
+  const BOX_SEAM = 0.003;
+  /**
+   * A closed cardboard box, CRATE_SIZE on every side, centred on its origin:
+   * its four sides bowed out a little by whatever is packed in it -- the
+   * edges and corners staying straight, as a full box's do -- and its lid two
+   * flaps folded down to meet in a seam across the middle, each rising a
+   * touch toward it. Each flap shows its own half of the photo, so the
+   * cardboard is not squeezed onto it. Its top is still CRATE_SIZE up, so a
+   * box stacks on it and the fuse lies on it where they always did.
+   *
+   * @param {THREE.Material} material - the box's cardboard.
+   * @returns {THREE.Group}
+   */
+  function createCardboardBox(material) {
+    const half = CRATE_SIZE / 2;
+    const bodyHeight = CRATE_SIZE - BOX_FLAP_THICKNESS;
+    const body = new THREE.BoxGeometry(CRATE_SIZE, bodyHeight, CRATE_SIZE, 8, 8, 8);
+    const position = body.attributes.position;
+    for (let i = 0; i < position.count; i++) {
+      const x = position.getX(i) / half;
+      const y = position.getY(i) / (bodyHeight / 2);
+      const z = position.getZ(i) / half;
+      // Each side bows out in its middle, nothing at its edges.
+      if (Math.abs(Math.abs(x) - 1) < 1e-6) position.setX(i, position.getX(i) + Math.sign(x) * BOX_BULGE * (1 - y * y) * (1 - z * z));
+      if (Math.abs(Math.abs(z) - 1) < 1e-6) position.setZ(i, position.getZ(i) + Math.sign(z) * BOX_BULGE * (1 - y * y) * (1 - x * x));
+    }
+    body.computeVertexNormals();
+    const box = new THREE.Mesh(body, material);
+    box.position.y = -BOX_FLAP_THICKNESS / 2;
+    const holder = new THREE.Group();
+    holder.add(box);
+    for (const side of [-1, 1]) {
+      const depth = half - BOX_SEAM / 2;
+      const flap = new THREE.BoxGeometry(CRATE_SIZE, BOX_FLAP_THICKNESS, depth);
+      // This flap's half of the photo, on its top face and the rest.
+      const uv = flap.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * 0.5 + (side > 0 ? 0 : 0.5));
+      // Hinged at the box's edge, its free edge at the seam.
+      flap.translate(0, BOX_FLAP_THICKNESS / 2, -side * depth / 2);
+      const hinge = new THREE.Group();
+      hinge.position.set(0, half - BOX_FLAP_THICKNESS, side * half);
+      hinge.rotation.x = side * BOX_FLAP_RISE_IN_RADIANS;
+      hinge.add(new THREE.Mesh(flap, material));
+      holder.add(hinge);
+    }
+    return holder;
+  }
   /**
    * The stacked crates used to stand at x=1.5, which left a 0.50 m gap between
    * their collider and the shelving at x=2.3. The player is 0.70 m across, so
@@ -5059,8 +5126,8 @@ export function createHallwayBasementLevel({
    *
    * Moved west to x=0.9, which opens the gap to 1.10 m.
    */
-  CRATE_LAYOUT.forEach(({ x, z, stackY, turn }) => {
-    const crate = new THREE.Mesh(new THREE.BoxGeometry(CRATE_SIZE, CRATE_SIZE, CRATE_SIZE), crateMat);
+  CRATE_LAYOUT.forEach(({ x, z, stackY, turn }, i) => {
+    const crate = createCardboardBox(cardboardMats[i % cardboardMats.length]);
     crate.position.set(x, CRATE_SIZE / 2 + stackY, z);
     crate.rotation.y = turn;
     lab.add(crate);
