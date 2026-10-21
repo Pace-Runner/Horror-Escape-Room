@@ -6,7 +6,6 @@ import {
   createConcreteBumpTexture,
   createStickyNoteTexture,
   createHazardSignTexture,
-  createPaperNoteTexture,
   createFuseCapStampTexture,
   createFixtureSteelTexture,
   createFixtureSteelNormalTexture,
@@ -20,6 +19,7 @@ import {
   createSwitchLabelTexture
 } from '../world/textures.js';
 import { loadModel } from '../world/modelLoader.js';
+import { createPaperNoteTexture, createPaperSheet } from '../world/paperNotes.js';
 import labDoorModelUrl from '../assets/models/lab_door.glb?url';
 import fuseBoxModelUrl from '../assets/models/fuse_box.glb?url';
 import fuseModelUrl from '../assets/models/fuse.glb?url';
@@ -2383,10 +2383,11 @@ export function createHallwayBasementLevel({
     'ONLY. ANYTHING',
     'ELSE WILL BLOW',
     'OR BURN THE LINE'
-  ]);
-  const maintenanceNote = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.3, 0.38),
-    new THREE.MeshStandardMaterial({ map: maintenanceNoteTex, roughness: 1 })
+  ], { aspect: 0.3 / 0.38, wear: 1, seed: 11 });
+  const maintenanceNote = createPaperSheet(
+    0.3, 0.38,
+    new THREE.MeshStandardMaterial({ map: maintenanceNoteTex, roughness: 0.95, alphaTest: 0.5 }),
+    { seed: 11 }
   );
   /**
    * Taped to the wall beside the fuse box, rather than hanging in open air
@@ -2731,12 +2732,15 @@ export function createHallwayBasementLevel({
   });
   updateGeneratorControlLights();
 
-  const restartPlate = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.26, 0.16),
+  const restartPlate = createPaperSheet(
+    0.26, 0.16,
     new THREE.MeshStandardMaterial({
-      map: createPaperNoteTexture(['RESTART ORDER', '1. FUEL VALVE', '2. PRIME', '3. STARTER']),
-      roughness: 1
-    })
+      map: createPaperNoteTexture(['RESTART ORDER', '1. FUEL VALVE', '2. PRIME', '3. STARTER'],
+        { aspect: 0.26 / 0.16, wear: 3, seed: 23 }),
+      roughness: 0.95,
+      alphaTest: 0.5
+    }),
+    { seed: 23 }
   );
   restartPlate.position.set(panelX + 0.0015, 0.32, 0);
   restartPlate.rotation.y = Math.PI / 2;
@@ -3324,17 +3328,19 @@ export function createHallwayBasementLevel({
     }
   });
 
-  const loadChart = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.3, 0.38),
+  const loadChart = createPaperSheet(
+    0.3, 0.38,
     new THREE.MeshStandardMaterial({
       map: createPaperNoteTexture([
         'PANEL LOAD CHART',
         `MAX ${PANEL_CAPACITY_IN_AMPS}A TOTAL`,
         ...BREAKER_CIRCUITS.map((c) => `${c.label} — ${c.loadInAmps}A`),
         'DO NOT EXCEED'
-      ]),
-      roughness: 1
-    })
+      ], { aspect: 0.3 / 0.38, wear: 2, seed: 37 }),
+      roughness: 0.95,
+      alphaTest: 0.5
+    }),
+    { seed: 37 }
   );
   loadChart.position.set(-LAB_W / 2 + 0.06, 1.42, BREAKER_PANEL_Z + 0.55);
   loadChart.rotation.y = Math.PI / 2;
@@ -4721,8 +4727,8 @@ export function createHallwayBasementLevel({
    * On a second playthrough it is Mark's own handwriting telling himself not
    * to walk out without looking.
    */
-  const doorNote = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.26, 0.32),
+  const doorNote = createPaperSheet(
+    0.26, 0.32,
     new THREE.MeshStandardMaterial({
       map: createPaperNoteTexture([
         'SECURITY LOCKOUT',
@@ -4732,9 +4738,11 @@ export function createHallwayBasementLevel({
         'IN WHAT IT WEARS,',
         'TOP ROW DOWN,',
         'LIES YOUR WAY OUT.'
-      ]),
-      roughness: 1
-    })
+      ], { aspect: 0.26 / 0.32, wear: 4, seed: 41 }),
+      roughness: 0.95,
+      alphaTest: 0.5
+    }),
+    { seed: 41 }
   );
   /**
    * Taped to the middle of the door at eye level -- the one place the player
@@ -4774,15 +4782,15 @@ export function createHallwayBasementLevel({
    *
    * 1.4 m sits it just under the door's viewing plate (1.58-1.75 m), still at
    * the eye of someone standing in front of the door looking slightly down.
-   * The note sits 0.05 m proud of the slab's front face so it never z-fights
-   * with it -- and clear of the plate's frame, which stands 0.012 m out.
+   * The note's taped top sits 4 mm off the slab's front face, so it never
+   * z-fights with it; the rest of the sheet bows and peels further off.
    */
   const DOOR_NOTE_EYE_LEVEL_IN_METRES = 1.4;
   const DOOR_SLAB_HALF_DEPTH_IN_METRES = 0.04;
   doorNote.position.set(
     metalDoor.position.x,
     DOOR_NOTE_EYE_LEVEL_IN_METRES,
-    metalDoor.position.z - DOOR_SLAB_HALF_DEPTH_IN_METRES - 0.01
+    metalDoor.position.z - DOOR_SLAB_HALF_DEPTH_IN_METRES - 0.004
   );
   // Turned to face back down the room. A PlaneGeometry's front is +Z and the
   // player always approaches this wall walking in the +Z direction, so an
@@ -5129,7 +5137,7 @@ export function createHallwayBasementLevel({
     'OBSERVED.',
     'VISUAL DISTORTION',
     'INCREASING.'
-  ]);
+  ], { aspect: 0.3 / 0.38, wear: 2, seed: 53 });
   const tornNotes = new THREE.Mesh(
     new THREE.PlaneGeometry(0.3, 0.38),
     // Pulled toward the camera in the depth test as well as lifted: at the
@@ -5137,7 +5145,9 @@ export function createHallwayBasementLevel({
     // still lose to the bench top on some depth buffers.
     new THREE.MeshStandardMaterial({
       map: tornNoteTex,
-      roughness: 1,
+      roughness: 0.95,
+      // The paper's torn edge is see-through.
+      alphaTest: 0.5,
       polygonOffset: true,
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1

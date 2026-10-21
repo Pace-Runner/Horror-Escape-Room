@@ -771,34 +771,6 @@ export function createPolaroidTexture({ caption = 'PROJECT HOLLOW', date = 'JUNE
   return tex;
 }
 
-export function createPaperNoteTexture(lines = []) {
-  const canvas = makeCanvas(300, 380);
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#e8e0c8';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  for (let i = 0; i < imgData.data.length; i += 4) {
-    const n = (Math.random() - 0.5) * 12;
-    imgData.data[i] += n; imgData.data[i + 1] += n; imgData.data[i + 2] += n;
-  }
-  ctx.putImageData(imgData, 0, 0);
-  ctx.fillStyle = '#2b2620';
-  ctx.font = '20px "Comic Sans MS", cursive';
-  ctx.textAlign = 'left';
-  let y = 46;
-  lines.forEach((line) => {
-    ctx.save();
-    ctx.translate(20, y);
-    ctx.rotate((Math.random() - 0.5) * 0.02);
-    ctx.fillText(line, 0, 0, canvas.width - 40);
-    ctx.restore();
-    y += 34;
-  });
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
 /**
  * The rating stamped into a glass fuse's nickel end cap, plus a bump map
  * from the same lettering so it reads as pressed into the metal rather than
