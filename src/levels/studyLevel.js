@@ -7,6 +7,7 @@ import { createArchivePresentation } from './studyArchivePresentation.js';
 import { addStudyFootprints } from './studyFootprints.js';
 import { addStudyArchitectureTrim } from './studyArchitectureTrim.js';
 import { createStudyExterior } from './studyExterior.js';
+import { hingeMotion, studyLabel, dressArchiveLeaf, dressCrestControl, fillStudyKey, dressStudyDoor, dressFloorOrderClue, batchStudyPuzzleDetails } from './studyPuzzlePresentation.js';
 import { loadModel } from '../world/modelLoader.js';
 import annabelleChairUrl from '../assets/models/study/annabelle_wingback_chair.glb?url';
 import centralDeskUrl from '../assets/models/study/central_victorian_desk.glb?url';
@@ -159,12 +160,7 @@ export function createStudyLevel({
       new THREE.BoxGeometry(0.08, ENTRY_DOOR_H, ENTRY_DOOR_W),
       studySurfaces.woodMaterial(0.86, 'trim')
     );
-    const handle = new THREE.Mesh(
-      new THREE.SphereGeometry(0.045, 8, 6),
-      new THREE.MeshStandardMaterial({ color: 0x88744b, metalness: 0.65, roughness: 0.72 })
-    );
-    handle.position.set(-0.07, -0.05, 0.48);
-    entryDoor.add(doorSlab, handle);
+    entryDoor.add(doorSlab);
     group.add(entryDoor);
     colliders.push({
       minX: rightX - 0.15,
@@ -679,7 +675,11 @@ export function createStudyLevel({
   // Fit the existing visual assembly to the recess without changing its slide clock.
   crestCover.scale.setScalar(0.45);
   shadowCrest.add(crestCover);
-  const crestPlate = new THREE.Mesh(new THREE.CircleGeometry(0.68, 32), crestMat);
+  const crestPlate = new THREE.Mesh(new THREE.CylinderGeometry(0.68, 0.68, 0.035, 32), crestMat);
+  crestPlate.rotation.x = Math.PI / 2;
+  const crestRim = new THREE.Mesh(new THREE.TorusGeometry(0.66, 0.018, 6, 32), crestBrassMat);
+  crestRim.position.z = 0.025;
+  crestCover.add(crestRim);
   crestCover.add(crestPlate);
   const crestSocket = new THREE.Mesh(new THREE.RingGeometry(0.095, 0.14, 12), crestBrassMat);
   crestSocket.position.set(0, -0.36, 0.02);
@@ -707,7 +707,7 @@ export function createStudyLevel({
   const crestLampNames = ['LEFT', 'CENTRE', 'RIGHT'];
   const crestLamps = [];
   const crestLampHits = [];
-  const lampGeometry = new THREE.BoxGeometry(0.22, 0.3, 0.14);
+  const lampGeometry = new RoundedBoxGeometry(0.22, 0.3, 0.14, 1, 0.016);
   const lampHitGeometry = new THREE.BoxGeometry(0.42, 0.44, 0.3);
   const lampFaceGeometry = new THREE.BoxGeometry(0.13, 0.16, 0.02);
   const lampFaceMat = new THREE.MeshStandardMaterial({ color: 0xd9ba77, emissive: 0x60401c, emissiveIntensity: 0.5 });
@@ -731,6 +731,7 @@ export function createStudyLevel({
     const crestIndex = interactables.indexOf(crestHit);
     if (crestIndex >= 0) interactables.splice(crestIndex, 1);
     archiveKey.visible = true;
+    keyRest.visible = true;
     archiveKeyHit.visible = true;
     interactables.push(archiveKeyHit);
     for (const hit of crestLampHits) {
@@ -748,6 +749,7 @@ export function createStudyLevel({
     const face = new THREE.Mesh(lampFaceGeometry, lampFaceMat);
     face.position.z = 0.08;
     sconce.add(body, face);
+    dressCrestControl(sconce, crestBrassMat, studySurfaces.woodMaterial(0.8, 'trim'));
     shadowCrest.add(sconce);
     crestLamps.push(sconce);
     // Targets stay stationary while the small lamp bodies rotate.
@@ -793,7 +795,11 @@ export function createStudyLevel({
   shadowCrest.add(crestHit);
   interactables.push(crestHit);
 
-  const crestClue = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.32, 0.05), crestMat);
+  const crestClue = new THREE.Mesh(new RoundedBoxGeometry(0.76, 0.32, 0.05, 1, 0.012), crestBrassMat);
+  const crestInscription = studyLabel(0.71, 0.275, true);
+  crestInscription.write(['THREE LIGHTS GUARD THE ARCHIVE.', 'THE OUTER TWO TURN FROM THE CENTRE.', 'THE HEART REMAINS TRUE.']);
+  crestInscription.mesh.position.z = 0.027;
+  crestClue.add(crestInscription.mesh);
   crestClue.position.set(0, -0.94, 0.07);
   crestClue.userData.interact = {
     label: 'Read the crest plaque',
@@ -804,13 +810,11 @@ export function createStudyLevel({
 
   const archiveKey = new THREE.Group();
   archiveKey.position.set(0, 0, 0.08);
-  const archiveKeyBow = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.018, 6, 12), crestBrassMat);
-  archiveKeyBow.position.y = 0.1;
-  const archiveKeyShaft = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.22, 0.025), crestBrassMat);
-  archiveKeyShaft.position.y = -0.07;
-  const archiveKeyBit = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.04, 0.025), crestBrassMat);
-  archiveKeyBit.position.set(0.03, -0.16, 0);
-  archiveKey.add(archiveKeyBow, archiveKeyShaft, archiveKeyBit);
+  fillStudyKey(archiveKey, crestBrassMat);
+  const keyRest = new THREE.Mesh(new RoundedBoxGeometry(0.22, 0.29, 0.035, 1, 0.012), studySurfaces.woodMaterial(0.65));
+  keyRest.position.set(0, -0.025, 0.035);
+  keyRest.visible = false;
+  shadowCrest.add(keyRest);
   archiveKey.visible = false;
   shadowCrest.add(archiveKey);
   const archiveKeyHit = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.5, 0.09), crestHitMat);
@@ -823,6 +827,7 @@ export function createStudyLevel({
       puzzle.hasArchiveKey = true;
       gameState.inventory.add('archiveKey');
       archiveKey.visible = false;
+      keyRest.visible = false;
       archiveKeyHit.visible = false;
       const index = interactables.indexOf(archiveKeyHit);
       if (index >= 0) interactables.splice(index, 1);
@@ -954,13 +959,22 @@ export function createStudyLevel({
   const archiveCabinetMat = studySurfaces.woodMaterial(0.86);
   const archiveHitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
   const archiveDoorHinge = new THREE.Group();
-  archiveDoorHinge.position.set(-1.55, 0, 0.29);
+  archiveDoorHinge.name = 'MemoryArchiveLeftHinge';
+  archiveDoorHinge.position.set(-0.7, 0, 0.29);
   memoryArchive.add(archiveDoorHinge);
-  const archiveDoor = new THREE.Mesh(new THREE.BoxGeometry(1.40, 1.7, 0.045), archiveCabinetMat);
-  archiveDoor.position.set(1.55, 1, 0);
+  const archiveDoor = new THREE.Mesh(new THREE.BoxGeometry(0.70, 1.7, 0.045), archiveCabinetMat);
+  archiveDoor.position.set(0.35, 1, 0);
   archiveDoorHinge.add(archiveDoor);
+  const archiveRightHinge = new THREE.Group();
+  archiveRightHinge.name = 'MemoryArchiveRightHinge';
+  archiveRightHinge.position.set(0.7, 0, 0.29);
+  const archiveRightDoor = archiveDoor.clone();
+  archiveRightDoor.position.x = -0.35;
+  archiveRightHinge.add(archiveRightDoor);
+  memoryArchive.add(archiveRightHinge);
+  const memoryDoorMotion = hingeMotion([[archiveDoorHinge, -1], [archiveRightHinge, 1]]);
   const archiveLock = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.18, 0.04), crestBrassMat);
-  archiveLock.position.set(2.10, 0.95, 0.04);
+  archiveLock.position.set(0.61, 0.95, 0.04);
   archiveDoorHinge.add(archiveLock);
   const memoryContents = new THREE.Group();
   memoryContents.visible = false;
@@ -977,23 +991,7 @@ export function createStudyLevel({
 
   // Small canvas labels repaint only when a record changes, never per frame.
   function makeArchiveLabel(width, height) {
-    const canvas = document.createElement('canvas');
-    canvas.width = 768;
-    canvas.height = 320;
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), new THREE.MeshBasicMaterial({ map: texture }));
-    function write(lines) {
-      const context = canvas.getContext('2d');
-      context.fillStyle = '#b9ad90';
-      context.fillRect(0, 0, 768, 320);
-      context.fillStyle = '#211d18';
-      context.font = '34px serif';
-      context.textAlign = 'center';
-      lines.forEach((text, index) => context.fillText(text, 384, 65 + index * 56, 730));
-      texture.needsUpdate = true;
-    }
-    return { mesh, write };
+    return studyLabel(width, height);
   }
 
   function updateMemoryRecords() {
@@ -1033,7 +1031,7 @@ export function createStudyLevel({
     hit.userData.interact = {
       label: recordCategories[index],
       onInteract: () => {
-        if (!puzzle.memoryArchiveUnlocked || puzzle.memoryArchiveSolved || archiveDoorHinge.position.x < 1.2) return;
+        if (!puzzle.memoryArchiveUnlocked || puzzle.memoryArchiveSolved || !memoryDoorMotion.isOpen()) return;
         puzzle.memoryRecordSelections[index] = (puzzle.memoryRecordSelections[index] + 1) % 3;
         updateMemoryRecords();
         showCaption(`${recordCategories[index]}: ${recordOptions[index][puzzle.memoryRecordSelections[index]]}`);
@@ -1052,7 +1050,7 @@ export function createStudyLevel({
   memoryClues.forEach(([text, lines], index) => {
     const display = makeArchiveLabel(0.43, 0.32);
     display.write(lines);
-    display.mesh.position.set((index - 1) * 0.46, 1.97, 0.33);
+    display.mesh.position.set([1, -1, 0][index] * 0.46, 1.97, 0.33);
     display.mesh.userData.interact = {
       label: `Read archive clue ${index + 1}`,
       onInteract: () => showCaption(text)
@@ -1083,8 +1081,13 @@ export function createStudyLevel({
   memoryArchive.add(archiveCabinetHit);
   interactables.push(archiveCabinetHit);
   const visorCompartmentCover = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.38, 0.04), archiveCabinetMat);
-  visorCompartmentCover.position.set(0, 0.68, 0.26);
-  memoryContents.add(visorCompartmentCover);
+  const visorCoverHinge = new THREE.Group();
+  visorCoverHinge.name = 'VisorCompartmentHinge';
+  visorCoverHinge.position.set(-0.33, 0.68, 0.26);
+  visorCompartmentCover.position.set(0.33, 0, 0);
+  visorCoverHinge.add(visorCompartmentCover);
+  memoryContents.add(visorCoverHinge);
+  const visorCoverMotion = hingeMotion([[visorCoverHinge, -1]], 'y', Math.PI * 0.52);
 
   // The existing visor is the archive reward; its pickup hook owns V gating.
   const visorGroup = new THREE.Group();
@@ -1129,7 +1132,7 @@ export function createStudyLevel({
   visorHitbox.userData.interact = {
     label: 'Pick up the visor',
     onInteract: () => {
-      if (!puzzle.memoryArchiveSolved || puzzle.memoryVisorCollected || visorCompartmentCover.position.x < 0.6) return;
+      if (!puzzle.memoryArchiveSolved || puzzle.memoryVisorCollected || !visorCoverMotion.isOpen()) return;
       puzzle.memoryVisorCollected = true;
       visorGroup.visible = false;
       visorHitbox.visible = false;
@@ -1153,7 +1156,7 @@ export function createStudyLevel({
    * toggle function somebody will forget to update.
    */
   const visorOnly = new THREE.Group();
-  visorOnly.visible = false;
+  visorOnly.visible = !!gameState.visorWorn;
   group.add(visorOnly);
 
   // Puzzle 4: the exact same stains read differently through corrected sight.
@@ -1197,7 +1200,8 @@ export function createStudyLevel({
       new THREE.PlaneGeometry(0.28, 0.22),
       new THREE.MeshBasicMaterial({ map: createHiddenWritingTexture([['I', 'II', 'III'][index]]), transparent: true, depthWrite: false })
     );
-    numeral.position.set(0.38, 0, 0.002);
+    numeral.position.set(0.40, 0.02, 0.002);
+    dressFloorOrderClue(clue, index, trailSymbolMat);
     clue.add(numeral);
     visorOnly.add(clue);
   });
@@ -1219,9 +1223,19 @@ export function createStudyLevel({
     }
   };
   hollowAlcove.add(restrictedPlaque.mesh);
-  const hollowArchivePanel = new THREE.Mesh(new THREE.BoxGeometry(1.40, 2.04, 0.045), shelfMat);
-  hollowArchivePanel.position.set(0, 1.12, 0.29);
-  hollowAlcove.add(hollowArchivePanel);
+  const hollowArchivePanel = new THREE.Mesh(new THREE.BoxGeometry(0.70, 2.04, 0.045), shelfMat);
+  const restrictedLeftHinge = new THREE.Group(), restrictedRightHinge = new THREE.Group();
+  restrictedLeftHinge.name = 'RestrictedArchiveLeftHinge';
+  restrictedRightHinge.name = 'RestrictedArchiveRightHinge';
+  restrictedLeftHinge.position.set(-0.7, 0, 0.29);
+  restrictedRightHinge.position.set(0.7, 0, 0.29);
+  hollowArchivePanel.position.set(0.35, 1.12, 0);
+  const restrictedRightDoor = hollowArchivePanel.clone();
+  restrictedRightDoor.position.x = -0.35;
+  restrictedLeftHinge.add(hollowArchivePanel);
+  restrictedRightHinge.add(restrictedRightDoor);
+  hollowAlcove.add(restrictedLeftHinge, restrictedRightHinge);
+  const restrictedDoorMotion = hingeMotion([[restrictedLeftHinge, -1], [restrictedRightHinge, 1]]);
 
   // Puzzle 5 lives entirely inside the restricted alcove. The old letter
   // mesh below is reused as the drawer reward, rather than left accessible.
@@ -1272,7 +1286,15 @@ Annabelle`;
   truthDrawerFloor.position.set(0, -0.1, -0.1);
   const truthDrawerHandle = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.035, 0.05), crestBrassMat);
   truthDrawerHandle.position.z = 0.03;
-  truthDrawer.add(truthDrawerFront, truthDrawerFloor, truthDrawerHandle);
+  const letterDoorHinge = new THREE.Group();
+  letterDoorHinge.name = 'LetterCompartmentHinge';
+  letterDoorHinge.position.set(0, -0.13, -0.01);
+  truthDrawerFront.position.set(0, 0.13, 0);
+  truthDrawerHandle.position.set(0, 0, 0.04);
+  truthDrawerFront.add(truthDrawerHandle);
+  letterDoorHinge.add(truthDrawerFront);
+  truthDrawer.add(letterDoorHinge, truthDrawerFloor);
+  const letterDoorMotion = hingeMotion([[letterDoorHinge, 1]], 'x', Math.PI * 0.51, 0.75);
   const truthRecordDisplays = [];
   const truthRecordHits = [];
   function updateTruthRecords(corrected = gameState.visorWorn) {
@@ -1294,7 +1316,7 @@ Annabelle`;
     hit.userData.interact = {
       label: `Select ${name}`,
       onInteract: () => {
-        if (!puzzle.correctedTrailSolved || hollowArchivePanel.position.x > -1.7 || puzzle.truthRecordsSolved) return;
+        if (!puzzle.correctedTrailSolved || !restrictedDoorMotion.isOpen() || puzzle.truthRecordsSolved) return;
         if (index !== puzzle.truthRecordProgress) {
           puzzle.truthRecordProgress = 0;
           updateTruthRecords();
@@ -1350,8 +1372,10 @@ Annabelle`;
     });
     if (walnut) {
       archiveDoor.material = walnut;
+      archiveRightDoor.material = walnut;
       visorCompartmentCover.material = walnut;
       hollowArchivePanel.material = walnut;
+      restrictedRightDoor.material = walnut;
       truthDrawerFront.material = walnut;
       truthDrawerFloor.material = walnut;
     }
@@ -1364,14 +1388,16 @@ Annabelle`;
   archivePresentation.interior(hollowAlcove);
   archivePresentation.records(memoryContents, 0.21, 0.56);
   archivePresentation.records(hollowAlcove, 0.24, 0.48);
-  archivePresentation.door(archiveDoor, 1.7);
-  archivePresentation.door(hollowArchivePanel, 2.04);
+  dressArchiveLeaf(archiveDoor, 0.7, 1.7, archiveCabinetMat, crestBrassMat);
+  dressArchiveLeaf(archiveRightDoor, 0.7, 1.7, archiveCabinetMat, crestBrassMat, 1);
+  dressArchiveLeaf(hollowArchivePanel, 0.7, 2.04, archiveCabinetMat, crestBrassMat);
+  dressArchiveLeaf(restrictedRightDoor, 0.7, 2.04, archiveCabinetMat, crestBrassMat, 1);
 
   // Clear rear-wall gaps, outside both archive shells, bookcase bays and portraits.
   const trailMarkerPositions = [
+    [6.85, LOFT_Y + 1.10, -6.4, 0],
     [-6.85, LOFT_Y + 1.25, -6.4, 0],
-    [-3.65, LOFT_Y + 0.85, -6.4, 0],
-    [6.85, LOFT_Y + 1.10, -6.4, 0]
+    [-3.65, LOFT_Y + 0.85, -6.4, 0]
   ];
   const trailMarkerMaterials = [];
   function updateTrailMarkers() {
@@ -1446,39 +1472,36 @@ Annabelle`;
   wallInk2.rotation.y = -Math.PI / 2;
   visorOnly.add(wallInk2);
 
-  /**
-   * The letter, face up on the floor, and BLANK.
-   *
-   * The storyline is precise about this: "you see a piece of paper on the
-   * floor, once blank, but with the visor on, writing becomes visible." So the
-   * paper is always there and always pickupable -- the player can find it early,
-   * read nothing, and put it down again. That is much crueller than hiding it,
-   * because on a second playthrough they will remember doing exactly that.
-   */
-  const letterPaper = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.26, 0.34),
-    new THREE.MeshStandardMaterial({ color: 0xbdb49c, roughness: 1 })
-  );
-  letterPaper.rotation.x = -Math.PI / 2;
-  letterPaper.rotation.z = 0.24;
-  letterPaper.position.set(0, -0.075, -0.1);
+  // Correspondence is mounted inside the fixed compartment. The existing
+  // document callback still owns reading completion and mirror progression.
+  const letterSheet = studyLabel(0.40, 0.30);
+  letterSheet.write(['Mark,', "If you're reading this,", "you've forgotten again.", 'Read the letter [E]']);
+  const letterPaper = letterSheet.mesh;
+  letterPaper.rotation.x = -0.10;
+  letterPaper.position.set(0, 0.015, 0.08);
   letterPaper.visible = false;
   truthDrawer.add(letterPaper);
+  let letterReading = false;
 
   const letterHit = new THREE.Mesh(
-    new THREE.BoxGeometry(0.34, 0.12, 0.4),
+    new THREE.BoxGeometry(0.46, 0.34, 0.15),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
-  letterHit.position.set(0, -0.02, -0.1);
+  letterHit.position.set(0, 0.02, 0.10);
   letterHit.visible = false;
   letterHit.userData.interact = {
     label: "Read Annabelle's letter",
     onInteract: () => {
-      if (!puzzle.truthRecordsSolved || truthDrawer.position.z < 0.58) return;
+      if (!puzzle.truthRecordsSolved || !letterDoorMotion.isOpen() || letterReading || puzzle.truthRecordsComplete) return;
+      letterReading = true;
       onReadLetter({
         body: annabelleLetterBody,
         onFinished: () => {
           if (puzzle.truthRecordsComplete || !puzzle.truthRecordsSolved) return;
+          letterReading = false;
+          letterHit.visible = false;
+          const hitIndex = interactables.indexOf(letterHit);
+          if (hitIndex >= 0) interactables.splice(hitIndex, 1);
           puzzle.truthRecordsComplete = true;
           puzzle.mirrorUnlocked = true;
           gameState.letterRead = true;
@@ -1601,15 +1624,10 @@ Annabelle`;
 
   const hollowOverrideKey = new THREE.Group();
   hollowOverrideKey.name = 'HollowOverrideKey';
-  hollowOverrideKey.position.set(-3.55, 0.055, -3.85);
+  hollowOverrideKey.position.set(-3.55, 0.014, -3.85);
   hollowOverrideKey.rotation.x = -Math.PI / 2;
   hollowOverrideKey.visible = false;
-  const overrideBow = new THREE.Mesh(new THREE.TorusGeometry(0.065, 0.018, 6, 12), keyMat);
-  const overrideShaft = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.2, 0.025), keyMat);
-  overrideShaft.position.y = -0.14;
-  const overrideBit = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.045, 0.025), keyMat);
-  overrideBit.position.set(0.025, -0.22, 0);
-  hollowOverrideKey.add(overrideBow, overrideShaft, overrideBit);
+  fillStudyKey(hollowOverrideKey, keyMat, true);
   group.add(hollowOverrideKey);
   const hollowOverrideKeyHit = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.24, 0.48), archiveHitMat);
   hollowOverrideKeyHit.position.set(-3.55, 0.12, -3.85);
@@ -1636,11 +1654,20 @@ Annabelle`;
   group.add(frontDoor);
 
   const doorSlab = new THREE.Mesh(
-    new THREE.BoxGeometry(1.05, 2.1, 0.07),
+    new THREE.BoxGeometry(1.78, 2.98, 0.09),
     studySurfaces.woodMaterial(0.88)
   );
   doorSlab.position.y = 1.05;
   frontDoor.add(doorSlab);
+  const doorStopMat = studySurfaces.woodMaterial(0.72, 'trim');
+  for (const x of [-0.9, 0.9]) {
+    const stop = new THREE.Mesh(new THREE.BoxGeometry(0.025, 3, 0.10), doorStopMat);
+    stop.position.set(x, 1.5, 0.025);
+    frontDoor.add(stop);
+  }
+  const doorHeadStop = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.025, 0.10), doorStopMat);
+  doorHeadStop.position.set(0, 2.995, 0.025);
+  frontDoor.add(doorHeadStop);
 
   // No legacy lock objects or interaction volumes remain on the door.
   const frontDoorSlabHit = new THREE.Mesh(
@@ -1665,10 +1692,11 @@ Annabelle`;
   const doorState = { open: false };
   const DOOR_OPEN_SWING = -Math.PI / 2.1;
   const doorHinge = new THREE.Object3D();
-  doorHinge.position.set(-0.525, 0, 0);
+  doorHinge.position.set(-0.89, 0, 0);
   frontDoor.add(doorHinge);
   doorHinge.add(doorSlab);
-  doorSlab.position.set(0.525, 1.05, 0);
+  doorSlab.position.set(0.89, 1.49, 0);
+  dressStudyDoor(doorSlab, 1.78, 2.98, studySurfaces.woodMaterial(0.85, 'feature'), crestBrassMat, true);
 
   /**
    * The door's panelling -- three rows of raised panels, and the security
@@ -1684,15 +1712,15 @@ Annabelle`;
    * swing with it. The locks are children of `frontDoor` instead, because
    * those are bolts seated in the frame and stay where they are.
    *
-   * Layout: the slab is 1.05 x 2.1 centred on its own origin. The panel field
+   * Layout: the slab is 1.78 x 2.98 centred on its own origin. The panel field
    * takes the left 62% and the lock stile the right, which is how real
    * joinery does it -- a lock goes through the stile, never through a panel --
    * and which also keeps the lock bodies at x = +0.35 clear of every panel a
    * player has to count.
    */
   const PANEL_FIELD_WIDTH_FRACTION = 0.62;
-  const SLAB_W = 1.05;
-  const SLAB_H = 2.1;
+  const SLAB_W = 1.78;
+  const SLAB_H = 2.98;
   const panelMat = studySurfaces.woodMaterial(0.95);
 
   {
@@ -1716,7 +1744,7 @@ Annabelle`;
         panel.position.set(
           fieldX + (span.x + span.width / 2) * fieldW,
           rowCentreY,
-          -0.042
+          -0.054
         );
         doorSlab.add(panel);
       }
@@ -1863,7 +1891,12 @@ Annabelle`;
   group.userData.studyDecorPropCount = studyDecor.dressRoom({
     group, desk, fireplace, photoTexture: portraitTexPlain, loftY: LOFT_Y
   });
+  const entryFinish = new THREE.Group();
+  entryFinish.rotation.y = -Math.PI / 2;
+  entryDoor.add(entryFinish);
+  dressStudyDoor(entryFinish, ENTRY_DOOR_W, ENTRY_DOOR_H, trimMat, crestBrassMat);
   studySurfaces.alignSurfaces(group, wallMat, ROOM_H);
+  batchStudyPuzzleDetails(group);
 
   return {
     group,
@@ -1947,6 +1980,7 @@ Annabelle`;
       installedSigil.visible = false;
       crestCover.position.x = 0;
       archiveKey.visible = false;
+      keyRest.visible = false;
       archiveKeyHit.visible = false;
       gameState.inventory.delete('archiveKey');
       if (!interactables.includes(crestHit)) interactables.push(crestHit);
@@ -1960,8 +1994,8 @@ Annabelle`;
       puzzle.memoryArchiveSolved = false;
       puzzle.memoryVisorCollected = false;
       memoryContents.visible = false;
-      archiveDoorHinge.position.x = -1.55;
-      visorCompartmentCover.position.x = 0;
+      memoryDoorMotion.reset();
+      visorCoverMotion.reset();
       for (const hit of memoryRecordHits) {
         const index = interactables.indexOf(hit);
         if (index >= 0) interactables.splice(index, 1);
@@ -1979,7 +2013,7 @@ Annabelle`;
       distortedTrail.visible = true;
       puzzle.correctedTrailProgress = 0;
       puzzle.correctedTrailSolved = false;
-      hollowArchivePanel.position.x = 0;
+      restrictedDoorMotion.reset();
       updateTrailMarkers();
       const restrictedIndex = interactables.indexOf(restrictedPlaque.mesh);
       if (restrictedIndex >= 0) interactables.splice(restrictedIndex, 1);
@@ -2007,7 +2041,8 @@ Annabelle`;
       const overrideIndex = interactables.indexOf(hollowOverrideKeyHit);
       if (overrideIndex >= 0) interactables.splice(overrideIndex, 1);
       mirrorGlass.userData.interact.label = 'Look into the mirror';
-      truthDrawer.position.z = 0.28;
+      letterDoorMotion.reset();
+      letterReading = false;
       letterPaper.visible = false;
       letterHit.visible = false;
       for (const hit of [letterHit, mirrorGlass]) {
@@ -2030,16 +2065,10 @@ Annabelle`;
         if (position && Math.abs(position.x - DOOR_X) < DOORWAY_W / 2
           && position.z >= frontZ + 0.2 && position.y < 2.5) startCommittedEnding();
       }
-      const truthDrawerTarget = puzzle.truthRecordsSolved ? 0.7 : 0.28;
-      truthDrawer.position.z += (truthDrawerTarget - truthDrawer.position.z) * Math.min(1, dt * 5);
-      const hollowPanelTarget = puzzle.correctedTrailSolved ? -1.95 : 0;
-      hollowArchivePanel.position.x += (hollowPanelTarget - hollowArchivePanel.position.x) * Math.min(1, dt * 3);
-      const archiveDoorTarget = puzzle.memoryArchiveUnlocked ? 1.65 : -1.55;
-      archiveDoorHinge.position.x += (archiveDoorTarget - archiveDoorHinge.position.x) * Math.min(1, dt * 5);
-      const visorCoverTarget = puzzle.memoryArchiveSolved ? 0.78 : 0;
-      visorCompartmentCover.position.x += (visorCoverTarget - visorCompartmentCover.position.x) * Math.min(1, dt * 5);
-      // The drawer slides, and the door swings. Eased rather than snapped, the
-      // same treatment the bedroom's door and corkboard get.
+      memoryDoorMotion.update(dt, puzzle.memoryArchiveUnlocked);
+      restrictedDoorMotion.update(dt, puzzle.correctedTrailSolved);
+      visorCoverMotion.update(dt, puzzle.memoryArchiveSolved);
+      letterDoorMotion.update(dt, puzzle.truthRecordsSolved);
       clockMechanism.update(dt, puzzle.clockSolved);
       const crestTargetX = puzzle.crestSolved ? 2.05 : 0;
       crestCover.position.x += (crestTargetX - crestCover.position.x) * Math.min(1, dt * 5);

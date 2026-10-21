@@ -75,8 +75,8 @@ export function addStudyFootprints({ distortedTrail, bloodTrail, visorOnly, stai
       const selected = placements.filter(p => p.index % 2 === side &&
         (p.index % 11 === 5 ? 2 : p.index % 9 === 6 ? 3 : p.index % 5 === 3 ? 1 : 0) === variant);
       if (!selected.length) continue;
-      const mat = new THREE.MeshBasicMaterial({ color: blood ? 0x502b22 : 0x171318,
-        map: textures[variant], transparent: true, opacity: [0.82, 0.56, 0.65, 0.50][variant], depthWrite: false,
+      const mat = new THREE.MeshBasicMaterial({ color: blood ? 0x963d30 : 0x080708,
+        map: textures[variant], transparent: true, opacity: [0.98, 0.78, 0.88, 0.74][variant], toneMapped: false, depthWrite: false,
         polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
       const mesh = new THREE.InstancedMesh(geometries[side], mat, selected.length);
       mesh.name = `ArchiveFootprints_${blood ? 'blood' : 'distorted'}_${variant}_${side}`;
@@ -86,7 +86,7 @@ export function addStudyFootprints({ distortedTrail, bloodTrail, visorOnly, stai
         const size = 0.91 + jitter(p.index + 1) * 0.16;
         dummy.scale.set(size, p.stair ? size * 0.82 : size, 1);
         dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix);
-        mesh.setColorAt(i, new THREE.Color().setScalar(0.48 + jitter(p.index + 3) * 0.52));
+        mesh.setColorAt(i, new THREE.Color().setScalar(0.88 + jitter(p.index + 3) * 0.12));
       });
       mesh.computeBoundingSphere();
       parent.add(mesh);
