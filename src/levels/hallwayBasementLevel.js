@@ -751,19 +751,6 @@ export function createHallwayBasementLevel({
   group.add(lab);
 
   /**
-   * The concrete is drawn to tile a set number of times across a surface, which
-   * suited the room it was tuned in. Tiled up by the same factor the room grew
-   * along each side, so the blocks stay the size they were instead of
-   * stretching. The walls only grew along their length, not their height.
-   */
-  function tiledForLab(texture, scaleU, scaleV) {
-    const tiled = texture.clone();
-    tiled.repeat.set(texture.repeat.x * scaleU, texture.repeat.y * scaleV);
-    tiled.needsUpdate = true;
-    return tiled;
-  }
-
-  /**
    * TEXTURE PREVIEW: loads one photo texture. Only colour images are tagged
    * sRGB; normal, roughness and bump maps are data and stay linear, or they
    * wash out. Mirrored wrapping for the photos that are not seamless, so each
@@ -3422,7 +3409,6 @@ export function createHallwayBasementLevel({
   loadModel(storageShelfModelUrl).then((model) => {
     // Light galvanised grey gone dull and spotted with rust, rather than the
     // flat grey the model carries.
-    const steelMap = createPaintedSteelTexture({ base: [150, 152, 148], rust: 0.6 });
     const steelNormal = createFixtureSteelNormalTexture();
     model.traverse((child) => {
       if (!child.isMesh || !['ShelfUpright', 'ShelfBoard'].includes(child.material.name)) return;

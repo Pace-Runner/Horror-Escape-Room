@@ -98,6 +98,14 @@ const BREATH_LOOP_END = 12.08;
 // restart still feels immediate.
 const BREATH_FADE = 0.6;
 
+/**
+ * The hearing filter's two ends (setMuffle). Open is above anything the game
+ * plays, so the filter is transparent; shut is the dull, close, underwater
+ * sound of a room heard while still mostly asleep.
+ */
+const MUFFLE_OPEN_HZ = 20000;
+const MUFFLE_SHUT_HZ = 380;
+
 // Intensity changes are story beats (the bulb blowing, the creature getting
 // nearer), so they slide over about a breath rather than a frame.
 const BREATH_LEVEL_RAMP = 1.1;
@@ -478,7 +486,13 @@ export class AudioEngine {
     this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     this.master = this.ctx.createGain();
     this.master.gain.value = this.masterVolume;
-    this.master.connect(this.ctx.destination);
+    // Hearing, after everything else: a lowpass that is wide open (and so
+    // does nothing) except while someone is coming round -- see setMuffle().
+    this.muffle = this.ctx.createBiquadFilter();
+    this.muffle.type = 'lowpass';
+    this.muffle.frequency.value = MUFFLE_OPEN_HZ;
+    this.muffle.Q.value = 0;
+    this.master.connect(this.muffle).connect(this.ctx.destination);
     this.#startWindDrone();
 
     // Its own gain node on the way to the master, so breathing intensity can
@@ -676,6 +690,25 @@ export class AudioEngine {
   stopBreathing() {
     this.breathWanted = false;
     this.#releaseBreathing(BREATH_FADE);
+  }
+
+  /**
+   * How muffled the whole world sounds, 0 (clear) .. 1 (through water, or
+   * through sleep). For waking: the room comes in dull and close, and clears
+   * as the eyes do. Ramped over `seconds` on a log scale, which is how a
+   * filter sweep is heard -- a linear sweep in Hz sounds like it does nothing
+   * until the very end. Safe before start(): it simply does nothing.
+   */
+  setMuffle(amount, seconds = 0) {
+    if (!this.ctx || !this.muffle) return;
+    const a = Math.min(1, Math.max(0, amount));
+    const hz = MUFFLE_OPEN_HZ * Math.pow(MUFFLE_SHUT_HZ / MUFFLE_OPEN_HZ, a);
+    const f = this.muffle.frequency;
+    const now = this.ctx.currentTime;
+    f.cancelScheduledValues(now);
+    f.setValueAtTime(f.value, now);
+    if (seconds > 0) f.exponentialRampToValueAtTime(hz, now + seconds);
+    else f.setValueAtTime(hz, now);
   }
 
   /** Breathing volume, 0..1, independent of every other sound. */
@@ -1244,6 +1277,103 @@ export class AudioEngine {
     src.connect(filter).connect(gain).connect(this.master);
     src.start();
     src.stop(now + 0.6);
+  }
+
+  /**
+   * A low growl from close behind the player (core/StairsScare.js).
+   *
+   * Two layers, built like every other effect here:
+   *   - the throat: two detuned saws around 60 Hz, low-passed, with their
+   *     level shaken by a fast irregular flutter. The flutter is what turns a
+   *     drone into a rattle in a chest.
+   *   - the breath: band-passed noise under it, the air being pushed out.
+   *
+   * It swells in, holds, and dies away rather than stopping, because it is
+   * something breathing out, not something switched off.
+   *
+   * @param {number} [seconds] - how long it lasts, end to end.
+   */
+  growl(seconds = 2.4) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const end = now + seconds;
+
+    const level = ctx.createGain();
+    level.gain.setValueAtTime(0.0001, now);
+    level.gain.exponentialRampToValueAtTime(0.85, now + seconds * 0.3);
+    level.gain.setValueAtTime(0.85, now + seconds * 0.6);
+    level.gain.exponentialRampToValueAtTime(0.0001, end);
+    level.connect(this.master);
+
+    // The throat.
+    const throatFilter = ctx.createBiquadFilter();
+    throatFilter.type = 'lowpass';
+    throatFilter.frequency.value = 420;
+    throatFilter.Q.value = 2.2;
+    const flutter = ctx.createGain();
+    flutter.gain.value = 0.5;
+    throatFilter.connect(flutter).connect(level);
+    const flutterRate = ctx.createOscillator();
+    flutterRate.type = 'square';
+    flutterRate.frequency.setValueAtTime(11, now);
+    flutterRate.frequency.linearRampToValueAtTime(7, end);
+    const flutterDepth = ctx.createGain();
+    flutterDepth.gain.value = 0.32;
+    flutterRate.connect(flutterDepth).connect(flutter.gain);
+    const sources = [flutterRate];
+    for (const detune of [0, -38]) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(68, now);
+      osc.frequency.linearRampToValueAtTime(52, end);
+      osc.detune.value = detune;
+      osc.connect(throatFilter);
+      sources.push(osc);
+    }
+
+    // The breath.
+    const breath = ctx.createBufferSource();
+    breath.buffer = this.#noiseBuffer(seconds);
+    const breathFilter = ctx.createBiquadFilter();
+    breathFilter.type = 'bandpass';
+    breathFilter.frequency.value = 340;
+    breathFilter.Q.value = 0.9;
+    const breathGain = ctx.createGain();
+    breathGain.gain.value = 0.35;
+    breath.connect(breathFilter).connect(breathGain).connect(level);
+    sources.push(breath);
+
+    for (const source of sources) {
+      source.start(now);
+      source.stop(end + 0.05);
+    }
+  }
+
+  /**
+   * One shake of a dead torch: the batteries knocking inside the barrel. Two
+   * short, high clicks a few hundredths apart -- the cells hitting one end of
+   * the tube and then the spring -- rather than one, which reads as a switch.
+   */
+  torchRattle() {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    for (const [offset, peak] of [[0, 0.32], [0.045, 0.2]]) {
+      const click = ctx.createBufferSource();
+      click.buffer = this.#noiseBuffer(0.06);
+      const band = ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = 3400 + Math.random() * 700;
+      band.Q.value = 3;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, now + offset);
+      gain.gain.exponentialRampToValueAtTime(peak, now + offset + 0.004);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.045);
+      click.connect(band).connect(gain).connect(this.master);
+      click.start(now + offset);
+      click.stop(now + offset + 0.06);
+    }
   }
 
   /**

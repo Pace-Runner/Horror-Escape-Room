@@ -17,6 +17,7 @@ import { createBedroomLevel } from './levels/bedroomLevel.js';
 import { createHallwayBasementLevel } from './levels/hallwayBasementLevel.js';
 import { createStudyLevel } from './levels/studyLevel.js';
 import { createBackroomsLevel } from './levels/backroomsLevel.js';
+import { ROOM_FLOORS } from './levels/annabelleRooms.js';
 import { createUpstairsHallwayLevel } from './levels/upstairsHallwayLevel.js';
 import { createScreenFade, wait } from './core/ScreenFade.js';
 import { gameState, resetState, addItem, removeItem, ITEMS } from './core/GameState.js';
@@ -33,8 +34,15 @@ import { BEDROOM_HINT_STAGES } from './levels/bedroomHints.js';
 import { BASEMENT_HINT_STAGES } from './levels/basementHints.js';
 import { enableSinglePassForFlatDecals, createDarkShadowSkipper, findShadowCastingLights } from './world/renderOptimizations.js';
 import { createCutsceneRunner } from './core/Cutscene.js';
+import { hallwayReveal } from './cutscenes/hallwayReveal.js';
+import { wakeUp } from './cutscenes/wakeUp.js';
+import { stairsBehind } from './cutscenes/stairsBehind.js';
+import { createCutsceneExport } from './core/CutsceneExport.js';
+import { createCutsceneSkip } from './core/CutsceneSkip.js';
 import { createNewspaper } from './core/Newspaper.js';
+import { createOpeningNewsCutscene } from './core/OpeningNewsCutscene.js';
 import { createJumpScare } from './core/JumpScare.js';
+import { createStairsScare } from './core/StairsScare.js';
 import { DIFFICULTIES, DEFAULT_DIFFICULTY, createRunTimer } from './core/Difficulty.js';
 import { FreeCamera } from './core/FreeCamera.js';
 import { createScriptRunner } from './core/Script.js';
@@ -53,6 +61,8 @@ import { setHandAssetUrl } from './systems/hands/hand-mesh.js';
 import handsModelUrl from './assets/models/hands.glb?url';
 import { loadModel } from './world/modelLoader.js';
 import flashlightModelUrl from './assets/models/flashlight.glb?url';
+
+console.time('APP_BOOT');
 
 // ---------- DOM ----------
 const canvas = document.getElementById('scene');
@@ -94,6 +104,7 @@ const creditsCloseBtn = document.getElementById('credits-close');
 const quitScreen = document.getElementById('quit-screen');
 const quitBackButton = document.getElementById('quit-back');
 const fadeOverlay = document.getElementById('fade-overlay');
+const openingNewsContinue = document.getElementById('opening-news-continue');
 const settingsButton = document.getElementById('settings-button');
 const settingsScreen = document.getElementById('settings-screen');
 const settingsCloseBtn = document.getElementById('settings-close');
@@ -114,6 +125,12 @@ const fade = createScreenFade(fadeOverlay);
 const newspaperView = createNewspaper({
   root: document.getElementById('newspaper-view'),
   onShow: () => paperRustle()
+});
+
+// Only replaces the opening prologue. The Newspaper controller above remains
+// responsible for every paper shown after Level 1.
+const openingNewsCutscene = createOpeningNewsCutscene({
+  root: document.getElementById('opening-news-cutscene')
 });
 
 /**
@@ -484,6 +501,19 @@ camera.add(dustMotes.points);
 
 scene.add(camera);
 
+/**
+ * A key light for scripted moments in the dark: the stairs scare's glow on the
+ * hand while the torch is dead, and its shot of the monster behind the player
+ * (ctx.keyLight in a scene). Off (intensity 0) the rest of the time.
+ *
+ * ALWAYS IN THE SCENE, never added for a moment and removed after: three.js
+ * compiles the light count into every material's shader, so adding a light
+ * mid-game recompiles everything and freezes the game for a moment, right as
+ * the shot starts.
+ */
+const cinematicLight = new THREE.PointLight(0xbcd0ff, 0, 4.5, 2);
+scene.add(cinematicLight);
+
 // ---------- first-person hands ----------
 // A VIEW MODEL, not a physical object: two rigged hands parented to the
 // camera, so they travel with the view, have no colliders and are not in any
@@ -504,17 +534,21 @@ scene.add(camera);
 setHandAssetUrl(handsModelUrl);
 
 const hands = new Hands({ camera, renderer });
-// Deliberately not awaited: the hands are presentation, so they pop in when
-// the 167 KB model lands rather than holding up the rest of the boot. A load
+// Deliberately deferred until a game begins: the hands are presentation, so
+// the 167 KB model never holds up the menu. A load
 // failure warns and leaves the game entirely playable -- every method on Hands
 // is safe to call before init() has finished. Nothing has to be re-equipped
 // when it lands: the held-item system reconciles every frame (see
 // core/HeldItems.js), so whatever is selected appears the frame the hand does.
-// Kept so the loading screen can wait for it: the glove's shaders are built in
-// warmUp(), which needs the glove to exist.
-const handsReady = hands.init().catch((err) => {
-  console.error('Failed to initialise the first-person hands:', err);
-});
+let handsReady = null;
+function initializeHands() {
+  if (!handsReady) {
+    handsReady = hands.init().catch((err) => {
+      console.error('Failed to initialise the first-person hands:', err);
+    });
+  }
+  return handsReady;
+}
 
 // ---------- the items in hand ----------
 /**
@@ -545,11 +579,37 @@ const itemMeshes = createItemMeshes();
 // RIGHT hand, not the left the README's handedness convention asks for: the
 // game builds the right hand only (ACTIVE_SIDES in systems/hands/hands.js), and
 // that file's own note says a torch then goes in the right hand's grip socket.
-const heldTorchReady = loadModel(flashlightModelUrl).then((torch) => {
-  itemMeshes.setTemplate('flashlight', torch);
-}).catch((err) => {
-  console.error('Failed to load the held flashlight, it will not appear in hand:', err);
-});
+let heldTorchReady = null;
+function initializeHeldTorch() {
+  if (!heldTorchReady) {
+    heldTorchReady = loadModel(flashlightModelUrl).then((torch) => {
+      itemMeshes.setTemplate('flashlight', torch);
+    }).catch((err) => {
+      console.error('Failed to load the held flashlight, it will not appear in hand:', err);
+    });
+  }
+  return heldTorchReady;
+}
+
+/** Fetches menu-safe Level 1 presentation files without parsing or building them. */
+function preloadMenuAssets() {
+  for (const url of [handsModelUrl, flashlightModelUrl]) {
+    fetch(url).catch((err) => console.warn('Menu asset preload failed:', err));
+  }
+  openingNewsCutscene.preload();
+}
+
+/** Runs a small raw-file preload only while the launch menu is idle. */
+function scheduleMenuPreload() {
+  const preload = () => {
+    if (!gameStarted) preloadMenuAssets();
+  };
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(preload, { timeout: 1200 });
+  } else {
+    window.setTimeout(preload, 250);
+  }
+}
 
 /**
  * The frame's player motion, handed to the hands' procedural layers.
@@ -583,6 +643,19 @@ const handMotion = { lookDeltaX: 0, lookDeltaY: 0, bobPhase: 0, speed: 0, crouch
 let flashlightFound = false;
 let flashlightSwitchOn = false;
 let flashlightOn = false;
+/**
+ * 0..1, how much of its light the torch is giving, on top of the fault below.
+ * 1 normally; the stairs scare drops it to make the torch sputter and die on
+ * cue WITHOUT touching the switch, so putting the power back needs no memory
+ * of the switch.
+ */
+let torchPower = 1;
+
+/** Sets torchPower and pushes it straight through to the beam. */
+function setTorchPower(scale) {
+  torchPower = THREE.MathUtils.clamp(scale, 0, 1);
+  applyFlashlightBeam();
+}
 
 /**
  * THE TORCH FAILS. Every 67.5-90 s of it actually shining, it gives out for
@@ -645,7 +718,7 @@ function applyFlashlightBeam() {
   // would just be a brighter blob.
   // A failing torch is switched on but dark, but for its stutter.
   const failing = torchFault.left > 0;
-  const level = !flashlightOn ? 0 : !failing ? 1 : torchFault.flickerOn ? torchFault.flickerLevel : 0;
+  const level = torchPower * (!flashlightOn ? 0 : !failing ? 1 : torchFault.flickerOn ? torchFault.flickerLevel : 0);
   flashlightSpot.intensity = 1.75 * level;
   flashlightHot.intensity = 3.35 * level;
   dustMotes.setBeamOn(level > 0);
@@ -1154,8 +1227,40 @@ function updateTapeSounds() {
 // Scripted camera shots. Built here because it needs the hands and the dust
 // motes, both of which have to be hidden for any shot that leaves the player's
 // head -- see core/Cutscene.js.
+//
+// `targets` are the names a scene file can point the lens at without knowing
+// anything about main.js. Functions, read on the frame that asks, so a target
+// that moves is followed. 'player' (the player's eye) is built into the runner.
+const _cutsceneTarget = new THREE.Vector3();
+// The figures are built further down, hence a getter rather than the object.
+const boneTarget = (getFigure, bone, fallbackHeight) => () => {
+  const figure = getFigure();
+  const b = figure.refs[bone];
+  if (b) return b.getWorldPosition(_cutsceneTarget);
+  return _cutsceneTarget.set(figure.position.x, fallbackHeight, figure.position.z);
+};
 const cutscene = createCutsceneRunner({
-  camera, player, interaction, hands, dustMotes, captions, fade
+  camera, player, interaction, hands, dustMotes, captions, fade,
+  targets: {
+    'creature.head': boneTarget(() => creature, 'head', 1.9),
+    'creature.chest': boneTarget(() => creature, 'chest', 1.4),
+    'player.body.head': boneTarget(() => playerBody, 'head', 1.6),
+    // From the body's own eyes, for a first-person shot of lying in it.
+    'player.body.eyes': () => playerBody.getEyePosition(_cutsceneTarget)
+  },
+  // After every hand-back, the game's real state over the runner's snapshot:
+  // which view the player is in, and whether their torch is actually lit. A
+  // restart cancels a scene AFTER putting the torch away, and the snapshot
+  // would light a dust cone in front of a player who has no torch.
+  onHandBack: (def) => {
+    cutsceneBodyShown = false;
+    applyViewVisibility();
+    if (def.restoreBeam !== false) applyFlashlightBeam();
+    // The hand-back may have re-aimed the player after this frame's third-
+    // person camera was placed; place it again so the first frame back is not
+    // drawn from the old aim.
+    poseThirdCam();
+  }
 });
 
 // Story beats. Every delayed beat in the game runs through this so a restart
@@ -1167,6 +1272,24 @@ const bedroomHorrorEvents = new Set();
 // the two authored door beats; later levels keep their own intensity calls.
 const LEVEL_ONE_BREATHING_BASE = 0.035;
 const LEVEL_ONE_DOOR_BREATHING = 0.72;
+/**
+ * Level 2's breathing, on the same 0..1 dial. Was 0.6-0.95 and stayed there
+ * for the rest of the level after the first beat, against Level 1's 0.035:
+ * far too loud. Peaks are now about half that (-6 dB), and between beats it
+ * settles near Level 1's background rather than holding the peak.
+ */
+const LEVEL_TWO_BREATHING = {
+  /** Walking in: the same quiet background as Level 1. */
+  base: 0.05,
+  /** The blackout at the metal door: it is close. */
+  blackout: 0.45,
+  /** The CCTV hallway camera: something crosses the far end. */
+  cctvDash: 0.4,
+  /** Camera five: it is in this room. The loudest it gets. */
+  cctvBasement: 0.5,
+  /** After any of those, once it has gone. */
+  settled: 0.18
+};
 
 /** Runs each Level 1 environmental beat once and makes its delays reset-safe. */
 function runBedroomHorrorEvent(id, sequence) {
@@ -1311,9 +1434,7 @@ function setThirdPerson(on) {
   // parented there too and read as a swarm around the player's own skull.
   // Whatever is in the hand goes with them: it is parented into a socket, so it
   // lives under hands.root too.
-  hands.root.visible = !thirdPerson;
-  dustMotes.points.visible = !thirdPerson;
-  playerBody.visible = thirdPerson;
+  applyViewVisibility();
   if (thirdPersonBtn) {
     thirdPersonBtn.textContent = thirdPerson ? 'View: 3rd' : 'View: 1st';
   }
@@ -1334,6 +1455,10 @@ thirdPersonBtn?.addEventListener('click', (e) => {
  */
 const freeCamera = new FreeCamera({
   sourceCamera: camera,
+  // Switched on during a scene, it starts from the shot on screen rather than
+  // cutting back to the player's eye -- so a framing seen in a scene can be
+  // picked up, adjusted and marked (M).
+  getStartCamera: () => (cutscene.isRunning ? cutscene.camera : camera),
   isInputLive: () => player.isLocked,
   getSensitivityMultiplier: () => player.sensitivity,
   onChange: applyFreeCameraVisibility
@@ -1341,19 +1466,155 @@ const freeCamera = new FreeCamera({
 // The same eye-level-only geometry the player's camera draws.
 freeCamera.camera.layers.enable(MAIN_ONLY);
 
+/** Shown by a cutscene that wants the player in its shot (showPlayerBody). Cleared at every hand-back. */
+let cutsceneBodyShown = false;
+
 /**
  * The view model -- hands, held item, dust motes -- is parented to the
- * player's camera, so from the free camera it is a pair of forearms hanging in
- * mid-air. Hidden for the same reason setThirdPerson() hides it. The player's
- * body is optional (B), for shots that want the character in them.
+ * player's camera, so from any other camera it is a pair of forearms hanging
+ * in mid-air: from behind (third person), from the free camera, from a
+ * cutscene's lens. The player's body is the reverse: shown for third person,
+ * for the free camera's B, and for a scene that stages it.
+ *
+ * ONE function for all of them, derived from every view at once, because each
+ * view used to write these flags itself -- and whichever wrote last won. T in
+ * the middle of a scene, or N switched off during one, put the glove and torch
+ * into the shot.
  */
-function applyFreeCameraVisibility() {
-  const isViewModelShown = !thirdPerson && !freeCamera.isActive;
+function applyViewVisibility() {
+  const isViewModelShown = !thirdPerson && !freeCamera.isActive && !cutscene.isRunning;
   hands.root.visible = isViewModelShown;
   dustMotes.points.visible = isViewModelShown;
-  playerBody.visible = thirdPerson || (freeCamera.isActive && freeCamera.isPlayerBodyVisible);
+  // While a scene is filming, the scene alone decides: its eye-level shots sit
+  // inside the body's head, so third person must not leave it showing there.
+  // The free camera, watching from outside, goes back to its own B.
+  const sceneFilming = cutscene.isRunning && !freeCamera.isActive;
+  playerBody.visible = sceneFilming
+    ? cutsceneBodyShown
+    : thirdPerson || (freeCamera.isActive && freeCamera.isPlayerBodyVisible);
+}
+
+/** The free camera's onChange: switching it on or off, or showing the body (B). */
+function applyFreeCameraVisibility() {
+  applyViewVisibility();
   // Nothing the player was holding down before the switch keeps walking them.
   player.clearKeys();
+}
+
+// ---------- cutscenes ----------
+/**
+ * Every scene the game can play, by name. Each one BUILDS its definition at the
+ * moment it plays, from where things actually are -- the reveal is framed off
+ * where the player opened the door from. See src/cutscenes/ and
+ * docs/CUTSCENES.md.
+ */
+const SCENES = {
+  wakeUp: () => {
+    const [bedX, bedZ] = bedroom.refs.bedPosition;
+    // A point straight ahead of the view play starts from (the bedroom's
+    // spawn), level-ish: what the eyes settle on as they sit up.
+    const eye = camera.getWorldPosition(new THREE.Vector3());
+    const ahead = [
+      eye.x - Math.sin(player.yaw) * 3,
+      eye.y - 0.35,
+      eye.z - Math.cos(player.yaw) * 3
+    ];
+    return wakeUp({
+      bedX,
+      bedZ,
+      duvetTop: surfaceHeightAt(bedroom.group, bedX, bedZ + 0.18, 0.77),
+      cuff: bedroom.refs.cuff.getWorldPosition(new THREE.Vector3()).toArray(),
+      windowAt: bedroom.refs.windowGroup.getWorldPosition(new THREE.Vector3()).toArray(),
+      bulbAt: bedroom.refs.bulbLight.getWorldPosition(new THREE.Vector3()).toArray(),
+      ahead,
+      baseFov: BASE_FOV
+    });
+  },
+  hallwayReveal: () => hallwayReveal({
+    eye: camera.getWorldPosition(new THREE.Vector3()),
+    standing: { x: creature.position.x, z: creature.position.z },
+    creatureEyes: creature.getEyePosition(new THREE.Vector3()),
+    baseFov: BASE_FOV
+  }),
+  /** The stairs scare's shot of it behind the player. Stands it there, too. */
+  stairsBehind: ({ standing }) => {
+    const def = stairsBehind({
+      standing,
+      stairsYaw: upstairsHallway.refs.stairsYaw,
+      wallX: upstairsHallway.refs.wallX
+    });
+    // No stalking breath: the growl is what the player hears.
+    showCreatureAt({ ...def.monster, linger: null, stalkAudio: false });
+    return def;
+  }
+};
+
+/**
+ * The height of whatever is highest under (x, z) in `root` -- a duvet, a
+ * mattress -- for laying something on it. `fallback` if nothing is there.
+ */
+const _surfaceRay = new THREE.Raycaster();
+function surfaceHeightAt(root, x, z, fallback) {
+  _surfaceRay.set(new THREE.Vector3(x, 2.5, z), new THREE.Vector3(0, -1, 0));
+  _surfaceRay.far = 2.5;
+  const hit = _surfaceRay.intersectObject(root, true).find((h) => {
+    if (!h.object.isMesh || h.object.material?.transparent) return false;
+    for (let o = h.object; o; o = o.parent) if (!o.visible) return false;
+    return true;
+  });
+  return hit ? hit.point.y : fallback;
+}
+
+/**
+ * What every scene acts with, handed to its cues and its onFrame -- so a scene
+ * file never imports main.js, and everything it can touch is listed here.
+ */
+const cutsceneContext = {
+  creature,
+  playerBody,
+  sfx,
+  audio,
+  captions,
+  line,
+  postFX,
+  /** A lightning strike in the bedroom window on the next frame. */
+  flashLightning: () => bedroomStorm.flashNow(),
+  /** The bedroom's locked cuff, for a scene that tugs on it. */
+  get cuff() { return bedroom.refs.cuff; },
+  /** The breathing loop's level, 0..1 (ramped by the engine). */
+  setBreathing: (level) => audio.setBreathing(level),
+  /** The level the room being played normally breathes at, to settle back to. */
+  restingBreath: () => (sceneManager.activeKey === 'bedroom' ? LEVEL_ONE_BREATHING_BASE : BREATH_BASE_LEVEL),
+  /** A light that is always in the scene and off: a scene positions and lights it, and turns it off in onEnd. */
+  keyLight: cinematicLight,
+  /** Puts the player's body in the shot (or takes it out); the views that show it anyway keep it. */
+  showPlayerBody(on) {
+    cutsceneBodyShown = !!on;
+    applyViewVisibility();
+  }
+};
+
+/** Hold Space to skip, for the scenes that allow it -- see core/CutsceneSkip.js. */
+const cutsceneSkip = createCutsceneSkip({ cutscene, isInputLive: () => player.isLocked });
+
+/**
+ * Plays a scene from SCENES. Resolves as cutscene.playScene() does: true if it
+ * played out.
+ *
+ * @param {string} name - a key of SCENES.
+ * @param {object} [params] - handed to the scene's builder, for a scene framed
+ *   off something only its caller knows (the stairs scare's standing spot).
+ */
+function playCutscene(name, params) {
+  const build = SCENES[name];
+  if (!build) {
+    console.warn(`[cutscene] no scene called "${name}"`);
+    return Promise.resolve(false);
+  }
+  const done = cutscene.playScene(build(params), cutsceneContext);
+  // The scene has taken the view: the body goes until the scene asks for it.
+  applyViewVisibility();
+  return done;
 }
 
 /**
@@ -1400,6 +1661,11 @@ function updateThirdPerson(dt) {
   playerBody.setTurnRate?.(bodyTurnRate);
   playerBody.update(dt);
 
+  poseThirdCam();
+}
+
+/** Over the shoulder, from wherever the player's eye is and looks now. */
+function poseThirdCam() {
   if (thirdAmount < 0.001) return;
 
   camera.getWorldDirection(_tpFwd);
@@ -1448,13 +1714,21 @@ let caughtInFlight = false;
 const creatureAI = createCreatureAI({
   creature,
   getPlayer: () => ({ x: camera.position.x, z: camera.position.z, yaw: player.yaw }),
-  onBreathing: (level) => audio.setBreathing(level),
+  // Not once an ending is under way. The ending's shot is filmed through the
+  // cutscene camera now, so the player's own camera -- what she hunts -- stays
+  // standing on the porch instead of flying off over the trees, and she would
+  // otherwise keep breathing down their neck under the bulletin.
+  onBreathing: (level) => {
+    if (endingInFlight || gameState.endingChosen) return;
+    audio.setBreathing(level);
+  },
   onCaught: () => {
     // Guards against the vanishingly small window where a level transition is
     // already mid-flight (e.g. the player solved the last lock in the same
     // frame) -- CreatureAI's own CATCH_COOLDOWN already stops this firing
-    // twice in a row on its own.
-    if (caughtInFlight || transitionInFlight) return;
+    // twice in a row on its own. And never during an ending or a cutscene: the
+    // player is frozen where they stood, and a catch would cut into the shot.
+    if (caughtInFlight || transitionInFlight || endingInFlight || gameState.endingChosen || cutscene.isRunning) return;
     caughtInFlight = true;
     // Silent unless the director's STING.onStudyCatch is flipped: she is hauling
     // you back, not killing you, and a death sting here undercuts the ending.
@@ -1796,7 +2070,9 @@ const upstairsHallway = createUpstairsHallwayLevel({
   onExit: () => exitLevel('upstairsHallway'),
   // The flash, then the thunder a moment later -- it is a few miles off.
   onLightning: () => setTimeout(() => thunder(), 350 + Math.random() * 900),
-  onSfx: (name, opts) => sfx(name, opts)
+  onSfx: (name, opts) => sfx(name, opts),
+  // Read at call time: the scare is built further down, once the jump scare is.
+  onReachStairs: () => playStairsScare()
 });
 sceneManager.register('upstairsHallway', upstairsHallway);
 
@@ -2048,7 +2324,8 @@ function updateDoorwayJoin(dt) {
   player.setColliders(joinedColliders);
   if (rushAfterSwitch) {
     rushAfterSwitch = false;
-    startHallwayRush();
+    // Carried in facing down the hall, away from the door: no reveal to play.
+    startHallwayRush({ reveal: false });
   }
 }
 
@@ -2161,14 +2438,58 @@ function applyHouseBlackout() {
   for (const uniform of houseBlackout.flashes) uniform.value = 0;
 }
 
-function startHallwayRush() {
+/** Half the bedroom doorway's width, less room for the casing and the lens's near plane. */
+const DOORWAY_SIGHT_HALF_WIDTH = 0.35;
+
+/** Whether the floor line from `eye` to `target` passes through the open bedroom doorway. */
+function lineThroughDoorway(eye, target) {
+  const door = upstairsHallway.refs.doorway;
+  const along = (door.z - eye.z) / (target.z - eye.z);
+  if (!(along > 0 && along < 1)) return false;
+  const xAtDoor = eye.x + (target.x - eye.x) * along;
+  return Math.abs(xAtDoor - door.x) < DOORWAY_SIGHT_HALF_WIDTH;
+}
+
+/**
+ * What is left of the stare once the reveal scene has played: the scene WAS
+ * the stare, so the light goes almost as soon as the view is handed back.
+ */
+const HALLWAY_RUSH_STARE_AFTER_REVEAL = 0.3;
+
+/**
+ * @param reveal play the hallway reveal (cutscenes/hallwayReveal.js) first. The
+ *   G skip-through carries the player straight into the hall facing away from
+ *   the door, so it asks for the bare rush instead.
+ */
+function startHallwayRush({ reveal = true } = {}) {
   if (hallwayRush || hallwayRushDone) return;
   hallwayRushDone = true;
   const { x, z } = upstairsHallway.refs.farEnd;
   player.movementEnabled = false;
   // It breathes from its body while it is there (the stalking aura).
   showCreatureAt({ x, z, linger: null });
-  hallwayRush = { phase: 'stare', t: 0 };
+  // The reveal is framed down the line from the player's eye to it, so it only
+  // plays when that line goes through the open doorway. The door can be opened
+  // from well off to one side (it answers from 3 m, and the key comes from
+  // under the rug in the corner), and from there every one of its shots would
+  // be of bedroom wall. Those players get the bare stare, as before.
+  if (reveal && !lineThroughDoorway(camera.position, { x, z })) reveal = false;
+  if (!reveal) {
+    hallwayRush = { phase: 'stare', t: 0 };
+    return;
+  }
+  // Held in 'reveal' while the scene plays; updateHallwayRush() waits on it.
+  const rush = { phase: 'reveal', t: 0 };
+  hallwayRush = rush;
+  playCutscene('hallwayReveal').then(() => {
+    // Finished or cancelled, the rush goes on unless something already ended
+    // it (a restart clears hallwayRush, and this is then no longer it).
+    if (hallwayRush !== rush) return;
+    rush.phase = 'stare';
+    rush.t = HALLWAY_RUSH_STARE - HALLWAY_RUSH_STARE_AFTER_REVEAL;
+    // The scene handed movement back as it found it -- off, as set above.
+    player.movementEnabled = false;
+  });
 }
 
 /** It is gone: the body goes, the player can move, the dark holds a moment. */
@@ -2200,6 +2521,7 @@ function updateHallwayRush(dt) {
     endHallwayRush({ quiet: true });
     return;
   }
+  if (r.phase === 'reveal') return;
   r.t += dt;
   if (r.phase === 'dark') {
     if (r.t >= HALLWAY_RUSH_DARK_AFTER) endHallwayRush();
@@ -2303,10 +2625,10 @@ const hallwayBasement = createHallwayBasementLevel({
         sfx('power_down');
         spark();
         // It is close. The breathing says so without showing anything.
-        audio.setBreathing(0.9);
+        audio.setBreathing(LEVEL_TWO_BREATHING.blackout);
       });
       if (!await s.play(line('dialog_blackout'))) return;
-      s.do(() => audio.setBreathing(0.7));
+      s.do(() => audio.setBreathing(LEVEL_TWO_BREATHING.settled));
     });
   },
 
@@ -2370,7 +2692,7 @@ const hallwayBasement = createHallwayBasementLevel({
       hallwayBasement.refs.feeds.scheduleHallwayDash(1.1);
       script.run(async (s) => {
         if (!await s.wait(1.2)) return;
-        s.do(() => audio.setBreathing(0.8));
+        s.do(() => audio.setBreathing(LEVEL_TWO_BREATHING.cctvDash));
         await s.play(line('dialog_cctv_dash'));
       });
       return;
@@ -2399,7 +2721,7 @@ const hallwayBasement = createHallwayBasementLevel({
           // take, its aura looping, rather than a fixed linger.
           const CORNER = hallwayBasement.refs.creatureCorner;
           showCreatureAt({ x: CORNER[0], z: CORNER[1], linger: null });
-          audio.setBreathing(0.95);
+          audio.setBreathing(LEVEL_TWO_BREATHING.cctvBasement);
           creak();
         });
         if (!await s.play(line('dialog_cctv_basement'))) return;
@@ -2408,7 +2730,7 @@ const hallwayBasement = createHallwayBasementLevel({
           hideCreature();
           hallwayBasement.refs.revealPool();
           // Back off: it has gone, and the room is only as bad as it was.
-          audio.setBreathing(0.6);
+          audio.setBreathing(LEVEL_TWO_BREATHING.settled);
         });
         if (!await s.wait(0.6)) return;
         await s.play(line('dialog_black_pool'));
@@ -2431,6 +2753,7 @@ const STUDY_LOCK_SFX = { deadbolt: 'deadbolt_open', combination: 'padlock_open',
 
 const study = createStudyLevel({
   showCaption,
+  getPlayerPosition: () => camera.position,
   onDoorOpening: (position) => audioDirector.door(position),
   // The study is the last room, so its exit is the ENDING rather than another
   // level. Unit 17 replaces this; until then it says so plainly instead of
@@ -2481,7 +2804,20 @@ const study = createStudyLevel({
    * anything with the visor on -- the writing is not hidden from the room, it
    * is hidden from the player, exactly like the fourth figure in the portrait.
    */
-  onReadLetter: () => {
+  onReadLetter: ({ body, onFinished } = {}) => {
+    if (body) {
+      player.unlock();
+      documentUI.open({
+        title: "Annabelle's letter",
+        variant: 'letter',
+        body,
+        onClosed: () => {
+          onFinished?.();
+          objectiveEl.textContent = 'Look into the mirror.';
+        }
+      });
+      return;
+    }
     if (!gameState.visorWorn) {
       showCaption(line('dialog_letter_blank_without_visor'));
       return;
@@ -2549,22 +2885,60 @@ const study = createStudyLevel({
     captions.play(line('dialog_pickup_gate_key'));
   },
 
-  /**
-   * The mirror. The single most important interaction in the game, and it only
-   * does its job with the visor on -- which is the point: the player has to
-   * have chosen to look.
-   */
+  // The study owns the once-only/letter gate; the shared runner owns input
+  // and the shot camera, leaving the player's actual position untouched.
   onLookInMirror: () => {
-    if (!gameState.visorWorn) {
-      showCaption(line('dialog_mirror_without_visor'));
-      return;
-    }
-    script.run(async (s) => {
-      if (!await s.play(line('dialog_mirror'))) return;
-      s.do(() => {
-        objectiveEl.textContent = 'Read the letter.';
-        audio.setBreathing(0.35);
-      });
+    if (cutscene.isRunning || !study.refs.puzzle.mirrorUnlocked) return Promise.resolve(false);
+    const wasVisorWorn = gameState.visorWorn;
+    const playerPosition = camera.position.clone();
+    const [annabelleX, annabelleZ] = study.refs.annabelleSpot;
+    const annabelleTarget = [annabelleX, 0.7, annabelleZ];
+    const externalCamera = [Math.min(7.1, playerPosition.x + 1.2), 1.65, playerPosition.z + 1.9];
+    const playerTarget = [playerPosition.x, 1.05, playerPosition.z];
+    setThirdPerson(false);
+    player.clearKeys();
+    return cutscene.playScene({
+      name: 'studyMirrorReveal',
+      letterbox: true,
+      skippable: false,
+      shots: [
+        { at: 'player', lookAt: [4.8, 1.45, -6.4], fov: 48, seconds: 0.8 },
+        { cut: true, at: externalCamera, lookAt: playerTarget, fov: [52, 43], seconds: 9.5, shake: 0.06 },
+        { cut: true, at: [annabelleX + 2.4, 1.35, annabelleZ + 1.3], lookAt: annabelleTarget, fov: [48, 42], seconds: 3 },
+        { cut: true, at: 'player', lookAt: annabelleTarget, fov: camera.fov, seconds: 1 }
+      ],
+      cues: [
+        { t: 0, run: () => { captions.cancel(); fade.fadeOut(180); } },
+        { t: 0.2, run: () => { visor.set(true); fade.fadeIn(400); } },
+        { t: 0.85, run: () => captions.say({ text: 'Subject 06.', duration: 1.8 }) },
+        { t: 3, run: () => captions.say({ text: 'Mark.', duration: 1.7 }) },
+        { t: 5.2, run: () => captions.say({ text: 'You were never running from it.', duration: 2.1 }) },
+        { t: 7.8, run: () => captions.say({ text: 'You were containing it.', duration: 2 }) },
+        { t: 10.3, run: () => { study.refs.revealAnnabelle(); sfx('cloth'); } },
+        { t: 10.5, run: () => captions.say({ text: 'Annabelle.', duration: 2 }) },
+        { t: 13, run: () => fade.fadeOut(250) },
+        { t: 13.4, run: () => fade.fadeIn(500) }
+      ],
+      onFrame: (_ctx, t) => {
+        cutsceneContext.showPlayerBody(t >= 0.8 && t < 10.3);
+        // The same rig as the corridor creature is Mark's own body. Its
+        // existing correction morph supplies the altered-subject reveal.
+        if (t >= 0.8 && t < 10.3) {
+          playerBody.setCorrection(0);
+          playerBody.setYaw(player.yaw);
+          playerBody.setSpeed(0);
+          playerBody.update(0);
+        }
+      },
+      onEnd: (_ctx, completed) => {
+        playerBody.setCorrection(1);
+        cutsceneContext.showPlayerBody(false);
+        visor.set(wasVisorWorn);
+        player.clearKeys();
+        fade.clear();
+        captions.cancel();
+        if (completed) objectiveEl.textContent = 'Take the HOLLOW OVERRIDE KEY beside Annabelle.';
+      }
     });
   }
 });
@@ -2633,6 +3007,8 @@ const backroomsHunter = createBackroomsHunter({
     walking: player.moving > 0.5 && player.crouch < 0.5
   }),
   colliders: backrooms.colliders,
+  // Annabelle's rooms are partitioned; it must only ever aim for the open half.
+  roomFloors: ROOM_FLOORS,
   onBreathing: (level) => audio.setBreathing(level),
   onCaught: () => onHunterCaught()
 });
@@ -2649,8 +3025,12 @@ const audioDirector = createAudioDirector({
   audio,
   THREE,
   // The player's own head -- never the third-person camera. The free camera
-  // takes the ears with it, which is what a clip recorded from it wants.
-  getListener: () => (freeCamera.isActive ? freeCamera.camera : camera),
+  // takes the ears with it, which is what a clip recorded from it wants, and so
+  // does a cutscene's lens: sound follows the shot, as it does in a film.
+  getListener: () => {
+    if (freeCamera.isActive) return freeCamera.camera;
+    return cutscene.isRunning ? cutscene.camera : camera;
+  },
   player,
   captions,
   getLevel: () => ({ key: sceneManager.activeKey, level: sceneManager.active }),
@@ -3025,6 +3405,12 @@ const LEVEL_OBJECTIVES = {
   backrooms: 'Find the way through.'
 };
 
+/**
+ * Levels where Shift does nothing. The bedroom and the upstairs hallway are
+ * small and meant to be walked slowly; sprint comes back from the backrooms on.
+ */
+const SPRINTLESS_LEVELS = new Set(['bedroom', 'upstairsHallway']);
+
 const LEVEL_FOG = {
   bedroom: new THREE.FogExp2(0x05070a, 0.065),
   // Thinner than the bedroom's, so the far end of the hall and the top of the
@@ -3224,6 +3610,76 @@ function onHunterCaught() {
 let jumpScareRunning = false;
 const jumpScare = createJumpScare({ camera, fade, postFX, audio });
 
+/**
+ * Drops the player out of third person for a beat that has to be seen from
+ * their own eyes, snapping rather than easing so it does not open on a swing.
+ *
+ * @returns {() => void} puts back whichever view the player had chosen.
+ */
+function forceFirstPerson() {
+  const wasThirdPerson = thirdPerson;
+  if (wasThirdPerson) {
+    setThirdPerson(false);
+    thirdAmount = 0;
+  }
+  return () => {
+    if (wasThirdPerson) setThirdPerson(true);
+  };
+}
+
+/**
+ * The scare at the top of the upstairs hallway's stairs -- see
+ * core/StairsScare.js. Its own script runner rather than `script`, because
+ * any new script.run() cancels the one before, and nothing else starting a
+ * beat should be able to cut this one off half way with the camera taken.
+ */
+const stairsScareScript = createScriptRunner({ captions });
+const stairsScare = createStairsScare({
+  camera,
+  player,
+  interaction,
+  hands,
+  creature,
+  jumpScare,
+  audio,
+  sfx,
+  fade,
+  handLight: cinematicLight,
+  setHouseLightsOut,
+  forceFirstPerson,
+  torch: {
+    isAvailable: () => flashlightFound && gameState.inventory.has('flashlight'),
+    // Into the hand and switched on, so there is a torch there to die.
+    bringOut: () => {
+      if (!flashlightFound || !gameState.inventory.has('flashlight')) return;
+      if (!heldItems.isHolding('flashlight')) heldItems.select('flashlight');
+      setFlashlight(true);
+    },
+    setPower: setTorchPower,
+    // It works again afterwards, whatever failure it was in before the scare.
+    repair: () => {
+      resetTorchFault();
+      applyFlashlightBeam();
+    }
+  },
+  hallway: upstairsHallway.refs,
+  playBehindShot: async (standing) => {
+    const finished = await playCutscene('stairsBehind', { standing });
+    hideCreature();
+    return finished;
+  }
+});
+
+/** Plays the stairs scare, once, when the hallway says the player has reached the top step. */
+function playStairsScare() {
+  if (sceneManager.activeKey !== 'upstairsHallway') return;
+  if (transitionInFlight || cutscene.isRunning || hallwayRush || stairsScare.isRunning) return;
+  // Before the scare starts, so whatever was being said does not carry on over it.
+  script.cancel();
+  captions.cancel();
+  stairsScareScript.run((s) => stairsScare.run({ isAlive: s.alive }));
+}
+
 function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   // A prior restrained bedroom view must never clamp the spawn orientation of
   // another level during SceneManager.activate()'s player.spawn() call.
@@ -3297,8 +3753,11 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   script.cancel();
   bedroomHorrorScript.cancel();
   bedroomHorrorEvents.clear();
+  stairsScareScript.cancel();
   if (key === 'bedroom') audio.setBreathing(LEVEL_ONE_BREATHING_BASE);
+  if (key === 'hallwayBasement') audio.setBreathing(LEVEL_TWO_BREATHING.base);
   player.movementEnabled = !lockMovement;
+  player.sprintEnabled = !SPRINTLESS_LEVELS.has(key);
   // postFX.reset() above zeroes the visor dial, and the level just activated has
   // never been told what the player can see. Without this, walking into a room
   // wearing the visor takes it off in everything except the player's inventory.
@@ -3378,6 +3837,8 @@ async function transitionTo(key, { lockMovement = false, outMs = 700, holdMs = 1
       await newspaperView.show(interlude);
       if (mine !== transitionGeneration) return null;  // restarted while reading
     }
+    await warmLevelForTransition(key);
+    if (mine !== transitionGeneration) return null;
     const level = activateLevel(key, { lockMovement: true });
     if (!level) {
       // Fade back in rather than leaving a black screen: a bad route must never
@@ -3506,8 +3967,75 @@ function resetGame() {
 }
 
 // ---------- level preview switching (debug / mentor demo) ----------
+/**
+ * G's bedroom branch: opens the bedroom door through its own interact, the
+ * planks and then the key, exactly as playing to it would. With carryThrough
+ * (G) the player is carried straight into the hall; without it
+ * (__game.stageHallwayReveal) they are left at the door and the reveal plays.
+ */
+function debugOpenBedroomDoor({ carryThrough = true } = {}) {
+  // A drop caught half way would land under the grants below (take()
+  // finishes a pending drop first), so it is abandoned, item in hand, the
+  // way a level change abandons one.
+  if (heldItems.dropping) {
+    hands.stop('right');
+    heldItems.cancelDrop();
+  }
+  // Each grant below first takes that item's copy off the floor, if the
+  // player dropped one. Otherwise the door uses up the fresh copy and
+  // leaving the room hands the dropped one back (returnDroppedItems): a
+  // spent crowbar or key carried for the rest of the run, or a second torch.
+  //
+  // The corridor's dark gaps are designed around having a torch, and
+  // skipping the chain means never picking one up.
+  flashlightFound = true;
+  removeDroppedProp('flashlight');
+  if (!gameState.inventory.has('flashlight')) pickUpItem('flashlight', { animate: false });
+  setFlashlight(true);
+  // The opening beat leaves the player chained; the door does not free
+  // them, onFreed does.
+  player.movementEnabled = true;
+  const puzzleState = bedroom.refs.puzzleState;
+  const door = bedroom.refs.doorSlab.userData.interact;
+  // Only the steps not already done. A crowbar granted after the planks
+  // were pried is never used up -- the door goes straight to wanting the
+  // key -- and sat in the hotbar for the rest of the run.
+  if (!puzzleState.planksRemoved) {
+    puzzleState.hasCrowbar = true;
+    puzzleState.floorboardPried = true;
+    removeDroppedProp('crowbar');
+    pickUpItem('crowbar', { animate: false });
+    door.onInteract();   // pries the planks off (and uses the crowbar up)
+  }
+  if (!puzzleState.doorUnlocked) {
+    puzzleState.hasBedroomKey = true;
+    removeDroppedProp('bedroomKey');
+    pickUpItem('bedroomKey', { animate: false });
+    // Opens it -> openToHallway(), which carries the player through -- or,
+    // for stageHallwayReveal, leaves them at the door to watch the reveal.
+    skipThroughDoor = carryThrough;
+    door.onInteract();
+  }
+  // Taking the crowbar and the key out put the torch away, and a torch put
+  // away is switched off -- so it comes back out, lit, for the corridor.
+  heldItems.select('flashlight');
+  setFlashlight(true);
+}
+
+/**
+ * Keys that do nothing while a cutscene plays. Each acts through the hand or
+ * the view the scene has borrowed: the torch (F), a drop (Q), the visor (V),
+ * third person (T), a hint caption over the scene (H), the debug skip (G).
+ * Restart, credits and the level jumps are NOT here: each cancels the scene
+ * properly, which is what they are for.
+ */
+const KEYS_HELD_BY_CUTSCENES = new Set(['KeyF', 'KeyQ', 'KeyV', 'KeyT', 'KeyH', 'KeyG']);
+
 window.addEventListener('keydown', (e) => {
   if (!player.isLocked) return;
+  // A cutscene owns the view and the hand, so nothing that acts through either
+  // reaches the game until it hands back -- see KEYS_HELD_BY_CUTSCENES.
+  if (cutscene.isRunning && KEYS_HELD_BY_CUTSCENES.has(e.code)) return;
   // Deliberately INSTANT, not faded: these are a mentor-demo tool and 1.7s of
   // black per press is friction. But each one aborts first, or a jump taken
   // mid-fade lands behind an overlay that will never lift.
@@ -3558,51 +4086,7 @@ window.addEventListener('keydown', (e) => {
     } else if (key !== 'bedroom') {
       showCaption(`[debug] G does nothing in "${key}".`);
     } else {
-      // A drop caught half way would land under the grants below (take()
-      // finishes a pending drop first), so it is abandoned, item in hand, the
-      // way a level change abandons one.
-      if (heldItems.dropping) {
-        hands.stop('right');
-        heldItems.cancelDrop();
-      }
-      // Each grant below first takes that item's copy off the floor, if the
-      // player dropped one. Otherwise the door uses up the fresh copy and
-      // leaving the room hands the dropped one back (returnDroppedItems): a
-      // spent crowbar or key carried for the rest of the run, or a second torch.
-      //
-      // The corridor's dark gaps are designed around having a torch, and
-      // skipping the chain means never picking one up.
-      flashlightFound = true;
-      removeDroppedProp('flashlight');
-      if (!gameState.inventory.has('flashlight')) pickUpItem('flashlight', { animate: false });
-      setFlashlight(true);
-      // The opening beat leaves the player chained; the door does not free
-      // them, onFreed does.
-      player.movementEnabled = true;
-      const puzzleState = bedroom.refs.puzzleState;
-      const door = bedroom.refs.doorSlab.userData.interact;
-      // Only the steps not already done. A crowbar granted after the planks
-      // were pried is never used up -- the door goes straight to wanting the
-      // key -- and sat in the hotbar for the rest of the run.
-      if (!puzzleState.planksRemoved) {
-        puzzleState.hasCrowbar = true;
-        puzzleState.floorboardPried = true;
-        removeDroppedProp('crowbar');
-        pickUpItem('crowbar', { animate: false });
-        door.onInteract();   // pries the planks off (and uses the crowbar up)
-      }
-      if (!puzzleState.doorUnlocked) {
-        puzzleState.hasBedroomKey = true;
-        removeDroppedProp('bedroomKey');
-        pickUpItem('bedroomKey', { animate: false });
-        // Opens it -> openToHallway(), which carries the player through.
-        skipThroughDoor = true;
-        door.onInteract();
-      }
-      // Taking the crowbar and the key out put the torch away, and a torch put
-      // away is switched off -- so it comes back out, lit, for the corridor.
-      heldItems.select('flashlight');
-      setFlashlight(true);
+      debugOpenBedroomDoor();
     }
   }
   // Neither Q nor F acts on key auto-repeat. Held Q dropped item after item --
@@ -3632,7 +4116,8 @@ window.addEventListener('keydown', (e) => {
     }
   }
   if (e.code === 'KeyR' && !e.repeat) openRestartConfirm();
-  if (e.code === 'KeyC' && !transitionInFlight) toggleCredits(true);
+  // K, not C: C is crouch.
+  if (e.code === 'KeyK' && !transitionInFlight) toggleCredits(true);
 });
 
 // ---------- right-click = E ----------
@@ -3711,8 +4196,8 @@ window.addEventListener('keydown', (e) => {
  * third-person pan would otherwise fly a disembodied glove over the treeline.
  */
 const ENDING_TITLES = {
-  released: 'THE HOLLOW IS OUT',
-  contained: 'THE HOUSE HELD',
+  released: 'ENDING: RELEASED',
+  contained: 'ENDING: CONTAINED',
   timeout: 'OUT OF TIME'
 };
 
@@ -3763,46 +4248,73 @@ async function playOutOfTime() {
 }
 
 async function playEnding(which) {
-  if (endingInFlight) return;
+  const committedChoice = study.refs.puzzle.endingChoice;
+  if (endingInFlight || gameState.endingChosen || cutscene.isRunning
+    || (which === 'released' ? committedChoice !== 'RELEASE'
+      : which !== 'contained' || committedChoice !== 'RESEALED')) return;
   endingInFlight = true;
   gameState.endingChosen = which;
+  let resealFadeTimer = null;
+  let resealFinishTimer = null;
+  let resolveResealFinish;
+  const resealFinished = which === 'contained'
+    ? new Promise((resolve) => { resolveResealFinish = resolve; }) : null;
+  function continueAfterResealLine() {
+    if (!resealFinished || resealFinishTimer !== null) return;
+    // The ending's last beat must finish even if pointer-lock loss pauses the
+    // shared caption/cutscene clock. Keep the original 10.2/11.6s timings.
+    resealFadeTimer = window.setTimeout(() => {
+      if (gameState.endingChosen === 'contained') fade.fadeOut(1200);
+    }, 3600);
+    resealFinishTimer = window.setTimeout(() => resolveResealFinish(true), 5000);
+  }
   try {
-    // Take the choice away immediately: both hitboxes are still in front of the
-    // player and a second E during the fade would start the other ending.
+    script.cancel();
+    captions.cancel();
+    audio.stopVoice();
     interaction.setEnabled(false);
-
-    if (which === 'contained') {
-      // The door shuts, and the bolts go across. Heard, not just described.
-      study.refs.doorState.open = false;
-      creak();
-      script.run(async (s) => {
-        for (let i = 0; i < 3; i++) {
-          if (!await s.wait(0.55)) return;
-          s.do(() => { if (!sfx('deadbolt_open')) creak(); });
-        }
-      });
-      await wait(900);
-    }
-
-    // Out through the gate and up over the treeline, looking back at the house.
-    const from = which === 'released'
-      ? [2.5, 1.6, 7.2]
-      : [2.5, 1.6, 6.4];
-    const shotFinished = await cutscene.playToBlack({
-      points: [from, [2.2, 3.2, 12.0], [0.6, 7.5, 20.0], [-1.5, 12.0, 30.0]],
-      lookAt: (t) => [2.5, 1.4 + t * 1.2, 3.0],
-      seconds: 13,
-      fadeMs: 2200,
-      body: () => captions.play(line(`dialog_ending_${which}`))
+    player.movementEnabled = false;
+    player.lookEnabled = false;
+    player.clearKeys();
+    audio.setBreathing(BREATH_BASE_LEVEL);
+    const text = which === 'released'
+      ? ['CONTAINMENT RELEASED.', 'Annabelle may still have a chance.', 'But The Hollow is no longer contained.']
+      : ['CONTAINMENT RESTORED.', 'You remembered what you asked her to do.', 'Annabelle cannot leave.'];
+    const lookAt = camera.position.clone().add(camera.getWorldDirection(new THREE.Vector3()));
+    const sceneFinished = cutscene.playScene({
+      name: `studyEnding_${which}`,
+      letterbox: true,
+      skippable: false,
+      shots: [{ cut: true, at: 'player', lookAt, seconds: 11.6 }],
+      cues: [
+        { t: 0, run: () => captions.say({ text: text[0], duration: 2.4, always: true }) },
+        { t: 3.1, run: () => captions.say({ text: text[1], duration: 2.9, always: true }) },
+        { t: 6.6, run: () => {
+          try {
+            captions.say({ text: text[2], duration: 3, always: true });
+          } finally {
+            continueAfterResealLine();
+          }
+        } },
+        { t: 10.2, run: () => fade.fadeOut(1200) }
+      ],
+      onEnd: (_ctx, completed) => {
+        interaction.setEnabled(false);
+        captions.cancel();
+        if (!completed) fade.clear();
+      }
     });
-
-    // The morning's paper, on the black after the shot: the bulletin the player
-    // just heard, as the town will read it. Skipped only by a restart, which
-    // has already put the game somewhere an end screen must not appear over.
-    if (shotFinished && !await newspaperView.show(`ending_${which}`)) return;
-
-    showEndScreen(which);
+    const shotFinished = await (resealFinished
+      ? Promise.race([sceneFinished, resealFinished]) : sceneFinished);
+    if (!shotFinished || gameState.endingChosen !== which) return;
+    // A stalled reseal timeline still owns input/camera until explicitly
+    // cancelled. Its normal cleanup runs before the shared end screen opens.
+    if (which === 'contained' && cutscene.name === 'studyEnding_contained') cutscene.cancel();
+    showEndScreen(which, false);
+    fade.clear();
   } finally {
+    window.clearTimeout(resealFadeTimer);
+    window.clearTimeout(resealFinishTimer);
     endingInFlight = false;
   }
 }
@@ -3811,7 +4323,7 @@ async function playEnding(which) {
  * The end screen reuses #start-screen, which is already doing double duty as
  * the pause menu -- a third state rather than a third overlay.
  */
-function showEndScreen(which) {
+function showEndScreen(which, showCredits = true) {
   menuOverlayState = 'game';
   showLegacyStartScreen();
   creature.visible = false;
@@ -3827,7 +4339,7 @@ function showEndScreen(which) {
   promptEl.style.display = 'none';
   // Running out of time is not an ending, so no credits roll over it: the
   // title and Play again are what the player needs to see.
-  if (!ENDING_CREDITS[which]) {
+  if (!showCredits || !ENDING_CREDITS[which]) {
     buildCredits();
     if (player.isLocked) player.unlock();
     return;
@@ -4041,37 +4553,88 @@ function beginGame() {
   startTitle.textContent = "DON'T LET IT OUT";
   startSub.textContent = 'Project HOLLOW -- June 1987';
   startButton.textContent = 'Click to begin';
+  // Keep the focused menu button from treating Enter/Space as a second start
+  // request while the opening sequence owns the screen.
+  startButton.disabled = true;
+  startScreen.classList.add('hidden');
   audio.start();
-  // Something in the house is already breathing when the player wakes up, so
-  // this comes in with the wind rather than at a puzzle beat, and then runs
-  // unbroken for the rest of the session -- it is deliberately not tied to a
-  // level or an event, only its intensity is. Safe whether or not the loop
-  // file is actually there, and safe before it has decoded -- see AudioEngine.
-  audio.startBreathing();
-  // Before the room: activateLevel() starts the bedroom's clock, full and
-  // still -- it only counts once the first newspaper is put away.
   runTimer.configure(currentDifficulty);
-  activateLevel('bedroom', { lockMovement: true });
-  player.lock();
+  backroomsHunter.setReady(true);
 
-  /**
-   * The wake-up. The fade overlay has existed since the transition system went
-   * in and beginGame() never used it -- the game simply cut to a lit room with
-   * the player already in it, which is not waking up, it is loading a save.
-   *
-   * Black first, then the room arrives around them while the first three lines
-   * play. Slow: 2.6s is long for a fade and exactly right for eyes opening.
-   */
+  // Start the opening image first, then prepare Level 1 behind it. Its movement
+  // gate remains locked until the report has ended.
+  const newsFinished = openingNewsCutscene.play();
+  const skipOpeningNews = (event) => {
+    if (event.code === 'KeyK' && openingNewsCutscene.skip()) event.preventDefault();
+  };
+  window.addEventListener('keydown', skipOpeningNews);
+  const levelOneReady = Promise.all([initializeHands(), initializeHeldTorch()]);
+  activateLevel('bedroom', { lockMovement: true });
+
   script.run(async (s) => {
-    s.do(() => fade.snapToBlack());
-    // The first front page, on the black before the eyes open: what the town
-    // read in January, before the player knows where they are. A restart
-    // while it is up cancels it, and the wake-up then does not run on top of
-    // the restarted room.
-    if (!await newspaperView.show('prologue') || !s.alive()) return;
-    if (!await s.wait(0.9)) return;
-    fade.fadeIn(2600);
-    await s.play(line('dialog_wake'));
+    // The opening report runs while Level 1's presentation assets prepare.
+    const newsResult = await newsFinished;
+    window.removeEventListener('keydown', skipOpeningNews);
+    if (!s.alive()) return;
+    await levelOneReady;
+    if (!s.alive()) return;
+    if (newsResult?.skipped) {
+      // K is itself a user gesture, so it can safely acquire the pointer lock
+      // and continue straight to the authored wake-up scene.
+      startButton.disabled = false;
+      player.lock();
+    } else {
+      await waitForOpeningNewsContinue();
+    }
+    if (!s.alive()) return;
+    await Promise.all([openingNewsCutscene.close(), fade.fadeOut(420)]);
+    s.do(() => {
+      // The continue click acquired pointer lock. The wake-up scene now owns
+      // the camera and temporarily freezes these controls itself.
+      audio.startBreathing();
+      interaction.setEnabled(true);
+      player.lookEnabled = true;
+      player.movementEnabled = true;
+    });
+    const waking = playCutscene('wakeUp');
+    if (!cutscene.isRunning) {
+      // Preserve the established fallback if another scene prevented wake-up.
+      fade.fadeIn(2600);
+      await s.play(line('dialog_wake'));
+      return;
+    }
+    // The wake-up scene begins with closed eyes, so lifting the black here
+    // exposes only its authored first frame rather than Level 1 prematurely.
+    fade.clear();
+    await waking;
+  });
+}
+
+/** Restores pointer lock from a fresh click after the non-interactive opening. */
+function waitForOpeningNewsContinue() {
+  const button = openingNewsContinue.querySelector('button');
+  openingNewsContinue.classList.add('is-open');
+  openingNewsContinue.setAttribute('aria-hidden', 'false');
+  button.focus();
+
+  return new Promise((resolve) => {
+    let hasContinued = false;
+    const continueGame = (event) => {
+      if (hasContinued) return;
+      hasContinued = true;
+      event?.preventDefault();
+      openingNewsContinue.removeEventListener('click', continueGame);
+      window.removeEventListener('keydown', continueGame);
+      openingNewsContinue.classList.remove('is-open');
+      openingNewsContinue.setAttribute('aria-hidden', 'true');
+      startButton.disabled = false;
+      // This click is the browser-approved gesture that safely reacquires
+      // pointer lock before the wake-up scene takes the camera.
+      player.lock();
+      resolve();
+    };
+    openingNewsContinue.addEventListener('click', continueGame, { once: true });
+    window.addEventListener('keydown', continueGame, { once: true });
   });
 }
 
@@ -4170,12 +4733,37 @@ if (import.meta.env.DEV) {
     // So a harness can see the backrooms catch and its jump scare without
     // having to be run down in the maze.
     onHunterCaught,
+    // The stairs scare normally waits for the player to walk to the top step.
+    playStairsScare,
+    stairsScare,
     hands,
     THREE,
     sceneManager,
     player,
     postFX,
     cutscene,
+    playCutscene,
+    SCENES,
+    // The reveal staged the shipping way: freed, on the door's centre line a
+    // metre back, door opened through its own interact (G's path, without
+    // being carried through). For exportStills / recordScene.
+    stageHallwayReveal: () => {
+      if (sceneManager.activeKey !== 'bedroom') activateLevel('bedroom');
+      player.setLookBounds(null);
+      const doorway = bedroom.refs.doorway;
+      player.spawn(doorway.x, doorway.z - 1.0, Math.PI, 0);
+      debugOpenBedroomDoor({ carryThrough: false });
+      return cutscene.isRunning;
+    },
+    // Stills, turnarounds and recordings for AI-video references -- see
+    // core/CutsceneExport.js. Saved to Downloads, never into the repo.
+    ...createCutsceneExport({
+      renderer,
+      postFX,
+      cutscene,
+      playCutscene,
+      figures: { creature, player: playerBody }
+    }),
     script,
     creature,
     // The backrooms figure is a DIFFERENT creature from `creature` now -- a
@@ -4360,8 +4948,11 @@ function showViewModelsForWarmUp() {
   };
 }
 
-async function warmUp() {
-  const keys = [...sceneManager.levels.keys()];
+async function warmUp({
+  keys = [...sceneManager.levels.keys()],
+  waitForAssets = true,
+  includeCreatures = true
+} = {}) {
   // The creature counts as a step of its own: it is a network fetch rather
   // than a compile, and it is the one the maze cannot open without.
   const steps = keys.length + 2;
@@ -4377,10 +4968,10 @@ async function warmUp() {
   // The hands and the held torch are drawn in every room's warm-up below, so
   // they have to have arrived. Both promises already swallow a failed load,
   // so a missing model costs that model's warm-up, never the whole boot.
-  await Promise.all([handsReady, heldTorchReady]);
+  await Promise.all([initializeHands(), initializeHeldTorch()]);
   // And every room's own models, which can bring lights with them: a room
   // warmed before its candles arrive is warmed for the wrong lighting.
-  await waitForAllLoads();
+  if (waitForAssets) await waitForAllLoads();
 
   // Everything off, so each room is warmed on its own and nothing is paid
   // twice. Restored at the end from what it actually was.
@@ -4455,6 +5046,8 @@ async function warmUp() {
   scene.fog = wasFog;
   camera.position.copy(camPos);
   camera.quaternion.copy(camQuat);
+
+  if (!includeCreatures) return;
 
   // Both bodies: the monster, and the player's own, which is the same mesh at
   // the other end of the dial. Waiting on each is a 1.8 MB fetch the browser
@@ -4592,20 +5185,22 @@ async function warmUp() {
   await advance('something is already inside...');
 }
 
-warmUp()
-  .catch((err) => console.error('warmUp failed; starting anyway', err))
-  .finally(() => {
-    setLoadProgress(1);
-    // The world is ready either way: a warm-up that failed costs stutter, not
-    // a game nobody can start.
-    backroomsHunter.setReady(true);
-    setTimeout(() => loadingScreen.classList.add('is-done'), 250);
-    // Print every page's photograph now, while the player is on the menu, so
-    // each one is already on its plate when its page lands.
-    for (const id of ['prologue', 'afterBedroom', 'afterBasement', 'ending_released', 'ending_contained']) {
-      newspaperView.preload(id);
-    }
-  });
+const warmedLevelKeys = new Set();
+
+/** Warms exactly one destination level while a transition already owns the screen. */
+async function warmLevelForTransition(key) {
+  if (warmedLevelKeys.has(key)) return;
+  await warmUp({ keys: [key], waitForAssets: false, includeCreatures: false });
+  warmedLevelKeys.add(key);
+}
+
+// The menu is interactive before any tracked game-content loads or shader
+// warm-ups. Those begin only from beginGame() after the player chooses a run.
+setLoadProgress(1);
+showMainMenu();
+loadingScreen.classList.add('is-done');
+console.timeEnd('APP_BOOT');
+scheduleMenuPreload();
 
 // ---------- render loop ----------
 const clock = new THREE.Clock();
@@ -4646,7 +5241,7 @@ function tick() {
   if (isPlaying) HINTS_BY_LEVEL[sceneManager.activeKey]?.update(dt);
   // The difficulty's clock. Stopped by the same things, and by every moment
   // the player has no control: a fade between rooms, a cutscene, an ending.
-  if (isPlaying && !transitionInFlight && !cutscene.isRunning && !endingInFlight) runTimer.update(dt);
+  if (isPlaying && !transitionInFlight && !cutscene.isRunning && !stairsScare.isRunning && !endingInFlight) runTimer.update(dt);
   if (isPlaying && !transitionInFlight && !endingInFlight) updateTorchFault(dt);
   captions.update(dt);
   // Only while it is actually on screen. The AI is not driving it in Level 2 --
@@ -4705,8 +5300,9 @@ function tick() {
    *
    * Zeroed while `cinematic`, because player.update() returns before touching
    * sprint during a scripted shot, so the FOV would otherwise sit frozen
-   * wherever the shot started. If a cutscene ever wants to animate FOV itself,
-   * THIS is the line it has to take ownership of.
+   * wherever the shot started. A cutscene animates FOV on its OWN camera
+   * (cutscene.camera, see core/Cutscene.js), so nothing here has to give way
+   * to one.
    */
   const wantFov = BASE_FOV + SPRINT_FOV_KICK * (player.cinematic ? 0 : player.sprint);
   if (Math.abs(wantFov - camera.fov) > 0.02) {
@@ -4775,9 +5371,23 @@ function tick() {
   // AFTER everything that moves the player and BEFORE the draw, because the
   // third-person camera is derived from where the player ended this frame.
   updateThirdPerson(dt);
+  // The scene's frame: after every figure has been posed this frame (the
+  // creature, the hunter, the player's body), so its onFrame can act on top of
+  // their poses; and held with the captions on Esc, so a shot and its voice
+  // line never drift apart. HELD, not skipped: update(0) advances nothing but
+  // still re-applies the scene's acting over the poses this frame just reset,
+  // which the restart dialog's see-through backdrop would otherwise show
+  // snapping upright. See core/Cutscene.js.
+  cutscene.update(captions.paused ? 0 : dt);
+  // On the same clock, so Esc holds it too -- see core/StairsScare.js.
+  stairsScare.update(captions.paused ? 0 : dt);
+  // On real time: slow motion must not make a skip take longer.
+  cutsceneSkip.update(captions.paused ? 0 : realDt);
   // Switched on the blend rather than the flag, so the swap happens once the
   // camera has actually left the head instead of on the frame the key is hit.
+  // The free camera outranks a scene, so a scene can be watched from outside.
   if (freeCamera.isActive) postFX.setCamera(freeCamera.camera);
+  else if (cutscene.isRunning) postFX.setCamera(cutscene.camera);
   else postFX.setCamera(thirdAmount > 0.001 ? thirdCam : camera);
 
   // After everything that moves the player, the hunter and the creature, so

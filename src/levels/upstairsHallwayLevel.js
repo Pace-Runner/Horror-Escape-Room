@@ -103,6 +103,13 @@ const BATHROOM_DOOR_Z = 9.55;
 /** A door.glb frame is 1.4 m wide; panelling and skirting stop short of it. */
 const DOOR_CLEARANCE = 0.74;
 
+/**
+ * How far short of the top step the stairs scare is triggered, in metres: a
+ * stride before the first tread, as they reach the stairs and before they
+ * start down them.
+ */
+const STAIRS_TRIGGER_DISTANCE = 0.9;
+
 /** The invisible material every interaction hitbox uses: raycast, never seen. */
 const HITBOX_MATERIAL = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
 
@@ -146,6 +153,8 @@ function setWorldUVs(mesh, mapping) {
  * @param {() => void} callbacks.onLightning - a flash; main.js plays the thunder.
  * @param {(name: string, opts?: object) => void} callbacks.onSfx - a sound effect by
  *   name (AudioDirector's SFX) with its world `position`; the level has no audio.
+ * @param {() => void} callbacks.onReachStairs - the player has walked up to the
+ *   top of the stairs. Fires once per run; main.js plays the stairs scare.
  * @param {{x: number, z: number}} origin - where the hall's doorway stands in the
  *   world. The bedroom's door, so the two rooms are one space with no load
  *   between them. Everything below is built about (0, 0) and moved there
@@ -158,6 +167,7 @@ export function createUpstairsHallwayLevel({
   onExit = () => {},
   onLightning = () => {},
   onSfx = () => {},
+  onReachStairs = () => {},
   origin = { x: 0, z: 0 }
 } = {}) {
   const group = new THREE.Group();
@@ -1018,6 +1028,17 @@ export function createUpstairsHallwayLevel({
   /** This far into the passage and the player has gone down to the basement. */
   const PASSAGE_EXIT_X = RIGHT_X + 1.0;
 
+  let stairsReached = false;
+  /** Fires onReachStairs the first time the player walks up to the top step, in the hall itself. */
+  function checkStairsReached(playerPosition) {
+    if (stairsReached || !playerPosition) return;
+    const x = playerPosition.x - origin.x;
+    const z = playerPosition.z - origin.z;
+    if (x < LEFT_X || x > RIGHT_X || z < HALL_LEN - STAIRS_TRIGGER_DISTANCE || z > HALL_LEN) return;
+    stairsReached = true;
+    onReachStairs();
+  }
+
   let leaving = false;
   function goDown() {
     if (leaving) return;
@@ -1144,6 +1165,10 @@ export function createUpstairsHallwayLevel({
       farEnd: { x: origin.x, z: origin.z + HALL_LEN - 0.6 },
       /** The doorway, world space: the bedroom door. */
       doorway: { x: origin.x, z: origin.z },
+      /** The yaw that looks straight down the stairs (+Z). */
+      stairsYaw: Math.PI,
+      /** The hall's side walls, world x, so a scripted figure or lens stays inside them. */
+      wallX: { left: origin.x + LEFT_X, right: origin.x + RIGHT_X },
       /**
        * Open (true): the doorway's collider, its black card and the hall's own
        * copy of the bedroom door are taken away, because the real bedroom and its
@@ -1163,6 +1188,7 @@ export function createUpstairsHallwayLevel({
 
     reset() {
       leaving = false;
+      stairsReached = false;
       lightsOut = false;
       rattles.clear();
       flashTime = -1;
@@ -1172,6 +1198,7 @@ export function createUpstairsHallwayLevel({
     update(dt, playerPosition) {
       elapsed += dt;
       if (playerPosition && playerPosition.x - origin.x > PASSAGE_EXIT_X) goDown();
+      checkStairsReached(playerPosition);
       rain.update(dt);
       glassMaterial.uniforms.uTime.value = elapsed;
 

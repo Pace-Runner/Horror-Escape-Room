@@ -156,7 +156,7 @@ export class PointerLockPlayer {
     this.colliders = [];
     this.bodyRadius = 0.35;
     // The floor under the player, for the one level with stairs to walk down:
-    // a level may hand over groundAt(x, z) -> floor height in metres (see
+    // a level may hand over groundAt(x, z, currentGroundY) -> floor height (see
     // setGround). Everywhere else the floor is y = 0, as it always was.
     this.groundAt = null;
     this.groundY = 0;
@@ -186,6 +186,13 @@ export class PointerLockPlayer {
      * `moving` next to it saturates at 1 and cannot tell a walk from a run.
      */
     this.sprint = 0;
+    /**
+     * Whether Shift does anything in the current level. main.js turns it off
+     * for the bedroom and the upstairs hallway, which are walked, not run.
+     * While false the sprint blend eases back to 0 like a released key, and
+     * stamina rests.
+     */
+    this.sprintEnabled = true;
     /**
      * Smoothed 0..1: how much the player is leaning into something they are
      * pushing. Eased toward last frame's contact, so the first frame of a push
@@ -252,7 +259,7 @@ export class PointerLockPlayer {
   }
 
   #onKey(e, isDown) {
-    // Ctrl is crouch, so every Ctrl+key is a thing the player does by accident
+    // Ctrl used to be crouch, and a Ctrl+key is still easy to hit by accident
     // mid-game. Cancel the browser's action for all of them while the game has
     // the pointer -- save page, bookmark, find. The ones a page is not allowed
     // to cancel (Ctrl+W above all) are core/KeyboardGuard.js's job. Not while
@@ -263,10 +270,11 @@ export class PointerLockPlayer {
       case 'KeyS': case 'ArrowDown': this.keys.back = isDown; break;
       case 'KeyA': case 'ArrowLeft': this.keys.left = isDown; break;
       case 'KeyD': case 'ArrowRight': this.keys.right = isDown; break;
-      // Ctrl rather than the more usual C, which this game already spends on
-      // the credits screen (see index.html). Ctrl+W crouch-walks instead of
-      // closing the tab because of core/KeyboardGuard.js.
-      case 'ControlLeft': case 'ControlRight': this.keys.crouch = isDown; break;
+      // C, not Ctrl. Crouch was Ctrl, which made crouch-walking Ctrl+W --
+      // the browser's "close tab" -- and KeyboardGuard.js can only stop that
+      // in fullscreen. Out of fullscreen it closed the game. The credits
+      // moved off C to K to make room.
+      case 'KeyC': this.keys.crouch = isDown; break;
       case 'ShiftLeft': case 'ShiftRight': this.keys.sprint = isDown; break;
     }
   }
@@ -407,6 +415,23 @@ export class PointerLockPlayer {
     this.#applyLook();
   }
 
+  /**
+   * Re-aims without moving: teleport()'s counterpart. A cutscene that cuts
+   * back to the player's eyes hands over the view it ended on through this.
+   * spawn() would do it too, but it also stands the player up -- a crouching
+   * player would see the view jump up for a frame and drop back.
+   */
+  aim(yaw, pitch = this._pitch) {
+    this._yaw = yaw;
+    this._pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch));
+    this.#clampLookToBounds();
+    this._pendingYaw = 0;
+    this._pendingPitch = 0;
+    this.lookDeltaX = 0;
+    this.lookDeltaY = 0;
+    this.#applyLook();
+  }
+
   /** Kept for callers that only want to move without re-aiming. */
   teleport(x, z) {
     this.groundY = this.#groundUnder(x, z);
@@ -474,11 +499,12 @@ export class PointerLockPlayer {
   /** The active level's floor height function, or null for a flat floor at 0. */
   setGround(fn) {
     this.groundAt = typeof fn === 'function' ? fn : null;
+    this.groundY = 0;
     this.groundY = this.#groundUnder(this.object.position.x, this.object.position.z);
   }
 
   #groundUnder(x, z) {
-    return this.groundAt ? this.groundAt(x, z) : 0;
+    return this.groundAt ? this.groundAt(x, z, this.groundY) : 0;
   }
 
   // Moved to core/collision.js when the creature needed to walk. Two copies of
@@ -489,7 +515,12 @@ export class PointerLockPlayer {
   #resolveCollision(nextPos) {
     // The player, unlike the creature, can shove pushable boxes -- see
     // resolveCircle.
-    resolveCircle(nextPos, this.bodyRadius, this.colliders, this.pushContact);
+    // Optional vertical bounds keep upper-storey rails clear of the room below.
+    // Unbounded colliders retain their existing behaviour in every other level.
+    const boxes = this.colliders.filter((box) =>
+      (box.minY === undefined || this.groundY + this.eyeHeight > box.minY)
+      && (box.maxY === undefined || this.groundY < box.maxY));
+    resolveCircle(nextPos, this.bodyRadius, boxes, this.pushContact);
     return nextPos;
   }
 
@@ -585,7 +616,7 @@ export class PointerLockPlayer {
      * still does not drain the bar -- you cannot sprint on the spot.
      */
     const wantsToMove = this.keys.forward || this.keys.back || this.keys.left || this.keys.right;
-    const canSprint = this.keys.sprint && wantsToMove && !this.winded
+    const canSprint = this.sprintEnabled && this.keys.sprint && wantsToMove && !this.winded
       && this.stamina > 0 && this.crouch < 0.5;
     this.sprint += ((canSprint ? 1 : 0) - this.sprint) * Math.min(1, dt / SPRINT_BLEND);
     this.#updateStamina(dt, canSprint);

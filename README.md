@@ -91,6 +91,14 @@ reasoning behind the scenegraph hierarchy.
   the backrooms corridor routed off wherever you currently are -- for
   quickly showing the whole house to a mentor. They are deliberately
   instant rather than faded.
+- **Cutscenes**, filmed in-engine with the game's own models and lights
+  through a camera of their own: shots, cuts, lens moves, letterbox and
+  per-frame acting, frozen by Esc like everything else. The first is the
+  hallway reveal, when the bedroom door opens on the thing at the end of
+  the hall. Shots are directed with the free camera (`N`, then `M` to mark
+  a framing, `J` to record a move). See `docs/CUTSCENES.md`, which also
+  covers getting references out of the game for AI video and playing a
+  clip on the CCTV monitor.
 
 ## Project layout
 

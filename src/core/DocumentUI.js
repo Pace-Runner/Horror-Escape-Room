@@ -39,6 +39,26 @@ export function createDocumentUI({ onClose = () => {} } = {}) {
   let open = false;
   let reachedEnd = false;
   let onReadCallback = null;
+  let onClosedCallback = null;
+  /**
+   * When the reader last opened, on the same clock as Event.timeStamp.
+   *
+   * E and right-click both OPEN a document (through Interaction) and CLOSE it
+   * (here). Interaction's keydown listener runs first, so the very press that
+   * opened the reader used to reach this file's listener next and shut it
+   * again in the same instant: the note never appeared, and the pointer was
+   * released and re-requested at once, which the game took as a pause -- the
+   * sound cut out until the next click. Only a press that STARTS after the
+   * reader opened may close it.
+   */
+  let openedAtMilliseconds = 0;
+  /** A right button went down on the reader after it opened, so its contextmenu may close it. */
+  let isRightPressSinceOpen = false;
+
+  /** True for an event that began before the reader opened -- the one that opened it. */
+  function isFromOpeningPress(event) {
+    return event.timeStamp <= openedAtMilliseconds;
+  }
 
   function atBottom() {
     return panel.scrollTop + panel.clientHeight >= panel.scrollHeight - BOTTOM_EPSILON;
@@ -60,14 +80,25 @@ export function createDocumentUI({ onClose = () => {} } = {}) {
   panel.addEventListener('scroll', checkRead);
   closeButton.addEventListener('click', () => close());
   // Right-click puts it down, like E does -- instead of the browser's menu.
+  // Only a right-click pressed on the reader itself: the contextmenu that
+  // follows the right-click which opened it arrives here too, after the open.
+  view.addEventListener('mousedown', (e) => {
+    if (e.button === 2 && !isFromOpeningPress(e)) isRightPressSinceOpen = true;
+  });
   view.addEventListener('contextmenu', (e) => {
     e.preventDefault();
+    if (!isRightPressSinceOpen) return;
     close();
   });
 
   window.addEventListener('keydown', (e) => {
     if (!open) return;
-    if (e.code === 'Escape' || e.code === 'KeyE') { close(); return; }
+    if (e.code === 'Escape' || e.code === 'KeyE') {
+      // Held E auto-repeats; neither a repeat nor the opening press closes it.
+      if (e.repeat || isFromOpeningPress(e)) return;
+      close();
+      return;
+    }
     // Reading keys, so a document can be read without touching the mouse.
     const step = panel.clientHeight * 0.8;
     if (e.code === 'ArrowDown' || e.code === 'KeyS') panel.scrollTop += 60;
@@ -88,7 +119,7 @@ export function createDocumentUI({ onClose = () => {} } = {}) {
    * @param image    optional picture URL, shown above the title
    * @param onRead   called once, when the bottom of the document is reached
    */
-  function open_({ title = '', body = '', variant = 'note', image = null, onRead } = {}) {
+  function open_({ title = '', body = '', variant = 'note', image = null, onRead, onClosed } = {}) {
     const paragraphs = Array.isArray(body) ? body : String(body).split(/\n{2,}/);
 
     imageEl.hidden = !image;
@@ -111,6 +142,9 @@ export function createDocumentUI({ onClose = () => {} } = {}) {
     panel.scrollTop = 0;
     reachedEnd = false;
     onReadCallback = onRead;
+    onClosedCallback = onClosed;
+    openedAtMilliseconds = performance.now();
+    isRightPressSinceOpen = false;
     open = true;
     view.classList.remove('hidden');
     // After layout, so scrollHeight is real: a short document has no scrollbar
@@ -123,6 +157,9 @@ export function createDocumentUI({ onClose = () => {} } = {}) {
     open = false;
     view.classList.add('hidden');
     onReadCallback = null;
+    const closedCallback = onClosedCallback;
+    onClosedCallback = null;
+    closedCallback?.();
     onClose();
   }
 

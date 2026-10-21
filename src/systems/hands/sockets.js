@@ -136,7 +136,6 @@ const GRIP_ALONG = 0.70;
  */
 const PALM_SURFACE_FRACTION = 0.1893;
 
-const _v = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _s = new THREE.Vector3();

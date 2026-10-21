@@ -1,5 +1,3 @@
-import * as THREE from 'three';
-
 /**
  * How long the bulb takes to die. Long enough to be an event you watch, short
  * enough that it is not a light show -- a filament failing is quick.
@@ -81,6 +79,16 @@ export class Storm {
     this.urgent = false;
     if (this.bulbLight) this.bulbLight.intensity = this.bulbBaseIntensity;
     if (this.bulbMaterial) this.bulbMaterial.emissiveIntensity = this.bulbBaseEmissive;
+  }
+
+  /**
+   * A strike on the next frame rather than whenever the storm's own clock
+   * says, for a scene that wants the window lit at a given moment. It goes
+   * through the normal path -- onFlash, thunder, the shadow render -- and the
+   * storm then picks its rhythm back up from there. Ignored mid-flash.
+   */
+  flashNow() {
+    if (this.flashTimer <= 0) this.nextFlashAt = 0;
   }
 
   update(dt) {

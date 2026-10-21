@@ -58,8 +58,8 @@ function isLampDrawerSolved(progress) {
 }
 
 /**
- * Reports whether the lockbox has been opened. hasCrowbar goes false when the
- * planks take the crowbar, so the later steps count too.
+ * Reports whether the lockbox has been opened. Any later step counts too, for
+ * a progress snapshot taken after the crowbar has been used up.
  *
  * @param {object} progress - the hint progress snapshot.
  * @returns {boolean}
@@ -139,7 +139,8 @@ export const BEDROOM_HINT_STAGES = [
     // The rug corner and the loose board under it, as one stage: lifting the
     // rug is only ever done to reach the board.
     id: 'floorboard',
-    isComplete: (progress) => progress.floorboardPried || progress.planksRemoved || progress.doorUnlocked,
+    // Not planksRemoved: the planks can come off before the board is lifted.
+    isComplete: (progress) => progress.floorboardPried || progress.doorUnlocked,
     readHints: () => [
       line('dialog_hint_floorboard_1'),
       line('dialog_hint_floorboard_2'),

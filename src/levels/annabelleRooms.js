@@ -124,6 +124,17 @@ function furnishedRect({ room, wall, keep }) {
   return keep === 'min' ? [x0, x1, z0, wall.at] : [x0, x1, wall.at, z1];
 }
 
+/**
+ * The floor anything can actually stand on in each dressed room, keyed by maze
+ * leg name. The far side of a partition is sealed off, so anything that picks
+ * a spot in a room (the backrooms hunter's spawns and wander targets) has to
+ * pick it here, not from the leg's own midpoint -- which, for three of these
+ * rooms, is exactly where the partition stands.
+ */
+export const ROOM_FLOORS = Object.fromEntries(
+  Object.values(ROOMS).map((def) => [def.room, furnishedRect(def)])
+);
+
 // Every doorway into a dressed room has to land in the furnished half, or the
 // partition has sealed a way through the maze.
 if (import.meta.env?.DEV) {

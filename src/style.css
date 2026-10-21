@@ -522,6 +522,276 @@ html, body {
   }
 }
 
+/* ---------- opening archival news cutscene ---------- */
+#opening-news-cutscene {
+  position: fixed;
+  inset: 0;
+  z-index: 45;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  background: #050505;
+  transition: opacity 260ms ease;
+}
+
+/* Reuse the menu's bedroom plate so the archive photos sit in the same world. */
+#opening-news-cutscene::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+  z-index: 0;
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.78)),
+    url('./assets/ui/haunted-bedroom-menu.png') center / cover no-repeat;
+  filter: blur(2px);
+  transform: scale(1.025);
+  transition: filter 700ms ease;
+}
+
+#opening-news-cutscene.onc-stage-4::before { filter: blur(2px) brightness(0.76); }
+
+#opening-news-cutscene.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#opening-news-cutscene.is-ending { opacity: 0; pointer-events: none; }
+#opening-news-cutscene.is-ending .onc-film { opacity: 0.58; animation: none; }
+#opening-news-cutscene.is-ending .onc-flash { animation: onc-end-hit 180ms steps(2, end); }
+
+.onc-collage {
+  --onc-gap: clamp(28px, 2vw, 36px);
+  --onc-half-gap: clamp(14px, 1vw, 18px);
+  position: absolute;
+  top: 9vh;
+  left: 50%;
+  z-index: 1;
+  width: min(80vw, 1320px);
+  height: 68vh;
+  transform: translateX(-50%);
+}
+
+.onc-photo-card {
+  --onc-tilt: 0deg;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc((100% - var(--onc-gap)) / 2);
+  height: calc((100% - var(--onc-gap)) / 2);
+  margin: 0;
+  overflow: hidden;
+  opacity: 0;
+  background: #0b0908;
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.68);
+  transform: translate(-50%, -50%) rotate(var(--onc-tilt)) scale(0.96);
+  transition: opacity 420ms ease, transform 850ms cubic-bezier(0.16, 0.77, 0.25, 1);
+  will-change: transform, opacity, filter;
+}
+
+.onc-photo-card:nth-child(1) { --onc-tilt: -1.1deg; }
+.onc-photo-card:nth-child(2) { --onc-tilt: 0.8deg; }
+.onc-photo-card:nth-child(3) { --onc-tilt: 0.55deg; }
+.onc-photo-card:nth-child(4) { --onc-tilt: -0.75deg; }
+
+.onc-photo-card.is-visible {
+  opacity: 1;
+}
+
+.onc-photo-card img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  filter: sepia(0.08) contrast(1.04) brightness(0.92);
+  transform: scale(1);
+  transition: transform 800ms ease-out, filter 520ms ease;
+  will-change: transform;
+}
+
+.onc-photo-card.is-photo-change img {
+  filter: sepia(0.08) contrast(1.08) brightness(1.13) blur(1.2px);
+}
+
+/* The active card stays central until the next cue promotes the next image. */
+#opening-news-cutscene.onc-stage-1 .onc-photo-card:nth-child(1) {
+  transform: translate(-50%, -50%) rotate(var(--onc-tilt)) scale(1.07);
+}
+
+#opening-news-cutscene.onc-stage-2 .onc-photo-card:nth-child(1),
+#opening-news-cutscene.onc-stage-3 .onc-photo-card:nth-child(1),
+#opening-news-cutscene.onc-stage-4 .onc-photo-card:nth-child(1) {
+  transform: translate(calc(-100% - var(--onc-half-gap)), calc(-100% - var(--onc-half-gap))) rotate(var(--onc-tilt)) scale(1);
+}
+
+#opening-news-cutscene.onc-stage-2 .onc-photo-card:nth-child(2) {
+  transform: translate(-50%, -50%) rotate(var(--onc-tilt)) scale(1.07);
+}
+
+#opening-news-cutscene.onc-stage-3 .onc-photo-card:nth-child(2),
+#opening-news-cutscene.onc-stage-4 .onc-photo-card:nth-child(2) {
+  transform: translate(var(--onc-half-gap), calc(-100% - var(--onc-half-gap))) rotate(var(--onc-tilt)) scale(1);
+}
+
+#opening-news-cutscene.onc-stage-3 .onc-photo-card:nth-child(3) {
+  transform: translate(-50%, -50%) rotate(var(--onc-tilt)) scale(1.07);
+}
+
+#opening-news-cutscene.onc-stage-4 .onc-photo-card:nth-child(3) {
+  transform: translate(calc(-100% - var(--onc-half-gap)), var(--onc-half-gap)) rotate(var(--onc-tilt)) scale(1);
+}
+
+#opening-news-cutscene.onc-stage-4 .onc-photo-card:nth-child(4) {
+  transform: translate(var(--onc-half-gap), var(--onc-half-gap)) rotate(var(--onc-tilt)) scale(1);
+}
+
+#opening-news-cutscene.onc-stage-4 .onc-photo-card:not(:nth-child(4)) img {
+  filter: sepia(0.08) contrast(1.02) brightness(0.78);
+}
+
+#opening-news-cutscene.onc-stage-1 .onc-photo-card:nth-child(1).is-active img { animation: onc-active-one 18s linear forwards; }
+#opening-news-cutscene.onc-stage-2 .onc-photo-card:nth-child(2).is-active img { animation: onc-active-two 11s linear forwards; }
+#opening-news-cutscene.onc-stage-3 .onc-photo-card:nth-child(3).is-active img { animation: onc-active-three 27s linear forwards; }
+#opening-news-cutscene.onc-stage-4 .onc-photo-card:nth-child(4).is-active img { animation: onc-active-four 16.24s linear forwards; }
+#opening-news-cutscene.onc-stage-4 .onc-photo-card:nth-child(4).is-final-radio img { animation: onc-final-radio 4.24s ease-out forwards; }
+
+.onc-photo-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: #fff7df;
+  pointer-events: none;
+}
+
+.onc-photo-card.is-photo-change::after { animation: onc-flash 130ms ease-out; }
+.onc-photo-card.is-strong-flash::after { animation-duration: 155ms; }
+
+.onc-film,
+.onc-flash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.onc-film {
+  z-index: 2;
+  opacity: 0.23;
+  background-image: repeating-radial-gradient(circle at 23% 31%, rgba(255, 255, 255, 0.27) 0 1px, transparent 1px 3px);
+  mix-blend-mode: soft-light;
+  animation: onc-flicker 2.8s steps(2, end) infinite;
+}
+
+.onc-film::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 42%, rgba(0, 0, 0, 0.58) 100%);
+}
+
+#opening-news-cutscene.onc-stage-4 .onc-film::after {
+  background: radial-gradient(ellipse at center, transparent 34%, rgba(0, 0, 0, 0.7) 100%);
+}
+
+.onc-flash { z-index: 3; background: #fff7df; opacity: 0; }
+
+
+.onc-subtitle {
+  position: absolute;
+  z-index: 4;
+  right: max(5vw, env(safe-area-inset-right));
+  bottom: max(3.5vh, env(safe-area-inset-bottom));
+  left: max(5vw, env(safe-area-inset-left));
+  margin: auto;
+  width: min(900px, 76vw);
+  min-height: 1.3em;
+  padding: 0.3em 0.65em;
+  color: #f1e7cb;
+  background: rgba(0, 0, 0, 0.48);
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.78);
+  font: 600 clamp(17px, 2.1vw, 30px)/1.28 Georgia, 'Times New Roman', serif;
+  text-align: center;
+  text-shadow: 0 2px 3px #000;
+}
+
+@keyframes onc-active-one {
+  from { transform: scale(1) translate(0, 0); }
+  to { transform: scale(1.05) translate(-1.2%, 0.8%); }
+}
+
+@keyframes onc-active-two {
+  from { transform: scale(1) translate(0, 0); }
+  to { transform: scale(1.045) translate(0.9%, -0.8%); }
+}
+
+@keyframes onc-active-three {
+  from { transform: scale(1) translate(0, 0); }
+  to { transform: scale(1.04) translate(-0.9%, 0.8%); }
+}
+
+@keyframes onc-active-four {
+  from { transform: scale(1.01) translate(0, 0); }
+  to { transform: scale(1.065) translate(0.8%, -0.7%); }
+}
+
+@keyframes onc-final-radio {
+  from { transform: scale(1.05) translate(0.7%, -0.6%); }
+  to { transform: scale(1.075) translate(1%, -0.8%); }
+}
+
+@keyframes onc-flash {
+  0% { opacity: 0.92; }
+  100% { opacity: 0; }
+}
+
+@keyframes onc-end-hit {
+  0% { opacity: 0.82; }
+  100% { opacity: 0; }
+}
+
+@keyframes onc-flicker {
+  0%, 100% { opacity: 0.2; }
+  46% { opacity: 0.27; }
+  49% { opacity: 0.15; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onc-photo-card,
+  .onc-photo-card.is-final-radio,
+  .onc-film,
+  .onc-photo-card.is-photo-change::after,
+  .onc-photo-card.is-active img { animation: none; }
+}
+
+#opening-news-continue {
+  position: fixed;
+  inset: 0;
+  z-index: 46;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 max(5vw, env(safe-area-inset-right)) max(3.5vh, env(safe-area-inset-bottom));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+
+#opening-news-continue.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#opening-news-continue button {
+  padding: 0.34em 0.7em;
+  color: #f1e7cb;
+  border: 0;
+  background: rgba(0, 0, 0, 0.48);
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.78);
+  font: 600 clamp(17px, 2.1vw, 30px)/1.28 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
 /* ---------- start screen ---------- */
 #start-screen {
   position: fixed;
@@ -1960,6 +2230,104 @@ body.free-camera-clean #hud,
 body.free-camera-clean #crosshair,
 body.free-camera-clean #caption-box {
   visibility: hidden;
+}
+
+/* ---------- cutscenes ---------- */
+/* The HUD goes for a scene the same way it goes for the free camera; the
+   captions stay, because a scene's lines are part of it. See
+   src/core/Cutscene.js. */
+body.cutscene #hud,
+body.cutscene #crosshair {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0s linear 0.2s;
+}
+
+/* And back in slowly when the scene hands back, rather than snapping on over
+   the first frame of play: visibility returns at once, opacity eases up. */
+#hud,
+#crosshair {
+  transition: opacity 0.9s ease 0.15s;
+}
+
+/* Hold Space to skip -- only once a key is pressed during a skippable scene
+   (core/CutsceneSkip.js). Over the letterbox (17) and captions (18), under
+   the fade (30). */
+#cutscene-skip {
+  position: fixed;
+  right: 28px;
+  bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  color: rgba(216, 210, 196, 0.78);
+  font-size: 0.72rem;
+  letter-spacing: 0.08rem;
+  text-transform: uppercase;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+  z-index: 19;
+}
+
+#cutscene-skip.visible {
+  opacity: 1;
+}
+
+#cutscene-skip kbd {
+  font-family: inherit;
+  padding: 1px 6px;
+  border: 1px solid rgba(216, 210, 196, 0.45);
+  border-radius: 3px;
+}
+
+.cutscene-skip-bar {
+  width: 120px;
+  height: 2px;
+  background: rgba(216, 210, 196, 0.18);
+  overflow: hidden;
+}
+
+.cutscene-skip-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: rgba(216, 210, 196, 0.85);
+  transform: scaleX(0);
+  transform-origin: left center;
+}
+
+/* Letterbox, for a scene that asks for it. Made by the runner itself. Under
+   the captions (18) so a line can sit on the bar, and under the fade (30) so
+   a scene that ends on black ends on black everywhere. */
+.cutscene-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  height: 11vh;
+  background: #000;
+  pointer-events: none;
+  z-index: 17;
+  transition: transform 0.6s cubic-bezier(0.45, 0, 0.25, 1);
+}
+
+.cutscene-bar-top {
+  top: 0;
+  transform: translateY(-100%);
+}
+
+.cutscene-bar-bottom {
+  bottom: 0;
+  transform: translateY(100%);
+}
+
+body.cutscene-letterbox .cutscene-bar {
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cutscene-bar { transition-duration: 1ms; }
 }
 
 /* Fades out by itself so it is never left in a recording. Over the fade (30)

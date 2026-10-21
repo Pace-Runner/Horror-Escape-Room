@@ -228,7 +228,6 @@ const BED_POSITION_Z = -1.9;
 const BED_EXIT_POSITION_Z = BED_POSITION_Z + 1.42;
 const BEDSIDE_TABLE_POSITION_X = 3.3;
 const BEDSIDE_TABLE_POSITION_Z = -1.72;
-const BEDSIDE_TABLE_FOOTPRINT_METRES = 0.42;
 const SEARCH_NIGHTSTAND_POSITION_X = 0.60;
 const SEARCH_NIGHTSTAND_POSITION_Z = -2.2;
 const VANITY_SCALE = 1.18;
@@ -931,10 +930,6 @@ export function createBedroomLevel({
   // world position off each. Both are built in model-load callbacks, so each
   // adds itself when it exists, and the sound starts when its candle does.
   const candleAnchors = [];
-
-  // Shared dark timber placeholder for the room's script-built furniture.
-  // The imported bed carries its own refined, embedded materials.
-  const frameMatWood = new THREE.MeshStandardMaterial({ color: 0x3c2c1e, roughness: 0.85 });
 
   // Mattress, duvet and pillows now ship with bed.glb. Keeping no legacy
   // primitive stand-ins here prevents them from covering the refined asset.
@@ -1834,224 +1829,6 @@ export function createBedroomLevel({
   };
   group.add(flashlightHitbox);
 
-  /* Legacy primitive dressing retained only as a source reference while the
-   * active implementation below loads the authored, named bedside assets. */
-  if (false) {
-  // nightstand the flashlight sits on -- raised again to sit close to the
-  // mattress's own top (0.74) rather than well below it, with a thin top
-  // slab overhanging the legs rather than a single block, and small
-  // clutter so it doesn't read as bare
-  const sideTable = new THREE.Group();
-  sideTable.position.set(BEDSIDE_TABLE_POSITION_X, 0, BEDSIDE_TABLE_POSITION_Z);
-  group.add(sideTable);
-
-  const tableLeg = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.76, 0.04), frameMatWood);
-  [[-0.16, -0.16], [0.16, -0.16], [-0.16, 0.16], [0.16, 0.16]].forEach(([lx, lz]) => {
-    const leg = tableLeg.clone();
-    leg.position.set(lx, 0.38, lz);
-    sideTable.add(leg);
-  });
-  const tableTop = new THREE.Mesh(
-    new THREE.BoxGeometry(BEDSIDE_TABLE_FOOTPRINT_METRES, 0.04, BEDSIDE_TABLE_FOOTPRINT_METRES),
-    frameMatWood
-  );
-  tableTop.position.y = 0.78;
-  tableTop.castShadow = true;
-  sideTable.add(tableTop);
-
-  // A lamp prop that reads as dead at a glance -- no steady glow, matching
-  // the storyline's "one working bulb, and it blows out" beat -- but isn't
-  // actually off. A loose wire somewhere in this old house's failing power
-  // is feeding it just enough to flicker, and the flicker isn't random: it
-  // blinks the digits of the nightstand drawer's combination (see
-  // drawerPinDigits below), the way a bad connection actually would if you
-  // stood and counted the pulses. bulbLight/bulbMat below are the parts
-  // update() drives every frame; everything else is static dressing.
-  const lampGroup = new THREE.Group();
-  lampGroup.position.set(-0.11, 0.8, -0.09);
-  sideTable.add(lampGroup);
-  const lampBase = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.06, 0.07, 0.02, 12),
-    new THREE.MeshStandardMaterial({ color: 0x2a2016, metalness: 0.4, roughness: 0.5 })
-  );
-  lampBase.position.y = 0.01;
-  lampGroup.add(lampBase);
-  const lampPole = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.012, 0.014, 0.22, 8),
-    new THREE.MeshStandardMaterial({ color: 0x2a2016, metalness: 0.5, roughness: 0.4 })
-  );
-  lampPole.position.y = 0.12;
-  lampGroup.add(lampPole);
-  const lampShade = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.05, 0.09, 0.11, 12, 1, true),
-    new THREE.MeshStandardMaterial({ color: 0x9c8858, roughness: 0.9, side: THREE.DoubleSide })
-  );
-  lampShade.position.y = 0.28;
-  lampGroup.add(lampShade);
-
-  // The bulb itself, visible through the open top/bottom of the shade
-  // cylinder, plus a short-range point light so the flicker actually
-  // lights the nightstand rather than just changing the mesh's own colour.
-  // Both start at their dim/"off" values -- update() below pushes them up
-  // for each pulse.
-  const lampBulbMat = new THREE.MeshStandardMaterial({ color: 0xffdca0, emissive: 0xffb347, emissiveIntensity: 0.12 });
-  const lampBulb = new THREE.Mesh(new THREE.SphereGeometry(0.032, 10, 10), lampBulbMat);
-  lampBulb.position.y = 0.24;
-  lampGroup.add(lampBulb);
-  const lampLight = new THREE.PointLight(0xffb347, 0.04, 1.6, 2);
-  lampLight.position.y = 0.24;
-  lampGroup.add(lampLight);
-  const lampShockDurationSeconds = 0.32;
-  const lampShockIntervalSeconds = 0.055;
-  let lampShockRemainingSeconds = 0;
-
-  /** Flashes the bedside lamp once without changing its repeating code clue. */
-  function flashLamp() {
-    lampShockRemainingSeconds = lampShockDurationSeconds;
-  }
-
-  // The combination for the drawer below, as a flicker pattern: three
-  // pulses, a pause, one pulse, a pause, five pulses, a longer pause,
-  // then it repeats. buildFlickerIntervals turns that digit list into
-  // concrete [start,end) time windows within one repeating cycle, once,
-  // rather than driving a hand-rolled counter/state-machine in update().
-  const drawerPinDigits = [3, 1, 5];
-  const drawerPinCode = drawerPinDigits.join('');
-
-  function buildFlickerIntervals(digits, { pulseOn = 0.16, pulseOff = 0.22, digitPause = 1.0, cyclePause = 3.2 } = {}) {
-    const intervals = [];
-    let t = 0;
-    digits.forEach((count) => {
-      for (let i = 0; i < count; i++) {
-        intervals.push([t, t + pulseOn]);
-        t += pulseOn + pulseOff;
-      }
-      t += digitPause - pulseOff; // stretch the trailing gap into the longer between-digit pause
-    });
-    t += cyclePause - digitPause; // and again at the end, before the whole thing loops
-    return { intervals, total: t };
-  }
-  const lampFlicker = buildFlickerIntervals(drawerPinDigits);
-
-  // The lamp can be looked at, so a player who has noticed it flickering gets
-  // told, in the room's own voice, that the flicker means something. A box
-  // around the shade only: the flashlight's pickup sphere sits lower on the
-  // same tabletop and the locked drawer's hitbox is below it.
-  const lampHitbox = new THREE.Mesh(
-    new THREE.BoxGeometry(0.2, 0.16, 0.2),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
-  );
-  lampHitbox.position.y = lampShade.position.y;
-  lampHitbox.userData.interact = {
-    label: 'Examine lamp',
-    onInteract: () => showCaption(line('dialog_lamp_examine'))
-  };
-  lampGroup.add(lampHitbox);
-  interactables.push(lampHitbox);
-
-  const nightstandBook = new THREE.Mesh(
-    new THREE.BoxGeometry(0.16, 0.03, 0.12),
-    new THREE.MeshStandardMaterial({ color: 0x5a3c2a, roughness: 0.9 })
-  );
-  nightstandBook.position.set(0.13, 0.795, 0.11);
-  nightstandBook.rotation.y = 0.3;
-  sideTable.add(nightstandBook);
-
-  // a small twin-bell alarm clock, stopped -- the kind of clutter a
-  // nightstand actually has beyond one lamp and one book
-  const clockMetal = new THREE.MeshStandardMaterial({ color: 0x8a8060, metalness: 0.5, roughness: 0.5 });
-  const clockGroup = new THREE.Group();
-  clockGroup.position.set(0.14, 0.8, -0.13);
-  sideTable.add(clockGroup);
-  const clockBody = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.07, 14), clockMetal);
-  clockBody.rotation.z = Math.PI / 2;
-  clockBody.position.y = 0.05;
-  clockGroup.add(clockBody);
-  const clockFace = new THREE.Mesh(
-    new THREE.CircleGeometry(0.042, 16),
-    new THREE.MeshStandardMaterial({ color: 0xe8dfc0, roughness: 0.7 })
-  );
-  clockFace.rotation.y = Math.PI / 2;
-  clockFace.position.set(0.036, 0.05, 0);
-  clockGroup.add(clockFace);
-  [-1, 1].forEach((side) => {
-    const bell = new THREE.Mesh(new THREE.SphereGeometry(0.022, 10, 10), clockMetal);
-    bell.position.set(0, 0.1, side * 0.035);
-    clockGroup.add(bell);
-  });
-
-  // A locked drawer under the tabletop -- the payoff for reading the
-  // lamp's flicker. Same drawer-front-plus-knob construction as the other
-  // nightstand's addNightstand() above, just built inline since this one
-  // needs its own pin-lock interaction instead of a free "search" one.
-  const lampDrawerFront = new THREE.Mesh(
-    new THREE.BoxGeometry(0.34, 0.18, 0.02),
-    new THREE.MeshStandardMaterial({ color: 0x2c1c10, roughness: 0.7 })
-  );
-  lampDrawerFront.position.set(0, 0.6, 0.19);
-  sideTable.add(lampDrawerFront);
-
-  const lampDrawerKnob = new THREE.Mesh(
-    new THREE.SphereGeometry(0.014, 8, 8),
-    new THREE.MeshStandardMaterial({ color: 0x8a7a50, metalness: 0.6, roughness: 0.4 })
-  );
-  lampDrawerKnob.position.set(0, 0.6, 0.205);
-  sideTable.add(lampDrawerKnob);
-
-  // Small keyhole/lock plate under the knob -- a plain drawer front reads
-  // as freely searchable like the other nightstand's, so this needs its
-  // own visible "this one's locked" cue.
-  const lampDrawerLock = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.008, 0.008, 0.012, 8),
-    new THREE.MeshStandardMaterial({ color: 0x1a1410, metalness: 0.7, roughness: 0.4 })
-  );
-  lampDrawerLock.rotation.x = Math.PI / 2;
-  lampDrawerLock.position.set(0, 0.575, 0.205);
-  sideTable.add(lampDrawerLock);
-
-  const lampDrawerHitbox = new THREE.Mesh(
-    new THREE.BoxGeometry(0.38, 0.24, 0.16),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
-  );
-  lampDrawerHitbox.position.set(0, 0.6, 0.15);
-  sideTable.add(lampDrawerHitbox);
-  lampDrawerHitbox.userData.interact = {
-    label: 'Locked drawer',
-    onInteract: () => {
-      if (drawerStates.lampDrawer.isOpen) {
-        showCaption(line('dialog_lamp_drawer_empty'));
-        return;
-      }
-      onExaminePinpad({
-        length: drawerPinDigits.length,
-        code: drawerPinCode,
-        onSolved: () => {
-          drawerStates.lampDrawer.isOpen = true;
-          puzzleState.hasBrassKey = true;
-          onBrassKeyFound();
-          onDrawerUnlocked();
-        }
-      });
-    }
-  };
-  interactables.push(lampDrawerHitbox);
-
-  // Build this collider from the rendered tabletop's final world bounds rather
-  // than reconstructing them from layout constants. sideTable is currently a
-  // direct child of the bedroom group, but this remains correct if that parent
-  // gains a transform later. SceneManager forwards this exact list to the
-  // active PointerLockPlayer during bedroom activation.
-  sideTable.updateMatrixWorld(true);
-  const bedsideTableWorldBounds = new THREE.Box3().setFromObject(tableTop);
-  const bedsideTableCollider = {
-    minX: bedsideTableWorldBounds.min.x,
-    maxX: bedsideTableWorldBounds.max.x,
-    minZ: bedsideTableWorldBounds.min.z,
-    maxZ: bedsideTableWorldBounds.max.z
-  };
-  colliders.push(bedsideTableCollider);
-  }
-
   // ---------- Level 1 authored bedside puzzle visuals ----------
   // The gameplay state, PIN (315), callbacks and item IDs stay below exactly
   // as they were. These named GLB parts replace only the former primitive
@@ -2716,6 +2493,17 @@ export function createBedroomLevel({
     looseFloorboard.add(floorboardModel);
   }).catch((error) => console.error('Could not load the Level 1 loose floorboard remodel:', error));
 
+  /**
+   * The crowbar has two jobs, the planks on the door and the loose floorboard,
+   * and they can be done in either order. It is used up (out of the hotbar)
+   * only once both are done: used up on the planks while the board was still
+   * down, it left the key under the floor with nothing to lift it -- a
+   * softlock.
+   */
+  function useUpCrowbarIfDone() {
+    if (puzzleState.planksRemoved && puzzleState.floorboardPried) onCrowbarUsed();
+  }
+
   const looseFloorboardHitbox = new THREE.Mesh(
     new THREE.BoxGeometry(0.78, 0.16, 0.36),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
@@ -2734,6 +2522,7 @@ export function createBedroomLevel({
         return;
       }
       puzzleState.floorboardPried = true;
+      useUpCrowbarIfDone();
       looseFloorboard.visible = false;
       looseFloorboardHitbox.visible = false;
       const floorboardIndex = interactables.indexOf(looseFloorboardHitbox);
@@ -2805,16 +2594,14 @@ export function createBedroomLevel({
     onInteract: () => {
       if (!puzzleState.planksRemoved) {
         if (puzzleState.hasCrowbar) {
-          if (!puzzleState.floorboardPried) {
-            showCaption(line('dialog_door_planks_floorboard_first'));
-            return;
-          }
           if (!isHolding('crowbar')) {
             showCaption(line('dialog_hold_crowbar'));
             return;
           }
+          // The planks come off whenever the crowbar is brought to them, key
+          // or no key -- the door just stays locked until the key is found.
           puzzleState.planksRemoved = true;
-          onCrowbarUsed();
+          useUpCrowbarIfDone();
           startDoorPlankPryAnimation();
           onDoorPlankRemoved();
           showCaption(line('dialog_door_planks_pried_off'));
@@ -3065,7 +2852,6 @@ export function createBedroomLevel({
   // into the room to reveal the cavity -- and the locked box sitting
   // inside it -- the way a picture conceals a wall safe.
   const pinboardWidth = 0.80 * PINBOARD_SCALE;
-  const pinboardHeight = 0.84 * PINBOARD_SCALE;
   const pinboardX = -ROOM_W / 2 + 0.12; // flush with the recess's inner (room-facing) face
   const pinboardHingeZ = pinRecess.z + pinboardWidth / 2; // hinge on the far edge of the gap
   const pinboardClosedRotY = Math.PI / 2; // matches the left wall's own rotation.y
@@ -3321,6 +3107,9 @@ export function createBedroomLevel({
       /** The open door swings shut (the player has gone through). */
       shutDoor() { doorShutBehind = true; },
       bedExitPosition: [BED_POSITION_X, BED_EXIT_POSITION_Z],
+      /** The bed's centre on the floor, and the locked cuff: what the wake-up scene is framed on. */
+      bedPosition: [BED_POSITION_X, BED_POSITION_Z],
+      cuff,
       bedsideTableCollider,
       disturbChair,
       disturbBin,
