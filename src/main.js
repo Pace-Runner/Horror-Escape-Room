@@ -2274,7 +2274,7 @@ function hideCreature() {
  * The two ambients are swapped by INTENSITY, never by switching one off: a
  * light count is part of every shader's key, so turning a light off mid-game
  * recompiles every material in view -- the very stall this is meant to avoid.
- * Both lit sets (both rooms, and the hall alone) are built in warmLevelOne().
+ * Both lit sets (both rooms, and the hall alone) are built in warmOpeningRooms().
  */
 const HALL_ENTER_DEPTH = 0.8;
 const HALL_AMBIENT = 0.31;
@@ -4570,10 +4570,10 @@ function beginGame() {
   window.addEventListener('keydown', skipOpeningNews);
   const levelOneReady = Promise.all([initializeHands(), initializeHeldTorch()]);
   activateLevel('bedroom', { lockMovement: true });
-  // Level 1's rooms are warmed behind the report, so opening the bedroom door
-  // onto the hallway does not freeze. See warmLevelOne().
+  // Level 1 and the maze are warmed behind the report, so neither the bedroom
+  // door nor the stairs down to the maze stalls. See warmOpeningRooms().
   let roomsAreWarm = false;
-  const roomsWarmed = warmLevelOne().then(() => { roomsAreWarm = true; });
+  const roomsWarmed = warmOpeningRooms().then(() => { roomsAreWarm = true; });
 
   script.run(async (s) => {
     // The opening report runs while Level 1's presentation assets prepare.
@@ -4961,9 +4961,11 @@ function showViewModelsForWarmUp() {
 
 async function warmUp({
   keys = [...sceneManager.levels.keys()],
-  waitForAssets = true
+  waitForAssets = true,
+  // How much of the loading bar these rooms fill, when more steps follow them.
+  progressUpTo = 1
 } = {}) {
-  const steps = keys.length;
+  const steps = keys.length / progressUpTo;
   let done = 0;
   const advance = async (hint) => {
     done++;
@@ -5190,27 +5192,34 @@ async function warmHouseCreature(houseSets) {
 
 const warmedLevelKeys = new Set();
 
+/** The rooms warmed behind the opening news report. See warmOpeningRooms(). */
+const OPENING_ROOMS = ['bedroom', 'upstairsHallway', 'backrooms'];
+
 /**
- * Warms Level 1 -- the bedroom, the upstairs hallway, the two drawn together
- * with the door open, and the creature that rushes down the hall -- behind
- * the 72 s opening news report.
+ * Warms Level 1 and the maze it leads into, behind the 72 s opening news
+ * report: the bedroom, the upstairs hallway, the two drawn together with the
+ * door open, the creature that rushes down the hall, the maze and the thing in
+ * it.
  *
  * The hallway is walked into, never faded into, so nothing else warms it: its
  * shaders were built the moment the bedroom door opened, and the game froze.
+ * The maze has a point light in every working fixture, which makes each of its
+ * shaders slow to build, so warming it on its own fade was a long black screen.
  * Later rooms still warm on their own fades (warmLevelForTransition).
  */
-async function warmLevelOne() {
+async function warmOpeningRooms() {
   try {
-    await warmUp({ keys: ['bedroom', 'upstairsHallway'] });
-    setLoadProgress(0.75, 'something is already inside...');
+    await warmUp({ keys: OPENING_ROOMS, progressUpTo: 0.8 });
+    setLoadProgress(0.85, 'something is already inside...');
     await warmHouseCreature([['bedroom'], ['bedroom', 'upstairsHallway'], ['upstairsHallway']]);
+    setLoadProgress(0.95, 'something is already inside...');
+    await warmMazeCreature();
     minimap.setMode(sceneManager.active?.minimap);
     await minimap.warmUp();
     setLoadProgress(1);
-    warmedLevelKeys.add('bedroom');
-    warmedLevelKeys.add('upstairsHallway');
+    for (const key of OPENING_ROOMS) warmedLevelKeys.add(key);
   } catch (err) {
-    console.warn('warmLevelOne: warm-up failed', err);
+    console.warn('warmOpeningRooms: warm-up failed', err);
   }
 }
 
