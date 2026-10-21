@@ -4959,27 +4959,51 @@ export function createHallwayBasementLevel({
   }
 
   /**
-   * The pool it leaves behind. Same recipe as the corridor's puddles: no new
-   * texture, semi-transparent with just enough gloss that a moving torch beam
-   * finds a highlight in it. Darker and less transparent than water, because
-   * this is not water.
+   * The pool it leaves behind: the same dried, near-black blood as the pool on
+   * the restraint table's pad (build_operating_table.py's TableStain -- red
+   * only where a light catches its edge), in the same hand-drawn outline: a
+   * ring of points, each pushed in or out at random and then smoothed against
+   * its neighbours, so the edge undulates the way a spill does rather than
+   * running round in a circle. One pool, the size the old one was.
    *
    * Hidden until the creature has stood there and gone. It is the evidence --
    * "It must be injured" -- and on a second playthrough it is the moment the
    * player realises they were the one who hurt her.
    */
+  const BLACK_POOL = { radius: 0.5, stretch: [0.85, 1.15], points: 28, wobble: 0.75, seed: 21 };
+  function createPoolGeometry({ radius, stretch, points, wobble, seed }) {
+    let state = seed;
+    const random = () => {
+      state = (state * 1664525 + 1013904223) >>> 0;
+      return state / 4294967296;
+    };
+    const raw = Array.from({ length: points }, () => radius * (1 - wobble / 2 + wobble * random()));
+    // Smoothed once, so the edge undulates instead of being a star.
+    const radii = raw.map((r, i) => (raw[(i + points - 1) % points] + 2 * r + raw[(i + 1) % points]) / 4);
+    const outline = new THREE.Shape();
+    radii.forEach((r, i) => {
+      const a = (2 * Math.PI * i) / points;
+      const x = r * Math.cos(a) * stretch[0];
+      const y = r * Math.sin(a) * stretch[1];
+      if (i === 0) outline.moveTo(x, y);
+      else outline.lineTo(x, y);
+    });
+    outline.closePath();
+    return new THREE.ShapeGeometry(outline);
+  }
   const poolMat = new THREE.MeshStandardMaterial({
-    color: 0x0d0b0c,
-    roughness: 0.22,
+    // TableStain's colour, in the same linear values the table's material has.
+    color: new THREE.Color().setRGB(0.004, 0.0008, 0.0006),
+    roughness: 0.35,
     metalness: 0,
-    transparent: true,
-    opacity: 0.82,
-    depthWrite: false
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -1
   });
-  const blackPool = new THREE.Mesh(new THREE.CircleGeometry(0.5, 24), poolMat);
+  const blackPool = new THREE.Mesh(createPoolGeometry(BLACK_POOL), poolMat);
   blackPool.rotation.x = -Math.PI / 2;
-  blackPool.position.set(-2.5 * LAB_SCALE, 0.014, -2.05 * LAB_SCALE);
-  blackPool.scale.set(0.85, 1.15, 1);
+  blackPool.position.set(-2.5 * LAB_SCALE, 0.006, -2.05 * LAB_SCALE);
+  blackPool.receiveShadow = true;
   blackPool.visible = false;
   blackPool.userData.interact = {
     label: 'Examine the pool',
