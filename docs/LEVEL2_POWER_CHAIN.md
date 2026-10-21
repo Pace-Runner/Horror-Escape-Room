@@ -668,12 +668,12 @@ one still in the recorder on the floor.
 
 `src/story/sessionTape.js` holds the subtitles with their timings. A sedated
 subject on the table, a scientist dictating the session into the recorder, and
-a woman beside him. The subject wakes, does not know them, and comes at them;
+a young girl beside him. The subject wakes, does not know them, and comes at them;
 the recorder is knocked to the floor, and from there it hears the room muffled
 -- something heavy moving away, glass, an alarm -- until someone stops it. The
 only name spoken is "Mark".
 
-The two voices are never named: the woman is Annabelle, and the only thing that
+The two voices are never named: the girl is Annabelle, and the only thing that
 may tell the player so is the letter in Level 3.
 
 ### The sound
@@ -692,11 +692,20 @@ writes `src/assets/audio/tape/session_14.m4a` (47 s, AAC). Its times are the
 subtitles' times; the script's docstring lists them.
 
 **The voices are not in the soundtrack.** Each spoken subtitle names a clip
-(`src/assets/voice/level2/tape_01_man.m4a` to `tape_10_woman.m4a`) and the game
+(`src/assets/voice/level2/tape_01_man.m4a` to `tape_10_girl.m4a`) and the game
 starts it as the tape reaches the line, so a voice can be recorded or replaced
 without rebuilding the tape. Subtitles follow the captions setting, except
 where they are all there is: a line whose clip has not been recorded yet always
 shows, and so does everything over the stand-in.
+
+The voices were generated in ElevenLabs as one file, both speakers, every line
+in order (`blender/source/session_14_voices.m4a`), and split into the ten clips
+by `blender/split_session_tape_voices.py`. It cuts each line out by the
+silences between them, shortens the pauses inside a line to at most 0.45 s,
+and prints how long each clip runs. The subtitles' start times in
+`sessionTape.js` are set from those lengths: only one voice plays at a time,
+so a line still running when the next starts is cut off. Regenerate the voices
+and the stretches in the script and those times both need checking.
 
 ### Props
 
