@@ -4570,33 +4570,23 @@ function beginGame() {
   window.addEventListener('keydown', skipOpeningNews);
   const levelOneReady = Promise.all([initializeHands(), initializeHeldTorch()]);
   activateLevel('bedroom', { lockMovement: true });
-  // Level 1 and the maze are warmed behind the report, so neither the bedroom
-  // door nor the stairs down to the maze stalls. See warmOpeningRooms().
-  let roomsAreWarm = false;
-  const roomsWarmed = warmOpeningRooms().then(() => { roomsAreWarm = true; });
 
   script.run(async (s) => {
     // The opening report runs while Level 1's presentation assets prepare.
-    const newsResult = await newsFinished;
+    await newsFinished;
     window.removeEventListener('keydown', skipOpeningNews);
     if (!s.alive()) return;
     await levelOneReady;
     if (!s.alive()) return;
-    // Skipped, or a slow machine: the loading bar stays up until the warm-up
-    // is done. A wait here is better than a freeze at a door later.
-    const hadToWait = !roomsAreWarm;
-    if (hadToWait) await showLoadingUntil(roomsWarmed);
+    // Level 1 and the maze are warmed AFTER the report, behind the loading
+    // bar, so neither the bedroom door nor the stairs down to the maze stalls.
+    // Not during it: building shaders blocks the page, which froze the
+    // report's pictures and subtitles while its sound ran on.
+    await showLoadingUntil(warmOpeningRooms);
     if (!s.alive()) return;
-    // After a wait, K is no longer a fresh enough gesture to take the pointer
-    // lock, so the player clicks through like an unskipped report.
-    if (newsResult?.skipped && !hadToWait) {
-      // K is itself a user gesture, so it can safely acquire the pointer lock
-      // and continue straight to the authored wake-up scene.
-      startButton.disabled = false;
-      player.lock();
-    } else {
-      await waitForOpeningNewsContinue();
-    }
+    // Always a click through, even after K: K is no longer a fresh enough
+    // gesture to take the pointer lock once the loading bar has been up.
+    await waitForOpeningNewsContinue();
     if (!s.alive()) return;
     await Promise.all([openingNewsCutscene.close(), fade.fadeOut(420)]);
     s.do(() => {
@@ -5192,12 +5182,12 @@ async function warmHouseCreature(houseSets) {
 
 const warmedLevelKeys = new Set();
 
-/** The rooms warmed behind the opening news report. See warmOpeningRooms(). */
+/** The rooms warmed once the opening news report ends. See warmOpeningRooms(). */
 const OPENING_ROOMS = ['bedroom', 'upstairsHallway', 'backrooms'];
 
 /**
- * Warms Level 1 and the maze it leads into, behind the 72 s opening news
- * report: the bedroom, the upstairs hallway, the two drawn together with the
+ * Warms Level 1 and the maze it leads into, once the opening news report has
+ * ended: the bedroom, the upstairs hallway, the two drawn together with the
  * door open, the creature that rushes down the hall, the maze and the thing in
  * it.
  *
@@ -5223,10 +5213,14 @@ async function warmOpeningRooms() {
   }
 }
 
-/** Shows the loading bar over the opening until `work` is done. */
-async function showLoadingUntil(work) {
+/** Fades the loading bar in, runs `startWork`, and fades it out once it is done. */
+async function showLoadingUntil(startWork) {
+  setLoadProgress(0, LOAD_HINTS.bedroom);
   loadingScreen.classList.remove('is-done');
-  await work;
+  // Let the fade in (0.8 s, see #loading-screen) finish before the work
+  // starts: building shaders blocks the page, and would freeze it half-faded.
+  await wait(850);
+  await startWork();
   loadingScreen.classList.add('is-done');
 }
 
@@ -5448,7 +5442,10 @@ function tick() {
   // After everything that sets a light's intensity this frame, so a light that
   // has just come on gets a fresh shadow in the very frame it lights.
   darkShadowSkipper.update();
-  postFX.render();
+  // Not under the opening report, which covers the whole screen: the room's
+  // first draw blocks the page and would freeze the report. The room is
+  // warmed after it instead (warmOpeningRooms).
+  if (!openingNewsCutscene.isOpen) postFX.render();
   requestAnimationFrame(tick);
 }
 

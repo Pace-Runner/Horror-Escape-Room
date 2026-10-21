@@ -135,6 +135,10 @@ export function createOpeningNewsCutscene({ root }) {
   return {
     preload,
     close,
+    /** True from play() until close() has finished: the report covers the screen. */
+    get isOpen() {
+      return root.classList.contains('is-open');
+    },
     skip() {
       return finish({ skipped: true });
     },
