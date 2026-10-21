@@ -2746,6 +2746,7 @@ export function createBedroomLevel({
     hitbox.position.copy(position);
     hitbox.position.y += key === 'nightstandLeft' || key === 'dresserTop' ? 0.02 : 0.06;
     hitbox.visible = false;
+    hitbox.userData.hintKey = 'l1_polaroids';
     hitbox.userData.interact = {
       label: 'Pick up photograph',
       onInteract: () => {
@@ -3096,6 +3097,17 @@ export function createBedroomLevel({
   lockedBoxGroup.add(boxHitbox);
   interactables.push(boxHitbox);
 
+  // Hint context is metadata only; interaction and completion stay with each puzzle.
+  for (const [target, key] of [
+    [paperclipHitbox, 'l1_cuff'], [cuffLockHitbox, 'l1_cuff'],
+    [flashlightHitbox, 'l1_flashlight'], [photoAreaHitbox, 'l1_polaroids'],
+    [floorPhotoHitbox, 'l1_polaroids'], [windowPhotoHitbox, 'l1_polaroids'],
+    [lampHit, 'l1_lamp_code'], [lampDrawerHitbox, 'l1_locked_drawer'],
+    [boxHitbox, 'l1_hidden_chest'], [rugCornerHitbox, 'l1_floorboard'],
+    [looseFloorboardHitbox, 'l1_floorboard'], [bedroomKeyHitbox, 'l1_bedroom_door'],
+    [doorSlab, () => puzzleState.planksRemoved ? 'l1_bedroom_door' : 'l1_door_planks']
+  ]) target.userData.hintKey = key;
+
   return {
     group,
     interactables,
@@ -3167,7 +3179,10 @@ export function createBedroomLevel({
       messagePlane: message,
       ambient,
       glassMaterial,
-      puzzleState
+      puzzleState,
+      get hintProgress() {
+        return { drawerUnlocked: drawerStates.lampDrawer.isUnlocked, chestOpened: boxOpened };
+      }
     },
     // Puts every piece of run-specific state this level owns back to its
     // starting point -- restart previously only touched the paperclip/

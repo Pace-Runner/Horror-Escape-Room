@@ -1434,6 +1434,27 @@ html, body {
 .hotbar-slot.key-steel.filled .hotbar-icon { color: #b9c2cc; }
 
 /* ---------- captions (examine text) ---------- */
+#contextual-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 32%;
+  transform: translateX(-50%);
+  width: min(600px, 85vw);
+  box-sizing: border-box;
+  padding: 12px 18px;
+  background: rgba(20, 20, 17, 0.9);
+  border: 1px solid rgba(215, 195, 147, 0.5);
+  border-radius: 5px;
+  color: #f5efdd;
+  text-align: center;
+  font-size: 16px;
+  line-height: 1.45;
+  pointer-events: none;
+  z-index: 56;
+}
+#contextual-hint strong { font-size: 11px; letter-spacing: 0.16em; color: #d7c393; }
+#contextual-hint p { margin: 5px 0 0; }
+
 #mark-thought {
   position: fixed;
   bottom: 10%;

@@ -2346,6 +2346,7 @@ export function createHallwayBasementLevel({
     const fuse = createGlassFuse(data.amps);
     fuse.rotation.z = Math.PI / 2;
     fuse.position.set(...fusePositions[i]);
+    fuse.userData.hintKey = 'l2_fuse';
     fuse.userData.interact = {
       label: `Pick up fuse (${data.amps})`,
       onInteract: () => {
@@ -2712,6 +2713,7 @@ export function createHallwayBasementLevel({
 
     const hit = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 0.11), new THREE.MeshBasicMaterial({ visible: false }));
     hit.position.set(panelX + 0.035, rowY.control, GENERATOR_CONTROL_Z[controlId]);
+    hit.userData.hintKey = 'l2_generator';
     hit.userData.interact = {
       label: GENERATOR_CONTROLS[controlId].label,
       onInteract: () => pressGeneratorControl(controlId)
@@ -3232,6 +3234,7 @@ export function createHallwayBasementLevel({
     const x = BREAKER_MODULE_X[i];
     const toggle = new THREE.Mesh(breakerLeverGeometry, breakerLeverMat);
     toggle.position.set(x, BREAKER_MODULE_CENTRE_Y, BREAKER_TOGGLE_BASE_Z);
+    toggle.userData.hintKey = 'l2_generator';
     toggle.userData.interact = {
       label: `${circuit.label} (${circuit.loadInAmps}A)`,
       onInteract: () => flickBreaker(circuit.id)
@@ -4365,6 +4368,7 @@ export function createHallwayBasementLevel({
     const target = new THREE.Mesh(new THREE.BoxGeometry(...size), hiddenHitMat);
     target.position.set(...centre);
     target.userData.interact = interact;
+    target.userData.hintKey = 'l2_session14';
     deck.add(target);
     interactables.push(target);
     return target;
@@ -5725,6 +5729,15 @@ export function createHallwayBasementLevel({
     onGlare(overloadGlare);
   }
 
+  for (const [target, key] of [
+    [fuseBox, 'l2_fuse'], [fuseCoverHit, 'l2_fuse'], [maintenanceNote, 'l2_fuse'],
+    [breakerPanel, 'l2_generator'], [breakerCoverHit, 'l2_generator'], [mainSwitch, 'l2_generator'],
+    [powerButton, 'l2_cctv'], [monitorBody, 'l2_cctv'],
+    [doorNote, 'l2_security_info'], [metalDoor, 'l2_exit'],
+    [recorderHit, 'l2_session14'], [tapeStackHit, 'l2_session14']
+  ]) target.userData.hintKey = key;
+  for (const { mesh } of feedButtons) mesh.userData.hintKey = 'l2_cctv';
+
   return {
     group,
     interactables,
@@ -5905,6 +5918,7 @@ export function createHallwayBasementLevel({
         fuse.rotation.z = Math.PI / 2;
         fuse.visible = true;
         setFuseScorched(fuse, false);
+        fuse.userData.hintKey = 'l2_fuse';
         fuse.userData.interact = {
           label: `Pick up fuse (${data.amps})`,
           onInteract: () => {

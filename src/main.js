@@ -31,9 +31,7 @@ import { CaptionSequencer } from './core/CaptionSequencer.js';
 import { createDocumentUI } from './core/DocumentUI.js';
 import { createTapeSubtitles } from './core/TapeSubtitles.js';
 import { createPostFX } from './world/Postprocessing.js';
-import { createHintSystem } from './core/HintSystem.js';
-import { BEDROOM_HINT_STAGES } from './levels/bedroomHints.js';
-import { BASEMENT_HINT_STAGES } from './levels/basementHints.js';
+import { createContextualHints, getAvailableHintKeys, selectHintKey } from './core/ContextualHints.js';
 import { enableSinglePassForFlatDecals, createDarkShadowSkipper, findShadowCastingLights } from './world/renderOptimizations.js';
 import { createCutsceneRunner } from './core/Cutscene.js';
 import { hallwayReveal } from './cutscenes/hallwayReveal.js';
@@ -2104,26 +2102,56 @@ const upstairsHallway = createUpstairsHallwayLevel({
 });
 sceneManager.register('upstairsHallway', upstairsHallway);
 
-// ---------- level 1 hints ----------
-// H gives a hint for whichever bedroom puzzle the player is on, vaguer first
-// and more direct on each press; see core/HintSystem.js and
-// levels/bedroomHints.js. The wording is in dialogue/level1_bedroom.js.
+// ---------- contextual H-key hints ----------
+const contextualHints = createContextualHints();
+const HINT_LEVELS = new Set(['bedroom', 'upstairsHallway', 'hallwayBasement', 'backrooms']);
+const HINT_CONTEXT_RANGE_METRES = 3.2;
+const hintPosition = new THREE.Vector3();
 
-/**
- * Snapshots the bedroom's puzzle progress for the hint system: the room's own
- * puzzleState, plus the two things it does not track itself (whether the
- * paperclip is carried, and whether the torch has been found) and the code the
- * lamp blinks.
- *
- * @returns {object} a fresh progress object; safe for the caller to keep.
- */
-function readBedroomHintProgress() {
-  return {
-    ...bedroom.refs.puzzleState,
-    hasPaperclip: gameState.inventory.has('paperclip'),
-    flashlightFound,
-    drawerPinDigits: bedroom.refs.drawerPinDigits
-  };
+function readHintProgress() {
+  if (sceneManager.activeKey === 'bedroom') {
+    return { ...bedroom.refs.puzzleState, ...bedroom.refs.hintProgress, flashlightFound };
+  }
+  if (sceneManager.activeKey === 'hallwayBasement') {
+    return { ...hallwayBasement.refs.hintProgress, cctvReviewed: cctvSeen.has('study') };
+  }
+  return {};
+}
+
+function readTargetHintKey(target) {
+  const key = target?.userData.hintKey;
+  return typeof key === 'function' ? key() : key;
+}
+
+/** Check nearby tagged interaction targets only when H is pressed. */
+function readHintContext(available) {
+  if (photoBoardUI.isOpen) return ['l1_polaroids'];
+  const focused = readTargetHintKey(interaction.current);
+  let nearest = null;
+  let distanceInMetres = HINT_CONTEXT_RANGE_METRES;
+  for (const target of interaction.targets) {
+    const key = readTargetHintKey(target);
+    if (!available.includes(key)) continue;
+    let visible = true;
+    for (let parent = target; parent; parent = parent.parent) if (!parent.visible) visible = false;
+    if (!visible) continue;
+    const distance = target.getWorldPosition(hintPosition).distanceTo(camera.position);
+    if (distance < distanceInMetres) { distanceInMetres = distance; nearest = key; }
+  }
+  return [focused, nearest];
+}
+
+/** H never competes with a recording, document, keypad, or cutscene. */
+function showHint(event) {
+  if (event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+  if (event.target?.closest?.('input, textarea, select, [contenteditable], [role="textbox"]')
+    || document.activeElement?.closest?.('input, textarea, select, [contenteditable], [role="textbox"]')) return;
+  if (cutscene.isRunning || tapePlaying || transitionInFlight || documentUI.isOpen || pinPadUI.isOpen) return;
+  if (!player.isLocked && !photoBoardUI.isOpen) return;
+  const level = sceneManager.activeKey;
+  const progress = readHintProgress();
+  const available = getAvailableHintKeys(level, progress);
+  contextualHints.show(selectHintKey(level, progress, readHintContext(available)));
 }
 
 /**
@@ -2136,74 +2164,6 @@ function alwaysShown(lines) {
   return list.map((entry) => (typeof entry === 'string'
     ? { text: entry, always: true }
     : { ...entry, always: true }));
-}
-
-/**
- * The hint system for one room. Every room shares the same delivery: through
- * interaction.showCaption, not the local showCaption(), because the hint system
- * needs its answer, which is false while a story sequence holds the caption.
- * Every hint, the "press H" offer and the all-solved line go through here.
- */
-function createRoomHints({ stages, readProgress, allSolvedLine }) {
-  return createHintSystem({
-    stages,
-    readProgress,
-    showCaption: (lines) => interaction.showCaption(alwaysShown(lines)),
-    readNudgeLines: () => line('dialog_hint_nudge'),
-    readAllSolvedLines: () => line(allSolvedLine),
-    onNudge: pulseHintKey
-  });
-}
-
-const bedroomHints = createRoomHints({
-  stages: BEDROOM_HINT_STAGES,
-  readProgress: readBedroomHintProgress,
-  allSolvedLine: 'dialog_hint_all_solved'
-});
-
-// Read lazily: `hallwayBasement` is built further down, and progress is only
-// ever asked for during play.
-const basementHints = createRoomHints({
-  stages: BASEMENT_HINT_STAGES,
-  readProgress: () => hallwayBasement.refs.hintProgress,
-  allSolvedLine: 'dialog_hint_basement_all_solved'
-});
-
-// The hallway has no puzzle, only a way on, so its one "stage" never completes:
-// H always points at the stairs.
-const hallwayHints = createRoomHints({
-  stages: [{
-    id: 'stairs',
-    isComplete: () => false,
-    readHints: () => [line('dialog_hint_hallway_1'), line('dialog_hint_hallway_all_solved')]
-  }],
-  readProgress: () => ({}),
-  allSolvedLine: 'dialog_hint_hallway_all_solved'
-});
-
-/** Which rooms H gives hints in, keyed by level. Every other room says so plainly. */
-const HINTS_BY_LEVEL = {
-  bedroom: bedroomHints,
-  upstairsHallway: hallwayHints,
-  hallwayBasement: basementHints
-};
-
-/**
- * Pulses the on-screen hint key, so the "press H" offer points at something.
- * The class is taken off and put back with a reflow between, or a second
- * offer would find the animation already finished and do nothing.
- */
-function pulseHintKey() {
-  hintKeyEl.classList.remove('nudge');
-  void hintKeyEl.offsetWidth;
-  hintKeyEl.classList.add('nudge');
-}
-
-/** The H key: a hint in a room that has them, and a plain answer anywhere else. */
-function showHint() {
-  const roomHints = HINTS_BY_LEVEL[sceneManager.activeKey];
-  if (roomHints) roomHints.showNextHint();
-  else showCaption(alwaysShown(line('dialog_hint_unavailable')));
 }
 
 // Screen-space half of the basement's overload glare. The level drives the
@@ -2614,6 +2574,7 @@ const hallwayBasement = createHallwayBasementLevel({
    * and a pause both reach it; the voices and the subtitles follow its clock.
    */
   onPlayTape: ({ source, deck }) => {
+    contextualHints.hide();
     captions.cancel();
     audio.stopVoice();
     markThoughts.setBlocked(true);
@@ -3757,7 +3718,8 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   // decal among them should get the same single-pass draw.
   enableSinglePassForFlatDecals(level.group);
   // The on-screen hint key, only where H actually gives hints.
-  hintKeyEl.classList.toggle('visible', key in HINTS_BY_LEVEL);
+  hintKeyEl.classList.toggle('visible', HINT_LEVELS.has(key));
+  contextualHints.hide();
   // Each room gets its own full time on Medium and Hard; corridors none.
   runTimer.enterRoom(key);
   scene.fog = LEVEL_FOG[key] ?? null;
@@ -3952,7 +3914,7 @@ const INTERLUDES = {
 // ---------- game reset (restart without page refresh) ----------
 function resetGame() {
   markThoughts.clear({ reset: true });
-  for (const roomHints of Object.values(HINTS_BY_LEVEL)) roomHints.reset();
+  contextualHints.reset();
   // A restart from the pause menu can land mid-fade; without this the freshly
   // reset bedroom would come up behind a black overlay that never lifts.
   abortTransition();
@@ -4086,6 +4048,7 @@ function debugOpenBedroomDoor({ carryThrough = true } = {}) {
 const KEYS_HELD_BY_CUTSCENES = new Set(['KeyF', 'KeyQ', 'KeyV', 'KeyT', 'KeyH', 'KeyG']);
 
 window.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyH') { showHint(e); return; }
   if (!player.isLocked) return;
   // A cutscene owns the view and the hand, so nothing that acts through either
   // reaches the game until it hands back -- see KEYS_HELD_BY_CUTSCENES.
@@ -4166,7 +4129,6 @@ window.addEventListener('keydown', (e) => {
   }
   // Q lets go of what is in the hand -- see dropHeldItem() for when it refuses.
   if (e.code === 'KeyQ' && !e.repeat) dropHeldItem();
-  if (e.code === 'KeyH' && !e.repeat) showHint();
   if (e.code === 'KeyT') setThirdPerson(!thirdPerson);
   if (e.code === 'KeyV') {
     const result = visor.toggle();
@@ -5346,10 +5308,8 @@ function tick() {
     bedroomStorm.update(dt);
     rain.update(dt);
   }
-  // Only while actually playing: a paused game is not a stuck player, nor is
-  // one reading the front page laid over the room.
+  // Only while actually playing; menus and front pages do not spend play time.
   const isPlaying = player.isLocked && !newspaperView.isOpen;
-  if (isPlaying) HINTS_BY_LEVEL[sceneManager.activeKey]?.update(dt);
   // The difficulty's clock. Stopped by the same things, and by every moment
   // the player has no control: a fade between rooms, a cutscene, an ending.
   if (isPlaying && !transitionInFlight && !cutscene.isRunning && !stairsScare.isRunning && !endingInFlight) runTimer.update(dt);
