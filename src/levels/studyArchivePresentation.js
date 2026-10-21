@@ -19,6 +19,23 @@ export function createArchivePresentation(wood, brass) {
     }
   }
   return {
+    interior(parent) {
+      // A closed carcass behind the original selectors, not a front cover.
+      // All surfaces stay within the existing cabinet collider footprint.
+      const cavity = new THREE.Group();
+      cavity.name = 'ArchiveClosedInterior';
+      parent.add(cavity);
+      timber(cavity, 0, 1.13, -0.215, 1.55, 2.20, 0.035);
+      for (const x of [-0.755, 0.755]) {
+        timber(cavity, x, 1.13, -0.005, 0.04, 2.20, 0.43);
+      }
+      for (const y of [0.05, 2.21]) {
+        timber(cavity, 0, y, -0.005, 1.47, 0.04, 0.43);
+      }
+      // Dark interior lining and a shallow shelf divide records from the reward recess.
+      timber(cavity, 0, 1.13, -0.192, 1.46, 2.12, 0.008, recess);
+      timber(cavity, 0, 0.90, -0.015, 1.47, 0.03, 0.40);
+    },
     records(parent, faceZ, height) {
       const fixture = new THREE.Group();
       fixture.name = 'RecessedArchiveRecordMounts';

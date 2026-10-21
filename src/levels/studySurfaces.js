@@ -1,119 +1,65 @@
 import * as THREE from 'three';
-import {
-  createDamaskWallpaperTexture, createWoodFloorTexture,
-  createWoodFloorRoughnessTexture, createFurnitureWoodTexture
-} from '../world/textures.js';
+import wallpaperUrl from '../assets/textures/study/aged_taupe_wallpaper_1k.jpg?url';
+import floorUrl from '../assets/textures/study/aged_walnut_floorboards_1k.jpg?url';
+import ceilingUrl from '../assets/textures/study/smoke_plaster_ceiling_1k.jpg?url';
+import woodUrl from '../assets/textures/study/straight_walnut_512.jpg?url';
+import wallRoughnessUrl from '../assets/textures/study/wall_roughness_512.png?url';
+import floorRoughnessUrl from '../assets/textures/study/floor_roughness_512.png?url';
+import woodRoughnessUrl from '../assets/textures/study/wood_roughness_512.png?url';
 
-function canvas(size) {
-  const image = document.createElement('canvas');
-  image.width = image.height = size;
-  return image;
-}
-function texture(image, color = true) {
-  const map = new THREE.CanvasTexture(image);
-  if (color) map.colorSpace = THREE.SRGBColorSpace;
-  map.anisotropy = 4;
-  return map;
+// Compact derivatives of the existing Level 1 wallpaper/floor/plaster and bedside
+// wood images. Sized on disk: no runtime image baking or large source uploads.
+const surfaceTextures = new Map();
+function loadSurface(url, color = true, mirrored = false) {
+  if (!surfaceTextures.has(url)) {
+    const map = new THREE.TextureLoader().load(url);
+    if (color) map.colorSpace = THREE.SRGBColorSpace;
+    map.wrapS = map.wrapT = mirrored ? THREE.MirroredRepeatWrapping : THREE.RepeatWrapping;
+    map.anisotropy = 4;
+    surfaceTextures.set(url, map);
+  }
+  return surfaceTextures.get(url);
 }
 
-/** Study-only surface palette. No geometry, lights, or gameplay objects are created. */
+/** Study architecture palette; authored furniture maps remain separate. */
 export function createStudySurfaces() {
-  const wallpaper = createDamaskWallpaperTexture({ base: [77, 72, 65], motif: [87, 81, 72] });
-  const wallImage = canvas(1024);
-  const wallContext = wallImage.getContext('2d');
-  for (let panel = 0; panel < 4; panel++) wallContext.drawImage(wallpaper.image, panel * 256, 0, 256, 1024);
-  wallpaper.dispose();
-  const wallPixels = wallContext.getImageData(0, 0, 1024, 1024);
-  for (let y = 0; y < 1024; y++) for (let x = 0; x < 1024; x++) {
-    const index = (y * 1024 + x) * 4;
-    const corner = Math.min(x, 1023 - x) / 1024;
-    const stain = (0.88 + 0.12 * Math.min(1, corner / 0.13))
-      * (1 - 0.055 * Math.sin(x * 0.011 + Math.sin(y * 0.007)) ** 2
-        - 0.035 * Math.sin(y * 0.012 + x * 0.0035) ** 2);
-    for (let c = 0; c < 3; c++) wallPixels.data[index + c] *= stain;
-  }
-  wallContext.putImageData(wallPixels, 0, 0);
-  const wallMap = texture(wallImage);
-  const wallRoughImage = canvas(512);
-  const wallRoughContext = wallRoughImage.getContext('2d');
-  const wallRoughPixels = wallRoughContext.createImageData(512, 512);
-  for (let y = 0; y < 512; y++) for (let x = 0; x < 512; x++) {
-    const index = (y * 512 + x) * 4;
-    const value = 236 + Math.round(10 * Math.sin(x * 0.021 + Math.sin(y * 0.014)) ** 2);
-    for (let c = 0; c < 3; c++) wallRoughPixels.data[index + c] = value;
-    wallRoughPixels.data[index + 3] = 255;
-  }
-  wallRoughContext.putImageData(wallRoughPixels, 0, 0);
-  const wallRoughness = texture(wallRoughImage, false);
-
-  // Bake the old 4x4 plank coverage into one room map. Grain orientation and
-  // board size stay the same; edge dirt no longer repeats in every tile.
-  const plankColor = createWoodFloorTexture({ stain: 0.90 });
-  const plankRoughness = createWoodFloorRoughnessTexture();
-  const floorImage = canvas(1024);
-  const floorContext = floorImage.getContext('2d');
-  const floorRoughImage = canvas(512);
-  const floorRoughContext = floorRoughImage.getContext('2d');
-  for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) {
-    floorContext.drawImage(plankColor.image, x * 256, y * 256, 256, 256);
-    floorRoughContext.drawImage(plankRoughness.image, x * 128, y * 128, 128, 128);
-  }
-  const floorPixels = floorContext.getImageData(0, 0, 1024, 1024);
-  for (let y = 0; y < 1024; y++) for (let x = 0; x < 1024; x++) {
-    const index = (y * 1024 + x) * 4;
-    const edge = Math.min(x, y, 1023 - x, 1023 - y) / 1024;
-    const traffic = Math.exp(-((x / 1024 - 0.56) ** 2 / 0.07 + (y / 1024 - 0.65) ** 2 / 0.10));
-    const shade = (0.83 + 0.17 * Math.min(1, edge / 0.13)) * (1 - traffic * 0.035);
-    floorPixels.data[index] *= shade * 0.84;
-    floorPixels.data[index + 1] *= shade * 0.91;
-    floorPixels.data[index + 2] *= shade;
-  }
-  floorContext.putImageData(floorPixels, 0, 0);
-  const roughPixels = floorRoughContext.getImageData(0, 0, 512, 512);
-  for (let i = 0; i < roughPixels.data.length; i += 4) {
-    const value = 195 + roughPixels.data[i + 1] / 255 * 43;
-    roughPixels.data[i] = roughPixels.data[i + 1] = roughPixels.data[i + 2] = value;
-  }
-  floorRoughContext.putImageData(roughPixels, 0, 0);
-  plankColor.dispose();
-  plankRoughness.dispose();
-  const floorMap = texture(floorImage);
-  const floorRoughness = texture(floorRoughImage, false);
-
-  const fallbackWood = createFurnitureWoodTexture({ tint: [66, 52, 40] });
+  const wallMap = loadSurface(wallpaperUrl, true, true);
+  const wallRoughness = loadSurface(wallRoughnessUrl, false, true);
+  const floorMap = loadSurface(floorUrl);
+  const floorRoughness = loadSurface(floorRoughnessUrl, false);
+  const ceilingMap = loadSurface(ceilingUrl);
+  const woodMap = loadSurface(woodUrl);
+  const woodRoughness = loadSurface(woodRoughnessUrl, false);
   const woodMaterials = new Map();
-  let adoptedWood = null;
   const seenMaterials = new WeakSet();
-  function applyWood(material, shade) {
-    if (!adoptedWood) return;
-    material.map = adoptedWood.map;
-    material.roughnessMap = adoptedWood.roughnessMap;
-    material.color.copy(adoptedWood.color).multiplyScalar(shade);
-    material.roughness = 1;
-    material.envMapIntensity = 0.3;
-    material.needsUpdate = true;
-  }
+  const loftFloorMaterial = new THREE.MeshStandardMaterial({
+    name: 'StudyLoftFloorboards', map: floorMap, roughnessMap: floorRoughness,
+    color: 0xe0d9cf, roughness: 1, envMapIntensity: 0.2
+  });
   function woodMaterial(shade = 1) {
     const material = new THREE.MeshStandardMaterial({
-      map: fallbackWood, color: new THREE.Color().setScalar(shade), roughness: 0.92
+      map: woodMap, roughnessMap: woodRoughness,
+      color: new THREE.Color().setScalar(shade), roughness: 1, envMapIntensity: 0.25
     });
     woodMaterials.set(material, shade);
-    applyWood(material, shade);
     return material;
   }
-  function adoptWalnut(source) {
-    // One sampler setup shared across every procedural wood surface. The packed
-    // images themselves stay untouched and are shared with the authored desk.
-    const repeatMap = (map) => {
-      if (!map || (map.wrapS === THREE.RepeatWrapping && map.wrapT === THREE.RepeatWrapping)) return map;
-      const shared = map.clone();
-      shared.wrapS = shared.wrapT = THREE.RepeatWrapping;
-      shared.needsUpdate = true;
-      return shared;
-    };
-    adoptedWood = { map: repeatMap(source.map), roughnessMap: repeatMap(source.roughnessMap), color: source.color.clone() };
-    for (const [material, shade] of woodMaterials) applyWood(material, shade);
-    fallbackWood.dispose();
+  function floorSurface(mesh, edgeMaterial = null) {
+    mesh.userData.studyFloorSurface = true;
+    if (edgeMaterial) {
+      // Two draw groups, rather than one per box face; positions stay identical.
+      const geometry = mesh.geometry, original = geometry.index.array;
+      const edges = [], top = [];
+      for (const face of geometry.groups) {
+        const destination = face.materialIndex === 2 ? top : edges;
+        for (let i = face.start; i < face.start + face.count; i++) destination.push(original[i]);
+      }
+      geometry.setIndex([...edges, ...top]);
+      geometry.clearGroups();
+      geometry.addGroup(0, edges.length, 0);
+      geometry.addGroup(edges.length, top.length, 1);
+      mesh.material = [edgeMaterial, loftFloorMaterial];
+    }
   }
   function harmoniseAsset(model) {
     model.traverse((object) => {
@@ -165,44 +111,85 @@ export function createStudySurfaces() {
   }
   function alignSurfaces(group, wallMaterial, roomHeight) {
     group.updateMatrixWorld(true);
-    const point = new THREE.Vector3();
-    const normal = new THREE.Vector3();
-    const alignedWood = new Set();
+    const point = new THREE.Vector3(), normal = new THREE.Vector3();
+    const scale = new THREE.Vector3();
+    const mappedGeometry = new WeakMap();
     group.traverse((object) => {
       if (!object.isMesh) return;
+      const materials = [].concat(object.material);
+      const wood = materials.some(material => woodMaterials.has(material));
+      if (object.material !== wallMaterial && !wood && !object.userData.studyFloorSurface) return;
+      object.getWorldScale(scale);
+      // Unit-box fixtures can share geometry but have different physical scales.
+      // Cache by scale instead of changing shared UVs according to the first mesh.
+      const source = object.geometry;
+      const key = `${scale.x.toFixed(5)},${scale.y.toFixed(5)},${scale.z.toFixed(5)}`;
+      if (wood && !object.isInstancedMesh && !object.userData.studyFloorSurface) {
+        let variants = mappedGeometry.get(source);
+        if (!variants) { variants = new Map(); mappedGeometry.set(source, variants); }
+        if (variants.has(key)) { object.geometry = variants.get(key); return; }
+        object.geometry = source.clone();
+        variants.set(key, object.geometry);
+      }
       const geometry = object.geometry;
-      const uv = geometry.getAttribute('uv');
-      const positions = geometry.getAttribute('position');
+      const uv = geometry.getAttribute('uv'), positions = geometry.getAttribute('position');
+      const normals = geometry.getAttribute('normal');
       if (!uv) return;
       if (object.material === wallMaterial) {
-        normal.set(0, 0, 1).transformDirection(object.matrixWorld);
+        const colors = new Float32Array(positions.count * 3);
         for (let i = 0; i < uv.count; i++) {
           point.fromBufferAttribute(positions, i).applyMatrix4(object.matrixWorld);
-          uv.setXY(i, ((Math.abs(normal.x) > 0.5 ? point.z : point.x) + 8) / 16, point.y / roomHeight);
+          normal.fromBufferAttribute(normals, i).transformDirection(object.matrixWorld);
+          const across = Math.abs(normal.x) > 0.5 ? point.z : point.x;
+          uv.setXY(i, across / 1.6, point.y / 1.6);
+          const cornerDistance = Math.abs(normal.x) > 0.5 ? 6.5 - Math.abs(point.z) : 8 - Math.abs(point.x);
+          const baseWear = Math.exp(-Math.max(0, point.y) / 0.30)
+            + (point.y >= 3.1 ? Math.exp(-(point.y - 3.1) / 0.22) * 0.45 : 0);
+          const shade = 1 - 0.15 * Math.exp(-Math.max(0, cornerDistance) / 0.5)
+            - 0.14 * baseWear - 0.05 * Math.exp(-(roomHeight - point.y) / 0.35);
+          colors.set([shade, shade, shade], i * 3);
         }
-        uv.needsUpdate = true;
-      } else if (woodMaterials.has(object.material) && !alignedWood.has(geometry)) {
-        alignedWood.add(geometry);
-        if (geometry.type === 'LatheGeometry') {
-          for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getY(i), uv.getX(i));
-        } else if (geometry.parameters?.width && geometry.parameters?.height && geometry.parameters?.depth) {
-          const normals = geometry.getAttribute('normal');
-          for (let i = 0; i < uv.count; i++) {
-            point.fromBufferAttribute(positions, i);
-            normal.fromBufferAttribute(normals, i);
-            const { width, height, depth } = geometry.parameters;
-            if (Math.abs(normal.y) > 0.7) {
-              uv.setXY(i, (depth > width ? point.z : point.x) * 0.8, (depth > width ? point.x : point.z) * 0.8);
-            } else if (height >= width && height >= depth) {
-              uv.setXY(i, point.y * 0.8, (Math.abs(normal.x) > 0.7 ? point.z : point.x) * 0.8);
-            } else {
-              uv.setXY(i, (depth > width ? point.z : point.x) * 0.8, point.y * 0.8);
-            }
+        geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+      } else if (object.userData.studyFloorSurface) {
+        for (let i = 0; i < uv.count; i++) {
+          point.fromBufferAttribute(positions, i).applyMatrix4(object.matrixWorld);
+          normal.fromBufferAttribute(normals, i).transformDirection(object.matrixWorld);
+          // Shared world-space board spacing continues across both loft slabs.
+          if (normal.y > 0.7) uv.setXY(i, (point.x + 8) / 3.2, (point.z + 6.5) / 2.0);
+          else if (normal.y < -0.7) uv.setXY(i, point.x / 0.85, point.z / 0.25);
+          else uv.setXY(i, (Math.abs(normal.x) > 0.7 ? point.z : point.x) / 0.85, point.y / 0.25);
+        }
+      } else if (geometry.type === 'LatheGeometry') {
+        if (geometry.userData.studyGrainAligned) return;
+        const height = Math.max(...geometry.parameters.points.map(p => p.y));
+        const radius = Math.max(...geometry.parameters.points.map(p => p.x));
+        for (let i = 0; i < uv.count; i++) {
+          const u = uv.getX(i), v = uv.getY(i);
+          uv.setXY(i, v * height / 0.85, u * 2 * Math.PI * radius / 0.25);
+        }
+        geometry.userData.studyGrainAligned = true;
+      } else if (geometry.parameters?.width && geometry.parameters?.height && geometry.parameters?.depth) {
+        const width = geometry.parameters.width * scale.x;
+        const height = geometry.parameters.height * scale.y;
+        const depth = geometry.parameters.depth * scale.z;
+        for (let i = 0; i < uv.count; i++) {
+          point.fromBufferAttribute(positions, i).multiply(scale);
+          normal.fromBufferAttribute(normals, i);
+          let along, across;
+          if (Math.abs(normal.y) > 0.7) {
+            along = depth > width ? point.z : point.x;
+            across = depth > width ? point.x : point.z;
+          } else if (height >= width && height >= depth) {
+            along = point.y; across = Math.abs(normal.x) > 0.7 ? point.z : point.x;
+          } else {
+            along = depth > width ? point.z : point.x; across = point.y;
           }
+          uv.setXY(i, along / 0.85, across / 0.25);
         }
-        uv.needsUpdate = true;
       }
+      uv.needsUpdate = true;
     });
   }
-  return { wallMap, wallRoughness, floorMap, floorRoughness, woodMaterial, adoptWalnut, harmoniseAsset, ageRug, alignSurfaces };
+  return { wallMap, wallRoughness, floorMap, floorRoughness, ceilingMap, woodMaterial,
+    floorSurface, harmoniseAsset, ageRug, alignSurfaces };
 }
