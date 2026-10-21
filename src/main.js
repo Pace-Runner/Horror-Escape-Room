@@ -3482,12 +3482,10 @@ const LEVEL_FOG = {
 //   via: which registered level to pass through, or null for a direct cut
 //   to:  the level on the far side of the interstitial's exit door
 const TRANSITIONS = {
-  // Straight out onto the upstairs hallway; down its stairs into the backrooms
-  // maze, and out of its Door 1 into the basement. The maze is crossed again
-  // from Level 2, in at the other side and out of Door 2 to Level 3 -- see
-  // CROSSINGS in levels/backroomsMaze.js.
+  // The stairs lead directly to Level 2. Only its exit enters the Backrooms,
+  // using the existing crossing from the basement to the Level 3 study.
   bedroom: { to: 'upstairsHallway', via: null },
-  upstairsHallway: { to: 'hallwayBasement', via: 'backrooms' },
+  upstairsHallway: { to: 'hallwayBasement', via: null },
   hallwayBasement: { to: 'study', via: 'backrooms' },
   study: { to: null, via: null }
 };
