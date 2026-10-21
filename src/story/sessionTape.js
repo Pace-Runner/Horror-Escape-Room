@@ -42,7 +42,7 @@ export const SESSION_TAPE_SUBTITLES = [
   { start: 26.1, end: 27.749, speaker: 'SCIENTIST', voice: 'level2/tape_06_man.m4a', text: 'He\'s waking. Note the time.' },
   { start: 29.6, end: 31.806, speaker: 'GIRL', voice: 'level2/tape_07_girl.m4a', text: 'It\'s okay. You\'re okay\u2014' },
   { start: 32.3, end: 33.879, speaker: 'SCIENTIST', voice: 'level2/tape_08_man.m4a', text: 'Get back. Get back!' },
-  { start: 33.9, end: 36.64, speaker: 'GIRL', voice: 'level2/tape_09_girl.m4a', text: 'Mark! Mark, it\'s me!' },
+  { start: 33.9, end: 36.64, speaker: 'GIRL', voice: 'level2/tape_09_girl.m4a', text: 'Mark! It\'s me, it\'s me!' },
   { start: 43.0, end: 43.906, speaker: 'GIRL', voice: 'level2/tape_10_girl.m4a', text: 'Mark\u2026' },
 ];
 
