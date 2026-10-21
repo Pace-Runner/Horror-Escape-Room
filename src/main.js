@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { waitForAllLoads } from './core/LoadTracker.js';
 import { PointerLockPlayer, SENSITIVITY_MIN, SENSITIVITY_MAX } from './core/PointerLockPlayer.js';
 import { WALK_SPEED } from './core/MoveSpeeds.js';
-import { SceneManager } from './core/SceneManager.js';
+import { SceneManager, createDeferredLevel } from './core/SceneManager.js';
 import { segmentBlocked } from './core/collision.js';
 import { Interaction } from './core/Interaction.js';
 import { createPhotoBoardUI } from './core/PhotoBoardUI.js';
@@ -59,10 +59,11 @@ import { installUnloadGuard } from './core/KeyboardGuard.js';
 import { Hands } from './systems/hands/hands.js';
 import { setHandAssetUrl } from './systems/hands/hand-mesh.js';
 import handsModelUrl from './assets/models/hands.glb?url';
-import { loadModel } from './world/modelLoader.js';
+import { loadModel, deferModelLoads, startModelLoads } from './world/modelLoader.js';
 import flashlightModelUrl from './assets/models/flashlight.glb?url';
 
 console.time('APP_BOOT');
+deferModelLoads();
 
 // ---------- DOM ----------
 const canvas = document.getElementById('scene');
@@ -589,26 +590,6 @@ function initializeHeldTorch() {
     });
   }
   return heldTorchReady;
-}
-
-/** Fetches menu-safe Level 1 presentation files without parsing or building them. */
-function preloadMenuAssets() {
-  for (const url of [handsModelUrl, flashlightModelUrl]) {
-    fetch(url).catch((err) => console.warn('Menu asset preload failed:', err));
-  }
-  openingNewsCutscene.preload();
-}
-
-/** Runs a small raw-file preload only while the launch menu is idle. */
-function scheduleMenuPreload() {
-  const preload = () => {
-    if (!gameStarted) preloadMenuAssets();
-  };
-  if ('requestIdleCallback' in window) {
-    window.requestIdleCallback(preload, { timeout: 1200 });
-  } else {
-    window.setTimeout(preload, 250);
-  }
 }
 
 /**
@@ -1789,7 +1770,7 @@ const visor = createVisor({
 
 const BULB_BLOW_DELAY_AFTER_CUFF_UNLOCK_SECONDS = 3;
 
-const bedroom = createBedroomLevel({
+const bedroom = createDeferredLevel(() => createBedroomLevel({
   showCaption,
   onThought: thought,
   // Every item puzzle in the room asks the hand, not just the inventory.
@@ -2073,6 +2054,10 @@ const bedroom = createBedroomLevel({
     pinPadUI.open({ length, code, onSolved });
   },
   onSfx: (name) => sfx(name)
+}), (level) => {
+  itemMeshes.setTemplate('paperclip', level.refs.paperclip);
+  itemMeshes.setTemplate('bedroomKey', level.refs.bedroomKey);
+  initializeBedroomPresentation();
 });
 sceneManager.register('bedroom', bedroom);
 
@@ -2080,7 +2065,7 @@ sceneManager.register('bedroom', bedroom);
 // The bedroom door opens onto it, and its stairs lead down to the basement --
 // see TRANSITIONS. Its framed pieces open full size in the document reader, so
 // they read whether captions are on or off.
-const upstairsHallway = createUpstairsHallwayLevel({
+const upstairsHallway = createDeferredLevel(() => createUpstairsHallwayLevel({
   showCaption,
   // Built onto the bedroom's door: the two are one space, walked between.
   origin: bedroom.refs.doorway,
@@ -2099,7 +2084,7 @@ const upstairsHallway = createUpstairsHallwayLevel({
     thought('hallway_04');
     playStairsScare();
   }
-});
+}));
 sceneManager.register('upstairsHallway', upstairsHallway);
 
 // ---------- contextual H-key hints ----------
@@ -2262,7 +2247,7 @@ function hideCreature() {
  * The two ambients are swapped by INTENSITY, never by switching one off: a
  * light count is part of every shader's key, so turning a light off mid-game
  * recompiles every material in view -- the very stall this is meant to avoid.
- * Both lit sets (both rooms, and the hall alone) are built in warmOpeningRooms().
+ * Both lit sets are prepared by preloadHallway() during the opening report.
  */
 const HALL_ENTER_DEPTH = 0.8;
 const HALL_AMBIENT = 0.31;
@@ -2538,7 +2523,7 @@ function updateHallwayRush(dt) {
   creature.setSpeed(HALLWAY_RUSH_SPEED);
 }
 
-const hallwayBasement = createHallwayBasementLevel({
+const hallwayBasement = createDeferredLevel(() => createHallwayBasementLevel({
   showCaption,
   onThought: thought,
   onExit: () => exitLevel('hallwayBasement'),
@@ -2745,6 +2730,8 @@ const hallwayBasement = createHallwayBasementLevel({
       });
     }
   }
+}), (level) => {
+  level.refs.tapeModelReady.then((model) => itemMeshes.setTemplate('sessionTape', model)).catch(() => {});
 });
 sceneManager.register('hallwayBasement', hallwayBasement);
 
@@ -2759,7 +2746,7 @@ const STUDY_GUARD_POINT = [2.5, 2.9];
 /** What each of the study's front-door locks sounds like as it gives. */
 const STUDY_LOCK_SFX = { deadbolt: 'deadbolt_open', combination: 'padlock_open', containment: 'latch' };
 
-const study = createStudyLevel({
+const study = createDeferredLevel(() => createStudyLevel({
   showCaption,
   getPlayerPosition: () => camera.position,
   onDoorOpening: (position) => audioDirector.door(position),
@@ -2949,34 +2936,24 @@ const study = createStudyLevel({
       }
     });
   }
+}), (level) => {
+  itemMeshes.setTemplate('doorKey', level.refs.doorKey);
+  itemMeshes.setTemplate('gateKey', level.refs.gateKey);
+  itemMeshes.setTemplate('visor', level.refs.visorGroup);
 });
 sceneManager.register('study', study);
-
-// The items the levels hand out are drawn with the levels' own meshes, in the
-// hand and on the floor -- see world/itemMeshes.js. Registered here, once both
-// levels exist; the crowbar and the brass key never had a mesh and are built
-// from primitives there instead, and the torch's template arrives with its load.
-itemMeshes.setTemplate('paperclip', bedroom.refs.paperclip);
-itemMeshes.setTemplate('bedroomKey', bedroom.refs.bedroomKey);
-itemMeshes.setTemplate('doorKey', study.refs.doorKey);
-itemMeshes.setTemplate('gateKey', study.refs.gateKey);
-itemMeshes.setTemplate('visor', study.refs.visorGroup);
-// The session tape's model is a download, so its template arrives with it.
-hallwayBasement.refs.tapeModelReady
-  .then((model) => itemMeshes.setTemplate('sessionTape', model))
-  .catch(() => {});
 
 // Not a "level 4": ONE interstitial instance, re-armed per crossing by
 // setRoute(). It hands its route back through onExit rather than reading a
 // module-level global, so there is exactly one way to arm it and no way to
 // activate it unarmed.
-const backrooms = createBackroomsLevel({
+const backrooms = createDeferredLevel(() => createBackroomsLevel({
   showCaption,
   onThought: thought,
   onExit: (route) => transitionTo(route?.to ?? 'hallwayBasement'),
   onDoorOpening: (position) => audioDirector.door(position),
   onSfx: (name, opts) => sfx(name, opts)
-});
+}));
 sceneManager.register('backrooms', backrooms);
 
 // ---------- render-cost trims ----------
@@ -3340,73 +3317,78 @@ let windowFlashUsed = false;
 const WINDOW_REVEAL_INTENSITY = 16;
 const windowRevealLight = new THREE.SpotLight(0xbcd4ff, 0, 4, 0.95, 0.7, 2);
 
-const bedroomStorm = new Storm({
-  bulbLight: bedroom.refs.bulbLight,
-  lightningLight: bedroom.refs.lightning,
-  // The mesh as well as the light. Without it the glass keeps glowing.
-  bulbMaterial: bedroom.refs.bulbMaterial,
-  onFlash: () => {
-    thunder();
-    /**
-     * The one frame the lightning's shadow map is rendered.
-     *
-     * The light keeps autoUpdate = false because it is dark for most of the
-     * game and three.js would otherwise re-render its map every frame anyway.
-     * The room is static for the flash's whole duration, so one render per
-     * strike is exact rather than an approximation. This lives here rather than
-     * in Storm.js because Storm has no business knowing a light has a shadow.
-     */
-    bedroom.refs.lightning.shadow.needsUpdate = true;
+let bedroomStorm = null;
+let rain = null;
+function initializeBedroomPresentation() {
+  bedroomStorm = new Storm({
+    bulbLight: bedroom.refs.bulbLight,
+    lightningLight: bedroom.refs.lightning,
+    // The mesh as well as the light. Without it the glass keeps glowing.
+    bulbMaterial: bedroom.refs.bulbMaterial,
+    onFlash: () => {
+      thunder();
+      /**
+       * The one frame the lightning's shadow map is rendered.
+       *
+       * The light keeps autoUpdate = false because it is dark for most of the
+       * game and three.js would otherwise re-render its map every frame anyway.
+       * The room is static for the flash's whole duration, so one render per
+       * strike is exact rather than an approximation. This lives here rather than
+       * in Storm.js because Storm has no business knowing a light has a shadow.
+       */
+      bedroom.refs.lightning.shadow.needsUpdate = true;
 
-    if (windowFlashArmed && !windowFlashUsed) {
-      windowFlashArmed = false;
-      windowFlashUsed = true;
-      const wz = bedroom.refs.windowGroup.position.z;
-      // For exactly the flash, not CREATURE_LINGER_SECONDS: this one is only
-      // ever there while the lightning is. Its aura gets the flash plus the
-      // usual second of tail.
-      const shownFor = bedroomStorm?.flashDuration || 0.2;
-      showCreatureAt({
-        x: -2.1,
-        z: wz - 0.9,
-        yaw: Math.PI, // faces back through the window, into the room
-        linger: shownFor,
-        onGone: hideWindowReveal
-      });
-      creature.setCorrection(0);
+      if (windowFlashArmed && !windowFlashUsed) {
+        windowFlashArmed = false;
+        windowFlashUsed = true;
+        const wz = bedroom.refs.windowGroup.position.z;
+        // For exactly the flash, not CREATURE_LINGER_SECONDS: this one is only
+        // ever there while the lightning is. Its aura gets the flash plus the
+        // usual second of tail.
+        const shownFor = bedroomStorm?.flashDuration || 0.2;
+        showCreatureAt({
+          x: -2.1,
+          z: wz - 0.9,
+          yaw: Math.PI, // faces back through the window, into the room
+          linger: shownFor,
+          onGone: hideWindowReveal
+        });
+        creature.setCorrection(0);
 
-      windowRevealLight.intensity = WINDOW_REVEAL_INTENSITY;
+        windowRevealLight.intensity = WINDOW_REVEAL_INTENSITY;
+      }
+    },
+    onBlow: () => {
+      thought('l1_05');
+      bedroom.refs.pendantIntact.visible = false;
+      bedroom.refs.pendantBroken.visible = true;
+      audio.bulbPop();
     }
-  },
-  onBlow: () => {
-    thought('l1_05');
-    bedroom.refs.pendantIntact.visible = false;
-    bedroom.refs.pendantBroken.visible = true;
-    audio.bulbPop();
+  });
+
+
+  {
+    const wz = bedroom.refs.windowGroup.position.z;
+    windowRevealLight.position.set(-2.1, 1.9, wz - 0.15);
+    windowRevealLight.target.position.set(-2.1, 1.2, wz - 0.9);
+    bedroom.group.add(windowRevealLight, windowRevealLight.target);
   }
-});
+
+  rain = new Rain({
+    count: 400,
+    width: 1.6,
+    height: 2.6,
+    depth: 0.5,
+    origin: new THREE.Vector3(-2.1, 0.4, bedroom.refs.windowGroup.position.z - 0.35)
+  });
+  bedroom.group.add(rain.points);
+}
 
 /** Hides the window-flash figure and tears down its dedicated light -- see the note above. */
 function hideWindowReveal() {
   hideCreature();
   windowRevealLight.intensity = 0;
 }
-{
-  const wz = bedroom.refs.windowGroup.position.z;
-  windowRevealLight.position.set(-2.1, 1.9, wz - 0.15);
-  windowRevealLight.target.position.set(-2.1, 1.2, wz - 0.9);
-  bedroom.group.add(windowRevealLight, windowRevealLight.target);
-}
-
-const rain = new Rain({
-  count: 400,
-  width: 1.6,
-  height: 2.6,
-  depth: 0.5,
-  origin: new THREE.Vector3(-2.1, 0.4, bedroom.refs.windowGroup.position.z - 0.35)
-});
-bedroom.group.add(rain.points);
-
 const LEVEL_OBJECTIVES = {
   bedroom: 'You wake up chained to the bed frame. Find a way free.',
   upstairsHallway: 'Find a way downstairs.',
@@ -3689,6 +3671,7 @@ function playStairsScare() {
 }
 
 function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
+  startModelLoads();
   // A prior restrained bedroom view must never clamp the spawn orientation of
   // another level during SceneManager.activate()'s player.spawn() call.
   player.setLookBounds(null);
@@ -3913,6 +3896,7 @@ const INTERLUDES = {
 
 // ---------- game reset (restart without page refresh) ----------
 function resetGame() {
+  openingSequenceActive = false;
   markThoughts.clear({ reset: true });
   contextualHints.reset();
   // A restart from the pause menu can land mid-fade; without this the freshly
@@ -4048,6 +4032,7 @@ function debugOpenBedroomDoor({ carryThrough = true } = {}) {
 const KEYS_HELD_BY_CUTSCENES = new Set(['KeyF', 'KeyQ', 'KeyV', 'KeyT', 'KeyH', 'KeyG']);
 
 window.addEventListener('keydown', (e) => {
+  if (openingSequenceActive) return;
   if (e.code === 'KeyH') { showHint(e); return; }
   if (!player.isLocked) return;
   // A cutscene owns the view and the hand, so nothing that acts through either
@@ -4567,6 +4552,8 @@ function showPauseScreen() {
   promptEl.style.display = 'none';
 }
 
+let openingSequenceActive = false;
+
 function beginGame() {
   // A fresh run by definition, so it starts from fresh story state. Without
   // this the only thing that ever cleared endingChosen was resetGame(), and a
@@ -4581,63 +4568,65 @@ function beginGame() {
   // request while the opening sequence owns the screen.
   startButton.disabled = true;
   startScreen.classList.add('hidden');
+  openingSequenceActive = true;
+  player.movementEnabled = false;
+  player.lookEnabled = false;
+  interaction.setEnabled(false);
   audio.start();
-  markThoughts.preload('l1');
   runTimer.configure(currentDifficulty);
   backroomsHunter.setReady(true);
 
-  // Start the opening image first, then prepare Level 1 behind it. Its movement
-  // gate remains locked until the report has ended.
+  // Start playback in the original click gesture; construction yields to its first paint.
   const newsFinished = openingNewsCutscene.play();
+  const levelOneReady = preloadLevel1();
   const skipOpeningNews = (event) => {
     if (event.code === 'KeyK' && openingNewsCutscene.skip()) event.preventDefault();
   };
   window.addEventListener('keydown', skipOpeningNews);
-  const levelOneReady = Promise.all([initializeHands(), initializeHeldTorch()]);
-  activateLevel('bedroom', { lockMovement: true });
-
-  script.run(async (s) => {
-    // The opening report runs while Level 1's presentation assets prepare.
-    await newsFinished;
+  const run = script.run(async (s) => {
+    const newsResult = await newsFinished;
     window.removeEventListener('keydown', skipOpeningNews);
+    if (!s.alive()) return;
+    if (newsResult?.skipped && level1Ready) {
+      startButton.disabled = false;
+      player.lock();
+    } else {
+      await waitForOpeningNewsContinue(levelOneReady);
+    }
     if (!s.alive()) return;
     await levelOneReady;
     if (!s.alive()) return;
-    // Every room is warmed AFTER the report, behind the loading bar, so no
-    // door or fade later in the run stalls.
-    // Not during it: building shaders blocks the page, which froze the
-    // report's pictures and subtitles while its sound ran on.
-    await showLoadingUntil(warmOpeningRooms);
-    if (!s.alive()) return;
-    // Always a click through, even after K: K is no longer a fresh enough
-    // gesture to take the pointer lock once the loading bar has been up.
-    await waitForOpeningNewsContinue();
-    if (!s.alive()) return;
     await Promise.all([openingNewsCutscene.close(), fade.fadeOut(420)]);
-    s.do(() => {
-      // The continue click acquired pointer lock. The wake-up scene now owns
-      // the camera and temporarily freezes these controls itself.
-      audio.startBreathing();
-      interaction.setEnabled(true);
-      player.lookEnabled = true;
-      player.movementEnabled = true;
-    });
+    if (!s.alive()) return;
+    // Activation cancels the old room's scripts, so it must occur outside this runner.
+    return true;
+  });
+  run.then(async (continueToBedroom) => {
+    if (!continueToBedroom) return;
+    activateLevel('bedroom', { lockMovement: true });
+    audio.startBreathing();
+    interaction.setEnabled(true);
+    player.lookEnabled = true;
+    player.movementEnabled = true;
     const waking = playCutscene('wakeUp');
+    openingSequenceActive = false;
     if (!cutscene.isRunning) {
-      // Preserve the established fallback if another scene prevented wake-up.
       fade.fadeIn(2600);
-      await s.play(line('dialog_wake'));
+      await captions.play(line('dialog_wake'));
       return;
     }
-    // The wake-up scene begins with closed eyes, so lifting the black here
-    // exposes only its authored first frame rather than Level 1 prematurely.
+    // The authored first frame has closed eyes. Never expose the default room view.
     fade.clear();
     await waking;
+  }).catch((error) => {
+    console.error('Opening preparation failed:', error);
+    openingSequenceActive = false;
   });
+
 }
 
 /** Restores pointer lock from a fresh click after the non-interactive opening. */
-function waitForOpeningNewsContinue() {
+function waitForOpeningNewsContinue(levelOneReady = preloadLevel1()) {
   const button = openingNewsContinue.querySelector('button');
   openingNewsContinue.classList.add('is-open');
   openingNewsContinue.setAttribute('aria-hidden', 'false');
@@ -4645,18 +4634,23 @@ function waitForOpeningNewsContinue() {
 
   return new Promise((resolve) => {
     let hasContinued = false;
-    const continueGame = (event) => {
+    const continueGame = async (event) => {
       if (hasContinued) return;
       hasContinued = true;
       event?.preventDefault();
       openingNewsContinue.removeEventListener('click', continueGame);
       window.removeEventListener('keydown', continueGame);
+      // Acquire the pointer in this gesture even on a slow preparation fallback.
+      // The collage stays visible and no gameplay ticks until preparation resolves.
+      player.lock();
+      const label = button.textContent;
+      if (!level1Ready) { button.textContent = 'Preparing...'; button.disabled = true; }
+      await levelOneReady;
+      button.textContent = label;
+      button.disabled = false;
       openingNewsContinue.classList.remove('is-open');
       openingNewsContinue.setAttribute('aria-hidden', 'true');
       startButton.disabled = false;
-      // This click is the browser-approved gesture that safely reacquires
-      // pointer lock before the wake-up scene takes the camera.
-      player.lock();
       resolve();
     };
     openingNewsContinue.addEventListener('click', continueGame, { once: true });
@@ -4849,7 +4843,7 @@ if (import.meta.env.DEV) {
     // The map: headless has no Pointer Lock, so the frame loop's own call to
     // setMode/revealAt/update never runs and a test drives it from here.
     minimap,
-    storm: bedroomStorm,
+    get storm() { return bedroomStorm; },
     captions,
     // The crosshair's raycast. Headless has no pointer lock, so the frame loop
     // never calls update() itself -- a harness aims the camera and calls it.
@@ -4980,7 +4974,8 @@ async function warmUp({
   keys = [...sceneManager.levels.keys()],
   waitForAssets = true,
   // How much of the loading bar these rooms fill, when more steps follow them.
-  progressUpTo = 1
+  progressUpTo = 1,
+  compileOnly = false
 } = {}) {
   const steps = keys.length / progressUpTo;
   let done = 0;
@@ -5026,13 +5021,8 @@ async function warmUp({
     // Stand where the player will stand, so the room is in front of the camera
     // rather than behind it.
     if (level.spawn) camera.position.set(level.spawn[0], 1.6, level.spawn[1]);
-    // AND THEN ACTUALLY DRAW IT, which is the only thing that provably pays
-    // the cost. compileAsync alone got bedroom 3025 -> 871 ms and left the
-    // backrooms at 2272, because it builds the base material programs and not
-    // whatever else the first real frame does -- the shadow depth variants for
-    // a casting spotlight among them. Rather than keep guessing at what it
-    // misses, draw the frame. Whatever the first frame costs, it costs it
-    // here, behind the bar, once.
+    // Later transitions retain their existing fade-owned draw. The opening
+    // uses compile-only preparation plus tiny unlit asset-upload probes.
     const unculled = [];
     level.group.traverse((o) => {
       if (o.isMesh || o.isSkinnedMesh) { unculled.push(o); o.frustumCulled = false; }
@@ -5048,7 +5038,10 @@ async function warmUp({
       const restoreViewModels = showViewModelsForWarmUp();
       darkShadowSkipper.refreshAllShadowsOnce();
       try {
-        postFX.render();
+        if (compileOnly) {
+          await prepareGpuResources([level.group, camera]);
+          await renderer.compileAsync(scene, camera);
+        } else postFX.render();
       } finally {
         restoreViewModels();
       }
@@ -5148,7 +5141,7 @@ async function warmMazeCreature() {
  *
  * @param {string[][]} houseSets - level keys drawn together, one set at a time.
  */
-async function warmHouseCreature(houseSets) {
+async function warmHouseCreature(houseSets, { compileOnly = false } = {}) {
   await Promise.all([creature.ready, playerBody.ready]);
   const houseWasVisible = creature.visible;
   const bodyWasShown = playerBody.visible;
@@ -5180,7 +5173,7 @@ async function warmHouseCreature(houseSets) {
       try {
         await renderer.compileAsync(scene, camera);
         darkShadowSkipper.refreshAllShadowsOnce();
-        postFX.render();
+        if (!compileOnly) postFX.render();
       } catch (err) {
         console.warn('warmUp: could not warm the bedroom and hallway together', err);
       }
@@ -5191,7 +5184,9 @@ async function warmHouseCreature(houseSets) {
     playerBody.update(1 / 60);
     try {
       await renderer.compileAsync(creature.group, camera, scene);
-      postFX.render();
+      await renderer.compileAsync(playerBody.group, camera, scene);
+      if (compileOnly) await prepareGpuResources([creature.group, playerBody.group]);
+      else postFX.render();
       // It shows on the house map too, which has programs of its own.
       minimap.setMode(houseLevel.minimap);
       await minimap.warmUp();
@@ -5209,56 +5204,108 @@ async function warmHouseCreature(houseSets) {
 
 const warmedLevelKeys = new Set();
 
-/**
- * Each lit set the house creature can be seen in: every house room on its own,
- * plus the bedroom and the hallway drawn together (the door open between them,
- * see openToHallway) -- a light set no single room has.
- */
-const HOUSE_LIGHT_SETS = [['bedroom'], ['bedroom', 'upstairsHallway'], ['upstairsHallway'], ['hallwayBasement'], ['study']];
+let level1PreloadPromise = null;
+let level1Ready = false;
+let hallwayPreloadPromise = null;
+let hallwayReady = false;
 
-/**
- * Warms every room and creature in the game once the opening news report has
- * ended, behind the loading bar, so no door, stair or fade later in the run
- * builds a shader: the bedroom, the upstairs hallway, the two drawn together
- * with the door open, the maze, Levels 2 and 3, and the creature in each.
- *
- * The hallway is walked into, never faded into, so its shaders were built the
- * moment the bedroom door opened, and the game froze. The other rooms were
- * warmed on their own fades, which left a long black screen at each one -- the
- * maze worst, with a point light in every working fixture.
- * warmLevelForTransition stays as the fallback if this fails.
- */
-async function warmOpeningRooms() {
-  try {
-    const keys = [...sceneManager.levels.keys()];
-    await warmUp({ keys, progressUpTo: 0.8 });
-    setLoadProgress(0.85, 'something is already inside...');
-    await warmHouseCreature(HOUSE_LIGHT_SETS);
-    setLoadProgress(0.95, 'something is already inside...');
-    await warmMazeCreature();
-    minimap.setMode(sceneManager.active?.minimap);
-    await minimap.warmUp();
-    setLoadProgress(1);
-    for (const key of keys) warmedLevelKeys.add(key);
-  } catch (err) {
-    console.warn('warmOpeningRooms: warm-up failed', err);
+/** Upload textures and compile shadow variants without rendering a game level. */
+async function prepareGpuResources(roots) {
+  const textures = new Set();
+  const shadowScene = new THREE.Scene();
+  const shadowMaterials = [];
+  for (const root of roots) root.traverse((object) => {
+    if (!object.isMesh) return;
+    for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+      for (const value of Object.values(material)) if (value?.isTexture) textures.add(value);
+      for (const uniform of Object.values(material.uniforms ?? {})) if (uniform.value?.isTexture) textures.add(uniform.value);
+      if (!object.castShadow) continue;
+      for (const point of [false, true]) {
+        const depth = point
+          ? new THREE.MeshDistanceMaterial()
+          : new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
+        for (const key of ['map', 'alphaMap', 'alphaTest', 'displacementMap', 'displacementScale', 'displacementBias', 'wireframe']) depth[key] = material[key];
+        depth.side = material.shadowSide ?? (material.side === THREE.FrontSide ? THREE.BackSide : material.side === THREE.BackSide ? THREE.FrontSide : THREE.DoubleSide);
+        const copy = object.clone(false);
+        copy.material = depth;
+        copy.frustumCulled = false;
+        copy.castShadow = false;
+        shadowScene.add(copy);
+        shadowMaterials.push(depth);
+      }
+    }
+  });
+  let uploads = 0;
+  for (const texture of textures) {
+    renderer.initTexture(texture);
+    if (++uploads % 4 === 0) await nextFrame();
   }
+  await renderer.compileAsync(shadowScene, camera);
+  // Tiny, unlit asset probes upload geometry/bone buffers. Never draw the live
+  // room or its lights, and bound each batch so the news keeps getting frames.
+  const target = new THREE.WebGLRenderTarget(1, 1);
+  const previousTarget = renderer.getRenderTarget();
+  const probes = shadowScene.children.filter((object) => !object.material.isMeshDistanceMaterial);
+  shadowScene.clear();
+  try {
+    renderer.setRenderTarget(target);
+    for (let index = 0; index < probes.length; index += 16) {
+      shadowScene.add(...probes.slice(index, index + 16));
+      renderer.render(shadowScene, camera);
+      shadowScene.clear();
+      renderer.setRenderTarget(previousTarget);
+      await nextFrame();
+      renderer.setRenderTarget(target);
+    }
+  } finally {
+    renderer.setRenderTarget(previousTarget);
+    target.dispose();
+  }
+  // Keep shader variants resident for the room's first shadow pass.
+  openingShadowMaterials.push(...shadowMaterials);
+}
+const openingShadowMaterials = [];
+
+/** One room promise reused by Start, the continue gate, and repeated calls. */
+function preloadLevel1() {
+  if (!level1PreloadPromise) level1PreloadPromise = (async () => {
+    await nextFrame();
+    await nextFrame();
+    startModelLoads();
+    await Promise.all([bedroom.prepare(), initializeHands(), initializeHeldTorch(), audio.ready, markThoughts.preload('l1')]);
+    enableSinglePassForFlatDecals(bedroom.group);
+    darkShadowSkipper.addLights(findShadowCastingLights(scene));
+    await warmUp({ keys: ['bedroom'], waitForAssets: false, compileOnly: true });
+    await warmHouseCreature([['bedroom']], { compileOnly: true });
+    postFX.prepare();
+    warmedLevelKeys.add('bedroom');
+    // Hallway follows Level 1 in priority; never build a later puzzle room here.
+    await preloadHallway();
+    level1Ready = true;
+  })();
+  return level1PreloadPromise;
 }
 
-/** Fades the loading bar in, runs `startWork`, and fades it out once it is done. */
-async function showLoadingUntil(startWork) {
-  setLoadProgress(0, LOAD_HINTS.bedroom);
-  loadingScreen.classList.remove('is-done');
-  // Let the fade in (0.8 s, see #loading-screen) finish before the work
-  // starts: building shaders blocks the page, and would freeze it half-faded.
-  await wait(850);
-  await startWork();
-  loadingScreen.classList.add('is-done');
+function preloadHallway() {
+  if (!hallwayPreloadPromise) hallwayPreloadPromise = (async () => {
+    await nextFrame();
+    await upstairsHallway.prepare();
+    enableSinglePassForFlatDecals(upstairsHallway.group);
+    darkShadowSkipper.addLights(findShadowCastingLights(scene));
+    await warmUp({ keys: ['upstairsHallway'], waitForAssets: false, compileOnly: true });
+    await warmHouseCreature([['bedroom', 'upstairsHallway'], ['upstairsHallway']], { compileOnly: true });
+    warmedLevelKeys.add('upstairsHallway');
+    hallwayReady = true;
+  })();
+  return hallwayPreloadPromise;
 }
 
 /** Warms exactly one destination level while a transition already owns the screen. */
 async function warmLevelForTransition(key) {
   if (warmedLevelKeys.has(key)) return;
+  await sceneManager.get(key)?.prepare?.();
+  enableSinglePassForFlatDecals(sceneManager.get(key).group);
+  darkShadowSkipper.addLights(findShadowCastingLights(scene));
   await warmUp({ keys: [key], waitForAssets: false });
   // And whatever creature can show up there, or its first appearance is a
   // freeze of its own, seconds into the room.
@@ -5267,13 +5314,15 @@ async function warmLevelForTransition(key) {
   warmedLevelKeys.add(key);
 }
 
-// The menu is interactive before any tracked game-content loads or shader
-// warm-ups. Those begin only from beginGame() after the player chooses a run.
-setLoadProgress(1);
-showMainMenu();
-loadingScreen.classList.add('is-done');
-console.timeEnd('APP_BOOT');
-scheduleMenuPreload();
+// Boot waits only for the opening's four decoded images and buffered audio.
+setLoadProgress(0, 'preparing the opening report...');
+const openingAssetsReady = openingNewsCutscene.preload();
+openingAssetsReady.then(() => {
+  setLoadProgress(1);
+  showMainMenu();
+  loadingScreen.classList.add('is-done');
+  console.timeEnd('APP_BOOT');
+});
 
 // ---------- render loop ----------
 const clock = new THREE.Clock();
@@ -5281,6 +5330,10 @@ let elapsed = 0;
 
 function tick() {
   const realDt = Math.min(clock.getDelta(), 0.05);
+  if (!sceneManager.activeKey || openingSequenceActive) {
+    requestAnimationFrame(tick);
+    return;
+  }
   // On real time, so it flies smoothly through a slowed or frozen world.
   freeCamera.update(realDt);
   // Frozen means the world is not updated at all, rather than updated with a

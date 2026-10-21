@@ -64,6 +64,7 @@ export function createMarkThoughts(audio) {
     },
     preload(prefix) {
       for (const key of Object.keys(MARK_THOUGHTS)) if (key.startsWith(prefix + '_')) preload(key);
+      return Promise.all([...buffers.entries()].filter(([key]) => key.startsWith(prefix + '_')).map(([, buffer]) => buffer));
     },
     setBlocked(value) {
       blocked = value;

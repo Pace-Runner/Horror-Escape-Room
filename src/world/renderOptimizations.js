@@ -138,7 +138,15 @@ export function createDarkShadowSkipper(lights) {
     for (const light of managedLights) light.shadow.needsUpdate = true;
   }
 
-  return { update, refreshAllShadowsOnce, lightCount: managedLights.length };
+  return {
+    update, refreshAllShadowsOnce,
+    addLights(lights) {
+      for (const light of lights) {
+        if (light.castShadow && light.shadow?.autoUpdate && !managedLights.includes(light)) managedLights.push(light);
+      }
+    },
+    get lightCount() { return managedLights.length; }
+  };
 }
 
 /**

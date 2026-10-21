@@ -61,7 +61,7 @@ function preloadImage(url) {
 export function createOpeningNewsCutscene({ root }) {
   const photoCards = [...root.querySelectorAll('.onc-photo-card')];
   const subtitle = root.querySelector('.onc-subtitle');
-  const audio = new Audio(newsAudioUrl);
+  const audio = new Audio();
   audio.preload = 'auto';
 
   let preloadPromise = null;
@@ -71,8 +71,23 @@ export function createOpeningNewsCutscene({ root }) {
 
   function preload() {
     if (!preloadPromise) {
-      audio.load();
-      preloadPromise = Promise.all(PHOTO_CUES.map((cue) => preloadImage(cue.image))).catch(() => undefined);
+      const audioReady = fetch(newsAudioUrl).then((response) => {
+        if (!response.ok) throw new Error(`News audio: HTTP ${response.status}`);
+        return response.blob();
+      }).then((blob) => new Promise((resolve) => {
+        const finish = () => {
+          audio.removeEventListener('canplaythrough', finish);
+          audio.removeEventListener('error', finish);
+          resolve();
+        };
+        audio.addEventListener('canplaythrough', finish, { once: true });
+        audio.addEventListener('error', finish, { once: true });
+        audio.src = URL.createObjectURL(blob);
+        audio.load();
+      }));
+      preloadPromise = Promise.all([
+        audioReady, ...PHOTO_CUES.map((cue) => preloadImage(cue.image))
+      ]).catch((error) => console.warn('Opening asset preload failed:', error));
     }
     return preloadPromise;
   }

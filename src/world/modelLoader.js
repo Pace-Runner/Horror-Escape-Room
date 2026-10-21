@@ -1,27 +1,64 @@
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
 // Shared loader for Blender-authored .glb assets (see blender/*.py for the
 // generation scripts). One GLTFLoader instance reused across every call
 // rather than constructing a new one per model.
 const loader = new GLTFLoader();
+const models = new Map();
+let loadingEnabled = true;
+let enableLoading = null;
+let loadingGate = Promise.resolve();
+
+/** The launch menu needs no game models. Release this gate once Start is clicked. */
+export function deferModelLoads() {
+  if (!loadingEnabled) return;
+  loadingEnabled = false;
+  loadingGate = new Promise((resolve) => { enableLoading = resolve; });
+}
+
+export function startModelLoads() {
+  loadingEnabled = true;
+  enableLoading?.();
+  enableLoading = null;
+}
 
 export function loadModel(url) {
-  return new Promise((resolve, reject) => {
-    loader.load(
-      url,
-      // Resolves the SCENE, not the whole gltf, because every existing call site
-      // wants the scene and nothing else. The clips are attached to it as
-      // `userData.animations` rather than thrown away -- glTF puts animations on
-      // the gltf root, not the scene, so loading a rigged character used to make
-      // its clips unreachable no matter what the .glb contained.
-      (gltf) => {
-        gltf.scene.userData.animations = gltf.animations ?? [];
-        replaceTransmission(gltf.scene);
-        resolve(gltf.scene);
-      },
-      undefined,
-      (err) => reject(err)
-    );
+  if (!models.has(url)) {
+    const ready = loadingGate.then(() => loader.loadAsync(url));
+    models.set(url, ready);
+    ready.catch(() => models.delete(url));
+  }
+  return models.get(url).then((gltf) => {
+    const scene = clone(gltf.scene);
+    const materials = new Map();
+    const geometries = new Map();
+    const textures = new Map();
+    const copyMaterial = (material) => {
+      if (!materials.has(material)) {
+        const copy = material.clone();
+        for (const [key, value] of Object.entries(copy)) {
+          if (!value?.isTexture) continue;
+          if (!textures.has(value)) textures.set(value, value.clone());
+          copy[key] = textures.get(value);
+        }
+        materials.set(material, copy);
+      }
+      return materials.get(material);
+    };
+    scene.traverse((node) => {
+      // Room-specific UV/rig/material edits remain isolated, just as separate
+      // GLTF loads were. Only fetching, decoding and parsing are shared.
+      if (node.geometry) {
+        if (!geometries.has(node.geometry)) geometries.set(node.geometry, node.geometry.clone());
+        node.geometry = geometries.get(node.geometry);
+      }
+      if (node.material) node.material = Array.isArray(node.material)
+        ? node.material.map(copyMaterial) : copyMaterial(node.material);
+    });
+    replaceTransmission(scene);
+    scene.userData.animations = gltf.animations ?? [];
+    return scene;
   });
 }
 

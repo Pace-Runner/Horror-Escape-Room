@@ -88,6 +88,25 @@ export function createPostFX(renderer, scene, camera) {
     composer,
     visorPass,
 
+    /** Allocate targets and compile fullscreen effects without drawing the room. */
+    prepare() {
+      const scenePassEnabled = renderPass.enabled;
+      const wakeEnabled = wakePass.enabled;
+      const renderToScreen = composer.renderToScreen;
+      try {
+        renderer.initRenderTarget(composer.renderTarget1);
+        renderer.initRenderTarget(composer.renderTarget2);
+        renderPass.enabled = false;
+        wakePass.enabled = true;
+        composer.renderToScreen = false;
+        composer.render(0);
+      } finally {
+        renderPass.enabled = scenePassEnabled;
+        wakePass.enabled = wakeEnabled;
+        composer.renderToScreen = renderToScreen;
+      }
+    },
+
     /**
      * Draw from a different camera, for the third-person view.
      *

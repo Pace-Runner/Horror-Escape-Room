@@ -1,7 +1,62 @@
+import * as THREE from 'three';
+import { waitForAllLoads } from './LoadTracker.js';
+
+/** A stable room handle: constructing it downloads nothing. Existing consumers
+ * retain the same group, refs and collider array when its factory runs later.
+ */
+export function createDeferredLevel(factory, onCreated = () => {}) {
+  let instance = null;
+  let preparation = null;
+  const empty = [];
+  // Async model callbacks keep mutating the factory's own arrays after creation.
+  const forwardArray = (read) => new Proxy([], {
+    get(_target, key) {
+      const array = read() ?? empty;
+      const value = Reflect.get(array, key, array);
+      return typeof value === 'function' ? value.bind(array) : value;
+    },
+    set(_target, key, value) { return Reflect.set(read() ?? empty, key, value); }
+  });
+  const handle = {
+    group: new THREE.Group(),
+    refs: { candleAnchors: forwardArray(() => instance?.refs?.candleAnchors) },
+    colliders: forwardArray(() => instance?.colliders),
+    get isPrepared() { return instance !== null; },
+    initialize() {
+      if (instance) return;
+      instance = factory();
+      handle.group.add(instance.group);
+      const descriptors = Object.getOwnPropertyDescriptors(instance.refs ?? {});
+      if (descriptors.candleAnchors) {
+        delete descriptors.candleAnchors;
+      }
+      Object.defineProperties(handle.refs, descriptors);
+      onCreated(handle);
+    },
+    prepare() {
+      if (!preparation) preparation = Promise.resolve().then(() => {
+        handle.initialize();
+        return waitForAllLoads({ timeoutMilliseconds: Infinity });
+      });
+      return preparation;
+    },
+    reset() { instance?.reset?.(); },
+    update(...args) { instance?.update?.(...args); }
+  };
+  return new Proxy(handle, {
+    get(target, key) {
+      if (key in target) return target[key];
+      if (key === 'then') return undefined;
+      handle.initialize();
+      const value = instance[key];
+      return typeof value === 'function' ? value.bind(instance) : value;
+    }
+  });
+}
+
 // Holds every level as a sibling THREE.Group under one root, and switches
-// which one is visible/active/collidable. Levels are built once up front
-// (cheap at this world's poly count) so jumping between them for a mentor
-// demo is instant -- there is no async load between rooms.
+// which one is visible/active/collidable. Deferred room factories are prepared
+// by loading orchestration before production activation.
 export class SceneManager {
   constructor(root) {
     this.root = root;
@@ -39,6 +94,7 @@ export class SceneManager {
       console.warn(`SceneManager.activate: no level registered under "${key}"`);
       return null;
     }
+    level.initialize?.();
     if (this.activeKey && !seamless) {
       this.levels.get(this.activeKey).group.visible = false;
     }
