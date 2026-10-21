@@ -356,6 +356,7 @@ export function createCctvFeeds() {
   let hallwayDashAt = null;
   let basementFigure = false;
   let basementLostAt = null;
+  let onBasementSignalLost = null;
 
   /**
    * Which breaker circuits are currently feeding the rooms on camera.
@@ -655,9 +656,10 @@ export function createCctvFeeds() {
     },
 
     /** The figure standing in the basement, and the feed dying after it. */
-    showBasementFigure(loseSignalAfter = 2.6) {
+    showBasementFigure(loseSignalAfter = 2.6, onSignalLost = null) {
       basementFigure = true;
       basementLostAt = elapsed + loseSignalAfter;
+      onBasementSignalLost = onSignalLost;
     },
 
     get basementSignalLost() {
@@ -666,6 +668,11 @@ export function createCctvFeeds() {
 
     update(dt) {
       elapsed += dt;
+      if (onBasementSignalLost && basementLostAt !== null && elapsed > basementLostAt + 0.6) {
+        const callback = onBasementSignalLost;
+        onBasementSignalLost = null;
+        callback();
+      }
       // The screen comes on showing camera one without setActive ever being
       // called, so the watched camera's clip is started from here as well.
       // play() is a no-op once running, so this costs nothing per frame.
@@ -681,6 +688,7 @@ export function createCctvFeeds() {
       hallwayDashAt = null;
       basementFigure = false;
       basementLostAt = null;
+      onBasementSignalLost = null;
       roomZoneLit.house = false;
       roomZoneLit.lab = true;
       // Rewound and paused; the first update() of the next run starts camera

@@ -1,3 +1,5 @@
+import { createMarkThoughts } from './systems/MarkThoughts.js';
+import { createSessionTapeFocus } from './cutscenes/session14.js';
 import * as THREE from 'three';
 // FIRST, before any module that might start a load: it has to be listening
 // before the first model or texture is requested. See core/LoadTracker.js.
@@ -1124,13 +1126,15 @@ const paperRustle = () => sfx('paper') || audio.paperRustle();
 // ---------- interaction / captions ----------
 // One caption authority for the whole game. Interaction forwards examine text
 // to it; story beats call captions.play([...]) and can await the result.
+const markThoughts = createMarkThoughts(audio);
+const thought = (key, options) => markThoughts.play(key, options);
 const captions = new CaptionSequencer(captionEl);
 const interaction = new Interaction(camera, promptEl, captions);
 // Voice follows the caption rather than the other way round: the caption is
 // the primary channel and always exists, the clip may not. A line with no
 // `voice` key, or whose clip has not been recorded yet, is simply silent.
 captions.onLineStart = (line) => {
-  if (line.voice) audio.playVoice(line.voice);
+  if (line.voice && !tapePlaying) audio.playVoice(line.voice);
 };
 function showCaption(text) {
   interaction.showCaption(text);
@@ -1188,7 +1192,11 @@ let tapePlaying = false;
  * a line cut off mid-sentence rather than left talking over the room, and the
  * subtitles.
  */
-function silenceTape() {
+function silenceTape({ restoreFocus = true } = {}) {
+  if (restoreFocus) {
+    tapeFocus.cancel();
+    markThoughts.setBlocked(false);
+  }
   tapePlaying = false;
   audio.stopTapeSounds();
   audio.stopVoice();
@@ -1262,6 +1270,8 @@ const cutscene = createCutsceneRunner({
     poseThirdCam();
   }
 });
+
+const tapeFocus = createSessionTapeFocus({ cutscene, camera });
 
 // Story beats. Every delayed beat in the game runs through this so a restart
 // can cancel it -- see core/Script.js for the bug that made it necessary.
@@ -1520,6 +1530,7 @@ const SCENES = {
       eye.z - Math.cos(player.yaw) * 3
     ];
     return wakeUp({
+      onThought: thought,
       bedX,
       bedZ,
       duvetTop: surfaceHeightAt(bedroom.group, bedX, bedZ + 0.18, 0.77),
@@ -1782,10 +1793,12 @@ const BULB_BLOW_DELAY_AFTER_CUFF_UNLOCK_SECONDS = 3;
 
 const bedroom = createBedroomLevel({
   showCaption,
+  onThought: thought,
   // Every item puzzle in the room asks the hand, not just the inventory.
   isHolding: (id) => heldItems.isHolding(id),
   // Picked up first, into the hand; the cuff only takes it on a second press.
-  onPaperclipPicked: () => pickUpItem('paperclip'),
+  onPaperclipPicked: () => { pickUpItem('paperclip'); thought('l1_03'); },
+
   // The paperclip's own 900ms delay before onFreed IS the time the player
   // spends picking the lock, so the loop plays for exactly as long as the
   // story already says it takes -- no separate duration to keep in sync.
@@ -1799,6 +1812,7 @@ const bedroom = createBedroomLevel({
     sfx('lockpick');
   },
   onFreed: () => {
+    thought('l1_04');
     // The wake-up scene starts on the mattress. Leave it intact while chained,
     // then move to the clear foot-end position before the full bed collider is
     // allowed to resolve movement. teleport() retains the player's look state.
@@ -1860,6 +1874,7 @@ const bedroom = createBedroomLevel({
     });
   },
   onFlashlightPicked: () => {
+    thought('l1_06');
     flashlightFound = true;
     // Into the hand first: the beam only lights from the hand, so switching it
     // on before the torch was the held item would light nothing.
@@ -1893,10 +1908,12 @@ const bedroom = createBedroomLevel({
   // can do that): that crowbar is already spent, and a second would sit in the
   // hotbar for the rest of the run.
   onCrowbarFound: () => {
+    if (!bedroom.refs.puzzleState.planksRemoved) thought('l1_16');
     if (!bedroom.refs.puzzleState.planksRemoved) pickUpItem('crowbar');
   },
   onCrowbarUsed: () => consumeItem('crowbar'),
   onBedroomKeyFound: () => {
+    thought('l1_18');
     sfx('keys_pickup');
     pickUpItem('bedroomKey');
   },
@@ -1909,6 +1926,7 @@ const bedroom = createBedroomLevel({
     if (gameState.inventory.has('flashlight') && heldItems.select('flashlight')) setFlashlight(true);
   },
   onPhotoCollected: (count) => {
+    thought('l1_09');
     sfx('paper');
     if (count !== 2) return;
     runBedroomHorrorEvent('two-photos', (s) => {
@@ -1919,6 +1937,7 @@ const bedroom = createBedroomLevel({
     });
   },
   onPhotoPuzzleSolved: () => {
+    thought('l1_15');
     runBedroomHorrorEvent('photo-puzzle-perception-pulse', async (s) => {
       // The board UI has a close beat of its own. Wait until the player is
       // back in the bedroom so this reads as their perception of the room,
@@ -1930,6 +1949,7 @@ const bedroom = createBedroomLevel({
     });
   },
   onDrawerUnlocked: () => {
+    thought('l1_13');
     sfx('drawer_open');
     runBedroomHorrorEvent('drawer-thump', async (s) => {
       if (!await s.wait(0.55)) return;
@@ -1966,6 +1986,7 @@ const bedroom = createBedroomLevel({
     });
   },
   onDoorPlankRemoved: () => {
+    thought('l1_19');
     sfx('planks_pry');
     runBedroomHorrorEvent('plank-breathing-retreat', async (s) => {
       s.do(() => {
@@ -1980,9 +2001,10 @@ const bedroom = createBedroomLevel({
     });
   },
   onReadDrawerClue: () => {
+    thought('l1_14');
     player.unlock();
     documentUI.open({
-      title: 'PROJECT HOLLOW — Drawer Note',
+      title: 'PROJECT HOLLOW â€” Drawer Note',
       body: 'HOLLOW archive reference: 06-1987. Do not move the family records from the house. The brass key remains with the sealed evidence.',
       variant: 'note'
     });
@@ -1990,7 +2012,7 @@ const bedroom = createBedroomLevel({
   onReadSafeTag: () => {
     player.unlock();
     documentUI.open({
-      title: 'PROJECT HOLLOW — Evidence Tag',
+      title: 'PROJECT HOLLOW â€” Evidence Tag',
       body: 'Recovered item: pry bar. Location: upstairs bedroom. Status: retain on site. The original bedroom key is concealed below the loose floorboard.',
       variant: 'note'
     });
@@ -2019,6 +2041,7 @@ const bedroom = createBedroomLevel({
    * being about a locked room and starts being about what else is in the house.
    */
   onReadMessage: () => {
+    thought('l1_07');
     script.run(async (s) => {
       if (!await s.play(line('dialog_scratches'))) return;
       if (!await s.wait(0.8)) return;
@@ -2027,7 +2050,8 @@ const bedroom = createBedroomLevel({
         // the door, and the strip of light under it is broken as they pass.
         audio.footsteps({ count: 7, spacing: 0.62, pan: -0.8, panTo: 0.8, level: 0.55 });
         bedroom.refs.playDoorPass();
-        // It is right outside. Nothing in the game has been this close yet.
+        // It is right outside.
+        thought('l1_10'); // Nothing in the game has been this close yet.
         audio.setBreathing(LEVEL_ONE_DOOR_BREATHING);
       });
       if (!await s.play(line('dialog_past_the_door'))) return;
@@ -2072,7 +2096,10 @@ const upstairsHallway = createUpstairsHallwayLevel({
   onLightning: () => setTimeout(() => thunder(), 350 + Math.random() * 900),
   onSfx: (name, opts) => sfx(name, opts),
   // Read at call time: the scare is built further down, once the jump scare is.
-  onReachStairs: () => playStairsScare()
+  onReachStairs: () => {
+    thought('hallway_04');
+    playStairsScare();
+  }
 });
 sceneManager.register('upstairsHallway', upstairsHallway);
 
@@ -2463,6 +2490,8 @@ const HALLWAY_RUSH_STARE_AFTER_REVEAL = 0.3;
  */
 function startHallwayRush({ reveal = true } = {}) {
   if (hallwayRush || hallwayRushDone) return;
+  thought('hallway_01');
+  thought('hallway_02');
   hallwayRushDone = true;
   const { x, z } = upstairsHallway.refs.farEnd;
   player.movementEnabled = false;
@@ -2494,6 +2523,7 @@ function startHallwayRush({ reveal = true } = {}) {
 
 /** It is gone: the body goes, the player can move, the dark holds a moment. */
 function vanishHallwayRush() {
+  thought('hallway_03');
   hideCreature();
   player.movementEnabled = true;
   sfx('gasp');
@@ -2549,6 +2579,7 @@ function updateHallwayRush(dt) {
 
 const hallwayBasement = createHallwayBasementLevel({
   showCaption,
+  onThought: thought,
   onExit: () => exitLevel('hallwayBasement'),
   // Every press in the cleared branch calls onExit, and only the first one
   // starts a transition -- so only that one gets a door.
@@ -2581,7 +2612,11 @@ const hallwayBasement = createHallwayBasementLevel({
    * own once it exists -- is routed through the mixer, so the volume slider
    * and a pause both reach it; the voices and the subtitles follow its clock.
    */
-  onPlayTape: ({ source }) => {
+  onPlayTape: ({ source, deck }) => {
+    captions.cancel();
+    audio.stopVoice();
+    markThoughts.setBlocked(true);
+    tapeFocus.start(deck);
     if (source.hasRecording) audio.connectMediaElement(source.audio);
     else audio.setTapeHiss(true);
     tapeSoundsPlayed = 0;
@@ -2593,11 +2628,19 @@ const hallwayBasement = createHallwayBasementLevel({
   onTapeStopped: () => silenceTape(),
   /** It ran to its end: the deck stops, and the player says what they make of it. */
   onTapeEnded: () => {
-    silenceTape();
-    captions.play(line('dialog_tape_after'));
+    silenceTape({ restoreFocus: false });
+    tapeFocus.finish(() => {
+      markThoughts.setBlocked(false);
+      thought('l2_12', { priority: true });
+      thought('l2_14', { priority: true });
+      thought('l2_15', { priority: true });
+      thought('l2_16', { priority: true });
+      captions.play(line('dialog_tape_after'));
+    });
   },
 
   onPowerRestored: () => {
+    thought('l2_07');
     // The fuse seats, and the tubes strike as the lights ramp up.
     sfx('metal_click');
     sfx('tubes_start');
@@ -2699,8 +2742,10 @@ const hallwayBasement = createHallwayBasementLevel({
     }
 
     if (id === 'basement') {
+      thought('l2_09');
+      thought('l2_10');
       // Camera five is this room. There is a figure standing in it.
-      hallwayBasement.refs.feeds.showBasementFigure(3.4);
+      hallwayBasement.refs.feeds.showBasementFigure(3.4, () => thought('l2_11'));
       script.run(async (s) => {
         /**
          * And it is behind you -- the instant camera five comes up, not after
@@ -2726,6 +2771,7 @@ const hallwayBasement = createHallwayBasementLevel({
         });
         if (!await s.play(line('dialog_cctv_basement'))) return;
         if (!await s.play(line('dialog_creature_corner'))) return;
+        s.do(() => thought('l2_17'));
         s.do(() => {
           hideCreature();
           hallwayBasement.refs.revealPool();
@@ -2964,6 +3010,7 @@ hallwayBasement.refs.tapeModelReady
 // activate it unarmed.
 const backrooms = createBackroomsLevel({
   showCaption,
+  onThought: thought,
   onExit: (route) => transitionTo(route?.to ?? 'hallwayBasement'),
   onDoorOpening: (position) => audioDirector.door(position),
   onSfx: (name, opts) => sfx(name, opts)
@@ -3370,6 +3417,7 @@ const bedroomStorm = new Storm({
     }
   },
   onBlow: () => {
+    thought('l1_05');
     bedroom.refs.pendantIntact.visible = false;
     bedroom.refs.pendantBroken.visible = true;
     audio.bulbPop();
@@ -3688,6 +3736,7 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   // Was a TypeError on an unregistered key -- a routing typo should cost a
   // wrong room, never a crash mid-transition.
   if (!level) return null;
+  if (key !== 'upstairsHallway') markThoughts.clear();
   // Anything the player left on the floor of another level comes with them --
   // see returnDroppedItems() for why a drop must never be able to softlock.
   returnDroppedItems(key);
@@ -3765,6 +3814,11 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   // AFTER script.cancel() above, or the beat this fires is cancelled by the
   // very activation that started it.
   ON_ENTER[key]?.();
+  const prefixes = { bedroom: 'l1', upstairsHallway: 'hallway', hallwayBasement: 'l2', backrooms: 'backrooms', study: 'backrooms' };
+  markThoughts.preload(prefixes[key]);
+  if (key === 'hallwayBasement') thought('l2_01');
+  if (key === 'backrooms') thought('backrooms_01');
+  if (key === 'study') { thought('backrooms_06', { delay: 0.8 }); thought('backrooms_07'); }
   return level;
 }
 
@@ -3898,6 +3952,7 @@ const INTERLUDES = {
 
 // ---------- game reset (restart without page refresh) ----------
 function resetGame() {
+  markThoughts.clear({ reset: true });
   for (const roomHints of Object.values(HINTS_BY_LEVEL)) roomHints.reset();
   // A restart from the pause menu can land mid-fade; without this the freshly
   // reset bedroom would come up behind a black overlay that never lifts.
@@ -4558,6 +4613,7 @@ function beginGame() {
   startButton.disabled = true;
   startScreen.classList.add('hidden');
   audio.start();
+  markThoughts.preload('l1');
   runTimer.configure(currentDifficulty);
   backroomsHunter.setReady(true);
 
@@ -4679,6 +4735,7 @@ restartButton.addEventListener('click', () => {
 
 player.controls.addEventListener('lock', () => {
   audio.resume();
+  if (tapePlaying) hallwayBasement.refs.sessionTape.setPaused(false);
   captions.setPaused(false);
   startScreen.classList.add('hidden');
   hud.style.display = 'block';
@@ -4703,6 +4760,7 @@ player.controls.addEventListener('unlock', () => {
   //    audio, which is the whole reason they run on the frame clock rather
   //    than setTimeout: a voiced line and its caption cannot drift apart.
   audio.pause();
+  if (tapePlaying) hallwayBasement.refs.sessionTape.setPaused(true);
   captions.setPaused(true);
 
   // The restart question is a pause of its own; it brings the game back itself.
@@ -5393,13 +5451,9 @@ function tick() {
   // The camera IS the player's position; the basement reads it to know when
   // they have walked up to the metal door.
   sceneManager.update(dt, camera.position);
-  // The tape's subtitles and the stand-in's sounds, on the tape's own clock,
-  // which the level has just advanced. Subtitles follow the captions setting
-  // -- except where they are all there is: over the stand-in, which has no
-  // sound of its own, and for a line whose voice has not been recorded yet.
-  const tapeSource = hallwayBasement.refs.sessionTape;
-  tapeSubtitles.update((cue) => settings.captions || !tapeSource.hasRecording
-    || Boolean(cue.voice && !audio.hasVoice(cue.voice)));
+  // Spoken captions are always shown for this forced listening moment,
+  // following the same tape clock that schedules its recorded voices.
+  tapeSubtitles.update();
   updateTapeSounds();
 
   if (player.isLocked) {
@@ -5426,6 +5480,7 @@ function tick() {
   // which the restart dialog's see-through backdrop would otherwise show
   // snapping upright. See core/Cutscene.js.
   cutscene.update(captions.paused ? 0 : dt);
+  tapeFocus.update();
   // On the same clock, so Esc holds it too -- see core/StairsScare.js.
   stairsScare.update(captions.paused ? 0 : dt);
   // On real time: slow motion must not make a skip take longer.
@@ -5440,6 +5495,7 @@ function tick() {
   // After everything that moves the player, the hunter and the creature, so
   // the ears and every emitter are where this frame drew them.
   audioDirector.update(dt);
+  if (!transitionInFlight) markThoughts.update();
 
   postFX.update(dt);
   // The rush's blackout overrides every light the levels and the storm set

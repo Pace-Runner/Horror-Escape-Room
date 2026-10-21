@@ -263,6 +263,7 @@ const BIN_POSITION_Z = -2.25;
  */
 export function createBedroomLevel({
   showCaption = () => {},
+  onThought = () => {},
   onFreed = () => {},
   // Fired the instant the paperclip goes into the lock, not when onFreed
   // fires 900ms later -- main.js uses the gap between the two to time a hand
@@ -1609,7 +1610,7 @@ export function createBedroomLevel({
   clawMarks.position.z = 0.014;
   clawMarks.userData.interact = {
     label: 'Examine the wall',
-    onInteract: () => showCaption(line('dialog_claw_marks'))
+    onInteract: () => { onThought('l1_08', { replayable: true }); showCaption(line('dialog_claw_marks')); }
   };
   interactables.push(clawMarks);
   heroWallDamage.add(clawMarks);
@@ -2045,6 +2046,20 @@ export function createBedroomLevel({
     return { intervals, total: elapsedSeconds };
   }
   const lampFlicker = buildFlickerIntervals(drawerPinDigits);
+  const lampHit = new THREE.Mesh(
+    new THREE.SphereGeometry(0.15, 8, 8),
+    new THREE.MeshBasicMaterial({ visible: false })
+  );
+  lampHit.position.y = 0.3;
+  lampHit.userData.interact = {
+    label: 'Observe the flashing lamp',
+    onInteract: () => {
+      showCaption(line('dialog_lamp_examine'));
+      onThought('l1_12');
+    }
+  };
+  lampGroup.add(lampHit);
+  interactables.push(lampHit);
 
   const clockGroup = new THREE.Group();
   clockGroup.name = 'Level1AlarmClockVisual';
@@ -2450,6 +2465,7 @@ export function createBedroomLevel({
       const index = interactables.indexOf(rugCornerHitbox);
       if (index >= 0) interactables.splice(index, 1);
       showCaption(line('dialog_rug_folded_back'));
+      onThought('l1_17');
     }
   };
   loadModel(victorianRugModelUrl).then((rugModel) => {
