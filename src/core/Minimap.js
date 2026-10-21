@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { MINIMAP_ONLY } from './RenderLayers.js';
+import { compileVisibleAsync } from '../world/compileVisible.js';
 
 /**
  * The top-down map, as its own module with two modes.
@@ -174,8 +175,9 @@ export function createMinimap({ canvas, arrowEl, wrapEl, scene, camera }) {
    * @returns {Promise<void>} resolves once the programs are ready and drawn.
    */
   async function warmUp() {
-    const compiled = withMapRenderState((mapRenderer) => mapRenderer.compileAsync(scene, mapCamera));
-    await compiled;
+    // Each batch is built under the same fog-off, view-model-hidden state the
+    // real map render uses.
+    await compileVisibleAsync(renderer, scene, mapCamera, { around: (work) => withMapRenderState(work) });
     lastRenderTimeMs = -Infinity;
     update();
   }

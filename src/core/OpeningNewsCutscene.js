@@ -150,6 +150,20 @@ export function createOpeningNewsCutscene({ root }) {
   return {
     preload,
     close,
+    /**
+     * Lays all four photographs out as the report ends, without the flashes,
+     * so a skipped report rests on the same screen as one watched through.
+     */
+    showAllPhotos() {
+      root.classList.remove('onc-stage-1', 'onc-stage-2', 'onc-stage-3');
+      root.classList.add('onc-stage-4');
+      for (const cue of PHOTO_CUES) {
+        const card = photoCards[cue.slot];
+        card.querySelector('img').src = cue.image;
+        card.classList.remove('is-active', 'is-photo-change', 'is-strong-flash');
+        card.classList.add('is-visible');
+      }
+    },
     /** True from play() until close() has finished: the report covers the screen. */
     get isOpen() {
       return root.classList.contains('is-open');

@@ -106,6 +106,7 @@ const quitScreen = document.getElementById('quit-screen');
 const quitBackButton = document.getElementById('quit-back');
 const fadeOverlay = document.getElementById('fade-overlay');
 const openingNewsContinue = document.getElementById('opening-news-continue');
+const openingNewsLoading = document.getElementById('opening-news-loading');
 const settingsButton = document.getElementById('settings-button');
 const settingsScreen = document.getElementById('settings-screen');
 const settingsCloseBtn = document.getElementById('settings-close');
@@ -2247,7 +2248,7 @@ function hideCreature() {
  * The two ambients are swapped by INTENSITY, never by switching one off: a
  * light count is part of every shader's key, so turning a light off mid-game
  * recompiles every material in view -- the very stall this is meant to avoid.
- * Both lit sets are prepared by preloadHallway() during the opening report.
+ * Both lit sets are warmed with the hallway (preloadLevel1) during the opening.
  */
 const HALL_ENTER_DEPTH = 0.8;
 const HALL_AMBIENT = 0.31;
@@ -4578,6 +4579,10 @@ function beginGame() {
 
   // Start playback in the original click gesture; construction yields to its first paint.
   const newsFinished = openingNewsCutscene.play();
+  // Nothing is drawn while the report plays: Level 1 and anything later still
+  // waiting only compile, and their draws run behind the bar once it ends.
+  setWarmDrawsAllowed(false);
+  preloadLaterRooms();
   const levelOneReady = preloadLevel1();
   const skipOpeningNews = (event) => {
     if (event.code === 'KeyK' && openingNewsCutscene.skip()) event.preventDefault();
@@ -4587,7 +4592,17 @@ function beginGame() {
     const newsResult = await newsFinished;
     window.removeEventListener('keydown', skipOpeningNews);
     if (!s.alive()) return;
-    if (newsResult?.skipped && level1Ready) {
+    // A skipped report rests on the same four photographs as a watched one.
+    if (newsResult?.skipped) openingNewsCutscene.showAllPhotos();
+    // Every room has to be warm before the report closes: warming shows each
+    // room in turn, which only the report can hide. Until then the report
+    // stays on its four photographs with the loading bar over them.
+    setWarmDrawsAllowed(true);
+    const hadToWait = !allWarmStepsDone();
+    if (hadToWait) await showLoadingUntil(warmStepsSettled());
+    if (!s.alive()) return;
+    // After a wait, K is no longer a fresh enough gesture for the pointer lock.
+    if (newsResult?.skipped && level1Ready && !hadToWait) {
       startButton.disabled = false;
       player.lock();
     } else {
@@ -4748,6 +4763,8 @@ if (import.meta.env.DEV) {
     openToHallway,
     activateLevel,
     exitLevel,
+    // The fade between rooms, so a harness can time a real room change.
+    transitionTo,
     resetGame,
     // So a harness can run the clock out without waiting the whole limit.
     runTimer,
@@ -4921,9 +4938,18 @@ const nextFrame = () => new Promise((resolve) => {
   setTimeout(finish, 50);
 });
 
+/** The boot screen's bar, and the one over the opening's photographs. */
+const loadBars = [
+  { fill: loadingBarFill, hint: loadingHintEl },
+  { fill: openingNewsLoading.querySelector('.onl-fill'), hint: openingNewsLoading.querySelector('.onl-hint') }
+];
+
 function setLoadProgress(fraction, hint) {
-  loadingBarFill.style.width = `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`;
-  if (hint) loadingHintEl.textContent = hint;
+  const width = `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`;
+  for (const bar of loadBars) {
+    bar.fill.style.width = width;
+    if (hint) bar.hint.textContent = hint;
+  }
 }
 
 /**
@@ -4976,13 +5002,15 @@ async function warmUp({
   waitForAssets = true,
   // How much of the loading bar these rooms fill, when more steps follow them.
   progressUpTo = 1,
-  compileOnly = false
+  compileOnly = false,
+  // Off when the warm-up queue owns the bar (see scheduleWarmStep).
+  showProgress = true
 } = {}) {
   const steps = keys.length / progressUpTo;
   let done = 0;
   const advance = async (hint) => {
     done++;
-    setLoadProgress(done / steps, hint);
+    if (showProgress) setLoadProgress(done / steps, hint);
     // Yield, or the bar's width change never reaches the screen -- the browser
     // cannot paint between two synchronous compiles.
     await nextFrame();
@@ -5013,7 +5041,7 @@ async function warmUp({
     // The hint changes BEFORE the work, not after. The maze takes about three
     // seconds on its own, and a bar that sits still under a stale caption for
     // that long reads as a hang rather than as loading.
-    setLoadProgress(done / steps, LOAD_HINTS[key] ?? 'entering the house...');
+    if (showProgress) setLoadProgress(done / steps, LOAD_HINTS[key] ?? 'entering the house...');
     await nextFrame();
     level.group.visible = true;
     // Fog is part of the program key, so a room warmed under the wrong fog is
@@ -5029,20 +5057,25 @@ async function warmUp({
       if (o.isMesh || o.isSkinnedMesh) { unculled.push(o); o.frustumCulled = false; }
     });
     try {
-      await renderer.compileAsync(level.group, camera, scene);
-      // frustumCulled off for exactly this draw: a wall behind the camera is
+      // frustumCulled off for exactly this pass: a wall behind the camera is
       // clipped away but its draw call still issues, so its programs are built.
       // Without it, half of a room warms and the other half stalls on arrival.
       //
       // With the hands and every item on screen too, and every shadow drawn
       // whether its light is on or not -- see showViewModelsForWarmUp().
+      //
+      // postFX.compileVisible builds the shaders in the background for the
+      // composer's target the RenderPass really draws into, with each light
+      // counted once; renderer.compileAsync(level.group, camera, scene) built
+      // every one of them for the canvas and for twice the room's lights, so
+      // none was ever used. The draw then catches what compiling cannot (the
+      // driver's own per-draw work), and is quick with the shaders ready.
       const restoreViewModels = showViewModelsForWarmUp();
       darkShadowSkipper.refreshAllShadowsOnce();
       try {
-        if (compileOnly) {
-          await prepareGpuResources([level.group, camera]);
-          await renderer.compileAsync(scene, camera);
-        } else postFX.render();
+        await postFX.compileVisible(camera);
+        if (compileOnly) await prepareGpuResources([level.group, camera]);
+        else postFX.render();
       } finally {
         restoreViewModels();
       }
@@ -5079,7 +5112,7 @@ async function warmUp({
  * one stall a fade cannot cover, because it lands the moment the thing becomes
  * visible in the corridor -- so this runs on the fade into the maze.
  */
-async function warmMazeCreature() {
+async function warmMazeCreature({ compileOnly = false } = {}) {
   const maze = sceneManager.get('backrooms');
   if (!maze) return;
   await Promise.all([okabe.ready, playerBody.ready]);
@@ -5109,9 +5142,9 @@ async function warmMazeCreature() {
     });
   }
   try {
-    await renderer.compileAsync(okabe.group, camera, scene);
-    await renderer.compileAsync(playerBody.group, camera, scene);
-    postFX.render();
+    await postFX.compileVisible(camera);
+    if (compileOnly) await prepareGpuResources([okabe.group, playerBody.group]);
+    else postFX.render();
   } catch (err) {
     console.warn('warmMazeCreature: could not warm the creature', err);
   }
@@ -5172,7 +5205,7 @@ async function warmHouseCreature(houseSets, { compileOnly = false } = {}) {
         });
       }
       try {
-        await renderer.compileAsync(scene, camera);
+        await postFX.compileVisible(camera);
         darkShadowSkipper.refreshAllShadowsOnce();
         if (!compileOnly) postFX.render();
       } catch (err) {
@@ -5184,8 +5217,7 @@ async function warmHouseCreature(houseSets, { compileOnly = false } = {}) {
     playerBody.setPosition(camera.position.x, camera.position.z);
     playerBody.update(1 / 60);
     try {
-      await renderer.compileAsync(creature.group, camera, scene);
-      await renderer.compileAsync(playerBody.group, camera, scene);
+      await postFX.compileVisible(camera);
       if (compileOnly) await prepareGpuResources([creature.group, playerBody.group]);
       else postFX.render();
       // It shows on the house map too, which has programs of its own.
@@ -5204,11 +5236,6 @@ async function warmHouseCreature(houseSets, { compileOnly = false } = {}) {
 }
 
 const warmedLevelKeys = new Set();
-
-let level1PreloadPromise = null;
-let level1Ready = false;
-let hallwayPreloadPromise = null;
-let hallwayReady = false;
 
 /** Upload textures and compile shadow variants without rendering a game level. */
 async function prepareGpuResources(roots) {
@@ -5241,11 +5268,20 @@ async function prepareGpuResources(roots) {
     renderer.initTexture(texture);
     if (++uploads % 4 === 0) await nextFrame();
   }
-  await renderer.compileAsync(shadowScene, camera);
-  // Tiny, unlit asset probes upload geometry/bone buffers. Never draw the live
-  // room or its lights, and bound each batch so the news keeps getting frames.
+  // Into a target, as the shadow pass draws them: a shader is built for its
+  // render target, and one built for the canvas is never used there.
   const target = new THREE.WebGLRenderTarget(1, 1);
   const previousTarget = renderer.getRenderTarget();
+  renderer.setRenderTarget(target);
+  let shadowShaders;
+  try {
+    shadowShaders = renderer.compileAsync(shadowScene, camera);
+  } finally {
+    renderer.setRenderTarget(previousTarget);
+  }
+  await shadowShaders;
+  // Tiny, unlit asset probes upload geometry/bone buffers. Never draw the live
+  // room or its lights, and bound each batch so the news keeps getting frames.
   const probes = shadowScene.children.filter((object) => !object.material.isMeshDistanceMaterial);
   shadowScene.clear();
   try {
@@ -5267,38 +5303,174 @@ async function prepareGpuResources(roots) {
 }
 const openingShadowMaterials = [];
 
-/** One room promise reused by Start, the continue gate, and repeated calls. */
+/**
+ * ONE WARM-UP STEP AT A TIME. Each step shows rooms and moves the camera while
+ * it runs, so two at once would warm each other's rooms under the wrong lights.
+ *
+ * Every room is warmed in two steps: COMPILE (build its shaders in the
+ * background, upload its textures) and DRAW (draw it once, unculled, so the
+ * driver does its own first-draw work). Drawing blocks the page for a second
+ * or so, which would stutter the opening report, so draw steps wait while it
+ * plays (setWarmDrawsAllowed) and run behind the loading bar after it.
+ *
+ * The later rooms are queued the moment the page opens, behind the menu (see
+ * preloadLaterRooms); Level 1 jumps the queue when Start is pressed (see
+ * preloadLevel1). Highest priority first; equal priorities in queue order.
+ */
+const WARM_PRIORITY = { levelOne: 2, compile: 1, draw: 0 };
+const warmSteps = [];
+const allWarmSteps = [];
+let warmStepRunning = false;
+let warmDrawsAllowed = true;
+let warmStepsDone = 0;
+
+/**
+ * @param {object} step
+ * @param {number} step.priority - see WARM_PRIORITY.
+ * @param {boolean} [step.draws] - true if it draws a room (waits during the report).
+ * @param {string} [step.hint] - the loading bar's caption while it runs.
+ * @param {() => Promise<void>} step.run
+ * @returns {Promise<void>} settles when the step has run. Never rejects: a
+ *   failed step leaves that room to warm on its own fade instead.
+ */
+function scheduleWarmStep({ priority, draws = false, hint, run }) {
+  const done = new Promise((resolve) => {
+    warmSteps.push({ priority, draws, hint, run, resolve });
+  });
+  allWarmSteps.push(done);
+  runWarmSteps();
+  return done;
+}
+
+async function runWarmSteps() {
+  if (warmStepRunning) return;
+  warmStepRunning = true;
+  for (;;) {
+    let next = null;
+    for (const step of warmSteps) {
+      if (step.draws && !warmDrawsAllowed) continue;
+      if (!next || step.priority > next.priority) next = step;
+    }
+    if (!next) break;
+    warmSteps.splice(warmSteps.indexOf(next), 1);
+    setLoadProgress(warmStepsDone / allWarmSteps.length, next.hint);
+    try {
+      await next.run();
+    } catch (err) {
+      console.warn('warm-up step failed; its room will warm on its own fade', err);
+    }
+    warmStepsDone++;
+    setLoadProgress(warmStepsDone / allWarmSteps.length, next.hint);
+    next.resolve();
+  }
+  warmStepRunning = false;
+}
+
+/** Off while the opening report plays; on lets the waiting draw steps run. */
+function setWarmDrawsAllowed(allowed) {
+  warmDrawsAllowed = allowed;
+  if (allowed) runWarmSteps();
+}
+
+/** True once every step queued so far has run. */
+function allWarmStepsDone() {
+  return warmStepsDone === allWarmSteps.length;
+}
+
+/** Settles once every step queued so far has run. */
+function warmStepsSettled() {
+  return Promise.all(allWarmSteps);
+}
+
+/**
+ * Queues one room's compile and draw steps, and marks it warm once drawn so
+ * its fade skips warmLevelForTransition. `before` runs first in the compile
+ * step: whatever the room needs to exist (the hands, the torch).
+ *
+ * @param {string} key - the level.
+ * @param {number} priority - for the compile step; drawing is always last.
+ * @param {string[][]} creatureSets - the light sets the house creature is
+ *   warmed under there. Ignored for the maze, which has its own figure.
+ * @param {() => Promise<void>} [before]
+ * @returns {Promise<void>} settles once the room is compiled and drawn.
+ */
+function scheduleRoomWarmUp(key, priority, creatureSets, before = async () => {}) {
+  const hint = LOAD_HINTS[key] ?? 'entering the house...';
+  const compiled = scheduleWarmStep({
+    priority,
+    hint,
+    run: async () => {
+      await before();
+      const level = sceneManager.get(key);
+      await level.prepare?.();
+      enableSinglePassForFlatDecals(level.group);
+      darkShadowSkipper.addLights(findShadowCastingLights(scene));
+      await warmUp({ keys: [key], waitForAssets: false, compileOnly: true, showProgress: false });
+      if (key === 'backrooms') await warmMazeCreature({ compileOnly: true });
+      else await warmHouseCreature(creatureSets, { compileOnly: true });
+    }
+  });
+  const drawn = scheduleWarmStep({
+    priority: WARM_PRIORITY.draw,
+    draws: true,
+    hint,
+    run: async () => {
+      await compiled;
+      await warmUp({ keys: [key], waitForAssets: false, showProgress: false });
+      if (key === 'backrooms') await warmMazeCreature();
+      else await warmHouseCreature(creatureSets);
+      warmedLevelKeys.add(key);
+    }
+  });
+  return Promise.all([compiled, drawn]).then(() => {});
+}
+
+let laterRoomsQueued = false;
+
+/**
+ * The maze and Levels 2 and 3, queued the moment the page opens: the menu
+ * covers the canvas, so they can be drawn behind it. Whatever is not done by
+ * Start carries on behind the report (compiling only) and the loading bar.
+ */
+function preloadLaterRooms() {
+  if (laterRoomsQueued) return;
+  laterRoomsQueued = true;
+  startModelLoads();
+  scheduleRoomWarmUp('backrooms', WARM_PRIORITY.compile, []);
+  scheduleRoomWarmUp('hallwayBasement', WARM_PRIORITY.compile, [['hallwayBasement']]);
+  scheduleRoomWarmUp('study', WARM_PRIORITY.compile, [['study']]);
+}
+
+let level1PreloadPromise = null;
+let level1Ready = false;
+
+/**
+ * Level 1, queued when Start is pressed, ahead of anything later still
+ * waiting: the bedroom, then the upstairs hallway -- the hallway's creature
+ * sets include the two rooms drawn together with the door open, a light set
+ * no single room has. One promise, reused by Start and the continue gate.
+ */
 function preloadLevel1() {
-  if (!level1PreloadPromise) level1PreloadPromise = (async () => {
-    await nextFrame();
-    await nextFrame();
+  if (!level1PreloadPromise) {
     startModelLoads();
-    await Promise.all([bedroom.prepare(), initializeHands(), initializeHeldTorch(), audio.ready, markThoughts.preload('l1')]);
-    enableSinglePassForFlatDecals(bedroom.group);
-    darkShadowSkipper.addLights(findShadowCastingLights(scene));
-    await warmUp({ keys: ['bedroom'], waitForAssets: false, compileOnly: true });
-    await warmHouseCreature([['bedroom']], { compileOnly: true });
-    postFX.prepare();
-    warmedLevelKeys.add('bedroom');
-    // Hallway follows Level 1 in priority; never build a later puzzle room here.
-    await preloadHallway();
-    level1Ready = true;
-  })();
+    const bedroomReady = scheduleRoomWarmUp('bedroom', WARM_PRIORITY.levelOne, [['bedroom']], async () => {
+      await Promise.all([initializeHands(), initializeHeldTorch(), audio.ready, markThoughts.preload('l1')]);
+      postFX.prepare();
+    });
+    const hallwayReady = scheduleRoomWarmUp('upstairsHallway', WARM_PRIORITY.levelOne,
+      [['bedroom', 'upstairsHallway'], ['upstairsHallway']]);
+    level1PreloadPromise = Promise.all([bedroomReady, hallwayReady]).then(() => { level1Ready = true; });
+  }
   return level1PreloadPromise;
 }
 
-function preloadHallway() {
-  if (!hallwayPreloadPromise) hallwayPreloadPromise = (async () => {
-    await nextFrame();
-    await upstairsHallway.prepare();
-    enableSinglePassForFlatDecals(upstairsHallway.group);
-    darkShadowSkipper.addLights(findShadowCastingLights(scene));
-    await warmUp({ keys: ['upstairsHallway'], waitForAssets: false, compileOnly: true });
-    await warmHouseCreature([['bedroom', 'upstairsHallway'], ['upstairsHallway']], { compileOnly: true });
-    warmedLevelKeys.add('upstairsHallway');
-    hallwayReady = true;
-  })();
-  return hallwayPreloadPromise;
+/** Shows the loading bar over the opening's photographs until `work` is done. */
+async function showLoadingUntil(work) {
+  openingNewsLoading.classList.add('is-open');
+  openingNewsLoading.setAttribute('aria-hidden', 'false');
+  await work;
+  openingNewsLoading.classList.remove('is-open');
+  openingNewsLoading.setAttribute('aria-hidden', 'true');
 }
 
 /** Warms exactly one destination level while a transition already owns the screen. */
@@ -5323,6 +5495,8 @@ openingAssetsReady.then(() => {
   showMainMenu();
   loadingScreen.classList.add('is-done');
   console.timeEnd('APP_BOOT');
+  // Behind the menu from here on: everything after Level 1.
+  preloadLaterRooms();
 });
 
 // ---------- render loop ----------
@@ -5524,9 +5698,9 @@ function tick() {
   // After everything that sets a light's intensity this frame, so a light that
   // has just come on gets a fresh shadow in the very frame it lights.
   darkShadowSkipper.update();
-  // Not under the opening report, which covers the whole screen: the room's
-  // first draw blocks the page and would freeze the report. The room is
-  // warmed after it instead (warmOpeningRooms).
+  // Not under the opening report, which covers the whole screen: a room's
+  // first draw blocks the page and would stall the report. The rooms are
+  // warmed behind it and the loading bar instead (scheduleRoomWarmUp).
   if (!openingNewsCutscene.isOpen) postFX.render();
   requestAnimationFrame(tick);
 }
