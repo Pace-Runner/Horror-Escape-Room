@@ -1571,6 +1571,42 @@ html, body {
   opacity: 1;
 }
 
+/* ---------- the session tape's subtitles (src/core/TapeSubtitles.js) ----------
+   While the deck plays the tape in the room. Nothing modal: a line of what is
+   said, under the caption box (26% up) and over the hotbar, so the player's
+   own thoughts still have room. */
+#tape-subtitle {
+  position: fixed;
+  left: 50%;
+  bottom: 13%;
+  transform: translateX(-50%);
+  width: min(70vw, 900px);
+  text-align: center;
+  color: #f1efe6;
+  font-size: clamp(14px, 1.5vw, 19px);
+  line-height: 1.45;
+  text-shadow: 0 0 3px #000, 0 2px 5px #000;
+  pointer-events: none;
+  z-index: 40;
+}
+
+#tape-subtitle.hidden {
+  display: none;
+}
+
+.tape-speaker {
+  margin-right: 0.55em;
+  font-size: 0.78em;
+  letter-spacing: 0.14rem;
+  opacity: 0.7;
+}
+
+.tape-sound {
+  font-style: italic;
+  opacity: 0.78;
+}
+
+
 /* Handwriting, in ink that has gone brown. */
 .document-letter {
   background: linear-gradient(160deg, #e8dfc8 0%, #ddd2b6 55%, #cec2a4 100%);

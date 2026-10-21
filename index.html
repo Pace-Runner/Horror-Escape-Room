@@ -122,6 +122,15 @@
           <path d="M16 12v3M19 12v2.5"/>
         </svg>
       </div>
+      <div class="hotbar-slot" data-item="sessionTape" title="Cassette: SESSION 14">
+        <svg class="hotbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="2.5" y="6" width="19" height="12" rx="1.5"/>
+          <rect x="6.5" y="8.5" width="11" height="4" rx="0.6"/>
+          <circle cx="9" cy="10.5" r="0.9"/>
+          <circle cx="15" cy="10.5" r="0.9"/>
+          <path d="M6 15.5h12"/>
+        </svg>
+      </div>
       <div class="hotbar-slot" data-item="visor" title="Annabelle's visor">
         <svg class="hotbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <circle cx="7" cy="12" r="3.4"/>
@@ -234,6 +243,10 @@
     </div>
     <div id="document-hint">there is more below</div>
   </div>
+
+  <!-- The session tape's subtitles, while the deck on the lab's desk plays
+       it. See src/core/TapeSubtitles.js. -->
+  <div id="tape-subtitle" class="hidden"></div>
 
   <div id="settings-screen" class="hidden">
     <div id="settings-panel">

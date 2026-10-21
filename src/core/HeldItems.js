@@ -236,6 +236,20 @@ export const HELD_ITEM_FRAMING = {
     roll: deg(128),
     offset: fromTorchGrip(0.035, 0.012, 0),
     scale: 0.55
+  },
+  // The session tape, held up by its bottom edge with its label to the camera,
+  // the way you read what is written on one. Rolled a quarter turn, like the
+  // flat items above: at 0 it was seen edge-on, at 180 and 270 from its side
+  // and its back. At 90 the label squares up to the lens and reads, about a
+  // sixth of the screen wide, in the lower right (NDC x 0.38..0.71,
+  // y -0.71..-0.38). It was first held at 1.3 and filled the right of the frame.
+  sessionTape: {
+    pose: 'grip-cylinder',
+    anchorPose: 'hold-torch',
+    aim: [-0.1, 0.97, -0.2],
+    roll: deg(90),
+    offset: fromTorchGrip(0, -0.02, 0),
+    scale: 0.7
   }
 };
 

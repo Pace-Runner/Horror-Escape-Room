@@ -407,6 +407,14 @@ function detectFootstepSlices(buffer, { refractorySeconds = 0.12 } = {}) {
 // who never opens the settings menu hears exactly what they always heard.
 const DEFAULT_MASTER_VOLUME = 0.5;
 
+// The placeholder session tape's sounds (see setTapeHiss and tapeSound): the
+// hiss under everything, and the alarm at the end -- two tones, each held this
+// long, for this many rounds, which outlasts what is left of the tape.
+const TAPE_HISS_LEVEL = 0.035;
+const TAPE_ALARM_LEVEL = 0.05;
+const TAPE_ALARM_TONE_SECONDS = 0.36;
+const TAPE_ALARM_CYCLES = 8;
+
 export class AudioEngine {
   constructor() {
     this.ctx = null;
@@ -465,6 +473,12 @@ export class AudioEngine {
     this.cueBuffers = new Map();
     this.cueWarned = new Set();
     this.echo = null;
+
+    // The session tape: its video's source node (one per element, ever), and
+    // the placeholder's hiss and alarm, so they can be cut when it stops.
+    this.mediaSources = null;
+    this.tapeHissSource = null;
+    this.tapeAlarmNodes = null;
   }
 
   start() {
@@ -808,6 +822,17 @@ export class AudioEngine {
   }
 
   // ---------- voice ----------
+
+  /**
+   * Whether a voice clip has been recorded for `key` -- for text that should
+   * stand in for a line nobody has voiced yet.
+   *
+   * @param {string} key - the line's voice key, as a dialogue file writes it.
+   * @returns {boolean} true if playVoice(key) would have a clip to play.
+   */
+  hasVoice(key) {
+    return Boolean(key && voiceUrl(key));
+  }
 
   /**
    * Play one voice clip, cutting off whatever was speaking.
@@ -1673,6 +1698,144 @@ export class AudioEngine {
     }
   }
 
+  // ---------- the session tape ----------
+
+  /**
+   * Routes a media element's sound through the master gain, so the tape in
+   * the basement is as loud as the volume slider says and falls silent with
+   * everything else when the game pauses (pause() suspends the whole context).
+   *
+   * Once per element: a browser allows only one source node per media element,
+   * ever, so a second call is a no-op. Before start(), or if the browser
+   * refuses, the element simply keeps playing through its own output.
+   *
+   * @param {HTMLMediaElement} element - the tape's recording.
+   */
+  connectMediaElement(element) {
+    if (!this.ctx || !element || this.mediaSources?.has(element)) return;
+    this.mediaSources ??= new Map();
+    try {
+      const source = this.ctx.createMediaElementSource(element);
+      source.connect(this.master);
+      this.mediaSources.set(element, source);
+    } catch (err) {
+      console.warn('AudioEngine: could not route the tape through the mixer', err);
+    }
+  }
+
+  /**
+   * The stand-in tape's hiss: band-passed noise, looped while the tape runs.
+   * Only for the stand-in -- the real recording brings its own.
+   *
+   * @param {boolean} on - start (true) or stop (false) it.
+   */
+  setTapeHiss(on) {
+    if (!this.ctx) return;
+    if (!on) {
+      this.tapeHissSource?.stop();
+      this.tapeHissSource = null;
+      return;
+    }
+    if (this.tapeHissSource) return;
+    const ctx = this.ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = this.#noiseBuffer(2);
+    src.loop = true;
+    const band = ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.frequency.value = 3200;
+    band.Q.value = 0.5;
+    const gain = ctx.createGain();
+    gain.gain.value = TAPE_HISS_LEVEL;
+    src.connect(band).connect(gain).connect(this.master);
+    src.start();
+    this.tapeHissSource = src;
+  }
+
+  /**
+   * One of the sounds the placeholder tape plays at its cue -- see
+   * SESSION_TAPE_PLACEHOLDER_SOUNDS in story/sessionTape.js.
+   *
+   * @param {'impact'|'glass'|'alarm'} name - which sound.
+   */
+  tapeSound(name) {
+    if (!this.ctx) return;
+    if (name === 'impact') this.thump(0.9);
+    else if (name === 'glass') this.#tapeGlass();
+    else if (name === 'alarm') this.#tapeAlarm();
+  }
+
+  /** Stops everything the placeholder tape started: the hiss and the alarm. */
+  stopTapeSounds() {
+    this.setTapeHiss(false);
+    // The alarm schedules its own stop, and a node stopped twice throws.
+    this.tapeAlarmNodes?.forEach((node) => {
+      try { node.stop(); } catch { /* already stopped */ }
+    });
+    this.tapeAlarmNodes = null;
+  }
+
+  /** Glass going: one bright crack, then pieces landing for most of a second. */
+  #tapeGlass() {
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const crack = ctx.createBufferSource();
+    crack.buffer = this.#noiseBuffer(0.4);
+    const high = ctx.createBiquadFilter();
+    high.type = 'highpass';
+    high.frequency.value = 2800;
+    const crackGain = ctx.createGain();
+    crackGain.gain.setValueAtTime(0.0001, now);
+    crackGain.gain.exponentialRampToValueAtTime(0.4, now + 0.006);
+    crackGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+    crack.connect(high).connect(crackGain).connect(this.master);
+    crack.start(now);
+    crack.stop(now + 0.4);
+
+    const tinkle = this.#noiseBuffer(0.08);
+    let t = 0.05;
+    for (let i = 0; i < 18; i++) {
+      t += 0.015 + Math.random() * 0.05 * (1 + i * 0.1);
+      const src = ctx.createBufferSource();
+      src.buffer = tinkle;
+      const band = ctx.createBiquadFilter();
+      band.type = 'bandpass';
+      band.frequency.value = 4000 + Math.random() * 5000;
+      band.Q.value = 9;
+      const gain = ctx.createGain();
+      const peak = 0.35 * Math.pow(0.88, i) * (0.6 + Math.random() * 0.4);
+      gain.gain.setValueAtTime(0.0001, now + t);
+      gain.gain.exponentialRampToValueAtTime(peak, now + t + 0.003);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + t + 0.06);
+      src.connect(band).connect(gain).connect(this.master);
+      src.start(now + t);
+      src.stop(now + t + 0.08);
+    }
+  }
+
+  /**
+   * A lab alarm heard through a fallen recorder's microphone: a two-tone square wave,
+   * muffled, for as long as the tape has left. stopTapeSounds() cuts it.
+   */
+  #tapeAlarm() {
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type = 'square';
+    for (let i = 0; i < TAPE_ALARM_CYCLES * 2; i++) {
+      osc.frequency.setValueAtTime(i % 2 ? 700 : 940, now + i * TAPE_ALARM_TONE_SECONDS);
+    }
+    const muffle = ctx.createBiquadFilter();
+    muffle.type = 'lowpass';
+    muffle.frequency.value = 2200;
+    const gain = ctx.createGain();
+    gain.gain.value = TAPE_ALARM_LEVEL;
+    osc.connect(muffle).connect(gain).connect(this.master);
+    osc.start(now);
+    osc.stop(now + TAPE_ALARM_CYCLES * 2 * TAPE_ALARM_TONE_SECONDS);
+    this.tapeAlarmNodes = [osc];
+  }
+
   // Tears the whole graph down and closes the context. Safe before start(),
   // safe twice, and start() afterwards rebuilds from scratch (the decoded
   // buffer belongs to the closed context, so it is dropped and refetched).
@@ -1687,6 +1850,10 @@ export class AudioEngine {
     this.rattleNodes = null;
     this.rattleGain = null;
     this.rattleIsRecording = false;
+    this.stopTapeSounds();
+    // The tape's video keeps its element; its source node dies with this
+    // context, and a browser will not give the element a second one.
+    this.mediaSources = null;
     this.trolleyRollBuffer = null;
     this.trolleyCrashBuffer = null;
     this.windSource?.stop();

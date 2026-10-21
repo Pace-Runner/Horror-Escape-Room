@@ -61,7 +61,7 @@ export const dialog_lab_doors_heavy = ["They barely move from this side. Somethi
 
 export const dialog_power_restored = [
   ["Lights come up in stages down the room.", "level2/power_restored_1.m4a", 3.4],
-  ["The monitor on the desk has power now. The door at the far end does not.", "level2/power_restored_2.m4a"]
+  ["Only the lights. The desk and the door at the far end are as dead as before.", "level2/power_restored_2.m4a"]
 ];
 
 export const dialog_blackout = [
@@ -109,20 +109,52 @@ export const dialog_black_pool = [
   ["It is hurt.", "level2/black_pool_2.m4a"]
 ];
 
-// NOT USED IN THE GAME YET -- written for a beat that has not been hooked up,
-// so editing this changes nothing you will see until it is.
-export const dialog_video_camera = [
-  ["A video camera, almost out of battery. One recording on it.", "level2/video_camera_1.m4a", 4.2],
-  ["CONTAINMENT BREACH — JANUARY 1987. Five months before the polaroid.", "level2/video_camera_2.m4a"]
+// ---- the session tape --------------------------------------------------------
+// The cassette recorder on the floor by the restraint table, the tape in it, the
+// deck on the CCTV desk. What is ON the tape (its subtitles) is in
+// src/story/sessionTape.js.
+
+// The first look at the recorder, as its cassette door lifts. One caption on
+// purpose, here and below: an examine line of two or more captions holds the
+// caption box, and anything the player presses while it runs shows no caption
+// at all.
+export const dialog_recorder_examine = ["A cassette recorder, knocked off the trolley. The case is split and the PLAY key is jammed down. The door lifts. There is still a tape in it.", "level2/recorder_examine.m4a", 6.5];
+
+export const dialog_tape_taken = ["SESSION 14 — 14.1.87, in marker on the label. Whatever was said in here that night, it is on this.", "level2/tape_taken.m4a", 5];
+
+export const dialog_recorder_empty = ["The recorder is finished. The tape was the only thing in it worth having.", "level2/recorder_empty.m4a"];
+
+export const dialog_tape_stack = ["Cassettes in cases, stacked by hand. SESSION 1 at the bottom, SESSION 13 on top, the same marker on every one.", "level2/tape_stack.m4a"];
+
+export const dialog_tape_stack_after = ["SESSION 1 to SESSION 13. The fourteenth was still in the recorder on the floor.", "level2/tape_stack_after.m4a"];
+
+export const dialog_deck_examine = ["A cassette deck, plugged in beside the monitor. It is empty.", "level2/deck_examine.m4a"];
+
+export const dialog_deck_hold_tape = ["The deck would take the tape, if you had it on you.", "level2/deck_hold_tape.m4a"];
+
+export const dialog_deck_tape_in = ["The door tips open, the tape clips in, and it shuts with a clunk.", "level2/deck_tape_in.m4a"];
+
+export const dialog_deck_has_tape = ["The Session 14 tape is in the deck.", "level2/deck_has_tape.m4a"];
+
+export const dialog_deck_tape_out = ["The door tips open and gives the tape back.", "level2/deck_tape_out.m4a"];
+
+export const dialog_deck_no_power = ["You press {button}. Nothing. Nothing on this desk has power.", "level2/deck_no_power.m4a"];
+
+export const dialog_deck_play_empty = ["The deck whirs and stops. There is no tape in it.", "level2/deck_play_empty.m4a"];
+
+export const dialog_deck_eject_empty = ["The door tips open on an empty deck.", "level2/deck_eject_empty.m4a"];
+
+// After the tape, once the player steps back from it.
+export const dialog_tape_after = [
+  ["The same table. The same room.", "level2/tape_after_1.m4a", 2.8],
+  ["Whatever was on that table, it is still down here.", "level2/tape_after_2.m4a"]
 ];
 
-// NOT USED IN THE GAME YET -- written for a beat that has not been hooked up,
-// so editing this changes nothing you will see until it is.
-export const dialog_video_played = [
-  ["The same room, when it was still a laboratory. Sparks, fire in the corner, alarms.", "level2/video_played_1.m4a", 5.4],
-  ["Something crosses the frame too fast to read.", "level2/video_played_2.m4a", 3.2],
-  ["Then it runs straight into the camera, and the tape ends.", "level2/video_played_3.m4a"]
-];
+// Once the panel is routed, if the tape has not been heard yet -- one line,
+// depending on whether the player ever found it.
+export const dialog_tape_nudge_recorder = ["Somewhere on the floor, a small red light is still blinking.", "level2/tape_nudge_recorder.m4a"];
+
+export const dialog_tape_nudge_deck = ["The deck beside the monitor has power now.", "level2/tape_nudge_deck.m4a"];
 
 // ---- things you look at and do in the hallway and basement ------------------
 
@@ -212,13 +244,9 @@ export const dialog_load_chart = ["\"MAX {capacity}A TOTAL. {circuits}. DO NOT E
 
 export const dialog_monitor_button_no_power = ["You press the power button. Nothing. There is no power down here.", "level2/monitor_button_no_power.m4a"];
 
-export const dialog_monitor_button_power_gone = ["You press the power button. Nothing. The power has gone again.", "level2/monitor_button_power_gone.m4a"];
-
 export const dialog_monitor_switched_on = ["The button clicks in and glows green. The tube whines, and a line of light opens into a picture.", "level2/monitor_switched_on.m4a"];
 
 export const dialog_monitor_dead = ["An old CRT, dead. Nothing on this desk has power.", "level2/monitor_dead.m4a"];
-
-export const dialog_monitor_dark_again = ["The screen is dark. It was showing you the house a minute ago.", "level2/monitor_dark_again.m4a"];
 
 export const dialog_monitor_off = ["The monitor is off. The power button is on the front, under the screen.", "level2/monitor_off.m4a"];
 
@@ -243,6 +271,12 @@ export const dialog_room_goes_out = ["The room goes out. All of it, in one snap.
 export const dialog_black_pool_examine = ["Whatever it is, it is not water, and it is still wet.", "level2/black_pool_examine.m4a"];
 
 export const dialog_torn_notes = ["\"SUBJECT UNSTABLE. CONTAINMENT REQUIRED. MEMORY DETERIORATION OBSERVED. VISUAL DISTORTION INCREASING.\"", "level2/torn_notes.m4a"];
+
+// The microscope on the workbench, a slide still under its clips, and the
+// slides left beside it. One caption each, like every examine line.
+export const dialog_microscope = ["A microscope, a slide still under the clips. S14 / 1. Tissue, stained near black. Whoever was looking at it never came back to put it away.", "level2/microscope.m4a", 6];
+
+export const dialog_slides = ["More slides from the same session, the same marker. One has been snapped in two.", "level2/slides.m4a", 4.5];
 
 export const dialog_operating_table = ["Straps at the wrists, the chest, the ankles. The ankle cuffs have been unbuckled, and so has the far wrist. This wrist was not. Its strap is torn straight through.", "level2/operating_table.m4a"];
 
@@ -284,7 +318,13 @@ export const dialog_hint_fuse_1 = ["Nothing down here has power. Find the fuse b
 export const dialog_hint_fuse_2 = ["The maintenance log wants the correct rating only. Four fuses lie loose on the workbench -- the wrong ones blow or burn the line.", ""];
 export const dialog_hint_fuse_3 = ["Open the fuse box cover and seat the 30A fuse in the empty slot.", ""];
 
-export const dialog_hint_go_to_door_1 = ["The lights are back. The metal door at the far end of the lab is the way out.", ""];
+export const dialog_hint_tape_find_1 = ["Something on the floor near the restraint table is blinking.", ""];
+export const dialog_hint_tape_find_2 = ["A cassette recorder lies on the floor off the foot of the restraint table. Open it and take the tape.", ""];
+
+export const dialog_hint_tape_play_1 = ["The deck beside the monitor plays tapes like that one.", ""];
+export const dialog_hint_tape_play_2 = ["With the tape on you, press PLAY on the deck beside the monitor.", ""];
+
+export const dialog_hint_go_to_door_1 =["The lights are back. The metal door at the far end of the lab is the way out.", ""];
 export const dialog_hint_go_to_door_2 = ["Walk up to the metal door and try it.", ""];
 
 export const dialog_hint_generator_1 = ["Someone threw the main. The generator in the corner has to be started again.", ""];

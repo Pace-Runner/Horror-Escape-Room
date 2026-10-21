@@ -16,14 +16,15 @@ Generator", "Puzzle 3 -- Breaker / Circuit Panel").
 
 | # | Beat | Player action | Result |
 |---|------|---------------|--------|
-| 1 | **Missing fuse** | Find the 30A fuse among four, seat it in the fuse box | Lights and CCTV come up. The door stays bolted. |
-| 2 | **The lit window** | Cross the room | The generator and breaker panel are only findable while the lights are on |
-| 3 | **Blackout** | Go for the metal door | A lever is thrown. Lights *and* cameras die together |
+| 1 | **Missing fuse** | Find the 30A fuse among four, seat it in the fuse box | The lab's lights come up -- nothing else. The CCTV desk and the door stay dead. |
+| 2 | **The lit window** | Look around, fast | 20-30 s to see where the generator and breaker panel are |
+| 3 | **Blackout** | Nothing -- or go for the door or the CCTV desk | A lever is thrown and the lights die, whichever comes first |
 | 4 | **Generator** | Work three controls in the order on the plate | Current reaches the breaker panel, nothing else |
 | 5 | **Breaker panel** | Set the three circuits that fit the 60A rating | Nothing yet -- the panel is dead until the main goes in |
-| 6 | **Main lever** | Push it up | The bolts come live, and the whole house lights up |
-| 7 | **Security code** | Read the claw tally off CAM 4, enter it at the door | The lockout releases |
-| 8 | **Exit** | Open the door | On to the study |
+| 6 | **Main lever** | Push it up | The bolts come live, the CCTV desk wakes for the first time, and the whole house lights up |
+| 7 | **Session tape** *(the story, not a lock)* | Take the tape from the recorder on the floor, press PLAY on the deck | What happened on the restraint table |
+| 8 | **Security code** | Count the panels on the study door through CAM 4, enter it at the door | The lockout releases |
+| 9 | **Exit** | Open the door | On to the study |
 
 The design brief's Level 2 identity is *"environmental systems rather
 than hidden keys."* Before this pass the entire level was one fuse and
@@ -40,13 +41,13 @@ bolts fed?"* -- stopped being the same question the moment the fuse alone
 was no longer enough to get out.
 
 ```
-DEAD ──30A fuse──> LIT ──reach the door──> BLACKOUT ──generator──> RUNNING ──breakers──> ROUTED
+DEAD ──30A fuse──> LIT ──clock / door / desk──> BLACKOUT ──generator──> RUNNING ──breakers──> ROUTED
 ```
 
 | Stage | Lab lights | CCTV | Door bolts | Meaning |
 |-------|-----------|------|------------|---------|
 | `DEAD` | off | off | dead | No fuse, or a wrong one |
-| `LIT` | **on** | **on** | dead | The 30A is in. It only ever fed one section |
+| `LIT` | **on** | off | dead | The 30A is in. It only ever fed this section's lights |
 | `BLACKOUT` | off | off | dead | The main was thrown, by hand, at the far wall |
 | `RUNNING` | off | off | dead | Generator restarted; current at the panel, routed nowhere |
 | `ROUTED` | **on** | **on** | **live** | The panel is committed. Everything is fed |
@@ -56,9 +57,12 @@ holds behind a security code (below).
 
 Everything reads the stage through one function, `isCircuitLive(circuitId)`.
 It answers differently on each side of the panel, which is the point: before
-`ROUTED` there are no circuits to speak of -- the 30A fuse feeds one section
-of the lab wholesale, so LIGHTING and CCTV are effectively closed and
-everything else is open. After it, the breakers themselves are the answer.
+`ROUTED` there are no circuits to speak of -- the 30A fuse feeds this
+section's lights and nothing more, so LIGHTING is effectively closed and
+everything else, the CCTV desk included, is open. After it, the breakers
+themselves are the answer. The desk is dead until the panel is routed: the
+fuse lights the room so the player can find the generator, and that is all
+it does.
 
 Four named predicates sit on top of it, and nothing outside them tests the
 stage directly:
@@ -145,20 +149,18 @@ The monitor is `crt_monitor.glb` (`blender/build_crt_monitor.py`), a beige
 CRT after four reference photos. The picture is still the static/feed shader,
 now on a slightly bowed plane set into the bezel's recess.
 
-- **It starts switched off.** Seating the 30A gives it power, but it stays
-  dark until the player presses the power button under the screen. The
-  `powerRestored` caption now points at it ("The monitor on the desk has
-  power now") instead of saying it woke by itself.
-- **The button only works with power.** Pressed in a dead lab it does
-  nothing and says so. That is the clearest "no power" message, and it means
-  the monitor can never end up switched on unseen.
+- **It has no power until the panel is routed.** The fuse lights the room and
+  nothing on the desk; the `powerRestored` caption says so ("Only the lights.
+  The desk and the door at the far end are as dead as before.").
+- **It starts switched off**, and stays dark until the player presses the
+  power button under the screen.
+- **The button only works with power.** Pressed while the desk is dead it
+  does nothing and says so. That is the clearest "no power" message, and it
+  means the monitor can never end up switched on unseen.
 - **When it is on, the button glows green**, along with the LED beside it and
   a faint green light on the bezel. The picture opens out from a thin bright
   line and collapses back to one when it goes off (`uPower` in
   `StaticScreenMaterial.js`).
-- **It stays switched on through the blackout.** The picture dies with the
-  power and comes back by itself when the panel is routed, so the cameras the
-  player loses at the blackout return as the beat promises.
 - The remote needs a picture, not just power. Pressed with the monitor off,
   it says the monitor is switched off.
 
@@ -181,39 +183,53 @@ with it, and is called wherever the power stage changes.
 
 ## Puzzle 2 -- the blackout
 
-### Why it is caused, not timed
+### Three ways the main gets thrown
 
-The original sketch for this beat was a timer: power fails "a while
-after" the fuse goes in. Two problems killed that:
+Once the 30A is in, the lit window ends the first time any of these happens:
 
-1. **A silent timer reads as the game cheating.** The player solved the
-   fuse, got the reward, and the game took it back for no visible reason.
-2. **It would eventually fire mid-CCTV.** The scripted camera sightings
-   in `main.js` (the hallway dash, the figure standing in the basement,
-   the creature in the corner) are the best content in the level. A
-   wall-clock timer will sooner or later detonate in the middle of one.
+| Cause | What the player did | Where |
+|-------|---------------------|-------|
+| `timer` | Nothing in particular -- the window simply runs out | 20-30 s after the fuse seats, a fresh draw each time (`BLACKOUT_TIMER_RANGE_IN_SECONDS`) |
+| `door` | Went for the metal door | its approach lane, or E on the door |
+| `desk` | Went for the CCTV desk | the box in front of it, or E on anything on it |
 
-So the trip is **caused by the player walking to the door**, and the
-reward it takes away was never full: the fuse gave lights and cameras,
-never the exit.
+All three are gated on `powerStage === LIT`, so the trip cannot happen before
+the fuse gives the player something to lose, and cannot happen twice.
 
-The delay is still there, but it is *spatial*. The player has to cross a
-lit lab to reach the door, and that lit window is the only time the
-generator and the breaker panel are easy to see. The blackout does not
-just remove something -- it hands over the next two objectives first.
+### Why all three
+
+This used to be **caused, not timed**: only walking to the door threw the main.
+That design had two arguments against a timer -- a silent timer reads as the
+game cheating, and it would eventually fire in the middle of a CCTV sighting.
+The second no longer applies: the CCTV desk has no power in the lit window at
+all, so there is nothing on it to interrupt.
+
+The first is answered by keeping the triggers. A player who goes for the exit
+or for the desk -- the two things the lit room seems to offer -- is cut off the
+moment they try, which reads as being *watched*, not as a clock. The timer is
+for the player who does neither: someone in this house will not leave the
+lights on for them, and the draw between 20 and 30 s means a second playthrough
+cannot count it down. Either way the lit window is a short, frightened look at
+the room -- long enough to see where the generator and the breaker panel are,
+which is the whole reason it exists.
 
 ### Why it fits the story
 
-The creature in this house is Annabelle, hiding *from* the player and
-trying to stop them escaping (see `Storyline Overview.pdf`). Someone
-throwing the main the instant the player goes for the exit reads on a
-first play as the house turning hostile, and on a replay as exactly what
-it is: a sister cutting the power to keep her brother away from the front
-door. The beat shows nobody -- only the lever and the breathing.
+The creature in this house is Annabelle, hiding *from* the player and trying to
+stop them escaping (see `Storyline Overview.pdf`). The power going the instant
+the player reaches for the exit or the cameras reads on a first play as the
+house turning hostile, and on a replay as exactly what it is: a sister cutting
+the power to keep her brother from the front door, and from seeing what is on
+the monitors. The beat shows nobody -- only the lever and the breathing. The
+sticky note on the monitor -- *"Restore power and pray it doesn't hear you"* --
+is the warning.
 
-### The trigger volume
+### The trigger volumes
 
-A **box**, not a radius, and no wider than the doorway:
+Both are **boxes**, not radii, in world coordinates (everything else in the file
+is lab-local, but the player position arrives in world space).
+
+The door's lane is no wider than the doorway:
 
 ```js
 PLAYER_BODY_RADIUS_IN_METRES        = 0.35
@@ -222,45 +238,34 @@ DOOR_APPROACH_HALF_WIDTH_IN_METRES  = 1.1 / 2 + 0.35   // 0.90
 DOOR_APPROACH_DEPTH_IN_METRES       = 1.6
 ```
 
-`isPlayerAtDoor(playerPosition)` is true when
-`|x| <= 0.90 && z >= doorWorldZ - 1.6`. World coordinates, because that
-is what the player position arrives in; everything else in the file is
-lab-local. Height is ignored -- the player never leaves the floor.
+The desk's runs the width of the desk plus a margin either side, out into the
+room from its front edge:
 
-**Why not a radius:** the CCTV desk stands about 2 m from the door. Any
-sphere large enough to catch someone walking up to the door also catches
-someone standing at the monitor. Half the door's width plus the player's
-own body radius is the narrowest volume they cannot pass through without
-their shoulders crossing the doorway.
+```js
+DESK_APPROACH_SIDE_MARGIN_IN_METRES = 0.4
+DESK_APPROACH_DEPTH_IN_METRES       = 1.4
+```
 
-A **build-time `console.warn`** fires if the desk ever moves inside the
-lane, so this cannot regress silently into a blackout that eats the
-camera scenes. The current margin is thin on purpose: the desk's near
-edge is at x = 0.95 against a 0.90 lane.
+The two used to be kept apart on purpose -- a build-time warning fired if the
+desk crept into the door's lane, because standing at the monitor must not trip
+the blackout. Now standing at the monitor is meant to, so the warning is gone.
 
-### Two ways to trigger it
+### Reaching, not just walking
 
-Both mean "going for the door":
-
-1. **Walking into the lane** -- checked in `update(dt, playerPosition)`.
-2. **Interacting with the door** -- checked in the door's `onInteract`.
-
-The second closes a real hole found during testing: the interaction
-raycaster reaches 3.2 m, so a player standing off to one side (past a
-lane only as wide as the doorway) could look at the door and press `E`
-from outside the volume, and the blackout would never fire.
-
-Both paths are gated on `powerStage === LIT`, so the trip cannot happen
-before the fuse gives the player something to lose, and cannot happen
-twice.
+The interaction raycast reaches 3.2 m, past the edge of either volume, so a
+player could press E on the door or the monitor from outside it. Both are
+closed: the door's own `onInteract` throws the main first, and **every click
+target that belongs to the desk** (found by walking up from each target to the
+desk group, so a prop added to the desk later is covered automatically) is
+wrapped to do the same while the lab is LIT.
 
 ### What it does
 
-`triggerBlackout()` sets the stage, then drops `powerLevel` to `0`
-**immediately** rather than letting the ramp ease it down -- a hand
-pulling a main breaker is not a fade. The ramp in `updateLabLighting`
-then simply holds it there. It also pushes the CCTV shader back to full
-static, unlights the feed buttons, and relabels the monitor and the door.
+`triggerBlackout(cause)` sets the stage, then drops `powerLevel` to `0`
+**immediately** rather than letting the ramp ease it down -- a hand pulling a
+main breaker is not a fade. It knocks every breaker and the main down, kills the
+generator (its fuel valve is found shut), relabels the door, and passes `cause`
+to `onBlackout`.
 
 The player keeps their flashlight, so the dark lab stays navigable.
 
@@ -450,12 +455,16 @@ up at different *moments*, which is the whole trick:
 
 | Stage | Camera 5 (basement) | Cameras 1-4 (house) |
 |-------|--------------------|---------------------|
-| `LIT` (fuse only) | **lit** | dark |
+| `LIT` (fuse only) | *(desk unpowered)* | *(desk unpowered)* |
 | `BLACKOUT` / `RUNNING` | dark | dark |
 | `ROUTED` | **lit** | **lit** |
 
-The fuse feeds *this section of the lab only*, so from the moment the monitor
-wakes, the player sees one working camera and four black rooms stamped:
+**Since the fuse stopped reaching the desk, the player never sees the `LIT`
+row**: the monitor's first picture comes with the routed panel, every room lit.
+The feeds still model it, so it costs nothing to keep, and it comes back if the
+desk is ever given the fuse's power again. What it was for: the fuse fed *this
+section of the lab only*, so from the moment the monitor woke, the player saw
+one working camera and four black rooms stamped:
 
 ```
         -- NO POWER --
@@ -621,6 +630,97 @@ unreadable before that point and readable after it. Power -> cameras -> code
 
 ---
 
+## The session tape
+
+The level's story, told by the lab's own equipment. Not a lock: nothing needs
+it to open the door.
+
+### What the player does
+
+1. **Finds the recorder.** A black handheld cassette recorder lies face up on
+   the floor off the foot of the restraint table, toward the entrance -- it
+   stood on the instrument trolley to take the session down, and landed here
+   when it was knocked off. In the dark before the fuse, its battery lamp
+   winking red at floor level is the only light in the lab, and the only nudge
+   it gets. Its PLAY key is jammed and its case split, so it cannot play the
+   tape itself.
+2. **E on it** looks at it and lifts the cassette door; **E again** takes the
+   tape, SESSION 14 -- 14.1.87, into the inventory (`sessionTape`).
+3. **Presses PLAY on the deck** beside the monitor -- once the panel is routed,
+   because the desk has no power before then. With the tape on them, PLAY tips
+   the deck's door open, clips the tape in, and plays it. (The door also takes
+   the tape on its own.)
+4. **The tape plays out into the room.** Nothing is taken from the player: they
+   can stand at the deck and listen, or walk off. The reels turn behind the
+   door's window, the counter runs, and the subtitles run along the bottom of
+   the screen (`core/TapeSubtitles.js`). **STOP/EJECT** stops it part way --
+   pressed again, it gives the tape back -- and PLAY runs it from the top. When
+   it runs out the deck stops by itself and the player says what they make of
+   it.
+
+The deck's four keys are 26 x 21 mm and their click targets bigger still, so
+either can be pressed from a normal stance at the desk.
+
+Sessions 1 to 13 are stacked on the desk behind the deck. The fourteenth is the
+one still in the recorder on the floor.
+
+### What is on it
+
+`src/story/sessionTape.js` holds the subtitles with their timings. A sedated
+subject on the table, a scientist dictating the session into the recorder, and
+a woman beside him. The subject wakes, does not know them, and comes at them;
+the recorder is knocked to the floor, and from there it hears the room muffled
+-- something heavy moving away, glass, an alarm -- until someone stops it. The
+only name spoken is "Mark".
+
+The two voices are never named: the woman is Annabelle, and the only thing that
+may tell the player so is the letter in Level 3.
+
+### The sound
+
+`world/SessionTapeSource.js` plays `src/assets/audio/tape/session_14.m4a` if it
+exists -- found with an `import.meta.glob`, so the file is the whole change.
+Without it, the tape runs on a clock of its own and `AudioEngine` plays stand-in
+sounds at the cue sheet's times.
+
+The soundtrack is synthesised -- noise, filters and envelopes, nothing recorded
+-- and encoded by Blender, which carries FFmpeg:
+
+    blender --background --python blender/build_session_tape_audio.py
+
+writes `src/assets/audio/tape/session_14.m4a` (47 s, AAC). Its times are the
+subtitles' times; the script's docstring lists them.
+
+**The voices are not in the soundtrack.** Each spoken subtitle names a clip
+(`src/assets/voice/level2/tape_01_man.m4a` to `tape_10_woman.m4a`) and the game
+starts it as the tape reaches the line, so a voice can be recorded or replaced
+without rebuilding the tape. Subtitles follow the captions setting, except
+where they are all there is: a line whose clip has not been recorded yet always
+shows, and so does everything over the stand-in.
+
+### Props
+
+| Model | Script |
+|-------|--------|
+| `cassette_recorder.glb` | `blender/build_cassette_recorder.py` -- a black handheld dictation recorder after a Panasonic RQ-series machine: counter, speed switch and volume wheel across the far end, the door with its window and 0-50-100 scale, keys down the left side, a wrist strap. Case cracked, PLAY key jammed. `CassetteDoor` hinged on its near edge; `RecorderBody` is everything but the strap |
+| `audio_cassette.glb` | `blender/build_audio_cassette.py` -- the tape, with its handwritten label. Its hubs, `CassetteReelLeft` and `CassetteReelRight`, have their origins on their spindles so the deck can turn them |
+| `cassette_deck.glb` | `blender/build_cassette_deck.py` -- the front-loading player; `DeckFlap` (the door), `DeckPlayButton`, `DeckEjectButton` and `DeckPowerLamp` are moved and lit by the level |
+| `cassette_stack.glb` | `blender/build_cassette_stack.py` -- Sessions 1-13 in their cases |
+
+No maker's name on any of them. Lettering is real geometry
+(`common.make_text_mesh`), not textures. The deck's counter is painted by
+`world/DeckCounterDisplay.js`.
+
+### Hints and the nudge
+
+Two hint stages, `findTape` and `playTape`, sit after the breakers. They count
+as done once the tape is heard to its end **or** the security lockout is
+cleared, so a player who skips the tape can still be hinted the code. When the
+panel routes, a player who has not heard it hears one line toward wherever it
+is.
+
+---
+
 ## Integration points
 
 ### Callbacks on `createHallwayBasementLevel`
@@ -632,11 +732,18 @@ creature, and the one flag that outlives the level.
 | Callback | Fires when |
 |----------|-----------|
 | `onPowerRestored` | the 30A fuse is seated (pre-existing) |
-| `onBlackout` | the main is thrown at the door |
+| `onBlackout` | the main is thrown. Passed `{ cause }`: `'timer'`, `'door'` or `'desk'` |
 | `onGeneratorRunning` | the restart sequence completes |
 | `onOverload` | the breaker panel trips |
 | `onPowerRouted` | the main switch commits |
 | `onEnterSecurityCode` | the player uses the door with the lockout still on. Passed `{ code, onSolved }` |
+| `onTapeTaken` / `onTapeInserted` / `onTapeEjected` | the session tape moves between the recorder, the inventory and the deck |
+| `onPlayTape` | the deck starts playing the tape. Passed `{ source }`, its sound and clock |
+| `onTapeStopped` | the tape is stopped part way: STOP/EJECT, or a restart |
+| `onTapeEnded` | the tape has run to its end and the deck has stopped |
+
+And one question the level asks: `isCarrying(id)`, whether the inventory holds
+an item -- the deck takes the tape from the inventory, not only from the hand.
 
 ### `main.js`
 
@@ -670,8 +777,8 @@ New beats: `blackout`, `generatorRunning`, `powerRouted`, `breakerOverload`.
 `BEATS.powerRestored` was **corrected**, not just added to. It said *"The
 generator catches. Lights come up in stages down the room."* at the point the
 fuse goes in -- a line that now belongs to a later beat, and that was
-promising the player a way out the fuse does not open. It now ends *"The
-cameras are live. The door at the far end is not."*
+promising the player a way out the fuse does not open. It now ends *"Only the
+lights. The desk and the door at the far end are as dead as before."*
 
 Level captions stay terse and sensory; the `BEATS` scripts carry the
 interpretation. The blackout is the clearest case: the level says *"The room
@@ -705,6 +812,10 @@ hasHesitatedAtDoor = false;
 if (!interactables.includes(doorNote)) interactables.push(doorNote);
 ```
 
+It also clears the lit window's clock (`blackoutTimerSecondsLeft`) and puts the
+session tape back: in the recorder on the floor, its door shut, and the deck
+stopped and empty (`resetSessionTape`).
+
 Without these an `R` after a solved panel restarts the level with the
 generator's sequence half-entered, every breaker showing green, the main
 latched in, the door's one-time nudge already spent, and the door note gone
@@ -723,10 +834,11 @@ passing:
 - Dead circuit: the door does not open, and walking to it does nothing.
 - Wrong fuses: the 45A never restores power and never arms the blackout.
 - The 30A lights the lab, leaves the door locked, and cannot be removed.
-- **Standing at the CCTV desk does not trip the blackout**; walking into the
-  lane does; it fires exactly once; reaching the door from *outside* the lane
-  still trips it.
-- CCTV and the feed buttons both go dead across the blackout.
+- The lit window ends three ways, each checked in the running game: standing
+  in front of the CCTV desk, standing in the door's lane, and staying away from
+  both until the clock runs out. It fires exactly once, and reaching the door
+  from *outside* the lane still trips it.
+- The CCTV desk is dead under the fuse and wakes with the routed panel.
 - Both generator failure orders reset; the right order starts it.
 
 **The panel**
@@ -751,17 +863,26 @@ passing:
   second -- and never fires for a player who already looked.
 - `reset()` returns every one of the above to its starting state.
 
-`npx vite build` is clean. The harness is not in the repo -- the project has
-no test setup to hang it on.
+**The session tape** (headless Chrome against the running game, through the
+real crosshair raycast)
+- Two presses on the recorder take the tape into the inventory.
+- PLAY with the tape carried loads it into the deck's door and plays it in the
+  room: the pointer stays locked to the game, interaction stays on, the hubs
+  turn and the subtitles follow the soundtrack's clock.
+- STOP mid-tape stops and rewinds it; PLAY runs it again from the top. Left to
+  run, it stops by itself at its end and counts as heard. EJECT then gives it
+  back.
+
+`npx vite build` is clean. The harnesses are not in the repo -- the project has
+no test setup to hang them on.
 
 ---
 
 ## Known trade-offs
 
-- **The lane margin is thin.** The desk's near edge sits at x = 0.95 against a
-  0.90 m lane. It is guarded by a build-time warning rather than by slack,
-  because widening the lane re-introduces the problem it exists to solve and
-  narrowing it lets players slip past the door edge.
+- **The lit window is short on purpose**, and a player who misses the
+  generator and the panel in it has to find them by torchlight. The H-key
+  hints name both.
 - **Four power puzzles now stand between the player and the exit.** The
   generator is deliberately three steps and the panel five switches plus a
   main, to keep that stretch short. If playtesting says it drags, the
@@ -771,8 +892,7 @@ no test setup to hang it on.
   nothing else in the game, which is the same criticism that killed SECURITY
   -- the defence is only that a ventilation circuit in a sealed basement lab
   is self-explanatory in a way "security" was not.
-- **The CCTV sightings can still happen before the blackout.** A player who
-  works through all five feeds while the lab is in `LIT` sees the
-  creature-in-the-corner beat before the exit opens, which is out of storyline
-  order. This predates the change and is not made worse by it, but it is the
-  obvious next thing to sequence properly.
+- **The camera five teaching gap is gone** (see "The cameras as the panel's
+  readout"): with the desk dead under the fuse, the player never sees the one
+  lit camera among four dark ones. LIGHTING is still named on the panel and in
+  the hints.

@@ -6,7 +6,6 @@ import {
   createConcreteBumpTexture,
   createStickyNoteTexture,
   createHazardSignTexture,
-  createPaperNoteTexture,
   createFuseCapStampTexture,
   createFixtureSteelTexture,
   createFixtureSteelNormalTexture,
@@ -20,6 +19,7 @@ import {
   createSwitchLabelTexture
 } from '../world/textures.js';
 import { loadModel } from '../world/modelLoader.js';
+import { createPaperNoteTexture, createPaperSheet } from '../world/paperNotes.js';
 import labDoorModelUrl from '../assets/models/lab_door.glb?url';
 import fuseBoxModelUrl from '../assets/models/fuse_box.glb?url';
 import fuseModelUrl from '../assets/models/fuse.glb?url';
@@ -33,6 +33,12 @@ import labChairModelUrl from '../assets/models/lab_chair.glb?url';
 import storageShelfModelUrl from '../assets/models/storage_shelf.glb?url';
 import containmentChamberModelUrl from '../assets/models/containment_chamber.glb?url';
 import biosafetyCabinetModelUrl from '../assets/models/biosafety_cabinet.glb?url';
+import cassetteRecorderModelUrl from '../assets/models/cassette_recorder.glb?url';
+import audioCassetteModelUrl from '../assets/models/audio_cassette.glb?url';
+import cassetteDeckModelUrl from '../assets/models/cassette_deck.glb?url';
+import cassetteStackModelUrl from '../assets/models/cassette_stack.glb?url';
+import microscopeModelUrl from '../assets/models/microscope.glb?url';
+import glassSlidesModelUrl from '../assets/models/glass_slides.glb?url';
 // TEXTURE PREVIEW (branch lvl2-texture-preview): photo textures the user found,
 // to judge the look. Tiles141, Concrete030 and Metal055B are ambientCG (CC0);
 // the rest are Texturelabs.
@@ -48,6 +54,15 @@ import whiteRustMetalUrl from '../assets/textures/lab/texturelabs_metal_190.jpg?
 import steelColorUrl from '../assets/textures/lab/metal055b_color.jpg?url';
 import steelNormalUrl from '../assets/textures/lab/metal055b_normal_gl.jpg?url';
 import steelRoughnessUrl from '../assets/textures/lab/metal055b_roughness.jpg?url';
+import doorScratchesUrl from '../assets/textures/lab/door_scratches.png?url';
+import cardboardUrl from '../assets/textures/lab/cardboard.jpg?url';
+// The steel door at the far end: one photo of a whole riveted, rusting door,
+// made from door_height_map.png and door_normal_map.png (both cropped to the door).
+import steelDoorAlbedoUrl from '../assets/textures/lab/steel_door_albedo.jpg?url';
+import steelDoorNormalUrl from '../assets/textures/lab/steel_door_normal.jpg?url';
+import steelDoorRoughnessUrl from '../assets/textures/lab/steel_door_roughness.jpg?url';
+// Level 1's bedside table wood, for the lab's wooden tables: one house, one furniture.
+import tableWoodUrl from '../assets/textures/bedside/wood.png?url';
 import steelMetalnessUrl from '../assets/textures/lab/metal055b_metalness.jpg?url';
 import scuffDecalUrl from '../assets/textures/lab/texturelabs_details_136.png?url';
 // The rust cut out of Texturelabs_Metal_190: its white paint made transparent,
@@ -64,6 +79,8 @@ import { createCreatureSketchTexture } from '../world/textures.js';
 import { addBaseboard } from '../world/trim.js';
 import { line } from '../dialogue/index.js';
 import { createInstrumentTrolley } from '../world/InstrumentTrolley.js';
+import { createSessionTapeSource } from '../world/SessionTapeSource.js';
+import { createDeckCounterDisplay } from '../world/DeckCounterDisplay.js';
 
 const HALL_W = 2.4;
 const HALL_LEN = 5.5;
@@ -87,6 +104,19 @@ const LAB_Z = HALL_LEN + LAB_D / 2 + 0.2;
  * pivots stand. The frame's back sits on the hallway's end, z = HALL_LEN.
  */
 const LAB_DOOR = { openHalf: 0.904, openH: 2.104, frameHalf: 0.994, frameTop: 2.194, pivotOffset: 0.06 };
+/**
+ * A lab door leaf's faces, in its own frame (blender/build_lab_door.py): along
+ * the leaf from its pivot (`u`), up it, and how far each face is off its
+ * mid-plane. `panel` is the flat inside the raised rim; `bezel` the window's
+ * frame, which the panel goes round. The scratches are laid on the panel.
+ */
+const LAB_DOOR_LEAF = {
+  faceOffset: 0.025,
+  panel: { u0: 0.065, u1: 0.835, y0: 0.067, y1: 2.037 },
+  bezel: { u0: 0.3, u1: 0.6, y0: 1.35, y1: 1.77 }
+};
+/** How much of a leaf one copy of the scratch photo covers, in metres: its own proportions. */
+const DOOR_SCRATCH_TILE = { width: 0.55, height: 0.55 * 464 / 828 };
 
 /**
  * The metal door at the far end. Up here with the room dimensions rather than
@@ -96,6 +126,20 @@ const LAB_DOOR = { openHalf: 0.904, openH: 2.104, frameHalf: 0.994, frameTop: 2.
  */
 const DOOR_WIDTH_IN_METRES = 1.1;
 const DOOR_HEIGHT_IN_METRES = 2.1;
+/**
+ * Where the hardware painted into the door's photo is, so the raised parts
+ * built over it land on it: each as a rectangle across the photo (`u`, 0 at
+ * its left as the player faces the door) and down it (`v`, 0 at its top).
+ * Measured off steel_door_albedo.jpg.
+ */
+const STEEL_DOOR_HARDWARE = {
+  hinges: [{ u0: 0.71, u1: 1.0, v0: 0.11, v1: 0.16 }, { u0: 0.73, u1: 1.0, v0: 0.83, v1: 0.874 }],
+  viewingPlate: { u0: 0.374, u1: 0.626, v0: 0.169, v1: 0.248 },
+  latch: { u0: 0.0, u1: 0.19, v0: 0.363, v1: 0.392 },
+  handlePlate: { u0: 0.04, u1: 0.15, v0: 0.465, v1: 0.58 },
+  // The lever: out from the plate at this height, its tip this far across.
+  lever: { v: 0.497, tipU: 0.25 }
+};
 
 /**
  * One glass cartridge fuse (fuse.glb). Every fuse in the level is this same
@@ -344,6 +388,114 @@ const TROLLEY_TABLE_GAP = 0.5;
 const LAB_CHAIR = { castorReach: 0.295, castorHeight: 0.025, seatRadius: 0.212, seatEdgeHeight: 0.49 };
 
 /**
+ * The cassette recorder that took down Session 14 (cassette_recorder.glb), in
+ * the model's own space: a handheld slab lying on its back, its near end
+ * toward +z, its keys down its -x side, on y = 0 under the middle of it.
+ * `wellCentre` is the middle of the tape lying in the well under the door,
+ * which lies lengthwise -- `tapeYawInRadians` turns the cassette's length
+ * down the recorder and its tape edge toward the keys. `batteryLamp` is the
+ * little red lamp right of the door; `bounds` a box round the case, for its
+ * click target. The door is the model's CassetteDoor node, hinged along its
+ * near edge; RecorderBody is the case and everything on it, without the
+ * wrist strap lying beside it. Mirrors WELL_CENTRE and BATTERY_LAMP in
+ * build_cassette_recorder.py.
+ */
+const CASSETTE_RECORDER = {
+  wellCentre: [0, 0.0215, -0.015],
+  tapeYawInRadians: -Math.PI / 2,
+  batteryLamp: [0.047, 0.031, -0.058],
+  bounds: { centre: [-0.002, 0.016, 0], size: [0.12, 0.036, 0.18] }
+};
+/**
+ * Where the recorder lies: on the floor off the foot of the restraint table,
+ * toward the entrance. It stood on the instrument trolley beside the table to
+ * take the session down, and this is where it landed when it was knocked off
+ * -- face up, turned askew, its wrist strap flung out beside it.
+ */
+const RECORDER_REST = {
+  x: OPERATING_TABLE.x + OPERATING_TABLE.halfLength + 0.75,
+  z: OPERATING_TABLE.z - 0.45,
+  yawInRadians: 2.6
+};
+/** How far the cassette door lifts on its near edge, and how long it takes. */
+const CASSETTE_DOOR_OPEN_ANGLE_IN_RADIANS = 1.15;
+const CASSETTE_DOOR_OPEN_SECONDS = 0.45;
+/** The battery lamp: a short wink, this often. It is the recorder's only light in a dark lab. */
+const BATTERY_LAMP_BLINK_PERIOD_SECONDS = 1.7;
+const BATTERY_LAMP_ON_SECONDS = 0.14;
+
+/**
+ * The cassette deck (cassette_deck.glb), in the model's own space: facing +z,
+ * standing on y = 0, origin under the middle. `door` is the cassette door's
+ * hinge -- its bottom edge -- and its size; `tapeInDoor` where the middle of a
+ * tape clipped into the door sits, in the door's own frame. `play` and `eject`
+ * are the keys' centres on the front, `display` the counter's window and the
+ * depth of its recess, `powerLead` on the back. The door, the two keys and the
+ * lamp are the model's DeckFlap, DeckPlayButton, DeckEjectButton and
+ * DeckPowerLamp. Mirrors build_cassette_deck.py.
+ */
+const CASSETTE_DECK = {
+  frontZ: 0.11,
+  door: { hinge: [-0.062, 0.0175, 0.11], width: 0.111, height: 0.071 },
+  tapeInDoor: [0, 0.0339, -0.0095],
+  play: [0.047, 0.04],
+  eject: [0.105, 0.04],
+  buttonFrontZ: 0.1145,
+  display: { x0: 0.012, x1: 0.07, y0: 0.07, y1: 0.086, depth: 0.003 },
+  powerLead: [-0.09, 0.03, -0.115]
+};
+/** Where the deck stands on the CCTV desk, in desk space: right of the monitor, past the remote's lead. */
+const DECK_ON_DESK = { x: 0.44, z: 0.085 };
+/** Where the earlier session tapes are stacked, in desk space: behind the deck. */
+const TAPE_STACK_ON_DESK = { x: 0.47, z: -0.19, yaw: 0.06 };
+/**
+ * Loading and ejecting, as one movement each: the door tips open, the tape
+ * slides into (or up out of) its clips, the door shuts. How far it tips, how
+ * far above its seat the tape starts, and how long the whole of it takes.
+ */
+const DECK_DOOR_OPEN_ANGLE_IN_RADIANS = 0.5;
+const DECK_TAPE_SLIDE_IN_METRES = 0.085;
+const DECK_LOAD_SECONDS = 0.9;
+/**
+ * The click targets over the deck's two keys: a good deal bigger than the
+ * 26 x 21 mm keys, so either can be pressed without lining the crosshair up
+ * on it from across the desk.
+ */
+const DECK_KEY_TARGET_SIZE = [0.029, 0.03, 0.03];
+/**
+ * How fast the tape's two hubs turn while it plays, in radians a second: a
+ * cassette runs at 4.76 cm a second, so the reel with less tape on it turns
+ * faster. Left (still mostly full) and right.
+ */
+const DECK_REEL_SPEEDS_IN_RADIANS_PER_SECOND = [0.0476 / 0.0215, 0.0476 / 0.0135];
+/** How far a deck key goes in when pressed, and for how long. */
+const DECK_BUTTON_TRAVEL_IN_METRES = 0.003;
+const DECK_BUTTON_PRESS_SECONDS = 0.18;
+
+/**
+ * The CRT's picture, as the shader crossfades it: a camera feed fights through
+ * a little interference.
+ */
+const CCTV_FEED_NOISE_STRENGTH = 0.35;
+const CCTV_FEED_STATIC_MIX = 0.18;
+
+/**
+ * How long the fuse's lit window lasts before someone throws the main anyway,
+ * in seconds: a fresh draw between these two every time the fuse goes in, so
+ * a player who has been caught by it once cannot count it down the next time.
+ * Going for the door or the CCTV desk throws it sooner -- see triggerBlackout.
+ */
+const BLACKOUT_TIMER_RANGE_IN_SECONDS = [20, 30];
+
+/**
+ * The volume in front of the CCTV desk that throws the main while the lab is
+ * on the fuse alone: as wide as the desk plus this much either side, and this
+ * deep out into the room from its front edge, in metres.
+ */
+const DESK_APPROACH_SIDE_MARGIN_IN_METRES = 0.4;
+const DESK_APPROACH_DEPTH_IN_METRES = 1.4;
+
+/**
  * The crates. `stackY` is the height of the crate's underside, so 0 sits on
  * the floor and CRATE_SIZE sits squarely on one that does.
  *
@@ -376,10 +528,10 @@ const FUSE_CRATE = CRATE_LAYOUT.reduce((a, b) => (b.stackY > a.stackY ? b : a));
  * industrial basement lab.
  *
  * The objective is a chain of four electrical puzzles, tracked by
- * `powerStage`. Seat the right fuse (30A among four) to light the lab and
- * wake the CCTV -- but NOT to open the door, which is the point. Walk to
- * the metal door and someone throws the main on you, killing the lights and
- * the cameras together. Restart the generator in the order on its plate to
+ * `powerStage`. Seat the right fuse (30A among four) to light the lab -- and
+ * only the lab: not the CCTV desk, not the door, which is the point. Then
+ * someone throws the main on you, after 20-30 s or the moment you go for the
+ * door or the desk, whichever comes first. Restart the generator in the order on its plate to
  * get current back to the breaker panel, then route the panel's 60A across
  * the three circuits that matter without tripping it. Only that last step
  * feeds the door bolts.
@@ -413,9 +565,10 @@ export function createHallwayBasementLevel({
   // -- the story captions, the CCTV sighting, the creature.
   onPowerRestored = () => {},
   /**
-   * Fired when the main is thrown as the player reaches the metal door. The
-   * level handles its own lights and screen; this is the sound and the story
-   * beat, and the nearness of whoever pulled it.
+   * Fired when the main is thrown. The level handles its own lights and
+   * screen; this is the sound and the story beat, and the nearness of whoever
+   * pulled it. Called with `{ cause }`: 'door' or 'desk' when the player went
+   * for the exit or the CCTV desk, 'timer' when the lit window ran out.
    */
   onBlackout = () => {},
   /** Fired when the generator restart sequence completes. */
@@ -452,7 +605,28 @@ export function createHallwayBasementLevel({
    * react to a noise that loud.
    */
   onTrolleyCrash = () => {},
-  onExamineSketch = () => {}
+  onExamineSketch = () => {},
+  /**
+   * Whether the player has the item `id` on them, in the inventory. The deck
+   * takes the tape from the inventory, whatever is in the player's hand.
+   */
+  isCarrying = () => false,
+  /** Fired when the session tape comes out of the recorder: the host puts it in the inventory. */
+  onTapeTaken = () => {},
+  /** Fired when the tape goes into the deck: the host takes it out of the inventory. */
+  onTapeInserted = () => {},
+  /** Fired when the deck ejects the tape: the host puts it back in the player's hand. */
+  onTapeEjected = () => {},
+  /**
+   * Fired when the deck starts playing the tape, in the room. Called with
+   * `{ source }`, the tape's sound and clock (world/SessionTapeSource.js), for
+   * the host's voices and subtitles to follow.
+   */
+  onPlayTape = () => {},
+  /** Fired when the tape is stopped part way: STOP/EJECT, or a restart. */
+  onTapeStopped = () => {},
+  /** Fired when the tape has run to its end and the deck has stopped. */
+  onTapeEnded = () => {}
 } = {}) {
   const group = new THREE.Group();
   group.name = 'Level2_HallwayBasement';
@@ -930,6 +1104,64 @@ export function createHallwayBasementLevel({
     return [name, hit];
   }));
 
+  /**
+   * The scratches worn into a leaf's paint, on both faces: a see-through layer
+   * just off each face, inside the raised rim and round the window, carried
+   * by the leaf as it swings. Only the scratches are in the image -- the rest
+   * is clear -- so the leaf's own grey shows through between them.
+   *
+   * The image was made seamless from the photo, so it tiles without an edge
+   * showing (textures/lab/door_scratches.png).
+   *
+   * @param {number} sign - +1 for the left leaf, -1 for the right: which way along x the leaf runs from its pivot.
+   * @returns {THREE.Mesh} both faces' layers, in the leaf's frame.
+   */
+  function createDoorScratches(sign) {
+    const { panel, bezel, faceOffset } = LAB_DOOR_LEAF;
+    // The panel in four pieces round the bezel.
+    const pieces = [
+      [panel.u0, panel.u1, panel.y0, bezel.y0],
+      [panel.u0, panel.u1, bezel.y1, panel.y1],
+      [panel.u0, bezel.u0, bezel.y0, bezel.y1],
+      [bezel.u1, panel.u1, bezel.y0, bezel.y1]
+    ];
+    const positions = [];
+    const uvs = [];
+    for (const face of [1, -1]) {
+      const z = face * (faceOffset + 0.0007);
+      for (const [u0, u1, y0, y1] of pieces) {
+        // Corners counter-clockwise as seen from the side this face looks out of.
+        let corners = [[u0, y0], [u1, y0], [u1, y1], [u0, y1]];
+        if (sign * face < 0) corners = corners.reverse();
+        const [a, b, c, d] = corners;
+        for (const [u, y] of [a, b, c, a, c, d]) {
+          positions.push(sign * u, y, z);
+          uvs.push(u / DOOR_SCRATCH_TILE.width, y / DOOR_SCRATCH_TILE.height);
+        }
+      }
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geometry.computeVertexNormals();
+    const scratches = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
+      map: loadPhoto(doorScratchesUrl),
+      transparent: true,
+      depthWrite: false,
+      // Bare steel where the paint is gone: brighter and shinier than the coat.
+      metalness: 0.6,
+      roughness: 0.35,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1
+    }));
+    scratches.name = 'LabDoorScratches';
+    // No shadows on a layer 0.7 mm off the face: the face's own shadow would
+    // stripe it.
+    scratches.receiveShadow = false;
+    return scratches;
+  }
+
   const labLeaves = [];
   loadModel(labDoorModelUrl).then((model) => {
     model.traverse((child) => {
@@ -966,6 +1198,7 @@ export function createHallwayBasementLevel({
       const hit = labDoorHits.get(name);
       hit.position.set(sign * LAB_DOOR_LEAF_CENTRE_X, LAB_DOOR_LEAF_CENTRE_Y, 0);
       node.add(hit);
+      node.add(createDoorScratches(sign));
     }
     labDoorHost.add(model);
   }).catch((err) => console.error('[lab] lab_door.glb failed to load', err));
@@ -1562,11 +1795,11 @@ export function createHallwayBasementLevel({
    * the moment the fuse alone was no longer enough to get out.
    *
    *  DEAD     - no fuse seated, or a wrong one. Nothing in the lab runs.
-   *  LIT      - the 30A fuse is in. The strip lights and the CCTV desk come
-   *             up, but the door bolts stay dead: the fuse only ever fed one
-   *             section of the lab.
-   *  BLACKOUT - the main was thrown, by hand, at the far wall, the moment the
-   *             player went for the door. Lights and cameras die together.
+   *  LIT      - the 30A fuse is in. The strip lights come up and nothing
+   *             else does: not the CCTV desk, not the door bolts. The fuse
+   *             only ever fed the lights in this section of the lab.
+   *  BLACKOUT - the main was thrown, by hand, at the far wall: the player
+   *             went for the door or the desk, or the lit window ran out.
    *  RUNNING  - the generator has been restarted, so there is current at the
    *             breaker panel again -- but nothing is routed to anything yet.
    *  ROUTED   - the breakers are set. Lights, CCTV and the door bolts are live.
@@ -1601,16 +1834,16 @@ export function createHallwayBasementLevel({
    * Whether one named breaker circuit is feeding its system right now.
    *
    * Before the panel is routed there are no circuits to speak of -- the 30A
-   * fuse feeds this one section of the lab wholesale, so LIGHTING and CCTV
-   * are both effectively closed and everything else is open. After it, the
-   * breakers themselves are the answer.
+   * fuse feeds this section's lights and nothing more, so LIGHTING is
+   * effectively closed and everything else, the CCTV desk included, is open.
+   * After it, the breakers themselves are the answer.
    *
    * @param {string} circuitId - 'door', 'cctv', 'lighting', 'locks' or 'vent'.
    * @returns {boolean} whether that system currently has power.
    */
   function isCircuitLive(circuitId) {
     if (powerStage === POWER_STAGE.ROUTED) return breakerIsOn[circuitId] === true;
-    if (powerStage === POWER_STAGE.LIT) return circuitId === 'lighting' || circuitId === 'cctv';
+    if (powerStage === POWER_STAGE.LIT) return circuitId === 'lighting';
     return false;
   }
 
@@ -1783,8 +2016,9 @@ export function createHallwayBasementLevel({
     },
     {
       // Flat top face of the crate stack, just off its centre.
+      // Off the seam between the lid's flaps, which runs across its middle.
       x: FUSE_CRATE.x + 0.05,
-      z: FUSE_CRATE.z + 0.05,
+      z: FUSE_CRATE.z + 0.09,
       surfaceY: FUSE_CRATE_TOP_Y
     }
   ];
@@ -2064,6 +2298,7 @@ export function createHallwayBasementLevel({
 
       if (installed === CORRECT_FUSE_AMPS) {
         powerStage = POWER_STAGE.LIT;
+        startBlackoutTimer();
         puzzleState.slotFuse = CORRECT_FUSE_AMPS;
         showCaption(line('dialog_fuse_clicks_in'));
         fuseBox.userData.interact.label = 'Fuse seated (30A)';
@@ -2073,11 +2308,10 @@ export function createHallwayBasementLevel({
         metalDoor.userData.interact.label = DOOR_LABELS[POWER_STAGE.LIT];
         // The screen stops being pure static. The picture fights its way
         // through the interference rather than appearing; uStaticMix is what
-        // the shader crossfades on. The lab's own lights are NOT set here --
-        // updateLabLighting ramps them off the power stage, so they come up over
-        // POWER_RAMP_IN_SECONDS instead of snapping on.
-        screenMaterial.uniforms.uNoiseStrength.value = 0.35;
-        screenMaterial.uniforms.uStaticMix.value = 0.18;
+        // the shader crossfades on (syncScreenSignal). The lab's own lights are
+        // NOT set here -- updateLabLighting ramps them off the power stage, so
+        // they come up over POWER_RAMP_IN_SECONDS instead of snapping on.
+        syncScreenSignal();
         syncMonitor();
         // The lab is lit, the house is not. Four of the five cameras come up
         // showing a dark room and naming the circuit that would fix it --
@@ -2138,10 +2372,11 @@ export function createHallwayBasementLevel({
     'ONLY. ANYTHING',
     'ELSE WILL BLOW',
     'OR BURN THE LINE'
-  ]);
-  const maintenanceNote = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.3, 0.38),
-    new THREE.MeshStandardMaterial({ map: maintenanceNoteTex, roughness: 1 })
+  ], { aspect: 0.3 / 0.38, wear: 1, seed: 11 });
+  const maintenanceNote = createPaperSheet(
+    0.3, 0.38,
+    new THREE.MeshStandardMaterial({ map: maintenanceNoteTex, roughness: 0.95, alphaTest: 0.5 }),
+    { seed: 11 }
   );
   /**
    * Taped to the wall beside the fuse box, rather than hanging in open air
@@ -2486,12 +2721,15 @@ export function createHallwayBasementLevel({
   });
   updateGeneratorControlLights();
 
-  const restartPlate = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.26, 0.16),
+  const restartPlate = createPaperSheet(
+    0.26, 0.16,
     new THREE.MeshStandardMaterial({
-      map: createPaperNoteTexture(['RESTART ORDER', '1. FUEL VALVE', '2. PRIME', '3. STARTER']),
-      roughness: 1
-    })
+      map: createPaperNoteTexture(['RESTART ORDER', '1. FUEL VALVE', '2. PRIME', '3. STARTER'],
+        { aspect: 0.26 / 0.16, wear: 3, seed: 23 }),
+      roughness: 0.95,
+      alphaTest: 0.5
+    }),
+    { seed: 23 }
   );
   restartPlate.position.set(panelX + 0.0015, 0.32, 0);
   restartPlate.rotation.y = Math.PI / 2;
@@ -2687,8 +2925,7 @@ export function createHallwayBasementLevel({
    */
   function routePower() {
     powerStage = POWER_STAGE.ROUTED;
-    screenMaterial.uniforms.uNoiseStrength.value = 0.35;
-    screenMaterial.uniforms.uStaticMix.value = 0.18;
+    syncScreenSignal();
     syncMonitor();
     metalDoor.userData.interact.label = DOOR_LABELS[POWER_STAGE.ROUTED];
     setMainLever(true);
@@ -3080,17 +3317,19 @@ export function createHallwayBasementLevel({
     }
   });
 
-  const loadChart = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.3, 0.38),
+  const loadChart = createPaperSheet(
+    0.3, 0.38,
     new THREE.MeshStandardMaterial({
       map: createPaperNoteTexture([
         'PANEL LOAD CHART',
         `MAX ${PANEL_CAPACITY_IN_AMPS}A TOTAL`,
         ...BREAKER_CIRCUITS.map((c) => `${c.label} — ${c.loadInAmps}A`),
         'DO NOT EXCEED'
-      ]),
-      roughness: 1
-    })
+      ], { aspect: 0.3 / 0.38, wear: 2, seed: 37 }),
+      roughness: 0.95,
+      alphaTest: 0.5
+    }),
+    { seed: 37 }
   );
   loadChart.position.set(-LAB_W / 2 + 0.06, 1.42, BREAKER_PANEL_Z + 0.55);
   loadChart.rotation.y = Math.PI / 2;
@@ -3425,6 +3664,109 @@ export function createHallwayBasementLevel({
     }
   });
 
+  // ---------- the session tape ----------
+  /**
+   * The tape the cassette recorder was taking down when it was knocked off the
+   * instrument trolley: SESSION 14 -- 14.1.87. The player finds the recorder on
+   * the floor, takes the tape out and plays it in the deck on the CCTV desk,
+   * where it plays out into the room with its subtitles along the bottom of
+   * the screen (the host's TapeSubtitles). The desk has no power until the
+   * panel is routed, so that is the earliest it can be heard. Full reasoning
+   * in docs/LEVEL2_POWER_CHAIN.md, "The session tape".
+   *
+   * The tape is in one of three places, and only ever one.
+   */
+  const TAPE_PLACE = { RECORDER: 'recorder', CARRIED: 'carried', DECK: 'deck' };
+
+  let tapePlace = TAPE_PLACE.RECORDER;
+  let cassetteDoorOpen = false;
+  /** PLAY has been pressed with the tape in: the deck is running it. */
+  let deckPlaying = false;
+  /** It ran to its end; the counter stays there until it is played again or ejected. */
+  let tapeRanOut = false;
+  /** Heard to the end at least once this run. */
+  let tapeWatchedToEnd = false;
+
+  /** The tape's sound and clock: the recording once it exists, a stand-in until then. */
+  const tapeSource = createSessionTapeSource();
+
+  /**
+   * The tape as a prop. One download, cloned for each place a tape is seen --
+   * in the recorder, in the deck's door -- and handed to the host as the
+   * template for the one in the player's hand.
+   */
+  const cassetteModelPromise = loadModel(audioCassetteModelUrl);
+  cassetteModelPromise.catch((err) => console.error('[lab] audio_cassette.glb failed to load', err));
+
+  /**
+   * Sets what the CRT's picture is made of, from the power and the camera the
+   * remote last picked. The one place that decides it: the fuse, the
+   * blackout, the panel and the remote all come through here.
+   */
+  function syncScreenSignal() {
+    const uniforms = screenMaterial.uniforms;
+    if (!isCctvPowered()) {
+      uniforms.uNoiseStrength.value = 1.0;
+      uniforms.uStaticMix.value = 1;
+      return;
+    }
+    uniforms.uFeed.value = feeds.textures[activeFeedId];
+    uniforms.uNoiseStrength.value = CCTV_FEED_NOISE_STRENGTH;
+    uniforms.uStaticMix.value = CCTV_FEED_STATIC_MIX;
+  }
+
+  /** Runs the tape from the start: it plays out into the room. */
+  function playTape() {
+    deckPlaying = true;
+    tapeRanOut = false;
+    tapeSource.play();
+    onPlayTape({ source: tapeSource });
+  }
+
+  /** Stops the deck part way and rewinds the tape. Says so only if it was running. */
+  function stopTape() {
+    const wasPlaying = deckPlaying;
+    tapeSource.stop();
+    deckPlaying = false;
+    tapeRanOut = false;
+    if (wasPlaying) onTapeStopped();
+  }
+
+  /** The tape has run to its end: the deck stops by itself. */
+  function finishTape() {
+    deckPlaying = false;
+    tapeRanOut = true;
+    tapeWatchedToEnd = true;
+    onTapeEnded();
+  }
+
+  /**
+   * Runs the tape while the deck plays it and notices it running out -- or
+   * the desk losing its power under it.
+   *
+   * @param {number} deltaTimeInSeconds - frame time.
+   */
+  function updateSessionTape(deltaTimeInSeconds) {
+    if (!deckPlaying) return;
+    if (!isCctvPowered()) {
+      stopTape();
+      return;
+    }
+    tapeSource.update(deltaTimeInSeconds);
+    if (tapeSource.hasEnded) finishTape();
+  }
+
+  /**
+   * Puts the tape back in the recorder on the floor, the recorder's door shut
+   * and the deck empty. For a restart.
+   */
+  function resetSessionTape() {
+    stopTape();
+    tapePlace = TAPE_PLACE.RECORDER;
+    cassetteDoorOpen = false;
+    tapeWatchedToEnd = false;
+  }
+
   // retro computer desk with the CCTV monitor (custom shader material)
   /**
    * The desk USED TO FACE THE BACK WALL. The monitor and its screen sat on the
@@ -3449,7 +3791,7 @@ export function createHallwayBasementLevel({
   deskTop.position.y = DESK_TOP_SIZE.standHeight;
   desk.add(deskTop);
   const deskLeg = (x) => {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.75, 0.06), frameWoodMat());
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.75, 0.06), frameWoodMat({ grain: 'up' }));
     leg.position.set(x, 0.375, 0);
     desk.add(leg);
   };
@@ -3606,19 +3948,16 @@ export function createHallwayBasementLevel({
     label: 'Switch the monitor on',
     onInteract: () => {
       onSfx('switch_click');
+      // The desk only ever has power once the panel is routed, so a dead
+      // button is always simply dead -- never "the power has gone again".
       if (!isCctvPowered()) {
-        showCaption(line(
-          powerStage === POWER_STAGE.DEAD
-            ? 'dialog_monitor_button_no_power'
-            : 'dialog_monitor_button_power_gone'
-        ));
+        showCaption(line('dialog_monitor_button_no_power'));
         return;
       }
       monitorSwitchedOn = !monitorSwitchedOn;
       syncMonitor();
-      if (monitorSwitchedOn) {
-        showCaption(line('dialog_monitor_switched_on'));
-      }
+      syncScreenSignal();
+      if (monitorSwitchedOn) showCaption(line('dialog_monitor_switched_on'));
     }
   };
   interactables.push(powerButton);
@@ -3645,14 +3984,8 @@ export function createHallwayBasementLevel({
     label: 'Examine the monitor',
     onInteract: () => {
       if (!isCctvPowered()) {
-        // Two different kinds of dead screen, and the player has earned the
-        // difference: before the fuse it never worked, after the blackout it
-        // was working a moment ago and something took it away.
-        showCaption(line(
-          powerStage === POWER_STAGE.DEAD
-            ? 'dialog_monitor_dead'
-            : 'dialog_monitor_dark_again'
-        ));
+        // Dead until the panel is routed: the fuse never reached the desk.
+        showCaption(line('dialog_monitor_dead'));
         return;
       }
       if (!monitorSwitchedOn) {
@@ -3702,8 +4035,8 @@ export function createHallwayBasementLevel({
           return;
         }
         feeds.setActive(id);
-        screenMaterial.uniforms.uFeed.value = feeds.textures[id];
         activeFeedId = id;
+        syncScreenSignal();
         syncMonitor();
         onViewFeed(id);
       }
@@ -3849,6 +4182,336 @@ export function createHallwayBasementLevel({
   interactables.push(sticky);
   monitor.add(sticky);
 
+  // ---------- the cassette deck ----------
+  /**
+   * The lab's tape player, beside the monitor. The tape clips into its door
+   * from the player's pocket; PLAY runs it; STOP/EJECT gives it back. It
+   * shares the desk's circuit with the monitor, so it has power exactly when
+   * the cameras do.
+   *
+   * Its door, its two keys and its lamp are parts of cassette_deck.glb the
+   * level moves and lights; the counter is painted (world/DeckCounterDisplay.js)
+   * onto a plane in the display's recess. Every click target is a plain box,
+   * since Interaction never reaches inside a loaded model.
+   */
+  const deck = new THREE.Group();
+  deck.position.set(DECK_ON_DESK.x, DESK_TOP_Y, DECK_ON_DESK.z);
+  desk.add(deck);
+
+  /**
+   * The tape as it rides in the deck's door: clipped in standing up, its label
+   * to the room, and slid up out of the clips by `slide` while it goes in or
+   * comes out. A child of the door once the model is in, so it tips with it.
+   */
+  const deckTape = new THREE.Group();
+  deckTape.rotation.x = Math.PI / 2;
+  deckTape.visible = false;
+  cassetteModelPromise.then((model) => deckTape.add(model.clone())).catch(() => {});
+  function placeDeckTape(slide) {
+    const [x, y, z] = CASSETTE_DECK.tapeInDoor;
+    deckTape.position.set(x, y + slide, z);
+  }
+  placeDeckTape(0);
+
+  const deckParts = { flap: null, play: null, eject: null, lampMat: null };
+  loadModel(cassetteDeckModelUrl).then((model) => {
+    deckParts.flap = model.getObjectByName('DeckFlap');
+    deckParts.play = model.getObjectByName('DeckPlayButton');
+    deckParts.eject = model.getObjectByName('DeckEjectButton');
+    for (const button of [deckParts.play, deckParts.eject]) {
+      if (button) button.userData.restZ = button.position.z;
+    }
+    model.traverse((child) => {
+      if (child.isMesh && child.material.name === 'DeckPowerLamp') deckParts.lampMat = child.material;
+    });
+    deckParts.flap?.add(deckTape);
+    deck.add(shadowed(model));
+  }).catch((err) => console.error('[lab] cassette_deck.glb failed to load', err));
+
+  const counterDisplay = createDeckCounterDisplay();
+  {
+    const { x0, x1, y0, y1, depth } = CASSETTE_DECK.display;
+    const counter = new THREE.Mesh(
+      new THREE.PlaneGeometry(x1 - x0 - 0.002, y1 - y0 - 0.002),
+      // Unlit: a fluorescent display makes its own light, and with the room
+      // dark it is meant to be the only thing on the deck that shows.
+      new THREE.MeshBasicMaterial({ map: counterDisplay.texture, toneMapped: false })
+    );
+    counter.position.set((x0 + x1) / 2, (y0 + y1) / 2, CASSETTE_DECK.frontZ - depth + 0.0005);
+    deck.add(counter);
+  }
+
+  /** A tape on its way in (+1) or out (-1), and how far through it is. */
+  const deckLoad = { direction: 0, elapsedInSeconds: 0 };
+  /** The button currently down, and how long it has been. */
+  const deckPress = { button: null, elapsedInSeconds: 0 };
+
+  function pressDeckButton(button) {
+    deckPress.button = button;
+    deckPress.elapsedInSeconds = 0;
+  }
+
+  /** Starts the door's movement with the tape: +1 in, -1 out. */
+  function startDeckLoad(direction) {
+    deckLoad.direction = direction;
+    deckLoad.elapsedInSeconds = 0;
+    deckTape.visible = true;
+  }
+
+  /** PLAY was pressed with the tape still on its way in: play the moment it is. */
+  let playAfterLoading = false;
+
+  /** Whether the player has the tape on them -- in the inventory, not on a floor. */
+  function isCarryingTape() {
+    return tapePlace === TAPE_PLACE.CARRIED && isCarrying('sessionTape');
+  }
+
+  function insertTape() {
+    tapePlace = TAPE_PLACE.DECK;
+    startDeckLoad(1);
+    onSfx('latch');
+    onTapeInserted();
+    showCaption(line('dialog_deck_tape_in'));
+  }
+
+  function ejectTape() {
+    stopTape();
+    startDeckLoad(-1);
+    onSfx('latch');
+  }
+
+  /** The tape is out of the door and the door is shut: it goes back into the player's hand. */
+  function finishEject() {
+    deckTape.visible = false;
+    tapePlace = TAPE_PLACE.CARRIED;
+    onTapeEjected();
+    showCaption(line('dialog_deck_tape_out'));
+  }
+
+  function pressPlay() {
+    pressDeckButton(deckParts.play);
+    onSfx('switch_click');
+    if (!isCctvPowered()) {
+      showCaption(line('dialog_deck_no_power', { button: 'PLAY' }));
+      return;
+    }
+    // The tape on the player but not yet in: in it goes, and it plays as
+    // soon as it is seated.
+    if (isCarryingTape()) {
+      insertTape();
+      playAfterLoading = true;
+      return;
+    }
+    if (tapePlace !== TAPE_PLACE.DECK) {
+      showCaption(line('dialog_deck_play_empty'));
+      return;
+    }
+    if (deckLoad.direction > 0) {
+      playAfterLoading = true;
+      return;
+    }
+    // Already running, PLAY has nothing to do; run out, it plays from the top.
+    if (deckLoad.direction === 0 && !deckPlaying) playTape();
+  }
+
+  /** STOP/EJECT, the way a deck's does it: a running tape stops; a stopped one comes out. */
+  function pressEject() {
+    pressDeckButton(deckParts.eject);
+    onSfx('switch_click');
+    if (!isCctvPowered()) {
+      showCaption(line('dialog_deck_no_power', { button: 'STOP/EJECT' }));
+      return;
+    }
+    if (deckPlaying) {
+      stopTape();
+      return;
+    }
+    if (tapePlace !== TAPE_PLACE.DECK || deckLoad.direction !== 0) {
+      showCaption(line('dialog_deck_eject_empty'));
+      return;
+    }
+    ejectTape();
+  }
+
+  /**
+   * What the door does: takes the tape if the player has it on them -- it does
+   * not have to be the thing in their hand -- or says what the deck holds.
+   */
+  function useDeckDoor() {
+    if (deckLoad.direction !== 0) return;
+    if (isCarryingTape()) {
+      insertTape();
+      return;
+    }
+    if (tapePlace === TAPE_PLACE.DECK) showCaption(line('dialog_deck_has_tape'));
+    else if (tapePlace === TAPE_PLACE.CARRIED) showCaption(line('dialog_deck_hold_tape'));
+    else showCaption(line('dialog_deck_examine'));
+  }
+
+  /**
+   * Adds one of the deck's click targets: a box at `centre` in the deck's own
+   * space, pushed into `interactables` on its own -- Interaction raycasts
+   * non-recursively.
+   */
+  function addDeckTarget(size, centre, interact) {
+    const target = new THREE.Mesh(new THREE.BoxGeometry(...size), hiddenHitMat);
+    target.position.set(...centre);
+    target.userData.interact = interact;
+    deck.add(target);
+    interactables.push(target);
+    return target;
+  }
+
+  {
+    const { hinge, width, height } = CASSETTE_DECK.door;
+    addDeckTarget(
+      [width + 0.004, height + 0.004, 0.03],
+      [hinge[0], hinge[1] + height / 2, CASSETTE_DECK.frontZ],
+      {
+        get label() {
+          return isCarryingTape() ? 'Put the tape in the deck' : 'Examine the deck';
+        },
+        onInteract: useDeckDoor
+      }
+    );
+  }
+  addDeckTarget(DECK_KEY_TARGET_SIZE, [...CASSETTE_DECK.play, CASSETTE_DECK.buttonFrontZ],
+    { label: 'Press PLAY', onInteract: pressPlay });
+  addDeckTarget(DECK_KEY_TARGET_SIZE, [...CASSETTE_DECK.eject, CASSETTE_DECK.buttonFrontZ],
+    { get label() { return deckPlaying ? 'Press STOP' : 'Press EJECT'; }, onInteract: pressEject });
+
+  /** The tape's two hubs, once its model is in the door: what turns while it plays. */
+  const deckReels = [];
+  cassetteModelPromise.then(() => {
+    for (const name of ['CassetteReelLeft', 'CassetteReelRight']) {
+      const reel = deckTape.getObjectByName(name);
+      if (reel) deckReels.push(reel);
+    }
+  }).catch(() => {});
+
+  /** Eases a 0..1 progress so a movement starts and stops gently. */
+  const smoothStep = (t) => t * t * (3 - 2 * t);
+  /** How far through the span from `from` to `to` the 0..1 `progress` is, eased. */
+  const phase = (progress, from, to) => smoothStep(THREE.MathUtils.clamp((progress - from) / (to - from), 0, 1));
+
+  dynamics.push({
+    update: (dt) => {
+      // The door tipping open, the tape sliding into or up out of its clips,
+      // the door shutting again.
+      if (deckLoad.direction !== 0) {
+        deckLoad.elapsedInSeconds += dt;
+        const progress = Math.min(1, deckLoad.elapsedInSeconds / DECK_LOAD_SECONDS);
+        const open = phase(progress, 0, 0.3) * (1 - phase(progress, 0.72, 1));
+        const seated = deckLoad.direction > 0 ? phase(progress, 0.25, 0.7) : 1 - phase(progress, 0.3, 0.72);
+        placeDeckTape(DECK_TAPE_SLIDE_IN_METRES * (1 - seated));
+        if (deckParts.flap) deckParts.flap.rotation.x = DECK_DOOR_OPEN_ANGLE_IN_RADIANS * open;
+        if (progress >= 1) {
+          const direction = deckLoad.direction;
+          deckLoad.direction = 0;
+          if (deckParts.flap) deckParts.flap.rotation.x = 0;
+          if (direction > 0) {
+            // Seated, behind the door's window, until it is ejected.
+            placeDeckTape(0);
+            if (playAfterLoading) {
+              playAfterLoading = false;
+              playTape();
+            }
+          } else {
+            finishEject();
+          }
+        }
+      }
+      // The hubs turning behind the door's window while the tape runs --
+      // clockwise seen from the label, which faces the room.
+      if (tapeSource.isRunning) {
+        deckReels.forEach((reel, i) => { reel.rotation.y -= DECK_REEL_SPEEDS_IN_RADIANS_PER_SECOND[i] * dt; });
+      }
+      // A pressed button goes in and springs back.
+      if (deckPress.button) {
+        deckPress.elapsedInSeconds += dt;
+        const down = deckPress.elapsedInSeconds < DECK_BUTTON_PRESS_SECONDS;
+        deckPress.button.position.z = deckPress.button.userData.restZ - (down ? DECK_BUTTON_TRAVEL_IN_METRES : 0);
+        if (!down) deckPress.button = null;
+      }
+      // The lamp and the counter follow the desk's power.
+      const powered = isCctvPowered();
+      if (deckParts.lampMat) {
+        deckParts.lampMat.emissive.setHex(0xff2a14);
+        deckParts.lampMat.emissiveIntensity = powered ? 2.2 : 0;
+      }
+      counterDisplay.show({
+        powered,
+        mode: tapePlace !== TAPE_PLACE.DECK ? '' : deckPlaying ? 'PLAY' : 'STOP',
+        seconds: deckPlaying || tapeRanOut ? tapeSource.currentTimeInSeconds : 0
+      });
+    }
+  });
+
+  /**
+   * The earlier session tapes, stacked behind the deck: SESSION 1 at the
+   * bottom up to SESSION 13 on top, in the marker the fourteenth is labelled
+   * in. Nobody put a fourteenth on the pile.
+   */
+  const tapeStack = new THREE.Group();
+  tapeStack.position.set(TAPE_STACK_ON_DESK.x, DESK_TOP_Y, TAPE_STACK_ON_DESK.z);
+  tapeStack.rotation.y = TAPE_STACK_ON_DESK.yaw;
+  desk.add(tapeStack);
+  loadModel(cassetteStackModelUrl)
+    .then((model) => tapeStack.add(shadowed(model)))
+    .catch((err) => console.error('[lab] cassette_stack.glb failed to load', err));
+  const tapeStackHit = new THREE.Mesh(new THREE.BoxGeometry(0.125, 0.23, 0.08), hiddenHitMat);
+  tapeStackHit.position.y = 0.115;
+  tapeStackHit.userData.interact = {
+    label: 'Examine the tapes',
+    // Once the player has the fourteenth, the pile reads differently.
+    onInteract: () => showCaption(line(tapePlace === TAPE_PLACE.RECORDER ? 'dialog_tape_stack' : 'dialog_tape_stack_after'))
+  };
+  tapeStack.add(tapeStackHit);
+  interactables.push(tapeStackHit);
+
+  /**
+   * The deck's power lead, in desk space: off the back of the desk and down
+   * to a socket of its own on the wall.
+   */
+  {
+    const WALL_Z = -(LAB_D / 2 - DESK_POSITION.z);
+    const onDesk = DESK_TOP_Y + 0.004;
+    const leadMat = new THREE.MeshStandardMaterial({ color: 0x1c1c1e, roughness: 0.6 });
+    const plugMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.5 });
+    const lead = (points, radius) => {
+      const curve = new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(...p)));
+      desk.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 64, radius, 6, false), leadMat));
+    };
+
+    const powerLeadStart = [
+      DECK_ON_DESK.x + CASSETTE_DECK.powerLead[0],
+      DESK_TOP_Y + CASSETTE_DECK.powerLead[1],
+      DECK_ON_DESK.z + CASSETTE_DECK.powerLead[2] - 0.004
+    ];
+    const SOCKET = { x: 0.4, y: 0.3 };
+    lead([
+      powerLeadStart,
+      [powerLeadStart[0], onDesk, powerLeadStart[2] - 0.03],
+      [powerLeadStart[0] - 0.01, onDesk, -0.2],
+      [powerLeadStart[0] - 0.02, DESK_TOP_Y - 0.003, -DESK_TOP_SIZE.depth / 2 - 0.012],
+      [powerLeadStart[0] - 0.015, 0.45, -DESK_TOP_SIZE.depth / 2 - 0.06],
+      [powerLeadStart[0], 0.06, -DESK_TOP_SIZE.depth / 2 - 0.12],
+      [SOCKET.x, 0.012, (-DESK_TOP_SIZE.depth / 2 + WALL_Z) / 2],
+      [SOCKET.x, 0.012, WALL_Z + 0.015],
+      [SOCKET.x, 0.15, WALL_Z + 0.012],
+      [SOCKET.x, SOCKET.y - 0.018, WALL_Z + 0.015]
+    ], 0.0035);
+    const socketPlate = new THREE.Mesh(
+      new THREE.BoxGeometry(0.07, 0.07, 0.008),
+      new THREE.MeshStandardMaterial({ color: 0xd8d2c0, roughness: 0.6 })
+    );
+    socketPlate.position.set(SOCKET.x, SOCKET.y, WALL_Z + 0.004);
+    desk.add(socketPlate);
+    const wallPlug = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.034, 0.022), plugMat);
+    wallPlug.position.set(SOCKET.x, SOCKET.y, WALL_Z + 0.019);
+    desk.add(wallPlug);
+  }
+
   colliders.push({
     minX: desk.position.x - 0.65, maxX: desk.position.x + 0.65,
     minZ: LAB_Z + desk.position.z - 0.35, maxZ: LAB_Z + desk.position.z + 0.35
@@ -3870,51 +4533,113 @@ export function createHallwayBasementLevel({
   // wall instead, which meant the player would walk straight past it on
   // the way in rather than having to cross the room to reach it.
   /**
-   * TEXTURE PREVIEW: the door is steel under dark grey paint, rusting through.
+   * A riveted steel door, its grey paint flaking off and rust running down it
+   * from every pit -- one photo of a whole door (steel_door_albedo.jpg, with
+   * its normal and roughness maps) across each face once, since a box's UVs
+   * run 0..1 over each face and this photo IS a door. Its rivets, its seams
+   * and the paper stuck to it are in the photo; the hardware that stands off
+   * a door -- hinge straps, the viewing plate's frame, the latch, the handle
+   * -- is built over it, where the photo has it, by addSteelDoorHardware().
    *
-   * The paint is the bare-steel photo tinted dark, not a flat colour: the
-   * steel's brush streaks and dents still show through it as wear, and its
-   * normal map keeps the surface relief. Paint is not metal, so metalness is
-   * low. Over it, the same transparent rust layer the generator wears, laid
-   * larger here (one copy of the photo across DOOR_RUST_METRES) so it does not
-   * repeat down a door twice the generator's height, and a little lighter.
+   * The player faces its -z side, on which a box's u runs toward -x: the
+   * photo reads the right way round from the room.
    */
-  const doorFace = [DOOR_WIDTH_IN_METRES, DOOR_HEIGHT_IN_METRES];   // about a metre a copy
   const metalDoor = new THREE.Mesh(
     new THREE.BoxGeometry(DOOR_WIDTH_IN_METRES, DOOR_HEIGHT_IN_METRES, 0.08),
-    new THREE.MeshStandardMaterial({
-      map: loadPhoto(steelColorUrl, { repeat: doorFace }),
-      normalMap: loadPhoto(steelNormalUrl, { colour: false, repeat: doorFace }),
-      color: 0x4a4d4d,
-      metalness: 0.15,
-      roughness: 0.6
-    })
+    (() => {
+      const face = new THREE.MeshStandardMaterial({
+        map: loadPhoto(steelDoorAlbedoUrl, { wrap: THREE.ClampToEdgeWrapping }),
+        normalMap: loadPhoto(steelDoorNormalUrl, { colour: false, wrap: THREE.ClampToEdgeWrapping }),
+        roughnessMap: loadPhoto(steelDoorRoughnessUrl, { colour: false, wrap: THREE.ClampToEdgeWrapping }),
+        metalness: 0.35,
+        roughness: 1
+      });
+      const edge = new THREE.MeshStandardMaterial({ color: 0x3a3632, metalness: 0.5, roughness: 0.7 });
+      // A box's faces: +x, -x, +y, -y, +z (against the wall), -z (the room).
+      return [edge, edge, edge, edge, face, face];
+    })()
   );
   metalDoor.position.set(0, DOOR_HEIGHT_IN_METRES / 2, LAB_D / 2 - 0.05);
+  addSteelDoorHardware(metalDoor);
+
+  /**
+   * The raised parts of the steel door, built where its photo has them, as
+   * children of the door so they go wherever it goes. Rusted iron: duller
+   * and browner than the door's own steel.
+   *
+   * @param {THREE.Mesh} door - the door slab, centred, its room face at -z.
+   */
+  function addSteelDoorHardware(door) {
+    const iron = new THREE.MeshStandardMaterial({ color: 0x4d3a2c, metalness: 0.45, roughness: 0.82 });
+    const frontZ = -0.04;
+    // A point on the photo, in the door's own frame.
+    const x = (u) => -(u - 0.5) * DOOR_WIDTH_IN_METRES;
+    const y = (v) => (0.5 - v) * DOOR_HEIGHT_IN_METRES;
+    const plate = ({ u0, u1, v0, v1 }, proud) => {
+      const mesh = new THREE.Mesh(
+        new THREE.BoxGeometry(Math.abs(x(u1) - x(u0)), Math.abs(y(v1) - y(v0)), proud),
+        iron
+      );
+      mesh.position.set((x(u0) + x(u1)) / 2, (y(v0) + y(v1)) / 2, frontZ - proud / 2);
+      mesh.castShadow = true;
+      door.add(mesh);
+      return mesh;
+    };
+    const { hinges, viewingPlate, latch, handlePlate, lever } = STEEL_DOOR_HARDWARE;
+    for (const hinge of hinges) {
+      plate(hinge, 0.012);
+      // The knuckle the strap turns on, at the door's edge.
+      const knuckle = new THREE.Mesh(new THREE.CylinderGeometry(0.019, 0.019, Math.abs(y(hinge.v1) - y(hinge.v0)) + 0.03, 14), iron);
+      knuckle.position.set(x(1) - 0.012, (y(hinge.v0) + y(hinge.v1)) / 2, frontZ + 0.01);
+      door.add(knuckle);
+    }
+    // The viewing plate's frame: four bars standing round it.
+    const bar = 0.016;
+    const { u0, u1, v0, v1 } = viewingPlate;
+    const du = bar / DOOR_WIDTH_IN_METRES;
+    const dv = bar / DOOR_HEIGHT_IN_METRES;
+    plate({ u0, u1, v0, v1: v0 + dv }, 0.012);
+    plate({ u0, u1, v0: v1 - dv, v1 }, 0.012);
+    plate({ u0, u1: u0 + du, v0, v1 }, 0.012);
+    plate({ u0: u1 - du, u1, v0, v1 }, 0.012);
+    plate(latch, 0.016);
+    plate(handlePlate, 0.012);
+    // The lever: a stem out of the plate, and the grip turned across the door.
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.05, 12), iron);
+    stem.rotation.x = Math.PI / 2;
+    stem.position.set(x((handlePlate.u0 + handlePlate.u1) / 2), y(lever.v), frontZ - 0.012 - 0.025);
+    door.add(stem);
+    const leverLength = Math.abs(x(lever.tipU) - stem.position.x);
+    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, leverLength, 12), iron);
+    grip.rotation.z = Math.PI / 2;
+    grip.position.set(stem.position.x - leverLength / 2, y(lever.v), frontZ - 0.012 - 0.05);
+    grip.castShadow = true;
+    door.add(grip);
+  }
+
+  /**
+   * The steel frame the door hangs in, round it in the wall: two jambs and a
+   * head, deeper than the door so it stands out of the wall it is set in.
+   */
   {
-    // A box's UVs run 0..1 across each face, so the rust is scaled by the
-    // door's own size: DOOR_RUST_METRES of photo across, its height to match.
-    const DOOR_RUST_METRES = 2.2;
-    const rustAspect = 524 / 768;   // the overlay image's height over its width
-    const doorRust = new THREE.Mesh(
-      metalDoor.geometry,
-      new THREE.MeshStandardMaterial({
-        map: loadPhoto(rustOverlayUrl, {
-          repeat: [DOOR_WIDTH_IN_METRES / DOOR_RUST_METRES, DOOR_HEIGHT_IN_METRES / (DOOR_RUST_METRES * rustAspect)],
-          wrap: THREE.MirroredRepeatWrapping
-        }),
-        transparent: true,
-        opacity: 0.85,
-        depthWrite: false,
-        polygonOffset: true,
-        polygonOffsetFactor: -1,
-        polygonOffsetUnits: -1,
-        roughness: 0.95,
-        metalness: 0
-      })
-    );
-    // A child, so it goes wherever the door goes when it opens.
-    metalDoor.add(doorRust);
+    const frameMat = new THREE.MeshStandardMaterial({
+      map: loadPhoto(steelColorUrl, { repeat: [0.4, 1.6] }),
+      normalMap: loadPhoto(steelNormalUrl, { colour: false, repeat: [0.4, 1.6] }),
+      color: 0x55524d,
+      metalness: 0.5,
+      roughness: 0.6
+    });
+    const FRAME_W = 0.07;
+    const FRAME_D = 0.12;
+    const z = metalDoor.position.z;
+    for (const side of [-1, 1]) {
+      const jamb = new THREE.Mesh(new THREE.BoxGeometry(FRAME_W, DOOR_HEIGHT_IN_METRES + FRAME_W, FRAME_D), frameMat);
+      jamb.position.set(side * (DOOR_WIDTH_IN_METRES + FRAME_W) / 2, (DOOR_HEIGHT_IN_METRES + FRAME_W) / 2, z);
+      lab.add(jamb);
+    }
+    const head = new THREE.Mesh(new THREE.BoxGeometry(DOOR_WIDTH_IN_METRES + FRAME_W * 2, FRAME_W, FRAME_D), frameMat);
+    head.position.set(0, DOOR_HEIGHT_IN_METRES + FRAME_W / 2, z);
+    lab.add(head);
   }
 
   /** What the door says at each stage, so the label always names the real
@@ -3940,7 +4665,7 @@ export function createHallwayBasementLevel({
        * outside the trigger volume, and the blackout never fires.
        */
       if (powerStage === POWER_STAGE.LIT) {
-        triggerBlackout();
+        triggerBlackout('door');
         return;
       }
       if (!isDoorPowered()) {
@@ -3990,8 +4715,8 @@ export function createHallwayBasementLevel({
    * On a second playthrough it is Mark's own handwriting telling himself not
    * to walk out without looking.
    */
-  const doorNote = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.26, 0.32),
+  const doorNote = createPaperSheet(
+    0.26, 0.32,
     new THREE.MeshStandardMaterial({
       map: createPaperNoteTexture([
         'SECURITY LOCKOUT',
@@ -4001,9 +4726,11 @@ export function createHallwayBasementLevel({
         'IN WHAT IT WEARS,',
         'TOP ROW DOWN,',
         'LIES YOUR WAY OUT.'
-      ]),
-      roughness: 1
-    })
+      ], { aspect: 0.26 / 0.32, wear: 4, seed: 41 }),
+      roughness: 0.95,
+      alphaTest: 0.5
+    }),
+    { seed: 41 }
   );
   /**
    * Taped to the middle of the door at eye level -- the one place the player
@@ -4041,16 +4768,17 @@ export function createHallwayBasementLevel({
    * player to make that one connection is the difference between a clue and an
    * instruction.
    *
-   * 1.55 m is head height for a 1.7 m eye position looking slightly down at a
-   * door they are standing in front of. The note sits 0.05 m proud of the
-   * slab's front face so it never z-fights with it.
+   * 1.4 m sits it just under the door's viewing plate (1.58-1.75 m), still at
+   * the eye of someone standing in front of the door looking slightly down.
+   * The note's taped top sits 4 mm off the slab's front face, so it never
+   * z-fights with it; the rest of the sheet bows and peels further off.
    */
-  const DOOR_NOTE_EYE_LEVEL_IN_METRES = 1.55;
+  const DOOR_NOTE_EYE_LEVEL_IN_METRES = 1.4;
   const DOOR_SLAB_HALF_DEPTH_IN_METRES = 0.04;
   doorNote.position.set(
     metalDoor.position.x,
     DOOR_NOTE_EYE_LEVEL_IN_METRES,
-    metalDoor.position.z - DOOR_SLAB_HALF_DEPTH_IN_METRES - 0.01
+    metalDoor.position.z - DOOR_SLAB_HALF_DEPTH_IN_METRES - 0.004
   );
   // Turned to face back down the room. A PlaneGeometry's front is +Z and the
   // player always approaches this wall walking in the +Z direction, so an
@@ -4114,37 +4842,99 @@ export function createHallwayBasementLevel({
   }
 
   /**
-   * Sanity, checked at build time rather than discovered by a playtester
-   * losing the CCTV sightings to a blackout: the desk must sit outside the
-   * door's approach lane, or standing at the monitor trips it.
+   * The volume in front of the CCTV desk that throws the main, the same way
+   * the door's lane does: the desk's width plus a margin either side, out into
+   * the room from its front edge. The desk has no power before the panel is
+   * routed, so all it can show the player in the lit window is that someone
+   * does not want them at it.
    */
-  {
-    const deskNearEdgeX = Math.abs(desk.position.x) - 0.65;
-    if (deskNearEdgeX < DOOR_APPROACH_HALF_WIDTH_IN_METRES) {
-      console.warn(
-        `[lab] the CCTV desk reaches x=${deskNearEdgeX.toFixed(2)}, inside the ` +
-        `${DOOR_APPROACH_HALF_WIDTH_IN_METRES.toFixed(2)}m door approach lane -- ` +
-        'the blackout can fire while the player is using the monitor'
-      );
-    }
+  const DESK_HALF_WIDTH_IN_METRES = DESK_TOP_SIZE.width / 2 + 0.05;
+  const deskWorldFrontZ = LAB_Z + desk.position.z - DESK_TOP_SIZE.depth / 2;
+
+  /**
+   * Whether the player is standing at the CCTV desk.
+   *
+   * @param {THREE.Vector3} playerPosition - the player's WORLD position.
+   * @returns {boolean} true inside the box in front of the desk.
+   */
+  function isPlayerAtDesk(playerPosition) {
+    return (
+      Math.abs(playerPosition.x - desk.position.x) <= DESK_HALF_WIDTH_IN_METRES + DESK_APPROACH_SIDE_MARGIN_IN_METRES &&
+      playerPosition.z >= deskWorldFrontZ - DESK_APPROACH_DEPTH_IN_METRES
+    );
   }
 
   /**
-   * Kills the lab the moment the player reaches the door.
-   *
-   * Fires once, only out of LIT -- so it can never happen before the 30A fuse
-   * is in (there would be nothing to take away) and can never happen twice.
-   *
-   * The lights and the screen are dropped to zero HERE rather than left to the
-   * ramp in updateLabLighting, because a hand pulling a main breaker is not a
-   * fade. The ramp then simply holds them down. What the player keeps is the
-   * fifteen-odd seconds of lit room they crossed to get here: long enough to
-   * have seen the generator and the breaker panel, which is the whole reason
-   * the trip waits until they have walked the length of the lab.
+   * Reaching for anything on the desk counts as going for it, for the same
+   * reason the door's own click does: the interaction ray reaches 3.2 m, past
+   * the edge of the volume. Every click target that belongs to the desk -- the
+   * monitor, its buttons, the remote, the deck, the tapes, the note -- throws
+   * the main first while the lab is on the fuse alone, then does what it does.
    */
-  function triggerBlackout() {
+  for (const target of interactables) {
+    let onDesk = false;
+    target.traverseAncestors((ancestor) => { if (ancestor === desk) onDesk = true; });
+    if (!onDesk) continue;
+    const interact = target.userData.interact;
+    const use = interact.onInteract;
+    interact.onInteract = () => {
+      if (powerStage === POWER_STAGE.LIT) triggerBlackout('desk');
+      use();
+    };
+  }
+
+  /**
+   * Seconds left of the fuse's lit window, from BLACKOUT_TIMER_RANGE_IN_SECONDS,
+   * counting only while the lab is LIT.
+   */
+  let blackoutTimerSecondsLeft = 0;
+
+  /** Starts the lit window's clock. The fuse calls this as it seats. */
+  function startBlackoutTimer() {
+    const [shortest, longest] = BLACKOUT_TIMER_RANGE_IN_SECONDS;
+    blackoutTimerSecondsLeft = shortest + Math.random() * (longest - shortest);
+  }
+
+  /**
+   * Throws the main if the player has gone for the door or the desk, or the lit
+   * window has run out. Once a frame; only while the lab is on the fuse alone.
+   *
+   * @param {number} deltaTimeInSeconds - frame time.
+   * @param {THREE.Vector3} [playerPosition] - the player's world position.
+   */
+  function updateBlackoutTriggers(deltaTimeInSeconds, playerPosition) {
+    if (powerStage !== POWER_STAGE.LIT) return;
+    if (playerPosition && isPlayerAtDoor(playerPosition)) {
+      triggerBlackout('door');
+      return;
+    }
+    if (playerPosition && isPlayerAtDesk(playerPosition)) {
+      triggerBlackout('desk');
+      return;
+    }
+    blackoutTimerSecondsLeft -= deltaTimeInSeconds;
+    if (blackoutTimerSecondsLeft <= 0) triggerBlackout('timer');
+  }
+
+  /**
+   * Kills the lab: the main is thrown, by hand, at the far wall.
+   *
+   * Three things throw it, all only out of LIT, so it can never happen before
+   * the 30A fuse is in (there would be nothing to take away) and never twice:
+   * going for the door ('door'), going for the CCTV desk ('desk'), or simply
+   * the lit window running out ('timer'). See "Puzzle 2 -- the blackout" in
+   * docs/LEVEL2_POWER_CHAIN.md for why it is all three.
+   *
+   * The lights are dropped to zero HERE rather than left to the ramp in
+   * updateLabLighting, because a hand pulling a main breaker is not a fade.
+   * The ramp then simply holds them down.
+   *
+   * @param {'door'|'desk'|'timer'} cause - what threw it, passed on to the host.
+   */
+  function triggerBlackout(cause) {
     powerStage = POWER_STAGE.BLACKOUT;
     powerLevel = 0;
+    blackoutTimerSecondsLeft = 0;
 
     // Whoever threw the main took every breaker down with it. The player
     // finds the panel this way, having seen it all up on the way in.
@@ -4156,14 +4946,8 @@ export function createHallwayBasementLevel({
     starterPulls = 0;
     updateGeneratorControlLights();
 
-    screenMaterial.uniforms.uNoiseStrength.value = 1.0;
-    screenMaterial.uniforms.uStaticMix.value = 1;
-    // Still switched on -- the picture collapses because the power went, and
-    // returns with it.
+    syncScreenSignal();
     syncMonitor();
-    // The screen is pure static now so nothing is on show, but the feeds must
-    // still be told the basement went dark -- leaving them believing this room
-    // is lit means the first frame after power returns paints a stale image.
     syncFeedRoomPower();
 
     metalDoor.userData.interact.label = DOOR_LABELS[POWER_STAGE.BLACKOUT];
@@ -4171,7 +4955,7 @@ export function createHallwayBasementLevel({
     // fires is what tells the player it was a hand on a lever, not a fault --
     // they feel it here and understand it a second later.
     showCaption(line('dialog_room_goes_out'));
-    onBlackout();
+    onBlackout({ cause });
   }
 
   /**
@@ -4203,8 +4987,23 @@ export function createHallwayBasementLevel({
   };
   lab.add(blackPool);
 
-  function frameWoodMat() {
-    return new THREE.MeshStandardMaterial({ color: 0x3a2c1e, roughness: 0.85 });
+  /**
+   * The wood of the lab's two tables, the CCTV desk and the workbench: the
+   * same dark, scuffed boards as the bedside table in Level 1
+   * (textures/bedside/wood.png), so the house's furniture reads as one house.
+   * The photo's grain runs across it, which is right along a table top; a leg
+   * turns it a quarter so the grain runs up the leg, as it would in real wood.
+   *
+   * @param {object} [options]
+   * @param {'along'|'up'} [options.grain] - along a top, or up a leg.
+   */
+  function frameWoodMat({ grain = 'along' } = {}) {
+    const map = loadPhoto(tableWoodUrl);
+    if (grain === 'up') {
+      map.center.set(0.5, 0.5);
+      map.rotation = Math.PI / 2;
+    }
+    return new THREE.MeshStandardMaterial({ map, roughness: 0.82 });
   }
 
   // ---------- central detail ----------
@@ -4221,7 +5020,7 @@ export function createHallwayBasementLevel({
   benchTop.position.y = 0.82;
   workbench.add(benchTop);
   [[-0.6, -0.35], [0.6, -0.35], [-0.6, 0.35], [0.6, 0.35]].forEach(([x, z]) => {
-    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.82, 0.06), frameWoodMat());
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.82, 0.06), frameWoodMat({ grain: 'up' }));
     leg.position.set(x, 0.41, z);
     workbench.add(leg);
   });
@@ -4237,7 +5036,72 @@ export function createHallwayBasementLevel({
     minZ: LAB_Z + workbench.position.z - 0.45, maxZ: LAB_Z + workbench.position.z + 0.45
   });
 
-  const crateMat = new THREE.MeshStandardMaterial({ color: 0x2e2418, roughness: 0.9 });
+  /**
+   * Cardboard boxes: a photo of corrugated board, creased, across every face
+   * once (a box's UVs run 0..1 over each face), its own light and shade as a
+   * bump so the corrugation catches the light, and dulled a little for a
+   * basement. Each box has the photo flipped its own way, so the crease
+   * across it never lines up from one box to the next.
+   */
+  const CARDBOARD_FLIPS = [[1, 1], [-1, 1], [1, -1]];
+  const cardboardMats = CARDBOARD_FLIPS.map((repeat) => new THREE.MeshStandardMaterial({
+    map: loadPhoto(cardboardUrl, { repeat }),
+    bumpMap: loadPhoto(cardboardUrl, { colour: false, repeat }),
+    bumpScale: 1.5,
+    color: 0xc9bca6,
+    roughness: 0.92
+  }));
+  /** How far a box's sides bow out, its lid flaps' thickness and rise, and the gap at their seam. */
+  const BOX_BULGE = 0.006;
+  const BOX_FLAP_THICKNESS = 0.004;
+  const BOX_FLAP_RISE_IN_RADIANS = 0.01;
+  const BOX_SEAM = 0.003;
+  /**
+   * A closed cardboard box, CRATE_SIZE on every side, centred on its origin:
+   * its four sides bowed out a little by whatever is packed in it -- the
+   * edges and corners staying straight, as a full box's do -- and its lid two
+   * flaps folded down to meet in a seam across the middle, each rising a
+   * touch toward it. Each flap shows its own half of the photo, so the
+   * cardboard is not squeezed onto it. Its top is still CRATE_SIZE up, so a
+   * box stacks on it and the fuse lies on it where they always did.
+   *
+   * @param {THREE.Material} material - the box's cardboard.
+   * @returns {THREE.Group}
+   */
+  function createCardboardBox(material) {
+    const half = CRATE_SIZE / 2;
+    const bodyHeight = CRATE_SIZE - BOX_FLAP_THICKNESS;
+    const body = new THREE.BoxGeometry(CRATE_SIZE, bodyHeight, CRATE_SIZE, 8, 8, 8);
+    const position = body.attributes.position;
+    for (let i = 0; i < position.count; i++) {
+      const x = position.getX(i) / half;
+      const y = position.getY(i) / (bodyHeight / 2);
+      const z = position.getZ(i) / half;
+      // Each side bows out in its middle, nothing at its edges.
+      if (Math.abs(Math.abs(x) - 1) < 1e-6) position.setX(i, position.getX(i) + Math.sign(x) * BOX_BULGE * (1 - y * y) * (1 - z * z));
+      if (Math.abs(Math.abs(z) - 1) < 1e-6) position.setZ(i, position.getZ(i) + Math.sign(z) * BOX_BULGE * (1 - y * y) * (1 - x * x));
+    }
+    body.computeVertexNormals();
+    const box = new THREE.Mesh(body, material);
+    box.position.y = -BOX_FLAP_THICKNESS / 2;
+    const holder = new THREE.Group();
+    holder.add(box);
+    for (const side of [-1, 1]) {
+      const depth = half - BOX_SEAM / 2;
+      const flap = new THREE.BoxGeometry(CRATE_SIZE, BOX_FLAP_THICKNESS, depth);
+      // This flap's half of the photo, on its top face and the rest.
+      const uv = flap.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setY(i, uv.getY(i) * 0.5 + (side > 0 ? 0 : 0.5));
+      // Hinged at the box's edge, its free edge at the seam.
+      flap.translate(0, BOX_FLAP_THICKNESS / 2, -side * depth / 2);
+      const hinge = new THREE.Group();
+      hinge.position.set(0, half - BOX_FLAP_THICKNESS, side * half);
+      hinge.rotation.x = side * BOX_FLAP_RISE_IN_RADIANS;
+      hinge.add(new THREE.Mesh(flap, material));
+      holder.add(hinge);
+    }
+    return holder;
+  }
   /**
    * The stacked crates used to stand at x=1.5, which left a 0.50 m gap between
    * their collider and the shelving at x=2.3. The player is 0.70 m across, so
@@ -4248,8 +5112,8 @@ export function createHallwayBasementLevel({
    *
    * Moved west to x=0.9, which opens the gap to 1.10 m.
    */
-  CRATE_LAYOUT.forEach(({ x, z, stackY, turn }) => {
-    const crate = new THREE.Mesh(new THREE.BoxGeometry(CRATE_SIZE, CRATE_SIZE, CRATE_SIZE), crateMat);
+  CRATE_LAYOUT.forEach(({ x, z, stackY, turn }, i) => {
+    const crate = createCardboardBox(cardboardMats[i % cardboardMats.length]);
     crate.position.set(x, CRATE_SIZE / 2 + stackY, z);
     crate.rotation.y = turn;
     lab.add(crate);
@@ -4326,7 +5190,7 @@ export function createHallwayBasementLevel({
     'OBSERVED.',
     'VISUAL DISTORTION',
     'INCREASING.'
-  ]);
+  ], { aspect: 0.3 / 0.38, wear: 2, seed: 53 });
   const tornNotes = new THREE.Mesh(
     new THREE.PlaneGeometry(0.3, 0.38),
     // Pulled toward the camera in the depth test as well as lifted: at the
@@ -4334,7 +5198,9 @@ export function createHallwayBasementLevel({
     // still lose to the bench top on some depth buffers.
     new THREE.MeshStandardMaterial({
       map: tornNoteTex,
-      roughness: 1,
+      roughness: 0.95,
+      // The paper's torn edge is see-through.
+      alphaTest: 0.5,
       polygonOffset: true,
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1
@@ -4352,6 +5218,46 @@ export function createHallwayBasementLevel({
   };
   interactables.push(tornNotes);
   workbench.add(tornNotes);
+
+  /**
+   * The microscope at the clear end of the bench, past the tools, turned to
+   * show its side to someone walking in from the hallway -- and three of the
+   * session's slides scattered beside it, one snapped. Both are in the
+   * bench's own space; the top is at y = 0.845. Plain boxes are their click
+   * targets, since Interaction never reaches inside a loaded model.
+   */
+  const WORKBENCH_TOP = 0.845;
+  const microscope = new THREE.Group();
+  microscope.position.set(0.53, WORKBENCH_TOP, 0.2);
+  microscope.rotation.y = -2.2;
+  workbench.add(microscope);
+  loadModel(microscopeModelUrl)
+    .then((model) => microscope.add(shadowed(model)))
+    .catch((err) => console.error('[lab] microscope.glb failed to load', err));
+  const microscopeHit = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.35, 0.16), hiddenHitMat);
+  microscopeHit.position.y = 0.175;
+  microscopeHit.userData.interact = {
+    label: 'Examine the microscope',
+    onInteract: () => showCaption(line('dialog_microscope'))
+  };
+  microscope.add(microscopeHit);
+  interactables.push(microscopeHit);
+
+  const slidesOnBench = new THREE.Group();
+  slidesOnBench.position.set(0.5, WORKBENCH_TOP + 0.0005, -0.02);
+  slidesOnBench.rotation.y = 0.4;
+  workbench.add(slidesOnBench);
+  loadModel(glassSlidesModelUrl)
+    .then((model) => slidesOnBench.add(model))
+    .catch((err) => console.error('[lab] glass_slides.glb failed to load', err));
+  const slidesHit = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.02, 0.15), hiddenHitMat);
+  slidesHit.position.y = 0.01;
+  slidesHit.userData.interact = {
+    label: 'Examine the slides',
+    onInteract: () => showCaption(line('dialog_slides'))
+  };
+  slidesOnBench.add(slidesHit);
+  interactables.push(slidesHit);
 
   // ---------- the operating corner ----------
 
@@ -4588,6 +5494,106 @@ export function createHallwayBasementLevel({
   }).catch((err) => console.error('[lab] lab_chair.glb failed to load', err));
 
   /**
+   * The cassette recorder that took Session 14 down, on the floor where it
+   * landed: cassette_recorder.glb, off the foot of the restraint table toward
+   * the entrance, turned askew, its hand microphone flung out on its lead.
+   *
+   * It is the first thing in the lab that asks to be picked up. In the dark,
+   * before the fuse, the only light down here is its battery lamp winking red
+   * at floor level -- which is all the nudge it gets.
+   *
+   * One click target for the whole recorder, whose prompt moves the player
+   * through it: look at it, lift the cassette door, take the tape.
+   */
+  const recorder = new THREE.Group();
+  recorder.position.set(RECORDER_REST.x, 0, RECORDER_REST.z);
+  recorder.rotation.y = RECORDER_REST.yawInRadians;
+  lab.add(recorder);
+
+  /** The tape lying lengthwise in the well under the door, label up, until it is taken. */
+  const wellTape = new THREE.Group();
+  wellTape.position.fromArray(CASSETTE_RECORDER.wellCentre);
+  wellTape.rotation.y = CASSETTE_RECORDER.tapeYawInRadians;
+  recorder.add(wellTape);
+  cassetteModelPromise.then((model) => wellTape.add(shadowed(model.clone()))).catch(() => {});
+
+  /** The door, once the model is in: its hinge is its origin, along its near edge. */
+  let cassetteDoor = null;
+  /** How far open the door is, in radians, easing toward open or shut. */
+  let cassetteDoorAngle = 0;
+  loadModel(cassetteRecorderModelUrl).then((model) => {
+    cassetteDoor = model.getObjectByName('CassetteDoor');
+    recorder.add(shadowed(model));
+    // Only the case blocks the player: the strap lies flat on the floor, and
+    // walking over it is what anyone would do.
+    recorder.updateWorldMatrix(true, true);
+    const body = model.getObjectByName('RecorderBody') ?? model;
+    const box = new THREE.Box3().setFromObject(body, true);
+    colliders.push({ minX: box.min.x, maxX: box.max.x, minZ: box.min.z, maxZ: box.max.z });
+  }).catch((err) => console.error('[lab] cassette_recorder.glb failed to load', err));
+
+  /**
+   * The battery lamp: still winking, at floor level -- and with a light of its
+   * own, so the wink catches the concrete round it.
+   */
+  const batteryLampMat = new THREE.MeshStandardMaterial({ color: 0x2a0503, emissive: 0xff2010, emissiveIntensity: 0 });
+  const batteryLamp = new THREE.Mesh(new THREE.SphereGeometry(0.003, 10, 8), batteryLampMat);
+  batteryLamp.position.fromArray(CASSETTE_RECORDER.batteryLamp);
+  recorder.add(batteryLamp);
+  const batteryGlow = new THREE.PointLight(0xff2010, 0, 0.7, 2);
+  batteryGlow.position.fromArray(CASSETTE_RECORDER.batteryLamp);
+  batteryGlow.position.y += 0.02;
+  recorder.add(batteryGlow);
+
+  function takeTapeFromRecorder() {
+    wellTape.visible = false;
+    tapePlace = TAPE_PLACE.CARRIED;
+    onTapeTaken();
+    showCaption(line('dialog_tape_taken'));
+  }
+
+  const recorderHit = new THREE.Mesh(new THREE.BoxGeometry(...CASSETTE_RECORDER.bounds.size), hiddenHitMat);
+  recorderHit.position.fromArray(CASSETTE_RECORDER.bounds.centre);
+  /**
+   * Two presses: the first looks at it and lifts the cassette door, so the
+   * player sees something happen at once rather than only reading about it;
+   * the second takes the tape.
+   */
+  recorderHit.userData.interact = {
+    get label() {
+      if (tapePlace !== TAPE_PLACE.RECORDER) return 'Examine the tape recorder';
+      return cassetteDoorOpen ? 'Take the tape' : 'Examine the tape recorder';
+    },
+    onInteract: () => {
+      if (tapePlace !== TAPE_PLACE.RECORDER) {
+        showCaption(line('dialog_recorder_empty'));
+      } else if (!cassetteDoorOpen) {
+        cassetteDoorOpen = true;
+        onSfx('latch');
+        showCaption(line('dialog_recorder_examine'));
+      } else {
+        takeTapeFromRecorder();
+      }
+    }
+  };
+  recorder.add(recorderHit);
+  interactables.push(recorderHit);
+
+  dynamics.push({
+    update: (dt, elapsed) => {
+      const lampOn = elapsed % BATTERY_LAMP_BLINK_PERIOD_SECONDS < BATTERY_LAMP_ON_SECONDS;
+      batteryLampMat.emissiveIntensity = lampOn ? 3 : 0;
+      batteryGlow.intensity = lampOn ? 0.08 : 0;
+      // The door lifts on its near edge. Turning the hinge's +x axis the
+      // positive way takes its far end, which reaches toward -z, up off the case.
+      const target = cassetteDoorOpen ? CASSETTE_DOOR_OPEN_ANGLE_IN_RADIANS : 0;
+      const step = (CASSETTE_DOOR_OPEN_ANGLE_IN_RADIANS / CASSETTE_DOOR_OPEN_SECONDS) * dt;
+      cassetteDoorAngle = easeToward(cassetteDoorAngle, target, step);
+      if (cassetteDoor) cassetteDoor.rotation.x = cassetteDoorAngle;
+    }
+  });
+
+  /**
    * Eases a ramp value toward a target at a fixed rate.
    *
    * @param {number} current - the ramp's value this frame.
@@ -4735,6 +5741,14 @@ export function createHallwayBasementLevel({
       get generatorRunning() { return isGeneratorRunning(); },
       /** The lab lights' ramp, 0 dark to 1 lit, which the tubes' hum follows. */
       get powerLevel() { return powerLevel; },
+      /** The session tape's sound and clock, for the host's voices and subtitles. */
+      sessionTape: tapeSource,
+      /** Resolves with the tape's model: the template for the one in the player's hand. */
+      tapeModelReady: cassetteModelPromise,
+      /** True once the tape has been heard to its end this run. */
+      get tapeWatched() { return tapeWatchedToEnd; },
+      /** Where the tape is: 'recorder', 'carried' or 'deck'. */
+      get tapePlace() { return tapePlace; },
       /**
        * A fresh snapshot of how far the player is, for the H-key hints (see
        * basementHints.js). Read-only copies: nothing outside may change these.
@@ -4745,7 +5759,10 @@ export function createHallwayBasementLevel({
           slotFuse: puzzleState.slotFuse,
           monitorSwitchedOn,
           securityCleared,
-          securityCode: SECURITY_CODE
+          securityCode: SECURITY_CODE,
+          tapePlace,
+          deckPlaying,
+          tapeWatched: tapeWatchedToEnd
         };
       }
     },
@@ -4763,6 +5780,7 @@ export function createHallwayBasementLevel({
      */
     reset() {
       powerStage = POWER_STAGE.DEAD;
+      blackoutTimerSecondsLeft = 0;
       resetLabDoors();
       puzzleState.heldFuse = null;
       puzzleState.slotFuse = null;
@@ -4828,6 +5846,16 @@ export function createHallwayBasementLevel({
       instrumentTrolley.reset();
       trolleyHit.userData.interact.label = 'Examine the instruments';
 
+      resetSessionTape();
+      cassetteDoorAngle = 0;
+      if (cassetteDoor) cassetteDoor.rotation.x = 0;
+      wellTape.visible = true;
+      deckLoad.direction = 0;
+      playAfterLoading = false;
+      deckTape.visible = false;
+      placeDeckTape(0);
+      if (deckParts.flap) deckParts.flap.rotation.x = 0;
+
       setFuseCoverOpen(false, { quiet: true });
       fuseCover.everOpened = false;
       fuseCover.angle = 0;
@@ -4869,12 +5897,12 @@ export function createHallwayBasementLevel({
       const elapsed = (this._t = (this._t ?? 0) + dt);
       dynamics.forEach((d) => d.update(dt, elapsed));
       updateLabDoors(dt, playerPosition);
+      updateSessionTape(dt);
 
-      // The blackout. Gated on LIT, so it cannot fire before the 30A fuse has
-      // given the player something to lose, and cannot fire twice.
-      if (powerStage === POWER_STAGE.LIT && playerPosition && isPlayerAtDoor(playerPosition)) {
-        triggerBlackout();
-      }
+      // The blackout: the door, the desk or the clock, whichever comes first.
+      // Gated on LIT inside, so it cannot fire before the 30A fuse has given
+      // the player something to lose, and cannot fire twice.
+      updateBlackoutTriggers(dt, playerPosition);
 
       // The scripted lightning. Fast up, slower down, with the intensity
       // jittered so it reads as a strike rather than a lamp being switched.
