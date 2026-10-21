@@ -6,6 +6,7 @@ import { createClockMechanism } from './clockMechanism.js';
 import { createArchivePresentation } from './studyArchivePresentation.js';
 import { addStudyFootprints } from './studyFootprints.js';
 import { addStudyArchitectureTrim } from './studyArchitectureTrim.js';
+import { createStudyExterior } from './studyExterior.js';
 import { loadModel } from '../world/modelLoader.js';
 import annabelleChairUrl from '../assets/models/study/annabelle_wingback_chair.glb?url';
 import centralDeskUrl from '../assets/models/study/central_victorian_desk.glb?url';
@@ -1850,185 +1851,13 @@ Annabelle`;
   }
   updateOverrideLabels();
 
-  /**
-   * THE PORCH. Nothing existed past z = 3.25 at all, so the front door -- the
-   * object the entire game is spent trying to reach -- opened onto the void.
-   *
-   * Beyond it: boards, a rail, and the fence gate the storyline puts across it
-   * ("a fence door sealing the porch off"). The gate is the last obstacle and
-   * it is deliberately NOT openable yet: its key is hidden where only the visor
-   * can find it, which is Unit 15.
-   */
-  const PORCH_D = 2.6;
-  const porch = new THREE.Group();
-  porch.position.set(DOOR_X, 0, ROOM_D / 2 + PORCH_D / 2);
-  group.add(porch);
-
-  const porchBoardMat = new THREE.MeshStandardMaterial({
-    map: floorTex, roughnessMap: studySurfaces.floorRoughness, roughness: 0.95, color: 0x6a6156
+  // The porch, its gate, the house front and everything outside: the yard,
+  // the woods, the night sky and the rain. See studyExterior.js.
+  const { porch, gate, exterior, update: updateExterior } = createStudyExterior({
+    roomW: ROOM_W, roomD: ROOM_D, roomH: ROOM_H, doorX: DOOR_X,
+    doorwayW: DOORWAY_W, doorwayH: DOORWAY_H, colliders
   });
-  const porchFloor = new THREE.Mesh(new THREE.PlaneGeometry(3.0, PORCH_D), porchBoardMat);
-  porchFloor.rotation.x = -Math.PI / 2;
-  porchFloor.position.y = 0.002;
-  porchFloor.receiveShadow = true;
-  porch.add(porchFloor);
-
-  const porchRoof = new THREE.Mesh(
-    new THREE.PlaneGeometry(3.0, PORCH_D),
-    new THREE.MeshStandardMaterial({ color: 0x14110d, side: THREE.DoubleSide })
-  );
-  porchRoof.rotation.x = Math.PI / 2;
-  porchRoof.position.y = 2.6;
-  porch.add(porchRoof);
-
-  const postMat = new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 0.9 });
-  for (const px of [-1.4, 1.4]) {
-    const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.6, 0.12), postMat);
-    post.position.set(px, 1.3, PORCH_D / 2 - 0.1);
-    post.castShadow = true;
-    porch.add(post);
-    // Side rails, so the porch is enclosed rather than a floating deck.
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.0, PORCH_D - 0.2), postMat);
-    rail.position.set(px, 0.55, 0);
-    porch.add(rail);
-    colliders.push({
-      minX: DOOR_X + px - 0.1, maxX: DOOR_X + px + 0.1,
-      minZ: ROOM_D / 2 + 0.05, maxZ: ROOM_D / 2 + PORCH_D - 0.05
-    });
-  }
-
-  // The fence gate across the far end.
-  const gateMat = new THREE.MeshStandardMaterial({ color: 0x3f4144, metalness: 0.75, roughness: 0.5 });
-  const gate = new THREE.Group();
-  gate.position.set(0, 0, PORCH_D / 2 - 0.04);
-  porch.add(gate);
-  for (let i = 0; i < 9; i++) {
-    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 1.9, 6), gateMat);
-    bar.position.set(-1.2 + i * 0.3, 0.95, 0);
-    bar.castShadow = true;
-    gate.add(bar);
-  }
-  for (const by of [0.15, 1.85]) {
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.05, 0.04), gateMat);
-    rail.position.set(0, by, 0);
-    gate.add(rail);
-  }
-  // The existing porch fence remains static scenery/collision.
-  const gateCollider = {
-    minX: DOOR_X - 1.4, maxX: DOOR_X + 1.4,
-    minZ: ROOM_D / 2 + PORCH_D - 0.12, maxZ: ROOM_D / 2 + PORCH_D + 0.05
-  };
-  colliders.push(gateCollider);
-  /**
-   * Porch lighting, and it has to be brighter than instinct says.
-   *
-   * At 0.34 the whole porch rendered as a black void with a few faint vertical
-   * lines in it -- and those lines are the gate, which is the thing stopping
-   * the player leaving. An obstacle the player cannot see is not an obstacle,
-   * it is a wall they walk into.
-   *
-   * Two sources, because one warm bulb makes the porch read as another room.
-   * The lamp over the door is the house; the cold fill from beyond the gate is
-   * the night, and having them disagree in colour is what says "outside".
-   */
-  /**
-   * THE OUTSIDE OF THE HOUSE.
-   *
-   * The closing shot flies the camera out over the treeline and looks back, and
-   * until this there was nothing to look back AT: every wall in this level is a
-   * single-sided plane facing inward, so from outside the study was an open
-   * dollhouse with its furniture on display, floating in pure black. A camera
-   * move is only as good as what it moves through.
-   *
-   * None of this is visible during play. The interior walls are opaque from the
-   * inside, which is exactly what hides it -- so this costs the player nothing
-   * and only exists for the twenty seconds at the end when it is the only thing
-   * on screen.
-   */
-  const exterior = new THREE.Group();
-  group.add(exterior);
-
-  // Ground. Wet, dark, and big enough that the camera never reaches its edge.
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(140, 140),
-    new THREE.MeshStandardMaterial({ color: 0x14161a, roughness: 0.72, metalness: 0.05 })
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.y = -0.02;
-  ground.receiveShadow = true;
-  exterior.add(ground);
-
-  // The shell: outward-facing walls just outside the interior ones, so the
-  // house reads as a solid object from any angle the ending flies through.
-  const sidingMat = new THREE.MeshStandardMaterial({ color: 0x1d1a16, roughness: 0.95 });
-  const OUT = 0.22;
-  const SHELL_H = ROOM_H + 0.4;
-  const shellSpecs = [
-    [ROOM_W + OUT * 2, 0, -ROOM_D / 2 - OUT, Math.PI],
-    [ROOM_D + OUT * 2, -ROOM_W / 2 - OUT, 0, -Math.PI / 2],
-    [ROOM_D + OUT * 2, ROOM_W / 2 + OUT, 0, Math.PI / 2]
-  ];
-  for (const [w, x, z, ry] of shellSpecs) {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, SHELL_H), sidingMat);
-    m.position.set(x, SHELL_H / 2, z);
-    m.rotation.y = ry;
-    m.castShadow = true;
-    exterior.add(m);
-  }
-  // The front, in two pieces so the porch opening stays open.
-  for (const [w, x] of [
-    [(DOOR_X - 1.55) - (-ROOM_W / 2 - OUT), (-ROOM_W / 2 - OUT + DOOR_X - 1.55) / 2],
-    [(ROOM_W / 2 + OUT) - (DOOR_X + 1.55), (ROOM_W / 2 + OUT + DOOR_X + 1.55) / 2]
-  ]) {
-    if (w <= 0.01) continue;
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, SHELL_H), sidingMat);
-    m.position.set(x, SHELL_H / 2, ROOM_D / 2 + OUT);
-    m.castShadow = true;
-    exterior.add(m);
-  }
-
-  const roof = new THREE.Mesh(
-    new THREE.BoxGeometry(ROOM_W + OUT * 3, 0.22, ROOM_D + OUT * 3),
-    new THREE.MeshStandardMaterial({ color: 0x0f0d0b, roughness: 1 })
-  );
-  roof.position.set(0, SHELL_H + 0.11, 0);
-  roof.castShadow = true;
-  exterior.add(roof);
-
-  /**
-   * The treeline. Cones, because at the distance the ending views them from,
-   * a pine is a triangle -- and forty triangles read as a forest where forty
-   * modelled trees would read as forty models.
-   */
-  const treeMat = new THREE.MeshStandardMaterial({ color: 0x0a0d0b, roughness: 1 });
-  for (let i = 0; i < 44; i++) {
-    // Deterministic placement: the same wood every time the game is played.
-    const a = (i / 44) * Math.PI * 2 + Math.sin(i * 2.7) * 0.05;
-    const r = 17 + ((Math.sin(i * 5.13) + 1) / 2) * 13;
-    const h = 5.5 + ((Math.sin(i * 3.31) + 1) / 2) * 6.5;
-    const tree = new THREE.Mesh(new THREE.ConeGeometry(1.15 + h * 0.055, h, 6), treeMat);
-    tree.position.set(Math.cos(a) * r, h / 2 - 0.2, Math.sin(a) * r + 2.0);
-    exterior.add(tree);
-  }
-
-  // A cold wash over the whole outside, so the house has a night to sit in
-  // rather than a black void. Hemisphere rather than ambient: the ground reads
-  // darker than the sky, which is most of what says "outdoors".
-  const sky = new THREE.HemisphereLight(0x2a3550, 0x07090c, 0.55);
-  exterior.add(sky);
-  const moon = new THREE.DirectionalLight(0x93a8cc, 0.35);
-  moon.position.set(-14, 20, -18);
-  exterior.add(moon);
-
-  const porchLight = new THREE.PointLight(0xffd8a0, 1.15, 7, 2);
-  porchLight.position.set(0, 2.35, -0.5);
-  porchLight.castShadow = true;
-  porchLight.shadow.mapSize.set(512, 512);
-  porch.add(porchLight);
-
-  const nightFill = new THREE.PointLight(0x8fa6c8, 0.55, 9, 1.6);
-  nightFill.position.set(0, 2.0, PORCH_D / 2 + 1.6);
-  porch.add(nightFill);
+  group.add(porch, exterior);
 
   // Decorative meshes only: no interaction registrations, lights, physics or new colliders.
   group.userData.studyDecorPropCount = studyDecor.dressRoom({
@@ -2194,6 +2023,7 @@ Annabelle`;
     },
 
     update(dt) {
+      updateExterior(dt);
       if (resealBolts.visible) resealBolts.scale.x += (1 - resealBolts.scale.x) * Math.min(1, dt * 5);
       if (puzzle.endingChoice === 'RELEASE' && !puzzle.endingSequenceStarted && doorHinge.rotation.y < -0.8) {
         const position = getPlayerPosition();
