@@ -16,11 +16,34 @@ export function loadModel(url) {
       // its clips unreachable no matter what the .glb contained.
       (gltf) => {
         gltf.scene.userData.animations = gltf.animations ?? [];
+        replaceTransmission(gltf.scene);
         resolve(gltf.scene);
       },
       undefined,
       (err) => reject(err)
     );
+  });
+}
+
+/**
+ * Exported see-through glass (glTF's KHR_materials_transmission) becomes plain
+ * transparent glass letting the same share of light through.
+ *
+ * three.js's `transmission` renders the whole scene a second time for every
+ * frame the glass is on screen, and builds every shader in view a second time
+ * for that render -- measured at about half of the opening load, from one
+ * perfume bottle. TintedGlassMaterial avoids it by hand for the same reason.
+ */
+function replaceTransmission(root) {
+  root.traverse((child) => {
+    if (!child.isMesh) return;
+    for (const material of [].concat(child.material)) {
+      if (!(material?.transmission > 0)) continue;
+      material.opacity = 1 - material.transmission;
+      material.transmission = 0;
+      material.transparent = true;
+      material.depthWrite = false;
+    }
   });
 }
 
