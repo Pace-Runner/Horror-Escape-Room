@@ -137,6 +137,7 @@ const WALL_RUNS = buildWallRuns();
 
 export function createBackroomsLevel({
   showCaption = () => {},
+  onThought = () => {},
   onExit = () => {},
   // The exit door starting to swing, with its world position.
   onDoorOpening = () => {},
@@ -284,6 +285,7 @@ export function createBackroomsLevel({
    * per frame is nothing, and doing it here rather than in the map keeps the
    * rectangles owned by the level that generated them.
    */
+  const thoughtCorridors = new Set();
   function revealAt(x, z) {
     let here = null;
     for (const [name, r] of CORRIDOR_LIST) {
@@ -297,6 +299,17 @@ export function createBackroomsLevel({
       if (name === m.entryLeg) m.entry.visible = true;
     }
     if (here === hereQuad) return;
+    // Reuse the map's corridor-entry event, rather than adding another scan.
+    const name = Object.keys(mapQuads).find((key) => mapQuads[key] === here);
+    if (name) {
+      if (thoughtCorridors.has(name) && thoughtCorridors.size >= 3) onThought('backrooms_02');
+      thoughtCorridors.add(name);
+      if (thoughtCorridors.size >= 8) {
+        onThought('backrooms_03');
+        onThought('backrooms_04');
+      }
+      if (LEGS[name].kind === 'room' && thoughtCorridors.size >= 8) onThought('backrooms_05');
+    }
     if (hereQuad) hereQuad.material = minimapFloorMat;
     hereQuad = here;
     if (hereQuad) hereQuad.material = minimapHereMat;
@@ -314,6 +327,7 @@ export function createBackroomsLevel({
    * that touches the set.
    */
   function syncFog() {
+    thoughtCorridors.clear();
     for (const [name, q] of Object.entries(mapQuads)) {
       q.visible = gameState.corridorsSeen.has(name);
       q.material = minimapFloorMat;

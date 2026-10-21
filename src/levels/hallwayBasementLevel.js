@@ -554,6 +554,7 @@ const FUSE_CRATE = CRATE_LAYOUT.reduce((a, b) => (b.stackY > a.stackY ? b : a));
  */
 export function createHallwayBasementLevel({
   showCaption = () => {},
+  onThought = () => {},
   onExit = () => {},
   // The metal door swinging open, with its world position, just before onExit.
   onDoorOpening = () => {},
@@ -2393,7 +2394,7 @@ export function createHallwayBasementLevel({
   maintenanceNote.rotation.y = Math.PI / 2;
   maintenanceNote.userData.interact = {
     label: 'Read maintenance log',
-    onInteract: () => showCaption(line('dialog_maintenance_log'))
+    onInteract: () => { onThought('l2_06', { replayable: false }); showCaption(line('dialog_maintenance_log')); }
   };
   interactables.push(maintenanceNote);
   lab.add(maintenanceNote);
@@ -2982,6 +2983,7 @@ export function createHallwayBasementLevel({
       return;
     }
     if (powerStage !== POWER_STAGE.RUNNING) {
+      onThought('l2_05', { replayable: false });
       showCaption(line('dialog_breakers_dead'));
       return;
     }
@@ -3023,6 +3025,7 @@ export function createHallwayBasementLevel({
       return;
     }
     if (powerStage !== POWER_STAGE.RUNNING) {
+      onThought('l2_05', { replayable: false });
       showCaption(line('dialog_main_lever_dead'));
       return;
     }
@@ -3719,7 +3722,7 @@ export function createHallwayBasementLevel({
     deckPlaying = true;
     tapeRanOut = false;
     tapeSource.play();
-    onPlayTape({ source: tapeSource });
+    onPlayTape({ source: tapeSource, deck });
   }
 
   /** Stops the deck part way and rewinds the tape. Says so only if it was running. */
@@ -3747,6 +3750,7 @@ export function createHallwayBasementLevel({
    */
   function updateSessionTape(deltaTimeInSeconds) {
     if (!deckPlaying) return;
+    if (tapeSource.hasFailed) { stopTape(); return; }
     if (!isCctvPowered()) {
       stopTape();
       return;
@@ -3950,13 +3954,17 @@ export function createHallwayBasementLevel({
       // The desk only ever has power once the panel is routed, so a dead
       // button is always simply dead -- never "the power has gone again".
       if (!isCctvPowered()) {
+        onThought('l2_05', { replayable: false });
         showCaption(line('dialog_monitor_button_no_power'));
         return;
       }
       monitorSwitchedOn = !monitorSwitchedOn;
       syncMonitor();
       syncScreenSignal();
-      if (monitorSwitchedOn) showCaption(line('dialog_monitor_switched_on'));
+      if (monitorSwitchedOn) {
+        onThought('l2_08');
+        showCaption(line('dialog_monitor_switched_on'));
+      }
     }
   };
   interactables.push(powerButton);
@@ -3984,6 +3992,7 @@ export function createHallwayBasementLevel({
     onInteract: () => {
       if (!isCctvPowered()) {
         // Dead until the panel is routed: the fuse never reached the desk.
+        onThought('l2_05', { replayable: false });
         showCaption(line('dialog_monitor_dead'));
         return;
       }
@@ -4696,6 +4705,7 @@ export function createHallwayBasementLevel({
         onSolved: () => {
           securityCleared = true;
           metalDoor.userData.interact.label = 'Open the door';
+          onThought('l2_19', { replayable: false });
           showCaption(line('dialog_security_lockout_released'));
         }
       });
@@ -5005,7 +5015,7 @@ export function createHallwayBasementLevel({
   blackPool.visible = false;
   blackPool.userData.interact = {
     label: 'Examine the pool',
-    onInteract: () => showCaption(line('dialog_black_pool_examine'))
+    onInteract: () => { onThought('l2_18', { replayable: true }); showCaption(line('dialog_black_pool_examine')); }
   };
   lab.add(blackPool);
 
@@ -5236,7 +5246,7 @@ export function createHallwayBasementLevel({
   tornNotes.position.set(-0.2, 0.848, 0.15);
   tornNotes.userData.interact = {
     label: 'Read the torn notes',
-    onInteract: () => showCaption(line('dialog_torn_notes'))
+    onInteract: () => { onThought('l2_04', { replayable: true }); showCaption(line('dialog_torn_notes')); }
   };
   interactables.push(tornNotes);
   workbench.add(tornNotes);
@@ -5322,7 +5332,7 @@ export function createHallwayBasementLevel({
   operatingTableHit.position.set(OPERATING_TABLE.x, OPERATING_TABLE.padTop - 0.03, OPERATING_TABLE.z);
   operatingTableHit.userData.interact = {
     label: 'Examine the table',
-    onInteract: () => showCaption(line('dialog_operating_table'))
+    onInteract: () => { onThought('l2_02', { replayable: true }); onThought('l2_13'); showCaption(line('dialog_operating_table')); }
   };
   interactables.push(operatingTableHit);
   lab.add(operatingTableHit);
@@ -5469,9 +5479,12 @@ export function createHallwayBasementLevel({
   trolleyHit.position.set(0, INSTRUMENT_TROLLEY.top + 0.03, 0);
   trolleyHit.userData.interact = {
     label: 'Examine the instruments',
-    onInteract: () => showCaption(line(
-      instrumentTrolley.fallen ? 'dialog_instrument_trolley_fallen' : 'dialog_instrument_trolley'
-    ))
+    onInteract: () => {
+      onThought('l2_03', { replayable: true });
+      showCaption(line(
+        instrumentTrolley.fallen ? 'dialog_instrument_trolley_fallen' : 'dialog_instrument_trolley'
+      ));
+    }
   };
   // Inside the trolley's body, so it rolls with it and goes over with it --
   // it is still raycast directly, since it is listed in interactables itself.

@@ -63,8 +63,9 @@ import * as THREE from 'three';
  * @param {number[]} p.bulbAt   the ceiling bulb, world [x,y,z]
  * @param {number[]} p.ahead    a point straight ahead of the view play starts from
  * @param {number} p.baseFov    the player's field of view
+ * @param {function(string, object): void} p.onThought queues Mark's thoughts at authored camera cues
  */
-export function wakeUp({ bedX, bedZ, duvetTop, cuff, windowAt, bulbAt, ahead, baseFov }) {
+export function wakeUp({ bedX, bedZ, duvetTop, cuff, windowAt, bulbAt, ahead, baseFov, onThought = () => {} }) {
   // ---------- where the body lies ----------
   // Hips a little toward the foot of the bed from its centre, so the head
   // (0.77 m up the body from the hips, lying) rests just inside the foot end.
@@ -391,7 +392,10 @@ export function wakeUp({ bedX, bedZ, duvetTop, cuff, windowAt, bulbAt, ahead, ba
       { t: T_LINE[0], run: (ctx) => sayLines(ctx, 0) },
       { t: 4.4, run: (ctx) => ctx.audio.setMuffle(0.3, 1.2) },
       { t: T_FOCUSED, run: (ctx) => { ctx.audio.setMuffle(0, 2.5); ctx.setBreathing(0.3); } },
+      // Silence through the eyes opening; react as the head starts exploring.
+      { t: T_FOCUSED, run: () => onThought('l1_01', { delay: 0 }) },
       { t: T_LINE[1], run: (ctx) => sayLines(ctx, 1) },
+      { t: T_LINE[1], run: () => onThought('l1_02', { delay: 0 }) },
       // The chain holds: metal, and the breath catches.
       {
         t: T_TUG + 0.06,
