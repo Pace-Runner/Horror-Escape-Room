@@ -2,27 +2,30 @@
 Builds the Session 14 tape's sound: src/assets/audio/tape/session_14.m4a.
 
 Session 14 was taken down on the lab's cassette recorder, standing on the
-instrument trolley beside the restraint table with its hand microphone. This
+instrument trolley beside the restraint table. This
 is everything on the tape EXCEPT the two voices, which the game plays as their
 own clips at their subtitles' times (src/assets/voice/level2/tape_*.m4a), so a
 line can be re-recorded without rebuilding this. The times match the
 subtitles in src/story/sessionTape.js:
 
      0.0  the REC key going down, the motor taking up, hiss from then on
-     0.6  slow breathing under sedation, quickening from 24 s
-    28.0  the restraints straining, and the table taking it
+     0.3  his heavy breathing under sedation, once
+    28.0  the restraints straining; at 28.2 him grunting, losing it, once
     32.0  a strap snapping
     35.6  the struggle at the trolley
-    36.6  the recorder knocked off it, the instruments coming down after it --
+    36.6  the recorder knocked off it, glass shattering as it goes --
           and from here on it hears the room from the floor, muffled
     38.2  something heavy moving away
-    40.4  glass shattering
     41.6  the alarm
     45.6  the recording cut off
 
-Everything is synthesised from the standard library -- noise, filters and
-envelopes -- so it rebuilds anywhere Blender does. Blender is only here to
-encode it: it carries FFmpeg, and nothing else on a bare machine does. (Its
+The room, the restraints, the fall and the alarm are synthesised from the
+standard library -- noise, filters and envelopes. His breathing, his grunting
+and the chamber's glass are recordings in blender/source/
+(male_heavy_breathing.mp3, male_grunting_and_panting.mp3,
+large_window_shatter.mp3), mixed in at those times. Blender reads them and
+encodes the result: it carries FFmpeg, and nothing else on a bare machine
+does. (Its
 sound mixdown would be the obvious way, but run headless it writes one
 buffer and stops; a render with no picture writes the whole track.)
 
@@ -37,7 +40,9 @@ import sys
 import tempfile
 import wave
 
+import aud
 import bpy
+import numpy as np
 
 SAMPLE_RATE = 44100
 TAPE_SECONDS = 47
@@ -46,6 +51,9 @@ RECORDING_STOPS_AT_SECONDS = 45.6
 # How dull the room sounds once the recorder is on the floor, face down.
 ON_THE_FLOOR_CUTOFF_HZ = 900
 
+# Real recordings mixed in where synthesis would not do: the subject's breathing,
+# his grunting as he loses it, and the containment chamber's glass going.
+SOURCE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'source')
 OUT_PATH = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                         '..', 'src', 'assets', 'audio', 'tape', 'session_14.m4a'))
 
@@ -133,10 +141,6 @@ def muffled(sound):
     return low_pass(low_pass(sound, ON_THE_FLOOR_CUTOFF_HZ), ON_THE_FLOOR_CUTOFF_HZ)
 
 
-def breath(length_s, gain):
-    """One breath: shaped, band-passed noise."""
-    return [x * gain for x in swell(band(noise(length_s), 300, 1400), length_s)]
-
 
 def thump(gain, cutoff_hz=180, decay_s=0.18):
     body = envelope(low_pass(noise(0.6), cutoff_hz), 0.004, decay_s)
@@ -183,47 +187,10 @@ def creak(gain, length_s=0.35):
     return [x * gain for x in swell(out, length_s)]
 
 
-def metal_hit(gain, seconds=0.5):
-    """A steel instrument landing: a few inharmonic partials ringing down, and the knock of it."""
-    freqs = [random.uniform(1700, 5400) for _ in range(3)]
-    decays = [random.uniform(0.06, 0.22) for _ in freqs]
-    out = []
-    for i in range(int(seconds * SAMPLE_RATE)):
-        t = i / SAMPLE_RATE
-        out.append(sum(math.sin(2 * math.pi * f * t) * math.exp(-t / d) for f, d in zip(freqs, decays)) / 3)
-    knock = envelope(high_pass(noise(0.03), 1200), 0.0005, 0.008)
-    for i, x in enumerate(knock):
-        out[i] += x
-    return [x * gain for x in out]
 
 
-def clatter(gain):
-    """The instruments coming off the trolley after the recorder, bouncing and settling."""
-    out = [0.0] * int(1.6 * SAMPLE_RATE)
-    t = 0.0
-    for i in range(14):
-        t += 0.02 + random.random() * 0.09 * (1 + i * 0.08)
-        hit = metal_hit(0.9 * (0.86 ** i))
-        start = int(t * SAMPLE_RATE)
-        for j, x in enumerate(hit):
-            if start + j < len(out):
-                out[start + j] += x
-    return [x * gain for x in out]
 
 
-def glass(gain):
-    out = envelope(high_pass(noise(0.5), 2500), 0.002, 0.12)
-    out = [x * 1.4 for x in out] + [0.0] * int(0.8 * SAMPLE_RATE)
-    t = 0.04
-    for i in range(18):
-        t += 0.012 + random.random() * 0.045 * (1 + i * 0.1)
-        start = int(t * SAMPLE_RATE)
-        tink = envelope(band(noise(0.06), 3500, 9000), 0.001, 0.02)
-        level = 0.9 * (0.88 ** i)
-        for j, x in enumerate(tink):
-            if start + j < len(out):
-                out[start + j] += x * level
-    return [x * gain for x in out]
 
 
 def alarm(seconds, gain):
@@ -238,6 +205,22 @@ def alarm(seconds, gain):
     return [x * gain for x in low_pass(out, 1600)]
 
 
+def recording(name, speed=1.0):
+    """
+    A recording from blender/source/, as the tape's own mono 44.1 kHz samples.
+    `speed` above 1 plays it a little faster and higher, below 1 slower and
+    lower -- so a sound used more than once is never the same take twice.
+    """
+    sound = aud.Sound(os.path.join(SOURCE_DIR, name))
+    rate = sound.specs[0]
+    data = sound.data()
+    mono = data.mean(axis=1) if data.ndim > 1 else data
+    duration = len(mono) / rate
+    count = int(duration * SAMPLE_RATE / speed)
+    at = np.linspace(0, len(mono) - 1, count)
+    return np.interp(at, np.arange(len(mono)), mono).tolist()
+
+
 def build_track():
     track = Track(TAPE_SECONDS)
     stop = RECORDING_STOPS_AT_SECONDS
@@ -247,25 +230,21 @@ def build_track():
     # The room: tape hiss and the hum of the lab's mains, all the way through.
     track.add(0.05, low_pass(noise(stop - 0.05), 5000), 0.035)
     track.add(0.05, tone(50, stop - 0.05), 0.012)
-    # Breathing: slow under sedation, quickening as he surfaces.
-    t = 0.6
-    while t < 24:
-        track.add(t, breath(1.6, 0.09))
-        t += 4.2
-    while t < 28:
-        track.add(t, breath(0.8, 0.12))
-        t += 1.5
+    # His breathing (male_heavy_breathing.mp3), heavy under the sedation: once,
+    # as the tape starts.
+    track.add(0.3, recording('male_heavy_breathing.mp3'), 0.6)
     # Straining against the straps, and the table taking it.
     t = 28.0
     while t < 32.0:
         track.add(t, creak(0.25))
         track.add(t + 0.18, thump(0.05, 260, 0.08))
         t += 0.55
+    # And him, losing it (male_grunting_and_panting.mp3): once, a moment after
+    # he wakes and the scientist says so ("He's waking. Note the time--"
+    # ends at 27.7 s), as he first pulls against the straps.
+    track.add(28.2, recording('male_grunting_and_panting.mp3'), 0.9)
     track.add(32.0, crack(0.7))
     track.add(32.02, thump(0.25, 220, 0.1))
-    # Ragged breathing as he comes up.
-    for when in (32.6, 33.3, 34.0, 34.6, 35.2):
-        track.add(when, breath(0.45, 0.2))
     # The struggle at the trolley, right on top of the microphone.
     track.add(35.6, swell(band(noise(1.0), 200, 2500), 1.0), 0.25)
     track.add(36.2, thump(0.35, 500, 0.08))
@@ -274,12 +253,12 @@ def build_track():
     fall = RECORDER_FALLS_AT_SECONDS
     track.add(fall, thump(1.0, 450, 0.22))
     track.add(fall + 0.03, envelope(band(noise(0.08), 1500, 6000), 0.001, 0.02), 0.5)
-    track.add(fall + 0.12, clatter(0.32))
+    # Glass going with it (large_window_shatter.mp3), a little dulled.
+    track.add(fall + 0.12, low_pass(recording('large_window_shatter.mp3'), 2600), 1.1)
     track.add(fall + 0.55, thump(0.5, 300, 0.14))
     # From the floor: something heavy moving away, glass, the alarm.
     for i, when in enumerate((38.2, 38.8, 39.35, 39.9)):
         track.add(when, muffled(thump(0.9 * (0.75 ** i), 160, 0.2)))
-    track.add(40.4, muffled(glass(1.4)))
     track.add(41.6, muffled(alarm(stop - 41.6, 0.4)))
     # Cut off: the key coming up, and nothing after it.
     track.add(stop, key_clunk(0.45))

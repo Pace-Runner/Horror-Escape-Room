@@ -17,7 +17,7 @@ Generator", "Puzzle 3 -- Breaker / Circuit Panel").
 | # | Beat | Player action | Result |
 |---|------|---------------|--------|
 | 1 | **Missing fuse** | Find the 30A fuse among four, seat it in the fuse box | The lab's lights come up -- nothing else. The CCTV desk and the door stay dead. |
-| 2 | **The lit window** | Look around, fast | 20-30 s to see where the generator and breaker panel are |
+| 2 | **The lit window** | Look around, fast | 20 s to see where the generator and breaker panel are |
 | 3 | **Blackout** | Nothing -- or go for the door or the CCTV desk | A lever is thrown and the lights die, whichever comes first |
 | 4 | **Generator** | Work three controls in the order on the plate | Current reaches the breaker panel, nothing else |
 | 5 | **Breaker panel** | Set the three circuits that fit the 60A rating | Nothing yet -- the panel is dead until the main goes in |
@@ -189,7 +189,7 @@ Once the 30A is in, the lit window ends the first time any of these happens:
 
 | Cause | What the player did | Where |
 |-------|---------------------|-------|
-| `timer` | Nothing in particular -- the window simply runs out | 20-30 s after the fuse seats, a fresh draw each time (`BLACKOUT_TIMER_RANGE_IN_SECONDS`) |
+| `timer` | Nothing in particular -- the window simply runs out | 20 s after the fuse seats (`BLACKOUT_TIMER_IN_SECONDS`) |
 | `door` | Went for the metal door | its approach lane, or E on the door |
 | `desk` | Went for the CCTV desk | the box in front of it, or E on anything on it |
 
@@ -208,8 +208,8 @@ The first is answered by keeping the triggers. A player who goes for the exit
 or for the desk -- the two things the lit room seems to offer -- is cut off the
 moment they try, which reads as being *watched*, not as a clock. The timer is
 for the player who does neither: someone in this house will not leave the
-lights on for them, and the draw between 20 and 30 s means a second playthrough
-cannot count it down. Either way the lit window is a short, frightened look at
+lights on for them: 20 s after the fuse seats, the main goes. Either way the
+lit window is a short, frightened look at
 the room -- long enough to see where the generator and the breaker panel are,
 which is the whole reason it exists.
 
@@ -668,12 +668,12 @@ one still in the recorder on the floor.
 
 `src/story/sessionTape.js` holds the subtitles with their timings. A sedated
 subject on the table, a scientist dictating the session into the recorder, and
-a woman beside him. The subject wakes, does not know them, and comes at them;
+a young girl beside him. The subject wakes, does not know them, and comes at them;
 the recorder is knocked to the floor, and from there it hears the room muffled
 -- something heavy moving away, glass, an alarm -- until someone stops it. The
 only name spoken is "Mark".
 
-The two voices are never named: the woman is Annabelle, and the only thing that
+The two voices are never named: the girl is Annabelle, and the only thing that
 may tell the player so is the letter in Level 3.
 
 ### The sound
@@ -692,11 +692,20 @@ writes `src/assets/audio/tape/session_14.m4a` (47 s, AAC). Its times are the
 subtitles' times; the script's docstring lists them.
 
 **The voices are not in the soundtrack.** Each spoken subtitle names a clip
-(`src/assets/voice/level2/tape_01_man.m4a` to `tape_10_woman.m4a`) and the game
+(`src/assets/voice/level2/tape_01_man.m4a` to `tape_10_girl.m4a`) and the game
 starts it as the tape reaches the line, so a voice can be recorded or replaced
 without rebuilding the tape. Subtitles follow the captions setting, except
 where they are all there is: a line whose clip has not been recorded yet always
 shows, and so does everything over the stand-in.
+
+The voices were generated in ElevenLabs as one file, both speakers, every line
+in order (`blender/source/session_14_voices.m4a`), and split into the ten clips
+by `blender/split_session_tape_voices.py`. It cuts each line out by the
+silences between them, shortens the pauses inside a line to at most 0.45 s,
+and prints how long each clip runs. The subtitles' start times in
+`sessionTape.js` are set from those lengths: only one voice plays at a time,
+so a line still running when the next starts is cut off. Regenerate the voices
+and the stretches in the script and those times both need checking.
 
 ### Props
 
