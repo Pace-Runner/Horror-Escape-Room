@@ -4607,7 +4607,8 @@ function beginGame() {
     audio.startBreathing();
     interaction.setEnabled(true);
     player.lookEnabled = true;
-    player.movementEnabled = true;
+    // Wake-up restores this state; only onFreed may release the bed restraint.
+    player.movementEnabled = false;
     const waking = playCutscene('wakeUp');
     openingSequenceActive = false;
     if (!cutscene.isRunning) {
