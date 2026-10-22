@@ -132,6 +132,7 @@ export function createStudyDecor({ woodMaterial, brassMaterial }) {
       box(object, woodMaterial, [2.77, 0.09, 0.04], [0, y, 0.205]);
     }
     box(object, woodMaterial, [2.8, 0.10, 0.45], [0, 2.75, 0]);
+    if (index === 3) return object; // Gallery bays retain their shelves without overlapping props.
     for (let i = 0; i < 3; i++) place(object, book(index + i, false, 0.23 + i * 0.025), -0.92 + i * 0.05, 0.188, 0.035);
     for (let i = 0; i < 2; i++) place(object, book(index + i + 3, false, 0.25 + i * 0.03), 0.58 + i * 0.048, 1.853, 0.035);
     place(object, book(index + 4, true), -0.65, 2.688, 0.025, 0.08);
