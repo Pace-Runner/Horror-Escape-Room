@@ -7,6 +7,7 @@ import {
   createCobwebTexture
 } from '../world/textures.js';
 import { addBaseboard } from '../world/trim.js';
+import { steelKeyMaterial, brassKeyMaterial } from '../world/keyMaterials.js';
 import { createRainGlassMaterial } from '../world/RainGlassMaterial.js';
 import { loadModel, applyTextureByMaterialName } from '../world/modelLoader.js';
 import { line, linePicker } from '../dialogue/index.js';
@@ -1974,6 +1975,10 @@ export function createBedroomLevel({
     lampDrawerLockAnchor = tableModel.getObjectByName('Level1DrawerLockAnchor');
     lampDrawerContentsAnchor = tableModel.getObjectByName('Level1DrawerContentsAnchor');
     lampDrawerKeyVisual = tableModel.getObjectByName('Level1DrawerBrassKey');
+    // Rusted brass, the same as the key in the hand once it is picked up.
+    lampDrawerKeyVisual?.traverse((child) => {
+      if (child.isMesh) child.material = brassKeyMaterial();
+    });
     if (!lampDrawerVisual || !lampDrawerLockAnchor || !lampDrawerContentsAnchor || !lampDrawerKeyVisual) {
       throw new Error('Level 1 bedside table is missing a required drawer hierarchy node.');
     }
