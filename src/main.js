@@ -1970,7 +1970,7 @@ const bedroom = createDeferredLevel(() => createBedroomLevel({
     thought('l1_11');
     player.unlock();
     documentUI.open({
-      title: 'PROJECT HOLLOW â€” Drawer Note',
+      title: 'PROJECT HOLLOW — Drawer Note',
       body: 'HOLLOW archive reference: 06-1987. Do not move the family records from the house. The brass key remains with the sealed evidence.',
       variant: 'note'
     });
@@ -1979,7 +1979,7 @@ const bedroom = createDeferredLevel(() => createBedroomLevel({
     thought('l1_14');
     player.unlock();
     documentUI.open({
-      title: 'PROJECT HOLLOW â€” Evidence Tag',
+      title: 'PROJECT HOLLOW — Evidence Tag',
       body: 'Recovered item: pry bar. Location: upstairs bedroom. Status: retain on site. The original bedroom key is concealed below the loose floorboard.',
       variant: 'note'
     });
