@@ -4227,8 +4227,8 @@ window.addEventListener('keydown', (e) => {
   // Deliberately INSTANT, not faded: these are a mentor-demo tool and 1.7s of
   // black per press is friction. But each one aborts first, or a jump taken
   // mid-fade lands behind an overlay that will never lift.
-  // DEV TEST HOTKEY — L = LEVEL 2
-  if (import.meta.env.DEV && e.code === 'KeyL') {
+  // Preview shortcuts remain available in production/demo builds too.
+  if (e.code === 'KeyL' || e.code === 'Digit2' || e.code === 'Numpad2') {
     if (e.repeat || e.ctrlKey || e.metaKey || e.altKey
       || e.target?.closest?.('input, textarea, select, [contenteditable], [role="textbox"]')) return;
     e.preventDefault();
@@ -5590,13 +5590,13 @@ function preloadLevel1() {
 }
 
 /** Warms exactly one destination level while a transition already owns the screen. */
-async function warmLevelForTransition(key) {
+async function warmLevelForTransition(key, { showProgress = true } = {}) {
   if (warmedLevelKeys.has(key)) return;
   await preloadAssetGroups([key]);
   await sceneManager.get(key)?.prepare?.();
   enableSinglePassForFlatDecals(sceneManager.get(key).group);
   darkShadowSkipper.addLights(findShadowCastingLights(scene));
-  await warmUp({ keys: [key], waitForAssets: false });
+  await warmUp({ keys: [key], waitForAssets: false, showProgress });
   // And whatever creature can show up there, or its first appearance is a
   // freeze of its own, seconds into the room.
   if (key === 'backrooms') await warmMazeCreature();
@@ -5613,10 +5613,17 @@ const openingAssetsReady = openingNewsCutscene.preload();
 const bootJobs = resourceJobs(['common', 'hallwayBasement', 'study', 'backrooms']).size;
 let bootAssetsDone = 0;
 let openingBootReady = false;
+let levelTwoBootReady = false;
 const bootReady = Promise.all([
   openingAssetsReady.then(() => { openingBootReady = true; updateBootProgress(); }),
   preloadAssetGroups(['common', 'hallwayBasement', 'study', 'backrooms'], (done) => {
     bootAssetsDone = done;
+    updateBootProgress();
+  }).then(async () => {
+    // Asset caching alone leaves scene creation and the first real lab draw
+    // on the hallway exit. Pay that existing warm-up while boot still covers it.
+    await warmLevelForTransition('hallwayBasement', { showProgress: false });
+    levelTwoBootReady = true;
     updateBootProgress();
   })
 ]);
@@ -5625,7 +5632,7 @@ function updateBootProgress() {
     bootHintIndex = (bootHintIndex + 1) % bootHints.length;
     nextBootHintAt = performance.now() + 2600;
   }
-  setLoadProgress((bootAssetsDone + Number(openingBootReady)) / (bootJobs + 1),
+  setLoadProgress((bootAssetsDone + Number(openingBootReady) + Number(levelTwoBootReady)) / (bootJobs + 2),
     bootHints[bootHintIndex]);
 }
 bootReady.then(() => {

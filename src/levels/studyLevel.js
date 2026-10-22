@@ -7,7 +7,7 @@ import { createArchivePresentation } from './studyArchivePresentation.js';
 import { addStudyFootprints } from './studyFootprints.js';
 import { addStudyArchitectureTrim } from './studyArchitectureTrim.js';
 import { createStudyExterior } from './studyExterior.js';
-import { hingeMotion, studyLabel, dressArchiveLeaf, dressCrestControl, fillStudyKey, dressStudyDoor, dressFloorOrderClue, batchStudyPuzzleDetails } from './studyPuzzlePresentation.js';
+import { hingeMotion, studyLabel, dressArchiveLeaf, dressCrestControl, createCrestIndicatorGeometry, fillStudyKey, dressStudyDoor, dressFloorOrderClue, batchStudyPuzzleDetails } from './studyPuzzlePresentation.js';
 import { loadModel } from '../world/modelLoader.js';
 import annabelleChairUrl from '../assets/models/study/annabelle_wingback_chair.glb?url';
 import centralDeskUrl from '../assets/models/study/central_victorian_desk.glb?url';
@@ -545,7 +545,7 @@ export function createStudyLevel({
 
   const clockMechanism = createClockMechanism({
     woodMaterial: clockWoodMat,
-    interiorMaterial: studySurfaces.woodMaterial(0.48),
+    interiorMaterial: clockWoodMat,
     brassMaterial: keyMat
   });
   clock.add(clockMechanism.root);
@@ -652,8 +652,9 @@ export function createStudyLevel({
   shadowCrest.position.set(-4.3, 1.65, 6.36);
   shadowCrest.rotation.y = Math.PI;
   group.add(shadowCrest);
-  const crestMat = new THREE.MeshStandardMaterial({ color: 0x8c8068, roughness: 0.9 });
-  const crestBrassMat = new THREE.MeshStandardMaterial({ color: 0x88744b, metalness: 0.65, roughness: 0.72 });
+  const crestMat = new THREE.MeshStandardMaterial({ color: 0x625a49, metalness: 0.48, roughness: 0.66 });
+  const crestBrassMat = new THREE.MeshStandardMaterial({ color: 0xa38a53, metalness: 0.72, roughness: 0.5 });
+  const crestWoodMat = studySurfaces.woodMaterial(0.95, 'feature');
   const crestHitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
   // Static housing mounts at the wall; the cover and reward remain separate game objects.
   loadStudyModel(shadowCrestHousingUrl).then((model) => {
@@ -670,28 +671,45 @@ export function createStudyLevel({
     minY: 1.2, maxY: 2.1
   });
 
+  const crestHinge = new THREE.Group();
+  crestHinge.position.set(-0.31, 0, 0.025);
+  shadowCrest.add(crestHinge);
   const crestCover = new THREE.Group();
-  crestCover.position.z = 0.025;
-  // Fit the existing visual assembly to the recess without changing its slide clock.
+  crestCover.position.x = 0.31;
+  // Preserve the closed pose and the original opening/pickup clock.
+  let crestCoverTravel = 0;
   crestCover.scale.setScalar(0.45);
-  shadowCrest.add(crestCover);
-  const crestPlate = new THREE.Mesh(new THREE.CylinderGeometry(0.68, 0.68, 0.035, 32), crestMat);
+  crestHinge.add(crestCover);
+  const crestPlate = new THREE.Mesh(new THREE.CylinderGeometry(0.665, 0.68, 0.05, 32), crestMat);
   crestPlate.rotation.x = Math.PI / 2;
-  const crestRim = new THREE.Mesh(new THREE.TorusGeometry(0.66, 0.018, 6, 32), crestBrassMat);
-  crestRim.position.z = 0.025;
-  crestCover.add(crestRim);
+  const crestTrim = new THREE.Group();
+  crestTrim.userData.studyStaticDetails = true;
+  crestCover.add(crestTrim);
+  const crestRim = new THREE.Mesh(new THREE.TorusGeometry(0.66, 0.022, 6, 32), crestBrassMat);
+  crestRim.position.z = 0.028;
+  crestTrim.add(crestRim);
+  const innerRim = new THREE.Mesh(new THREE.TorusGeometry(0.588, 0.006, 4, 32), crestBrassMat);
+  innerRim.position.z = 0.027;
+  crestTrim.add(innerRim);
   crestCover.add(crestPlate);
-  const crestSocket = new THREE.Mesh(new THREE.RingGeometry(0.095, 0.14, 12), crestBrassMat);
+  const socketProfile = new THREE.Shape();
+  socketProfile.absarc(0, 0, 0.14, 0, Math.PI * 2, false);
+  const socketHole = new THREE.Path();
+  socketHole.absarc(0, 0, 0.095, 0, Math.PI * 2, true);
+  socketProfile.holes.push(socketHole);
+  const crestSocket = new THREE.Mesh(new THREE.ExtrudeGeometry(socketProfile, {
+    depth: 0.018, bevelEnabled: true, bevelThickness: 0.003, bevelSize: 0.003, bevelSegments: 1, steps: 1, curveSegments: 12
+  }), crestBrassMat);
   crestSocket.position.set(0, -0.36, 0.02);
-  crestCover.add(crestSocket);
+  crestTrim.add(crestSocket);
   const installedSigil = new THREE.Mesh(new THREE.CircleGeometry(0.09, 12), crestBrassMat);
-  installedSigil.position.set(0, -0.36, 0.025);
+  installedSigil.position.set(0, -0.36, 0.042);
   installedSigil.visible = false;
   crestCover.add(installedSigil);
 
   // Three disconnected strokes assemble a hollow triangular archive crest.
-  const shadowMat = new THREE.MeshBasicMaterial({ color: 0x090806, transparent: true, opacity: 0.82, depthWrite: false });
-  const shadowGeometry = new THREE.PlaneGeometry(0.065, 0.58);
+  const shadowMat = new THREE.MeshStandardMaterial({ color: 0x111310, metalness: 0.58, roughness: 0.48 });
+  const shadowGeometry = createCrestIndicatorGeometry();
   const shadowPieces = [];
   const shadowTargets = [
     { x: -0.145, y: 0.1, angle: -Math.PI / 6 },
@@ -707,9 +725,9 @@ export function createStudyLevel({
   const crestLampNames = ['LEFT', 'CENTRE', 'RIGHT'];
   const crestLamps = [];
   const crestLampHits = [];
-  const lampGeometry = new RoundedBoxGeometry(0.22, 0.3, 0.14, 1, 0.016);
+  const lampGeometry = new RoundedBoxGeometry(0.225, 0.31, 0.17, 1, 0.022);
   const lampHitGeometry = new THREE.BoxGeometry(0.42, 0.44, 0.3);
-  const lampFaceGeometry = new THREE.BoxGeometry(0.13, 0.16, 0.02);
+  const lampFaceGeometry = new RoundedBoxGeometry(0.10, 0.05, 0.016, 1, 0.006);
   const lampFaceMat = new THREE.MeshStandardMaterial({ color: 0xd9ba77, emissive: 0x60401c, emissiveIntensity: 0.5 });
 
   function updateCrestShadows() {
@@ -747,7 +765,7 @@ export function createStudyLevel({
     sconce.position.set(x, y, 0.15);
     const body = new THREE.Mesh(lampGeometry, crestBrassMat);
     const face = new THREE.Mesh(lampFaceGeometry, lampFaceMat);
-    face.position.z = 0.08;
+    face.position.set(0, 0.095, 0.092);
     sconce.add(body, face);
     dressCrestControl(sconce, crestBrassMat, studySurfaces.woodMaterial(0.8, 'trim'));
     shadowCrest.add(sconce);
@@ -796,7 +814,7 @@ export function createStudyLevel({
   interactables.push(crestHit);
 
   const crestClue = new THREE.Mesh(new RoundedBoxGeometry(0.76, 0.32, 0.05, 1, 0.012), crestBrassMat);
-  const crestInscription = studyLabel(0.71, 0.275, true);
+  const crestInscription = studyLabel(0.71, 0.275, true, true);
   crestInscription.write(['THREE LIGHTS GUARD THE ARCHIVE.', 'THE OUTER TWO TURN FROM THE CENTRE.', 'THE HEART REMAINS TRUE.']);
   crestInscription.mesh.position.z = 0.027;
   crestClue.add(crestInscription.mesh);
@@ -811,7 +829,8 @@ export function createStudyLevel({
   const archiveKey = new THREE.Group();
   archiveKey.position.set(0, 0, 0.08);
   fillStudyKey(archiveKey, crestBrassMat);
-  const keyRest = new THREE.Mesh(new RoundedBoxGeometry(0.22, 0.29, 0.035, 1, 0.012), studySurfaces.woodMaterial(0.65));
+  const keyRest = new THREE.Mesh(new THREE.CylinderGeometry(0.285, 0.285, 0.035, 32), crestWoodMat);
+  keyRest.rotation.x = Math.PI / 2;
   keyRest.position.set(0, -0.025, 0.035);
   keyRest.visible = false;
   shadowCrest.add(keyRest);
@@ -823,7 +842,7 @@ export function createStudyLevel({
   archiveKeyHit.userData.interact = {
     label: 'Take the Archive Key',
     onInteract: () => {
-      if (!puzzle.crestSolved || puzzle.hasArchiveKey || crestCover.position.x < 0.8) return;
+      if (!puzzle.crestSolved || puzzle.hasArchiveKey || crestCoverTravel < 0.8) return;
       puzzle.hasArchiveKey = true;
       gameState.inventory.add('archiveKey');
       archiveKey.visible = false;
@@ -1978,7 +1997,8 @@ Annabelle`;
       puzzle.crestSolved = false;
       puzzle.hasArchiveKey = false;
       installedSigil.visible = false;
-      crestCover.position.x = 0;
+      crestCoverTravel = 0;
+      crestHinge.rotation.y = 0;
       archiveKey.visible = false;
       keyRest.visible = false;
       archiveKeyHit.visible = false;
@@ -2071,7 +2091,8 @@ Annabelle`;
       letterDoorMotion.update(dt, puzzle.truthRecordsSolved);
       clockMechanism.update(dt, puzzle.clockSolved);
       const crestTargetX = puzzle.crestSolved ? 2.05 : 0;
-      crestCover.position.x += (crestTargetX - crestCover.position.x) * Math.min(1, dt * 5);
+      crestCoverTravel += (crestTargetX - crestCoverTravel) * Math.min(1, dt * 5);
+      crestHinge.rotation.y = -THREE.MathUtils.degToRad(100) * crestCoverTravel / 2.05;
       const doorTarget = doorState.open ? DOOR_OPEN_SWING : 0;
       doorHinge.rotation.y += (doorTarget - doorHinge.rotation.y) * Math.min(1, dt * 2.6);
     }
