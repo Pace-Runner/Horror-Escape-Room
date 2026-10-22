@@ -622,6 +622,16 @@ export function createHallwayBasementLevel({
    * takes the tape from the inventory, whatever is in the player's hand.
    */
   isCarrying = () => false,
+  /**
+   * Whether the item `id` is the one in the player's hand. The fuse box takes
+   * the fuse being held, not any fuse in the inventory -- like every lock in
+   * Level 1, found is not enough.
+   */
+  isHolding = () => false,
+  /** Fired with a fuse's item id ('fuse30') when it is picked up: the host puts it in the inventory. */
+  onFuseTaken = () => {},
+  /** Fired with a fuse's item id when it goes into the box: the host takes it out of the inventory. */
+  onFuseSeated = () => {},
   /** Fired when the session tape comes out of the recorder: the host puts it in the inventory. */
   onTapeTaken = () => {},
   /** Fired when the tape goes into the deck: the host takes it out of the inventory. */
@@ -1929,7 +1939,6 @@ export function createHallwayBasementLevel({
   const POWER_RAMP_IN_SECONDS = 0.6;
 
   const puzzleState = {
-    heldFuse: null,   // amps string currently in the player's hand, or null
     slotFuse: null,   // amps string currently seated in the fuse box, or null
     overloaded: false // true while an overrated fuse is seated (its glare is only the first FUSE_FLARE_SECONDS)
   };
@@ -1974,6 +1983,18 @@ export function createHallwayBasementLevel({
     color: 0x24180f, roughness: 0.6, transparent: true, opacity: 0.78, depthWrite: false
   });
 
+  /**
+   * Each fuse visual's glass, its clean glass material and its two element
+   * wires, for the soot. Kept here rather than in the visual's userData, which
+   * Object3D.clone() copies through JSON -- and the visual is cloned as the
+   * fuse in the player's hand.
+   */
+  const fuseVisualParts = new WeakMap();
+  /** Resolves with every fuse's visual, keyed by item id, once fuse.glb is in: the templates for the hand. */
+  let resolveFuseVisuals;
+  const fuseVisualsReady = new Promise((resolve) => { resolveFuseVisuals = resolve; });
+  const fuseVisuals = {};
+
   function createGlassFuse(amps) {
     const fuse = new THREE.Mesh(fuseHitGeometry, fuseHitMaterial);
     fuse.userData.scorched = false;
@@ -1986,6 +2007,7 @@ export function createHallwayBasementLevel({
       // turning the model inside it changes nothing else.
       visual.rotation.y = Math.PI / 2;
       const stamp = createFuseCapStampTexture(amps);
+      const parts = {};
       visual.traverse((child) => {
         if (!child.isMesh) return;
         if (child.material.name === 'FuseCapMetal') {
@@ -1995,14 +2017,17 @@ export function createHallwayBasementLevel({
           child.material.bumpMap = stamp.bumpMap;
           child.material.bumpScale = 0.6;
         } else if (child.material.name === 'FuseGlass') {
-          visual.userData.glass = child;
-          visual.userData.cleanGlassMat = child.material;
+          parts.glass = child;
+          parts.cleanGlassMat = child.material;
         } else if (child.name === 'FuseElementWire') {
-          visual.userData.wire = child;
+          parts.wire = child;
         } else if (child.name === 'FuseElementWireBroken') {
-          visual.userData.brokenWire = child;
+          parts.brokenWire = child;
         }
       });
+      fuseVisualParts.set(visual, parts);
+      fuseVisuals[`fuse${parseInt(amps, 10)}`] = visual;
+      if (Object.keys(fuseVisuals).length === fuseData.length) resolveFuseVisuals({ ...fuseVisuals });
       fuse.userData.visual = visual;
       fuse.add(visual);
       applyFuseScorch(fuse);
@@ -2014,9 +2039,10 @@ export function createHallwayBasementLevel({
     const visual = fuse.userData.visual;
     if (!visual) return;
     const scorched = fuse.userData.scorched;
-    visual.userData.glass.material = scorched ? sootedGlassMat : visual.userData.cleanGlassMat;
-    visual.userData.wire.visible = !scorched;
-    visual.userData.brokenWire.visible = scorched;
+    const parts = fuseVisualParts.get(visual);
+    parts.glass.material = scorched ? sootedGlassMat : parts.cleanGlassMat;
+    parts.wire.visible = !scorched;
+    parts.brokenWire.visible = scorched;
   }
 
   /**
@@ -2328,15 +2354,17 @@ export function createHallwayBasementLevel({
         return;
       }
 
-      // Slot is empty -- try installing whatever's in hand
-      if (!puzzleState.heldFuse) {
-        showCaption(line('dialog_fuse_slot_empty'));
+      // Slot is empty -- try installing the fuse in the player's hand
+      const held = fuseData.find((data) => isHolding(data.id));
+      if (!held) {
+        const carrying = fuseData.some((data) => isCarrying(data.id));
+        showCaption(line(carrying ? 'dialog_fuse_hold_one' : 'dialog_fuse_slot_empty'));
         return;
       }
 
-      const installed = puzzleState.heldFuse;
+      const installed = held.amps;
       const amps = parseInt(installed, 10);
-      puzzleState.heldFuse = null;
+      onFuseSeated(held.id);
 
       // Whatever goes in is seen to go in: the fuse the player carried over
       // stands in the empty clips, right or wrong, until it is pulled out.
@@ -2391,25 +2419,26 @@ export function createHallwayBasementLevel({
   interactables.push(fuseBox);
   lab.add(fuseBox);
 
+  /** A loose fuse's pickup: into the inventory, the way every item in Level 1 goes. */
+  function fusePickup(data, fuse) {
+    return {
+      label: `Pick up fuse (${data.amps})`,
+      onInteract: () => {
+        showCaption(line('dialog_fuse_taken', { amps: data.amps }));
+        fuse.visible = false;
+        const idx = interactables.indexOf(fuse);
+        if (idx !== -1) interactables.splice(idx, 1);
+        onFuseTaken(data.id);
+      }
+    };
+  }
+
   fuseData.forEach((data, i) => {
     const fuse = createGlassFuse(data.amps);
     fuse.rotation.z = Math.PI / 2;
     fuse.position.set(...fusePositions[i]);
     fuse.userData.hintKey = 'l2_fuse';
-    fuse.userData.interact = {
-      label: `Pick up fuse (${data.amps})`,
-      onInteract: () => {
-        if (puzzleState.heldFuse) {
-          showCaption(line('dialog_fuse_already_holding'));
-          return;
-        }
-        puzzleState.heldFuse = data.amps;
-        showCaption(line('dialog_fuse_taken', { amps: data.amps }));
-        fuse.visible = false;
-        const idx = interactables.indexOf(fuse);
-        if (idx !== -1) interactables.splice(idx, 1);
-      }
-    };
+    fuse.userData.interact = fusePickup(data, fuse);
     interactables.push(fuse);
     lab.add(fuse);
     fuseMeshes[data.amps] = fuse;
@@ -5882,6 +5911,8 @@ export function createHallwayBasementLevel({
       labDoorway: [0, labDoorPivotZ],
       /** Flings the lab doors open toward the hallway for `seconds`. */
       burstLabDoors,
+      /** Resolves with each loose fuse's model, keyed by item id: the templates for the one in the player's hand. */
+      fuseVisualsReady,
       /** One lightning strike down the hallway. Returns how long it lasts. */
       strike: (duration = 0.55) => {
         flash.duration = duration;
@@ -5943,7 +5974,7 @@ export function createHallwayBasementLevel({
      * restart left the breaker flipped and the exit door still reading "Open
      * the door".
      *
-     * Two halves: the fuse puzzle (held/seated fuse, overload glare, spark
+     * Two halves: the fuse puzzle (seated fuse, overload glare, spark
      * flash, the dropped-fuse row, and the four fuse meshes with fresh pickup
      * handlers), and everything restoring the power changed (lights, screen,
      * feeds, the creature's pool).
@@ -5952,7 +5983,6 @@ export function createHallwayBasementLevel({
       powerStage = POWER_STAGE.DEAD;
       blackoutTimerSecondsLeft = 0;
       resetLabDoors();
-      puzzleState.heldFuse = null;
       puzzleState.slotFuse = null;
       puzzleState.overloaded = false;
       fuseFlareRemaining = 0;
@@ -6044,20 +6074,7 @@ export function createHallwayBasementLevel({
         fuse.visible = true;
         setFuseScorched(fuse, false);
         fuse.userData.hintKey = 'l2_fuse';
-        fuse.userData.interact = {
-          label: `Pick up fuse (${data.amps})`,
-          onInteract: () => {
-            if (puzzleState.heldFuse) {
-              showCaption(line('dialog_fuse_already_holding'));
-              return;
-            }
-            puzzleState.heldFuse = data.amps;
-            showCaption(line('dialog_fuse_taken', { amps: data.amps }));
-            fuse.visible = false;
-            const idx = interactables.indexOf(fuse);
-            if (idx !== -1) interactables.splice(idx, 1);
-          }
-        };
+        fuse.userData.interact = fusePickup(data, fuse);
         if (!interactables.includes(fuse)) interactables.push(fuse);
       });
     },

@@ -141,6 +141,16 @@ function fromTorchGrip(dx, dy, dz) {
  * line. A quarter turn about the long axis swings the face square to the
  * camera (its normal measured 0.94-0.99 toward the lens afterwards).
  */
+/** The four fuses are one model, so they share one framing. */
+const FUSE_FRAMING = {
+  pose: 'grip-cylinder',
+  anchorPose: 'hold-torch',
+  aim: [-0.2, 0.9, -0.38],
+  roll: deg(180),
+  offset: fromTorchGrip(-0.01, 0, 0),
+  scale: 0.9
+};
+
 export const HELD_ITEM_FRAMING = {
   flashlight: {
     pose: 'hold-torch',
@@ -250,7 +260,12 @@ export const HELD_ITEM_FRAMING = {
     roll: deg(90),
     offset: fromTorchGrip(0, -0.02, 0),
     scale: 0.7
-  }
+  },
+  // Level 2's fuses, held up like a key so the rating on the cap can be read.
+  fuse15: FUSE_FRAMING,
+  fuse20: FUSE_FRAMING,
+  fuse30: FUSE_FRAMING,
+  fuse45: FUSE_FRAMING
 };
 
 /** For an id the table has no row for: the torch's spot, pointing up. */

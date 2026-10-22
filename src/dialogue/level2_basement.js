@@ -180,7 +180,7 @@ export const dialog_fuse_burns_out = ["The {amps} fuse can't take the load -- it
 
 export const dialog_fuse_rating_too_high = ["The {amps} fuse's rating is too high -- every light in the lab surges into a blinding white flash, then dies back to dark.", "level2/fuse_rating_too_high.m4a"];
 
-export const dialog_fuse_already_holding = ["You're already holding a fuse. Install or remove it at the fuse box first.", "level2/fuse_already_holding.m4a"];
+export const dialog_fuse_hold_one = ["You need a fuse in your hand for this. Pick the one to try.", "level2/fuse_hold_one.m4a"];
 
 export const dialog_fuse_taken = ["You take the {amps} fuse.", "level2/fuse_taken.m4a"];
 

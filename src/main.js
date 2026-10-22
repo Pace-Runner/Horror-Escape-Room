@@ -2681,6 +2681,10 @@ const hallwayBasement = createDeferredLevel(() => createHallwayBasementLevel({
   // The session tape, carried in the shared inventory between the recorder and
   // the deck. The deck takes it from the inventory, whatever is in the hand.
   isCarrying: (id) => gameState.inventory.has(id),
+  // The fuses go in the inventory too, and the box takes the one in the hand.
+  isHolding: (id) => heldItems.isHolding(id),
+  onFuseTaken: (id) => pickUpItem(id),
+  onFuseSeated: (id) => consumeItem(id),
   onTapeTaken: () => pickUpItem('sessionTape'),
   onTapeInserted: () => consumeItem('sessionTape'),
   onTapeEjected: () => pickUpItem('sessionTape'),
@@ -2824,6 +2828,9 @@ const hallwayBasement = createDeferredLevel(() => createHallwayBasementLevel({
   }
 }), (level) => {
   level.refs.tapeModelReady.then((model) => itemMeshes.setTemplate('sessionTape', model)).catch(() => {});
+  level.refs.fuseVisualsReady.then((visuals) => {
+    for (const [id, visual] of Object.entries(visuals)) itemMeshes.setTemplate(id, visual);
+  });
 });
 sceneManager.register('hallwayBasement', hallwayBasement);
 

@@ -88,6 +88,11 @@ export const ITEMS = {
   brassKey: { label: 'Brass safe key', name: 'brass key' },
   bedroomKey: { label: 'Bedroom door key', name: 'bedroom key' },
   sessionTape: { label: 'Cassette: SESSION 14', name: 'tape' },
+  // Level 2's four loose fuses. All one size; only the rating tells them apart.
+  fuse15: { label: 'Fuse (15A)', name: '15A fuse' },
+  fuse20: { label: 'Fuse (20A)', name: '20A fuse' },
+  fuse30: { label: 'Fuse (30A)', name: '30A fuse' },
+  fuse45: { label: 'Fuse (45A)', name: '45A fuse' },
   visor: { label: "Annabelle's visor", name: 'visor', hint: 'V to toggle' },
   doorKey: { label: 'Desk drawer key', name: 'desk drawer key' },
   gateKey: { label: 'Gate key', name: 'gate key' }
