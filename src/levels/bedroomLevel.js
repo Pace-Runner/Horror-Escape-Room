@@ -1,8 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import {
-  createScratchedMessageTexture,
-  createScratchedMessageNormalTexture,
   createPolaroidTexture,
   createFurnitureWoodTexture,
   createFurnitureWoodNormalTexture,
@@ -46,6 +44,10 @@ import doorPlankNormalUrl from '../assets/textures/door/door_wood_normal_1k.png?
 import wallpaperBaseUrl from '../assets/textures/bedroom/distressed_victorian_damask_wallpaper.png?url';
 import clawRipUrl from '../assets/textures/bedroom/ripped_victorian_wallpaper_claw_marks.png?url';
 import bedroomFloorUrl from '../assets/textures/bedroom/weathered_dark_wooden_floorboards.png?url';
+// DON'T LET IT OUT, cut letter by letter from a photo of a carved wooden
+// alphabet by scripts/build_floor_message.py, with a normal map from its grooves.
+import floorMessageUrl from '../assets/textures/bedroom/floor_message.png?url';
+import floorMessageNormalUrl from '../assets/textures/bedroom/floor_message_normal.png?url';
 import bedroomCeilingUrl from '../assets/textures/bedroom/grimy_cracked_plaster_texture.png?url';
 import hauntedMansionSepiaUrl from '../assets/textures/bedroom/haunted_victorian_mansion_sepia.png?url';
 import photo1984Url from '../assets/textures/bedroom/level_1_1984_pic.png?url';
@@ -1720,10 +1722,13 @@ export function createBedroomLevel({
   group.add(windowPhotoHitbox);
   interactables.push(windowPhotoHitbox);
 
-  const messageTex = createScratchedMessageTexture("DON'T LET IT OUT");
-  const messageNormal = createScratchedMessageNormalTexture("DON'T LET IT OUT");
+  const messageTex = loadBedroomWallTexture(floorMessageUrl, false);
+  const messageNormal = loadBedroomWallTexture(floorMessageNormalUrl, false);
+  messageNormal.colorSpace = THREE.NoColorSpace;
+  // 1.7 m across, so the carved letters stand about 17 cm tall -- at the
+  // drawn texture's old 1.1 m they were too small to read from standing.
   const message = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.1, 0.55),
+    new THREE.PlaneGeometry(1.7, 0.85),
     new THREE.MeshStandardMaterial({
       map: messageTex,
       normalMap: messageNormal,
@@ -1739,7 +1744,8 @@ export function createBedroomLevel({
   );
   message.name = 'Level1EtchedFloorWordsDecal';
   message.rotation.x = -Math.PI / 2;
-  message.position.set(-0.85, 0.0025, -2.35);
+  // Clear of the knocked-over bin to its left, and short of the nightstand to its right.
+  message.position.set(-0.55, 0.0025, -2.35);
   message.userData.interact = {
     label: 'Read the floor',
     onInteract: () => {
