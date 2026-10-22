@@ -2540,8 +2540,9 @@ function updateHallwayRush(dt) {
 function playCameraFiveSighting() {
   thought('l2_09');
   thought('l2_10');
-  // Camera five is this room. There is a figure standing in it.
-  hallwayBasement.refs.feeds.showBasementFigure(3.4, () => thought('l2_11'));
+  thought('l2_11');
+  // Camera five is this room. There is a figure standing in it -- the
+  // creature itself, followed on the feed by updateLabCreatureExit().
   script.run(async (s) => {
     /**
      * And it is behind you -- the instant camera five comes up, not after
@@ -2604,6 +2605,9 @@ const LAB_CREATURE_DOOR_HOLD = 1.1;
 let labCreatureExit = null;
 const _labCreatureView = new THREE.Vector3();
 
+/** Once it has gone, camera five holds the empty room this long, then breaks up into static. */
+const LAB_CREATURE_FEED_STATIC_AFTER = 0.8;
+
 function updateLabCreatureExit(dt) {
   const exit = labCreatureExit;
   if (!exit) return;
@@ -2614,6 +2618,9 @@ function updateLabCreatureExit(dt) {
   }
   exit.t += dt;
   const p = creature.position;
+  // Camera five shows it where it is, standing or running, and only while it
+  // is in the room.
+  hallwayBasement.refs.setCameraFiveFigure(p, { running: exit.phase === 'run' });
   if (exit.phase === 'stare') {
     if (exit.seenAt === null) {
       camera.getWorldDirection(_labCreatureView);
@@ -2648,6 +2655,8 @@ function updateLabCreatureExit(dt) {
     if (exit.leg >= route.length) {
       labCreatureExit = null;
       hideCreature();
+      hallwayBasement.refs.setCameraFiveFigure(null);
+      hallwayBasement.refs.feeds.loseBasementSignal(LAB_CREATURE_FEED_STATIC_AFTER);
     }
     return;
   }

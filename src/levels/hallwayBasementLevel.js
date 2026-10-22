@@ -5911,6 +5911,16 @@ export function createHallwayBasementLevel({
       labDoorway: [0, labDoorPivotZ],
       /** Flings the lab doors open toward the hallway for `seconds`. */
       burstLabDoors,
+      /**
+       * Shows the creature on camera five where it stands, from its world
+       * position -- or takes it off with null, and once it is out of the lab.
+       */
+      setCameraFiveFigure(position, { running = false } = {}) {
+        const labZ = position ? position.z - LAB_Z : -Infinity;
+        feeds.setBasementFigure(labZ >= -LAB_D / 2
+          ? { across: position.x / (LAB_W / 2), depth: (labZ + LAB_D / 2) / LAB_D, running }
+          : null);
+      },
       /** Resolves with each loose fuse's model, keyed by item id: the templates for the one in the player's hand. */
       fuseVisualsReady,
       /** One lightning strike down the hallway. Returns how long it lasts. */
