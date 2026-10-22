@@ -950,6 +950,27 @@ export function createHallwayBasementLevel({
   const westWall = labWall(LAB_D, -LAB_W / 2, 0, Math.PI / 2);
   const eastWall = labWall(LAB_D, LAB_W / 2, 0, -Math.PI / 2);
   const backWall = labWall(LAB_W, 0, LAB_D / 2, Math.PI);
+  // With the steel door's opening cut out of its middle, so the door has
+  // somewhere to open onto. The same UVs wallGeometry() gives, in metres from
+  // the wall's left edge and the floor, so the photo does not shift.
+  {
+    const halfW = LAB_W / 2;
+    const halfH = LAB_H / 2;
+    const doorHalf = DOOR_WIDTH_IN_METRES / 2;
+    const doorTop = -halfH + DOOR_HEIGHT_IN_METRES;
+    const outline = new THREE.Shape([
+      [-halfW, -halfH], [-doorHalf, -halfH], [-doorHalf, doorTop], [doorHalf, doorTop],
+      [doorHalf, -halfH], [halfW, -halfH], [halfW, halfH], [-halfW, halfH]
+    ].map(([x, y]) => new THREE.Vector2(x, y)));
+    const geometry = new THREE.ShapeGeometry(outline);
+    const position = geometry.attributes.position;
+    const uv = geometry.attributes.uv;
+    for (let i = 0; i < uv.count; i++) {
+      uv.setXY(i, (position.getX(i) + halfW) / CONCRETE_TEXTURE_METRES, (position.getY(i) + halfH) / CONCRETE_TEXTURE_METRES);
+    }
+    backWall.geometry.dispose();
+    backWall.geometry = geometry;
+  }
 
   /**
    * TEXTURE PREVIEW: green grime down the walls -- a second, transparent layer
@@ -4603,6 +4624,69 @@ export function createHallwayBasementLevel({
   addSteelDoorHardware(metalDoor);
 
   /**
+   * The door swings open into the lab on its hinges -- the knuckles are on
+   * the room face, at its -x edge -- when the player finally goes through it.
+   * Turned about the hinge rather than its middle, so the slab is moved as
+   * well as turned. It starts the level's exit part way round, so the fade
+   * comes down over a door that is opening rather than one that never moved.
+   */
+  const METAL_DOOR_OPEN_ANGLE = THREE.MathUtils.degToRad(100);
+  const METAL_DOOR_SWING_SECONDS = 1.6;
+  const METAL_DOOR_EXIT_AFTER_SECONDS = 0.75;
+  const metalDoorRest = metalDoor.position.clone();
+  const metalDoorHingeX = metalDoorRest.x - DOOR_WIDTH_IN_METRES / 2;
+  /** null while shut; once opened, how long it has been swinging and whether the exit has been asked for. */
+  let metalDoorSwing = null;
+  function setMetalDoorAngle(angle) {
+    const half = DOOR_WIDTH_IN_METRES / 2;
+    metalDoor.rotation.y = angle;
+    metalDoor.position.set(metalDoorHingeX + half * Math.cos(angle), metalDoorRest.y, metalDoorRest.z - half * Math.sin(angle));
+  }
+  dynamics.push({
+    update(dt) {
+      if (!metalDoorSwing) return;
+      metalDoorSwing.t += dt;
+      const k = Math.min(1, metalDoorSwing.t / METAL_DOOR_SWING_SECONDS);
+      // Slow to get going and slow to stop: a heavy door.
+      setMetalDoorAngle(METAL_DOOR_OPEN_ANGLE * k * k * (3 - 2 * k));
+      if (!metalDoorSwing.exited && metalDoorSwing.t >= METAL_DOOR_EXIT_AFTER_SECONDS) {
+        metalDoorSwing.exited = true;
+        onExit();
+      }
+    }
+  });
+
+  /**
+   * What the open door shows: a short passage running on into the dark, so
+   * there is something beyond it rather than the void behind the back wall.
+   * The lab's lights cast no shadows, so its walls are painted near-black
+   * rather than left to be lit through the wall.
+   */
+  {
+    const PASSAGE_DEPTH = 3;
+    const passageWidth = DOOR_WIDTH_IN_METRES + 0.4;
+    const passageHeight = DOOR_HEIGHT_IN_METRES + 0.3;
+    const passageMat = labWallMat.clone();
+    passageMat.color.setScalar(0.12);
+    const startZ = LAB_D / 2;
+    const midZ = startZ + PASSAGE_DEPTH / 2;
+    const pieces = [
+      // [width, height, x, y, z, rotX, rotY]
+      [PASSAGE_DEPTH, passageHeight, -passageWidth / 2, passageHeight / 2, midZ, 0, Math.PI / 2],
+      [PASSAGE_DEPTH, passageHeight, passageWidth / 2, passageHeight / 2, midZ, 0, -Math.PI / 2],
+      [passageWidth, passageHeight, 0, passageHeight / 2, startZ + PASSAGE_DEPTH, 0, Math.PI],
+      [passageWidth, PASSAGE_DEPTH, 0, 0.001, midZ, -Math.PI / 2, 0],
+      [passageWidth, PASSAGE_DEPTH, 0, passageHeight, midZ, Math.PI / 2, 0]
+    ];
+    for (const [w, h, x, y, z, rx, ry] of pieces) {
+      const piece = new THREE.Mesh(new THREE.PlaneGeometry(w, h), passageMat);
+      piece.position.set(x, y, z);
+      piece.rotation.set(rx, ry, 0);
+      lab.add(piece);
+    }
+  }
+
+  /**
    * The raised parts of the steel door, built where its photo has them, as
    * children of the door so they go wherever it goes. Rusted iron: duller
    * and browner than the door's own steel.
@@ -4714,9 +4798,12 @@ export function createHallwayBasementLevel({
       }
 
       if (securityCleared) {
+        if (metalDoorSwing) return;
         showCaption(line('dialog_metal_door_opens'));
         onDoorOpening(metalDoor.getWorldPosition(new THREE.Vector3()));
-        onExit();
+        metalDoorSwing = { t: 0, exited: false };
+        // The note taped to it goes round with it.
+        metalDoor.attach(doorNote);
         return;
       }
 
@@ -5945,6 +6032,9 @@ export function createHallwayBasementLevel({
       fuseCoverHinge.rotation.y = 0;
       if (fuseCover.pivot) fuseCover.pivot.rotation.y = fuseCover.closedRotationY;
       metalDoor.userData.interact.label = DOOR_LABELS[POWER_STAGE.DEAD];
+      metalDoorSwing = null;
+      setMetalDoorAngle(0);
+      if (doorNote.parent === metalDoor) lab.attach(doorNote);
 
       fuseData.forEach((data, i) => {
         const fuse = fuseMeshes[data.amps];
