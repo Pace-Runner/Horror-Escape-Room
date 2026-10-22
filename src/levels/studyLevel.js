@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { createVisorGallery } from './studyVisorGallery.js';
 import { createStudyDecor } from './studyDecor.js';
 import { createStudySurfaces } from './studySurfaces.js';
 import { createClockMechanism } from './clockMechanism.js';
@@ -7,7 +8,7 @@ import { createArchivePresentation, createArchiveRecord, buildArchiveVisor, crea
 import { addStudyFootprints } from './studyFootprints.js';
 import { addStudyArchitectureTrim } from './studyArchitectureTrim.js';
 import { createStudyExterior } from './studyExterior.js';
-import { hingeMotion, studyLabel, dressCrestControl, createCrestIndicatorGeometry, createCrestPanelCollision, fillStudyKey, dressStudyDoor, dressFloorOrderClue, batchStudyPuzzleDetails } from './studyPuzzlePresentation.js';
+import { hingeMotion, studyLabel, dressCrestControl, createCrestIndicatorGeometry, createCrestPanelCollision, fillStudyKey, dressStudyDoor, batchStudyPuzzleDetails } from './studyPuzzlePresentation.js';
 import { loadModel } from '../world/modelLoader.js';
 import annabelleChairUrl from '../assets/models/study/annabelle_wingback_chair.glb?url';
 import centralDeskUrl from '../assets/models/study/central_victorian_desk.glb?url';
@@ -911,7 +912,7 @@ export function createStudyLevel({
   [-2.4, 0.4].forEach((x) => addShelf(x, 1.4, -6.25, true, true, x === 0.4 ? { index: 1 } : null));
   [-4.8, -2].forEach((z) => addShelf(-7.75, LOFT_Y + 1.4, z, false, true, z === -2 ? { index: 2, loft: true } : null));
   addShelf(7.75, LOFT_Y + 1.4, -4.8, false, true);
-  [-1.5, 1.3].forEach((x) => addShelf(x, LOFT_Y + 1.4, -6.25, true, true));
+  [-1.5, 1.3].forEach((x) => addShelf(x, LOFT_Y + 1.4, -6.25, true, true, { index: 3, loft: true }));
 
   // Floor-centred metre-scale fireplace, facing into the room from the same wall slot.
   const fireplace = new THREE.Group();
@@ -1173,42 +1174,6 @@ export function createStudyLevel({
   addStudyFootprints({ distortedTrail, bloodTrail, visorOnly,
     stairX, stairBottomZ, stairCount, stairDepth, stairRise, loftY: LOFT_Y });
 
-  const trailSymbolMat = new THREE.MeshBasicMaterial({ color: 0xbc9c83, side: THREE.DoubleSide });
-  const trailLineGeometry = new THREE.PlaneGeometry(0.035, 0.32);
-  function makeTrailSymbol(index) {
-    const symbol = new THREE.Group();
-    if (index === 1) {
-      for (const x of [-0.11, 0, 0.11]) {
-        const stroke = new THREE.Mesh(trailLineGeometry, trailSymbolMat);
-        stroke.position.x = x;
-        symbol.add(stroke);
-      }
-    } else {
-      const outline = new THREE.Mesh(new THREE.RingGeometry(0.15, 0.19, index === 0 ? 3 : 24), trailSymbolMat);
-      if (index === 0) outline.rotation.z = Math.PI / 2;
-      symbol.add(outline);
-    }
-    return symbol;
-  }
-  const hiddenTrailPositions = [
-    [-1.8, 0.035, 2.25],
-    [stairX, LOFT_Y + 0.035, -2.1],
-    [6.1, LOFT_Y + 0.035, -4.5]
-  ];
-  hiddenTrailPositions.forEach((position, index) => {
-    const clue = makeTrailSymbol(index);
-    clue.position.set(...position);
-    clue.rotation.x = -Math.PI / 2;
-    const numeral = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.28, 0.22),
-      new THREE.MeshBasicMaterial({ map: createHiddenWritingTexture([['I', 'II', 'III'][index]]), transparent: true, depthWrite: false })
-    );
-    numeral.position.set(0.40, 0.02, 0.002);
-    dressFloorOrderClue(clue, index, trailSymbolMat);
-    clue.add(numeral);
-    visorOnly.add(clue);
-  });
-
   // A shallow restricted archive alcove stands in front of the rear shelves;
   // no wall, shelf, or stair geometry needs to be moved to reveal it.
   const hollowAlcove = new THREE.Group();
@@ -1382,7 +1347,6 @@ Annabelle`;
     memoryArchive.add(model);
   }).catch((error) => console.warn('Archive cabinets could not load:', error));
 
-  const archivePresentation = createArchivePresentation(archiveCabinetMat, crestBrassMat);
   const memoryPresentation = createArchivePresentation(memoryCabinetMat, crestBrassMat);
   const restrictedPresentation = createArchivePresentation(restrictedCabinetMat, crestBrassMat);
   memoryPresentation.interior(memoryArchive, true);
@@ -1394,36 +1358,24 @@ Annabelle`;
   restrictedPresentation.memoryDoor(hollowArchivePanel, 2.04);
   restrictedPresentation.memoryDoor(restrictedRightDoor, 2.04);
 
-  // Clear rear-wall gaps, outside both archive shells, bookcase bays and portraits.
-  const trailMarkerPositions = [
-    [6.85, LOFT_Y + 1.10, -6.4, 0],
-    [-6.85, LOFT_Y + 1.25, -6.4, 0],
-    [-3.65, LOFT_Y + 0.85, -6.4, 0]
-  ];
-  const trailMarkerMaterials = [];
-  function updateTrailMarkers() {
-    trailMarkerMaterials.forEach((material, index) => {
-      material.color.setHex(puzzle.correctedTrailSolved || index < puzzle.correctedTrailProgress ? 0x71654b : 0x39342d);
-    });
+  const symbolGallery = createVisorGallery({ group, wood: archiveCabinetMat, brass: crestBrassMat, loftY: LOFT_Y });
+  const trailMarkerHits = [];
+  function setGallerySight(on) {
+    symbolGallery.setVisor(on);
+    for (const hit of trailMarkerHits) {
+      const index = interactables.indexOf(hit);
+      if (on && index < 0) interactables.push(hit);
+      else if (!on && index >= 0) interactables.splice(index, 1);
+    }
   }
-  trailMarkerPositions.forEach((position, index) => {
-    const [x, y, z, rotation] = position;
-    const material = new THREE.MeshStandardMaterial({ color: 0x39342d, roughness: 0.95 });
-    trailMarkerMaterials.push(material);
-    const marker = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.58, 0.12), material);
-    marker.position.set(x, y, z);
-    marker.rotation.y = rotation;
-    group.add(marker);
-    archivePresentation.marker(marker);
-    const glyph = makeTrailSymbol(index);
-    glyph.position.set(x + Math.sin(rotation) * 0.065, y, z + Math.cos(rotation) * 0.065);
-    glyph.rotation.y = rotation;
-    visorOnly.add(glyph);
-    const hit = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.72, 0.24), archiveHitMat);
-    hit.position.copy(marker.position);
-    hit.rotation.y = rotation;
+  // No special frame tint gives the solution away in ordinary sight.
+  function updateTrailMarkers() { symbolGallery.setVisor(!!gameState.visorWorn); }
+  symbolGallery.targets.forEach((target, index) => {
+    const hit = new THREE.Mesh(new THREE.BoxGeometry(target.width, target.height, 0.06), archiveHitMat);
+    hit.position.copy(target.position);
+    hit.position.z += 0.025;
     hit.userData.interact = {
-      label: 'Activate archive marker',
+      label: 'Inspect symbol',
       onInteract: () => {
         if (puzzle.correctedTrailSolved) return;
         if (!gameState.hasVisor || !gameState.visorWorn) {
@@ -1448,8 +1400,9 @@ Annabelle`;
       }
     };
     group.add(hit);
-    interactables.push(hit);
+    trailMarkerHits.push(hit);
   });
+  setGallerySight(!!gameState.visorWorn);
 
   // Writing on the walls, in the same hand as everything else Mark wrote.
   const wallInkMat = new THREE.MeshBasicMaterial({
@@ -1925,6 +1878,7 @@ Annabelle`;
         // One group, one flag. Everything the broken eye cannot resolve is a
         // child of it, so the room cannot correct halfway.
         visorOnly.visible = on;
+        setGallerySight(on);
         distortedTrail.visible = !on;
         updateTruthRecords(on);
         updateOverrideLabels(on);
@@ -2016,7 +1970,7 @@ Annabelle`;
       puzzle.correctedTrailProgress = 0;
       puzzle.correctedTrailSolved = false;
       restrictedDoorMotion.reset();
-      updateTrailMarkers();
+      setGallerySight(false);
       const restrictedIndex = interactables.indexOf(restrictedPlaque.mesh);
       if (restrictedIndex >= 0) interactables.splice(restrictedIndex, 1);
       puzzle.truthRecordProgress = 0;

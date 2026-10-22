@@ -1,19 +1,38 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 
-const paperStocks = new Map();
-let paperFiber = null;
-function sharedPaperFiber() {
-  if (paperFiber) return paperFiber;
-  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
-  const ctx = canvas.getContext('2d'), pixels = ctx.createImageData(128, 128);
-  for (let i = 0; i < 128 * 128; i++) {
-    const value = 214 + ((i * 17 + Math.floor(i / 128) * 7) % 19);
-    pixels.data.set([value, value, value, 255], i * 4);
+let agedPaper = null;
+function sharedAgedPaper() {
+  if (agedPaper) return agedPaper;
+  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 512;
+  const ctx = canvas.getContext('2d'), pixels = ctx.createImageData(512, 512);
+  let randomState = 91837;
+  const random = () => ((randomState = Math.imul(randomState, 1664525) + 1013904223 >>> 0) / 4294967296);
+  // Multiscale stock mottling, irregular fibres and a gently oxidised perimeter.
+  for (let y = 0; y < 512; y++) for (let x = 0; x < 512; x++) {
+    const edge = Math.exp(-Math.min(x, y, 511 - x, 511 - y) / 19);
+    const cloud = Math.sin(x * .023 + Math.sin(y * .017)) * 2.4 + Math.cos(y * .041 + x * .009) * 1.6;
+    const grain = (random() - .5) * 9;
+    const crease = Math.exp(-Math.abs(y - 315 - Math.sin(x * .011) * 3) / 1.7) * 5;
+    const i = (y * 512 + x) * 4;
+    [207, 192, 158].forEach((base, c) => { pixels.data[i + c] = base + cloud + grain - edge * 21 - crease; });
+    pixels.data[i + 3] = 255;
   }
   ctx.putImageData(pixels, 0, 0);
-  paperFiber = new THREE.CanvasTexture(canvas);
-  return paperFiber;
+  for (let i = 0; i < 700; i++) {
+    const x = random() * 512, y = random() * 512;
+    ctx.strokeStyle = i % 2 ? 'rgba(93,76,46,.09)' : 'rgba(245,231,193,.16)';
+    ctx.lineWidth = .5; ctx.beginPath(); ctx.moveTo(x, y);
+    ctx.lineTo(x + 1 + random() * 3, y + random() * 10); ctx.stroke();
+  }
+  for (const [x, y, radius] of [[65,105,85], [420,370,105], [265,460,62]]) {
+    const stain = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    stain.addColorStop(0, 'rgba(111,78,34,.10)'); stain.addColorStop(1, 'rgba(111,78,34,0)');
+    ctx.fillStyle = stain; ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  }
+  const relief = new THREE.CanvasTexture(canvas);
+  agedPaper = { canvas, relief };
+  return agedPaper;
 }
 
 export function createVisorGlassMap() {
@@ -32,36 +51,16 @@ export function createVisorGlassMap() {
 export function createArchiveRecord(width, height, seed = 0) {
   const canvas = document.createElement('canvas');
   canvas.width = 384; canvas.height = Math.min(512, Math.max(160, Math.round(384 * height / width)));
-  const stockKey = `${canvas.width}:${canvas.height}`;
-  let paper = paperStocks.get(stockKey);
-  if (!paper) {
-    paper = document.createElement('canvas');
-    paper.width = canvas.width; paper.height = canvas.height;
-    const ctx = paper.getContext('2d'), w = paper.width, h = paper.height;
-    const pixels = ctx.createImageData(w, h);
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4;
-      const grain = ((x * 17 + y * 31) % 19) / 19;
-      const edge = Math.max(0, 1 - Math.min(x, y, w - 1 - x, h - 1 - y) / 28);
-      [220, 210, 186].forEach((value, c) => { pixels.data[i + c] = value - edge * 16 + grain * 4; });
-      pixels.data[i + 3] = 255;
-    }
-    ctx.putImageData(pixels, 0, 0);
-    ctx.strokeStyle = '#ad9c79'; ctx.lineWidth = 1; ctx.strokeRect(12, 12, w - 24, h - 24);
-    ctx.strokeStyle = 'rgba(101,81,50,.13)'; ctx.beginPath(); ctx.moveTo(17, h * .72); ctx.lineTo(w - 15, h * .72 + 1); ctx.stroke();
-    for (const x of [22, w - 22]) {
-      ctx.fillStyle = '#8e7959'; ctx.beginPath(); ctx.arc(x, 22, 3, 0, Math.PI * 2); ctx.fill();
-    }
-    paperStocks.set(stockKey, paper);
-  }
+  const stock = sharedAgedPaper();
   const w = canvas.width, h = canvas.height;
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  const mesh = new THREE.Mesh(new THREE.BoxGeometry(width, height, 0.003),
-    new THREE.MeshStandardMaterial({ map: texture, roughness: 0.98, metalness: 0,
-      roughnessMap: sharedPaperFiber(), bumpMap: sharedPaperFiber(), bumpScale: 0.00008 }));
+  const mesh = new THREE.Mesh(new RoundedBoxGeometry(width, height, 0.003, 1, 0.0007),
+    new THREE.MeshStandardMaterial({ map: texture, color: seed % 2 ? 0xf5efdf : 0xfff9eb,
+      roughness: 0.98, metalness: 0, emissive: 0,
+      bumpMap: stock.relief, bumpScale: 0.00012 }));
   function write(lines) {
-    const ink = canvas.getContext('2d'); ink.drawImage(paper, 0, 0);
+    const ink = canvas.getContext('2d'); ink.drawImage(stock.canvas, 0, 0, w, h);
     const stain = ink.createRadialGradient(w * (0.24 + seed % 3 * 0.16), h * 0.68, 0,
       w * 0.5, h * 0.68, w * 0.48);
     stain.addColorStop(0, `rgba(129,105,62,${0.035 + seed % 3 * 0.008})`);
@@ -136,7 +135,12 @@ export function createArchivePresentation(wood, brass) {
       parent.add(cavity);
       if (fitted) {
         cavity.userData.studyStaticDetails = true;
-        // A liner and fitted shelves only: do not duplicate the GLB carcass.
+        // Solid side returns bridge the shell-to-door reveal (the door rear is z=.2675).
+        // Overlap hidden shell edges; stay outside the .682-wide record mounts.
+        for (const side of [-1, 1]) timber(cavity, side * 0.744, 1.13, 0.035, 0.088, 2.10, 0.48);
+        // Cap the reveal from above/below as well, without moving the hinged leaves.
+        for (const y of [0.105, 2.165]) timber(cavity, 0, y, 0.249, 1.40, 0.05, 0.052);
+        // Existing liner and shelves remain independent of rewards and doors.
         timber(cavity, 0, 1.04, -0.17, 1.32, 1.72, 0.018);
         timber(cavity, 0, 0.96, 0.025, 1.32, 0.028, 0.35);
         if (visorStand) {
