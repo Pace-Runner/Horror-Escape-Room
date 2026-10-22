@@ -3,7 +3,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { createStudyDecor } from './studyDecor.js';
 import { createStudySurfaces } from './studySurfaces.js';
 import { createClockMechanism } from './clockMechanism.js';
-import { createArchivePresentation } from './studyArchivePresentation.js';
+import { createArchivePresentation, createArchiveRecord, buildArchiveVisor } from './studyArchivePresentation.js';
 import { addStudyFootprints } from './studyFootprints.js';
 import { addStudyArchitectureTrim } from './studyArchitectureTrim.js';
 import { createStudyExterior } from './studyExterior.js';
@@ -974,12 +974,13 @@ export function createStudyLevel({
   memoryArchive.position.set(-5.4, LOFT_Y, -6.255);
   group.add(memoryArchive);
   const archiveCabinetMat = studySurfaces.woodMaterial(0.86);
+  const memoryCabinetMat = studySurfaces.woodMaterial(0.78);
   const archiveHitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
   const archiveDoorHinge = new THREE.Group();
   archiveDoorHinge.name = 'MemoryArchiveLeftHinge';
   archiveDoorHinge.position.set(-0.7, 0, 0.29);
   memoryArchive.add(archiveDoorHinge);
-  const archiveDoor = new THREE.Mesh(new THREE.BoxGeometry(0.70, 1.7, 0.045), archiveCabinetMat);
+  const archiveDoor = new THREE.Mesh(new RoundedBoxGeometry(0.70, 1.7, 0.045, 1, 0.006), memoryCabinetMat);
   archiveDoor.position.set(0.35, 1, 0);
   archiveDoorHinge.add(archiveDoor);
   const archiveRightHinge = new THREE.Group();
@@ -990,7 +991,7 @@ export function createStudyLevel({
   archiveRightHinge.add(archiveRightDoor);
   memoryArchive.add(archiveRightHinge);
   const memoryDoorMotion = hingeMotion([[archiveDoorHinge, -1], [archiveRightHinge, 1]]);
-  const archiveLock = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.18, 0.04), crestBrassMat);
+  const archiveLock = new THREE.Mesh(new RoundedBoxGeometry(0.12, 0.18, 0.04, 1, 0.008), crestBrassMat);
   archiveLock.position.set(0.61, 0.95, 0.04);
   archiveDoorHinge.add(archiveLock);
   const memoryContents = new THREE.Group();
@@ -1039,7 +1040,7 @@ export function createStudyLevel({
 
   for (let index = 0; index < 3; index++) {
     const x = (index - 1) * 0.46;
-    const display = makeArchiveLabel(0.43, 0.56);
+    const display = createArchiveRecord(0.404, 0.52, index);
     display.mesh.position.set(x, 1.3, 0.21);
     memoryContents.add(display.mesh);
     memoryRecordDisplays.push(display);
@@ -1065,9 +1066,9 @@ export function createStudyLevel({
     ['Post-procedure symptoms:\nmemory degradation,\nidentity instability,\nperceptual distortion.', ['Post-procedure symptoms:', 'memory degradation,', 'identity instability,', 'perceptual distortion.']]
   ];
   memoryClues.forEach(([text, lines], index) => {
-    const display = makeArchiveLabel(0.43, 0.32);
+    const display = createArchiveRecord(0.404, 0.20, index + 3);
     display.write(lines);
-    display.mesh.position.set([1, -1, 0][index] * 0.46, 1.97, 0.33);
+    display.mesh.position.set([1, -1, 0][index] * 0.46, 1.72, 0.24);
     display.mesh.userData.interact = {
       label: `Read archive clue ${index + 1}`,
       onInteract: () => showCaption(text)
@@ -1097,7 +1098,7 @@ export function createStudyLevel({
   };
   memoryArchive.add(archiveCabinetHit);
   interactables.push(archiveCabinetHit);
-  const visorCompartmentCover = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.38, 0.04), archiveCabinetMat);
+  const visorCompartmentCover = new THREE.Mesh(new RoundedBoxGeometry(0.66, 0.38, 0.04, 1, 0.005), memoryCabinetMat);
   const visorCoverHinge = new THREE.Group();
   visorCoverHinge.name = 'VisorCompartmentHinge';
   visorCoverHinge.position.set(-0.33, 0.68, 0.26);
@@ -1109,11 +1110,11 @@ export function createStudyLevel({
   // The existing visor is the archive reward; its pickup hook owns V gating.
   const visorGroup = new THREE.Group();
   visorGroup.position.set(memoryArchive.position.x, LOFT_Y + 0.68, memoryArchive.position.z + 0.20);
-  visorGroup.rotation.set(-Math.PI / 2, 0, 0.6);
+  visorGroup.rotation.set(0, 0, 0);
   visorGroup.visible = false;
   group.add(visorGroup);
 
-  const visorBandMat = new THREE.MeshStandardMaterial({ color: 0x23262a, roughness: 0.55, metalness: 0.25 });
+  const visorBandMat = new THREE.MeshStandardMaterial({ color: 0x343a36, roughness: 0.68, metalness: 0.45 });
   const visorLensMat = new THREE.MeshStandardMaterial({
     color: 0x2f6fae,
     roughness: 0.12,
@@ -1125,20 +1126,7 @@ export function createStudyLevel({
     emissive: 0x123a5e,
     emissiveIntensity: 0.5
   });
-  const visorBand = new THREE.Mesh(new THREE.BoxGeometry(0.19, 0.035, 0.055), visorBandMat);
-  visorBand.castShadow = true;
-  visorGroup.add(visorBand);
-  for (const lx of [-0.045, 0.045]) {
-    const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.031, 0.031, 0.016, 16), visorLensMat);
-    lens.rotation.x = Math.PI / 2;
-    lens.position.set(lx, -0.004, 0.03);
-    visorGroup.add(lens);
-  }
-  for (const ax of [-0.095, 0.095]) {
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.012, 0.12), visorBandMat);
-    arm.position.set(ax, 0, -0.08);
-    visorGroup.add(arm);
-  }
+  buildArchiveVisor(visorGroup, visorBandMat, visorLensMat, crestBrassMat);
 
   const visorHitbox = new THREE.Mesh(
     new THREE.SphereGeometry(0.24, 8, 8),
@@ -1388,25 +1376,32 @@ Annabelle`;
       walnut ??= [].concat(object.material || []).find(material => material.name === 'Archive aged walnut');
     });
     if (walnut) {
-      archiveDoor.material = walnut;
-      archiveRightDoor.material = walnut;
-      visorCompartmentCover.material = walnut;
+      archiveDoor.material = memoryCabinetMat;
+      archiveRightDoor.material = memoryCabinetMat;
+      visorCompartmentCover.material = memoryCabinetMat;
       hollowArchivePanel.material = walnut;
       restrictedRightDoor.material = walnut;
       truthDrawerFront.material = walnut;
       truthDrawerFloor.material = walnut;
     }
-    memoryArchive.add(model);
+    // Keep the other archive's existing materials and presentation untouched.
     hollowAlcove.add(model.clone(true));
+    model.traverse((object) => {
+      if (!object.isMesh) return;
+      const aged = (material) => /walnut/i.test(material.name) ? memoryCabinetMat : material;
+      object.material = Array.isArray(object.material) ? object.material.map(aged) : aged(object.material);
+    });
+    memoryArchive.add(model);
   }).catch((error) => console.warn('Archive cabinets could not load:', error));
 
   const archivePresentation = createArchivePresentation(archiveCabinetMat, crestBrassMat);
-  archivePresentation.interior(memoryArchive);
+  const memoryPresentation = createArchivePresentation(memoryCabinetMat, crestBrassMat);
+  memoryPresentation.interior(memoryArchive, true);
   archivePresentation.interior(hollowAlcove);
-  archivePresentation.records(memoryContents, 0.21, 0.56);
+  memoryPresentation.records(memoryContents, 0.21, 0.56, true);
   archivePresentation.records(hollowAlcove, 0.24, 0.48);
-  dressArchiveLeaf(archiveDoor, 0.7, 1.7, archiveCabinetMat, crestBrassMat);
-  dressArchiveLeaf(archiveRightDoor, 0.7, 1.7, archiveCabinetMat, crestBrassMat, 1);
+  memoryPresentation.memoryDoor(archiveDoor);
+  memoryPresentation.memoryDoor(archiveRightDoor);
   dressArchiveLeaf(hollowArchivePanel, 0.7, 2.04, archiveCabinetMat, crestBrassMat);
   dressArchiveLeaf(restrictedRightDoor, 0.7, 2.04, archiveCabinetMat, crestBrassMat, 1);
 
