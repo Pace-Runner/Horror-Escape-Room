@@ -1,6 +1,6 @@
 /**
  * The long-form documents the player reads in DocumentUI: the notes, the
- * sticky note, the sketch's margins, and Mark's letter.
+ * sketch's margins, and Mark's letter.
  *
  * SPOKEN AND CAPTIONED LINES DO NOT LIVE HERE ANY MORE. Every caption, story
  * beat, tape and news report moved to src/dialogue/, one file per level, so a
@@ -25,13 +25,6 @@ export const DOCUMENTS = {
       'VISUAL DISTORTION INCREASING. he described me to my face. none of it was me.',
       'the lenses help. while he wears them he is himself. he does not always agree to wear them.'
     ]
-  },
-
-  /** Basement, taped to the CCTV screen. */
-  stickyNote: {
-    title: '',
-    variant: 'note',
-    body: ['Restore power and pray it doesn’t hear you.']
   },
 
   /**

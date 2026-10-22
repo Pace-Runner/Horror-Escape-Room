@@ -4,7 +4,6 @@ import {
   createPlasterBumpTexture,
   createConcreteTexture,
   createConcreteBumpTexture,
-  createStickyNoteTexture,
   createHazardSignTexture,
   createFuseCapStampTexture,
   createFixtureSteelTexture,
@@ -634,6 +633,8 @@ export function createHallwayBasementLevel({
   onFuseTaken = () => {},
   /** Fired with a fuse's item id when it goes into the box: the host takes it out of the inventory. */
   onFuseSeated = () => {},
+  /** Fired with a fuse's item id when it is left by the box as a spare: the host takes it out of the inventory. */
+  onFuseLeft = () => {},
   /** Fired when the session tape comes out of the recorder: the host puts it in the inventory. */
   onTapeTaken = () => {},
   /** Fired when the tape goes into the deck: the host takes it out of the inventory. */
@@ -2079,7 +2080,7 @@ export function createHallwayBasementLevel({
    * whenever their prop moved -- and the room growing moves all of them.
    */
   const fuseRestingSpots = [
-    // workbench top, clear of the four tool props
+    // workbench top, clear of the microscope and slides
     { x: WORKBENCH_POSITION.x + 0.5, z: WORKBENCH_POSITION.z - 0.25, surfaceY: WORKBENCH_TOP_Y },
     // floor, just outside the workbench's collider
     { x: WORKBENCH_POSITION.x + 0.9, z: WORKBENCH_POSITION.z, surfaceY: LAB_FLOOR_Y },
@@ -2298,6 +2299,40 @@ export function createHallwayBasementLevel({
   ]);
   let droppedFuseCount = 0;
 
+  /**
+   * The fuses still being carried once the right one is in, set down in the
+   * row on the floor beside the box, where the rejects go -- and still there
+   * to pick up again, since nothing about them is wrong.
+   */
+  function leaveSpareFuses(spares) {
+    for (const data of spares) {
+      const fuse = fuseMeshes[data.amps];
+      const slot = droppedFuseSlots[Math.min(droppedFuseCount, droppedFuseSlots.length - 1)];
+      droppedFuseCount += 1;
+      fuse.position.set(...slot);
+      fuse.rotation.set(0, 0, Math.PI / 2);
+      fuse.visible = true;
+      fuse.userData.interact = fusePickup(data, fuse);
+      if (!interactables.includes(fuse)) interactables.push(fuse);
+      onFuseLeft(data.id);
+    }
+    showCaption(line('dialog_fuse_spares_left'));
+  }
+
+  /**
+   * The box's prompt once the right fuse is in: whether there are spares to
+   * leave depends on the inventory, which changes without the box knowing,
+   * so it is read every frame.
+   */
+  dynamics.push({
+    update() {
+      if (puzzleState.slotFuse !== CORRECT_FUSE_AMPS || !fuseCover.open) return;
+      fuseBox.userData.interact.label = fuseData.some((data) => isCarrying(data.id))
+        ? 'Leave the spare fuses here'
+        : 'Fuse seated (30A)';
+    }
+  });
+
   const sparkLight = new THREE.PointLight(0xfff2b0, 0, 1.0, 2);
   sparkLight.position.copy(fuseBox.position);
   lab.add(sparkLight);
@@ -2319,6 +2354,13 @@ export function createHallwayBasementLevel({
        * the caption is worded to head that off before they try.
        */
       if (puzzleState.slotFuse === CORRECT_FUSE_AMPS) {
+        // With the right one in, the others are only weight: they can be
+        // left here rather than carried, or found and dropped one by one.
+        const spares = fuseData.filter((data) => isCarrying(data.id));
+        if (spares.length) {
+          leaveSpareFuses(spares);
+          return;
+        }
         showCaption(line('dialog_fuse_already_seated'));
         return;
       }
@@ -3891,7 +3933,7 @@ export function createHallwayBasementLevel({
   /**
    * The CRT: crt_monitor.glb, sitting on the desk with its screen to the room.
    * `monitor` is the model's frame -- every part the level builds around the
-   * model (picture, power button, click target, sticky note) is placed in it,
+   * model (picture, power button, click target) is placed in it,
    * so they all move with the monitor if the monitor moves.
    */
   const monitor = new THREE.Group();
@@ -3918,8 +3960,8 @@ export function createHallwayBasementLevel({
 
   /**
    * The click target for the monitor as a whole: an invisible box over the
-   * casing. It stops just behind the bezel's face so the power button and the
-   * sticky note, which stand proud of it, are hit before it is. Keeps the old
+   * casing. It stops just behind the bezel's face so the power button, which
+   * stands proud of it, is hit before it is. Keeps the old
    * `monitorBody` name, which the rest of the level and its refs use.
    */
   const monitorBody = new THREE.Mesh(
@@ -4003,6 +4045,22 @@ export function createHallwayBasementLevel({
   );
   monitor.add(powerButton);
 
+  /**
+   * The button's click target: an invisible box well bigger than the 19 mm
+   * button, over it and its LED, standing a little proud of the bezel so the
+   * player's aim meets it before the monitor's own target. The button alone
+   * was so small it took several tries to land on.
+   */
+  const POWER_BUTTON_HIT = { width: 0.075, height: 0.05, depth: 0.03 };
+  const powerButtonHit = new THREE.Mesh(
+    new THREE.BoxGeometry(POWER_BUTTON_HIT.width, POWER_BUTTON_HIT.height, POWER_BUTTON_HIT.depth),
+    new THREE.MeshBasicMaterial({ visible: false })
+  );
+  powerButtonHit.position.set(
+    CRT_POWER_BUTTON.x + 0.012, CRT_POWER_BUTTON.y, CRT_POWER_BUTTON.ringFront + POWER_BUTTON_HIT.depth / 2
+  );
+  monitor.add(powerButtonHit);
+
   const powerLedMat = new THREE.MeshStandardMaterial({
     color: 0x1d2a1f, roughness: 0.3, emissive: POWER_GLOW_COLOR, emissiveIntensity: 0
   });
@@ -4031,10 +4089,10 @@ export function createHallwayBasementLevel({
       mesh.material.emissive.setHex(showing && feedId === activeFeedId ? 0x2e6b3a : 0x000000);
     });
     monitorBody.userData.interact.label = showing ? 'View camera feeds' : 'Examine the monitor';
-    powerButton.userData.interact.label = monitorSwitchedOn ? 'Switch the monitor off' : 'Switch the monitor on';
+    powerButtonHit.userData.interact.label = monitorSwitchedOn ? 'Switch the monitor off' : 'Switch the monitor on';
   }
 
-  powerButton.userData.interact = {
+  powerButtonHit.userData.interact = {
     label: 'Switch the monitor on',
     onInteract: () => {
       onSfx('switch_click');
@@ -4054,7 +4112,7 @@ export function createHallwayBasementLevel({
       }
     }
   };
-  interactables.push(powerButton);
+  interactables.push(powerButtonHit);
 
   dynamics.push({
     update: (dt, elapsed) => {
@@ -4247,35 +4305,6 @@ export function createHallwayBasementLevel({
       remotePort
     ], 0.003, powerCableMat);
   }
-
-  const noteTex = createStickyNoteTexture("Restore power and pray it doesn't hear you.");
-  /**
-   * The sticky note, ON THE MONITOR'S BEZEL -- the storyline puts it "stuck on
-   * the corner" of the screen, and that is where it now is.
-   *
-   * It used to float at x = -0.35, which is 0.10 m clear of the monitor casing
-   * altogether: a note stuck to nothing, hanging in the air beside the screen.
-   *
-   * Sized to the bezel rather than placed on top of it. The CRT's side border
-   * runs from the picture opening at x = 0.186 to the casing's edge at 0.23, a
-   * 0.044 m strip; a 0.04 m note centred in it leaves the picture clear. Any
-   * bigger and it would either cover the picture -- which is the one thing in
-   * this room the player has to be able to read -- or hang off the side of the
-   * casing again.
-   */
-  const STICKY_SIZE = 0.04;
-  const sticky = new THREE.Mesh(
-    new THREE.PlaneGeometry(STICKY_SIZE, STICKY_SIZE),
-    new THREE.MeshStandardMaterial({ map: noteTex })
-  );
-  sticky.position.set(0.208, CRT_SCREEN.centreY + 0.105, CRT_BODY.front + 0.001);
-  sticky.rotation.z = 0.09;
-  sticky.userData.interact = {
-    label: 'Read sticky note',
-    onInteract: () => showCaption(line('dialog_sticky_note_examine'))
-  };
-  interactables.push(sticky);
-  monitor.add(sticky);
 
   // ---------- the cassette deck ----------
   /**
@@ -5211,13 +5240,6 @@ export function createHallwayBasementLevel({
     leg.position.set(x, 0.41, z);
     workbench.add(leg);
   });
-  const toolMat = new THREE.MeshStandardMaterial({ color: 0x4a4a4a, metalness: 0.6, roughness: 0.4 });
-  for (let i = 0; i < 4; i++) {
-    const tool = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.04, 0.06), toolMat);
-    tool.position.set(-0.4 + i * 0.22, 0.865, -0.15 + (i % 2) * 0.3);
-    tool.rotation.y = Math.random() * Math.PI;
-    workbench.add(tool);
-  }
   colliders.push({
     minX: workbench.position.x - 0.75, maxX: workbench.position.x + 0.75,
     minZ: LAB_Z + workbench.position.z - 0.45, maxZ: LAB_Z + workbench.position.z + 0.45
@@ -5883,7 +5905,7 @@ export function createHallwayBasementLevel({
   for (const [target, key] of [
     [fuseBox, 'l2_fuse'], [fuseCoverHit, 'l2_fuse'], [maintenanceNote, 'l2_fuse'],
     [breakerPanel, 'l2_generator'], [breakerCoverHit, 'l2_generator'], [mainSwitch, 'l2_generator'],
-    [powerButton, 'l2_cctv'], [monitorBody, 'l2_cctv'],
+    [powerButtonHit, 'l2_cctv'], [monitorBody, 'l2_cctv'],
     [doorNote, 'l2_security_info'], [metalDoor, 'l2_exit'],
     [recorderHit, 'l2_session14'], [tapeStackHit, 'l2_session14']
   ]) target.userData.hintKey = key;

@@ -22,7 +22,7 @@ import { createBackroomsLevel } from './levels/backroomsLevel.js';
 import { ROOM_FLOORS } from './levels/annabelleRooms.js';
 import { createUpstairsHallwayLevel } from './levels/upstairsHallwayLevel.js';
 import { createScreenFade, wait } from './core/ScreenFade.js';
-import { gameState, resetState, addItem, removeItem, ITEMS } from './core/GameState.js';
+import { gameState, resetState, addItem, removeItem, ITEMS, HOTBAR_SLOTS, inventorySlots } from './core/GameState.js';
 import { createHeldItems } from './core/HeldItems.js';
 import { createItemMeshes, ITEM_MESH_IDS } from './world/itemMeshes.js';
 import { MAIN_ONLY } from './core/RenderLayers.js';
@@ -94,7 +94,11 @@ const promptEl = document.getElementById('interact-prompt');
 const captionEl = document.getElementById('caption-box');
 const hintKeyEl = document.getElementById('hint-key');
 const flashlightStateEl = document.getElementById('flashlight-state');
-const hotbarSlots = document.querySelectorAll('#hotbar .hotbar-slot');
+const hotbarEl = document.getElementById('hotbar');
+/** Each item's slot as it looks carried (index.html's #item-icons), keyed by item id. */
+const itemIconTemplates = new Map(
+  [...document.getElementById('item-icons').content.querySelectorAll('.hotbar-slot')].map((el) => [el.dataset.item, el])
+);
 const minimapCanvas = document.getElementById('minimap');
 const minimapArrowEl = document.getElementById('minimap-arrow');
 const minimapWrapEl = document.getElementById('minimap-wrap');
@@ -640,50 +644,6 @@ function setTorchPower(scale) {
   applyFlashlightBeam();
 }
 
-/**
- * THE TORCH FAILS. Every 67.5-90 s of it actually shining, it gives out for
- * 10-15 s: the beam dies, and for the whole of that it stutters -- short,
- * irregular flashes of light -- and the switch cannot fix it. Then it comes
- * back on its own. The clock only runs while the beam is lit, so a torch kept
- * in the pocket does not bank a failure for the moment it comes out.
- */
-const TORCH_FAULT_EVERY = [67.5, 90];
-const TORCH_FAULT_FOR = [10, 15];
-const torchFault = { nextIn: 0, left: 0, flickerIn: 0, flickerOn: false, flickerLevel: 1 };
-const randBetween = ([a, b]) => a + Math.random() * (b - a);
-function resetTorchFault() {
-  torchFault.nextIn = randBetween(TORCH_FAULT_EVERY);
-  torchFault.left = 0;
-  torchFault.flickerOn = false;
-}
-resetTorchFault();
-
-/** Advances the fault clock and the stutter. Once a frame, while playing. */
-function updateTorchFault(dt) {
-  if (torchFault.left > 0) {
-    torchFault.left -= dt;
-    torchFault.flickerIn -= dt;
-    if (torchFault.flickerIn <= 0) {
-      // Brief catches of light between longer dead stretches. The dead
-      // stretches average 0.94 s against a 0.12 s catch, about twelve catches
-      // in a 12.5 s failure.
-      torchFault.flickerOn = !torchFault.flickerOn;
-      torchFault.flickerIn = torchFault.flickerOn ? 0.04 + Math.random() * 0.16 : 0.24 + Math.random() * 1.4;
-      torchFault.flickerLevel = 0.25 + Math.random() * 0.75;
-    }
-    if (torchFault.left <= 0) resetTorchFault();
-    applyFlashlightBeam();
-  } else if (flashlightOn) {
-    torchFault.nextIn -= dt;
-    if (torchFault.nextIn <= 0) {
-      torchFault.left = randBetween(TORCH_FAULT_FOR);
-      torchFault.flickerOn = false;
-      torchFault.flickerIn = 0.1;
-      applyFlashlightBeam();
-    }
-  }
-}
-
 /** Flips the torch's switch. The beam follows it only while the torch is in hand. */
 function setFlashlight(on) {
   flashlightSwitchOn = !!on;
@@ -699,17 +659,15 @@ function applyFlashlightBeam() {
   // The spill drops well below the old 2.4: it is now filling AROUND a hot
   // spot rather than being the whole beam, and leaving both at full strength
   // would just be a brighter blob.
-  // A failing torch is switched on but dark, but for its stutter.
-  const failing = torchFault.left > 0;
-  const level = torchPower * (!flashlightOn ? 0 : !failing ? 1 : torchFault.flickerOn ? torchFault.flickerLevel : 0);
+  const level = torchPower * (flashlightOn ? 1 : 0);
   flashlightSpot.intensity = 1.75 * level;
   flashlightHot.intensity = 3.35 * level;
   dustMotes.setBeamOn(level > 0);
   flashlightStateEl.textContent = !flashlightFound ? 'not found'
     : !gameState.inventory.has('flashlight') ? 'dropped'
       : !inHand ? 'put away'
-        : flashlightOn ? (failing ? 'failing' : 'on') : 'off';
-  flashlightStateEl.classList.toggle('on', flashlightOn && !failing);
+        : flashlightOn ? 'on' : 'off';
+  flashlightStateEl.classList.toggle('on', flashlightOn);
 }
 
 // ---------- inventory, and what is in the hand ----------
@@ -764,18 +722,41 @@ function consumeItem(id) {
   refreshInventoryUI();
 }
 
+/**
+ * Draws the inventory bar from its slots (GameState.inventorySlots): never
+ * fewer than HOTBAR_SLOTS, more only once every one is full. A slot whose item
+ * has changed takes that item's icon, tint and title from #item-icons; the
+ * rest are left alone.
+ */
 function refreshInventoryUI() {
   const selected = heldItems.selected;
-  hotbarSlots.forEach((slot) => {
-    const item = slot.dataset.item;
-    const owned = gameState.inventory.has(item);
-    slot.classList.toggle('filled', owned);
-    slot.classList.toggle('selected', owned && item === selected);
+  const slots = inventorySlots();
+  const count = Math.max(HOTBAR_SLOTS, slots.length);
+  while (hotbarEl.children.length < count) {
+    const slot = document.createElement('div');
+    slot.className = 'hotbar-slot';
+    slot.dataset.item = '';
+    hotbarEl.append(slot);
+  }
+  while (hotbarEl.children.length > count) hotbarEl.lastElementChild.remove();
+  [...hotbarEl.children].forEach((slot, i) => {
+    const id = slots[i] ?? '';
+    if (slot.dataset.item !== id) {
+      const icon = itemIconTemplates.get(id);
+      slot.className = icon ? icon.className : 'hotbar-slot';
+      slot.title = icon ? icon.title : '';
+      slot.replaceChildren(...(icon ? [...icon.childNodes].map((node) => node.cloneNode(true)) : []));
+      slot.dataset.item = id;
+    }
+    slot.classList.toggle('filled', id !== '');
+    slot.classList.toggle('selected', id !== '' && id === selected);
   });
 }
+// The empty bar, from the first frame.
+refreshInventoryUI();
 
 /**
- * The mouse wheel steps through the owned items in hotbar slot order, wrapping.
+ * The mouse wheel steps through the owned items in the bar's slot order, wrapping.
  *
  * THROTTLED to one step per WHEEL_STEP_MS. A single notch on a free-spinning or
  * high-resolution wheel -- and any trackpad -- arrives as a burst of small wheel
@@ -1989,7 +1970,7 @@ const bedroom = createDeferredLevel(() => createBedroomLevel({
     thought('l1_11');
     player.unlock();
     documentUI.open({
-      title: 'PROJECT HOLLOW â€” Drawer Note',
+      title: 'PROJECT HOLLOW — Drawer Note',
       body: 'HOLLOW archive reference: 06-1987. Do not move the family records from the house. The brass key remains with the sealed evidence.',
       variant: 'note'
     });
@@ -1998,7 +1979,7 @@ const bedroom = createDeferredLevel(() => createBedroomLevel({
     thought('l1_14');
     player.unlock();
     documentUI.open({
-      title: 'PROJECT HOLLOW â€” Evidence Tag',
+      title: 'PROJECT HOLLOW — Evidence Tag',
       body: 'Recovered item: pry bar. Location: upstairs bedroom. Status: retain on site. The original bedroom key is concealed below the loose floorboard.',
       variant: 'note'
     });
@@ -2064,7 +2045,7 @@ const bedroom = createDeferredLevel(() => createBedroomLevel({
   itemMeshes.setTemplate('paperclip', level.refs.paperclip);
   for (const { id, url, card } of level.refs.photoItems) {
     itemMeshes.setTemplate(id, card);
-    const icon = document.querySelector(`#hotbar .hotbar-slot[data-item="${id}"] .hotbar-photo`);
+    const icon = itemIconTemplates.get(id)?.querySelector('.hotbar-photo');
     if (icon) icon.src = url;
   }
   itemMeshes.setTemplate('bedroomKey', level.refs.bedroomKey);
@@ -2200,12 +2181,6 @@ let creatureStanding = false;
  * of what you saw, which the old 0.45 s flash never was.
  */
 const CREATURE_LINGER_SECONDS = 3;
-/**
- * Level 2's arrival sighting: the lightning, and the creature it shows, last
- * this long -- one second, at the user's ask, where it used to stutter on for
- * CREATURE_LINGER_SECONDS.
- */
-const LAB_FLASH_SECONDS = 1.0;
 
 /** The appearance under way: seconds left on the FRAME clock, and what to run when it goes. */
 let creatureLinger = null;
@@ -2722,6 +2697,7 @@ const hallwayBasement = createDeferredLevel(() => createHallwayBasementLevel({
   isHolding: (id) => heldItems.isHolding(id),
   onFuseTaken: (id) => pickUpItem(id),
   onFuseSeated: (id) => consumeItem(id),
+  onFuseLeft: (id) => consumeItem(id),
   onTapeTaken: () => pickUpItem('sessionTape'),
   onTapeInserted: () => consumeItem('sessionTape'),
   onTapeEjected: () => pickUpItem('sessionTape'),
@@ -3612,36 +3588,6 @@ const ON_ENTER = {
   },
 
   /**
-   * The hallway sighting. The storm catches, and it is standing at the far end.
-   *
-   * A running storm would make this a coin toss -- the flash has to land while
-   * the player is looking down the corridor, and a random one usually will not.
-   * Firing the lightning from the same script that places the creature is what
-   * guarantees the player is shown the thing the level is about.
-   *
-   * It stays CREATURE_LINGER_SECONDS now, not 0.45 -- and since one strike is
-   * dark again in half a second, the lightning stutters for exactly as long as
-   * it stands there and goes out with it. The captions start on the strike
-   * instead of after it has gone, timed (dialogue/level2_basement.js) so the
-   * second line arrives as it vanishes.
-   */
-  hallwayBasement: () => {
-    script.run(async (s) => {
-      if (!await s.wait(1.6)) return;
-      s.do(() => {
-        hallwayBasement.refs.stutter(LAB_FLASH_SECONDS);
-        // AT the player, worked out rather than written down -- showCreatureAt
-        // faces it at the camera. A hardcoded PI looked down +Z, straight away
-        // from a player who stands at smaller z, and showed its back.
-        showCreatureAt({ x: 0, z: 5.0, linger: LAB_FLASH_SECONDS });
-        // Right over the house: the strike the creature is seen by.
-        thunder({ near: true });
-      });
-      await s.play(line('dialog_hallway_sighting'));
-    });
-  },
-
-  /**
    * The second crossing, and the only one that hunts.
    *
    * Started on a delay rather than the instant the level comes up: spawning it
@@ -3821,11 +3767,8 @@ const stairsScare = createStairsScare({
       setFlashlight(true);
     },
     setPower: setTorchPower,
-    // It works again afterwards, whatever failure it was in before the scare.
-    repair: () => {
-      resetTorchFault();
-      applyFlashlightBeam();
-    }
+    // It works again afterwards.
+    repair: () => applyFlashlightBeam()
   },
   hallway: upstairsHallway.refs,
   playBehindShot: async (standing) => {
@@ -4140,7 +4083,6 @@ function resetGame() {
   // Every "first time" line is a first time again, and being caught starts
   // its lines from the top.
   backroomsBarks.reset();
-  resetTorchFault();
   endHallwayRush({ quiet: true });
   resetDoorwayJoin();
   pickCaughtLine.reset();
@@ -4932,9 +4874,6 @@ player.controls.addEventListener('unlock', () => {
 // Nothing here grants a capability a player does not have with the keyboard.
 if (import.meta.env.DEV) {
   window.__game = {
-    // The torch's failure clock, so a harness can force one rather than wait 45 s.
-    torchFault,
-    updateTorchFault,
     get hallwayRush() { return hallwayRush; },
     // Opens the bedroom onto the hall as the door would, without the puzzle chain.
     openToHallway,
@@ -5685,7 +5624,6 @@ function tick() {
   // The difficulty's clock. Stopped by the same things, and by every moment
   // the player has no control: a fade between rooms, a cutscene, an ending.
   if (isPlaying && !transitionInFlight && !cutscene.isRunning && !stairsScare.isRunning && !endingInFlight) runTimer.update(dt);
-  if (isPlaying && !transitionInFlight && !endingInFlight) updateTorchFault(dt);
   captions.update(dt);
   // Only while it is actually on screen. The AI is not driving it in Level 2 --
   // it is placed by a script -- but it still has to breathe, or a figure

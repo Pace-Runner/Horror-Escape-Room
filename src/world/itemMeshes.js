@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { brassKeyMaterial } from './keyMaterials.js';
 
 /**
  * One mesh builder per inventory item, shared by the hand and the floor.
@@ -183,10 +184,8 @@ function buildCrowbar() {
  * is why it rests FACE_DOWN rather than FLAT.
  */
 function buildBrassKey() {
-  const brass = new THREE.MeshStandardMaterial({
-    color: 0xc9a24a, metalness: 0.85, roughness: 0.32,
-    emissive: 0x241a08, emissiveIntensity: 0.35
-  });
+  // Rusted brass, the same as the key lying in the lamp drawer -- see keyMaterials.js.
+  const brass = brassKeyMaterial();
   const key = new THREE.Group();
   key.name = 'brassKey';
 
@@ -262,7 +261,7 @@ const BUILDERS = {
   fuse45: (t) => (t ? fromTemplate(t, { rotation: [0, Math.PI / 2, 0], position: [0, 0.035, 0] }) : null)
 };
 
-/** Every id this module can build -- the same set the hotbar has slots for. */
+/** Every id this module can build -- the same set the hotbar has icons for. */
 export const ITEM_MESH_IDS = Object.freeze(Object.keys(BUILDERS));
 
 /**

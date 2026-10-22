@@ -83,20 +83,24 @@
       <div id="minimap-arrow"></div>
     </div>
 
-    <!-- A fixed slot per carryable story item, matching GameState.js's ITEMS
-         order. Slots are always present, empty or filled -- toggled by
-         refreshInventoryUI() adding/removing the 'filled' class per slot
-         rather than by building/tearing down markup. The one in the player's
-         hand also gets 'selected' (mouse wheel to change it). No image assets (see
-         the credits screen's own claim to that): every icon below is a
-         hand-authored inline SVG. -->
+    <!-- The inventory bar: HOTBAR_SLOTS slots (core/GameState.js) that carried
+         items fill left to right in the order they are picked up, built by
+         refreshInventoryUI() in src/main.js. An item keeps its slot while
+         carried, one used up or dropped leaves a gap for the next pickup, and
+         the bar only grows past HOTBAR_SLOTS when every slot is full. The one
+         in the player's hand gets 'selected' (mouse wheel to change it). -->
     <!-- Sprint stamina. Sits just above the hotbar and shares its centring, so
          the two read as one block rather than two unrelated overlays. Hidden by
          a class rather than removed, so there is no layout shift when it
          appears -- same approach as the hotbar's own .filled slots. -->
     <div id="stamina"><div id="stamina-fill"></div></div>
 
-    <div id="hotbar">
+    <div id="hotbar"></div>
+    <!-- Each item's slot as it looks when carried: its tint class, title
+         and icon, copied into whichever slot it lands in. No image assets
+         but the photographs (see the credits screen's own claim to that):
+         every other icon is a hand-authored inline SVG. -->
+    <template id="item-icons">
       <!-- First, because it is the first thing the player ever picks up. -->
       <div class="hotbar-slot key-steel" data-item="paperclip" title="Paperclip">
         <svg class="hotbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -131,18 +135,17 @@
           <path d="M16 12v3M19 12v2.5"/>
         </svg>
       </div>
-      <!-- Level 1's photographs, until each is pinned to the corkboard. The
-           picture is filled in from the bedroom once it is built. -->
-      <div class="hotbar-slot transient" data-item="photo1984" title="Photograph">
+      <!-- Level 1's photographs. The picture is filled in from the bedroom once it is built. -->
+      <div class="hotbar-slot" data-item="photo1984" title="Photograph">
         <img class="hotbar-icon hotbar-photo" alt="">
       </div>
-      <div class="hotbar-slot transient" data-item="photo1985" title="Photograph">
+      <div class="hotbar-slot" data-item="photo1985" title="Photograph">
         <img class="hotbar-icon hotbar-photo" alt="">
       </div>
-      <div class="hotbar-slot transient" data-item="photo1986" title="Photograph">
+      <div class="hotbar-slot" data-item="photo1986" title="Photograph">
         <img class="hotbar-icon hotbar-photo" alt="">
       </div>
-      <div class="hotbar-slot transient" data-item="photo1987" title="Photograph">
+      <div class="hotbar-slot" data-item="photo1987" title="Photograph">
         <img class="hotbar-icon hotbar-photo" alt="">
       </div>
       <div class="hotbar-slot" data-item="sessionTape" title="Cassette: SESSION 14">
@@ -154,10 +157,8 @@
           <path d="M6 15.5h12"/>
         </svg>
       </div>
-      <!-- Level 2's fuses. Transient: only shown while carried, since four
-           identical empty slots would mostly be in the way. The tag is the
-           rating, which is the only thing that tells them apart. -->
-      <div class="hotbar-slot transient" data-item="fuse15" title="Fuse (15A)">
+      <!-- Level 2's fuses. The tag is the rating, the only thing that tells them apart. -->
+      <div class="hotbar-slot" data-item="fuse15" title="Fuse (15A)">
         <svg class="hotbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <rect x="7" y="8" width="10" height="8" rx="1"/>
           <path d="M3 9.5h4v5H3zM17 9.5h4v5h-4z"/>
@@ -165,7 +166,7 @@
         </svg>
         <span class="hotbar-tag">15A</span>
       </div>
-      <div class="hotbar-slot transient" data-item="fuse20" title="Fuse (20A)">
+      <div class="hotbar-slot" data-item="fuse20" title="Fuse (20A)">
         <svg class="hotbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <rect x="7" y="8" width="10" height="8" rx="1"/>
           <path d="M3 9.5h4v5H3zM17 9.5h4v5h-4z"/>
@@ -173,7 +174,7 @@
         </svg>
         <span class="hotbar-tag">20A</span>
       </div>
-      <div class="hotbar-slot transient" data-item="fuse30" title="Fuse (30A)">
+      <div class="hotbar-slot" data-item="fuse30" title="Fuse (30A)">
         <svg class="hotbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <rect x="7" y="8" width="10" height="8" rx="1"/>
           <path d="M3 9.5h4v5H3zM17 9.5h4v5h-4z"/>
@@ -181,7 +182,7 @@
         </svg>
         <span class="hotbar-tag">30A</span>
       </div>
-      <div class="hotbar-slot transient" data-item="fuse45" title="Fuse (45A)">
+      <div class="hotbar-slot" data-item="fuse45" title="Fuse (45A)">
         <svg class="hotbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <rect x="7" y="8" width="10" height="8" rx="1"/>
           <path d="M3 9.5h4v5H3zM17 9.5h4v5h-4z"/>
@@ -212,7 +213,7 @@
           <path d="M16 12v3M19 12v2.5"/>
         </svg>
       </div>
-    </div>
+    </template>
   </div>
 
   <div id="caption-box"></div>

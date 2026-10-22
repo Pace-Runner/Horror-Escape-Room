@@ -1443,33 +1443,6 @@ export function createPeelingWallpaperTexture({ paperColor = [82, 75, 67] } = {}
   return tex;
 }
 
-export function createStickyNoteTexture(text) {
-  const canvas = makeCanvas(200, 200);
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#d8c85a';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = '#2b2620';
-  ctx.font = '18px "Comic Sans MS", cursive';
-  ctx.textAlign = 'center';
-  const words = text.split(' ');
-  let line = '';
-  let y = 40;
-  words.forEach((w) => {
-    const test = line + w + ' ';
-    if (ctx.measureText(test).width > 170) {
-      ctx.fillText(line, canvas.width / 2, y);
-      line = w + ' ';
-      y += 24;
-    } else {
-      line = test;
-    }
-  });
-  ctx.fillText(line, canvas.width / 2, y);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
 // Shared grayscale height canvas for quilted/tufted fabric (mattress,
 // blanket): soft puffiness bulging between grid points with the
 // stitch/seam lines recessed at the grid itself, so the colour texture

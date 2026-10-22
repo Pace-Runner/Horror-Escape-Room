@@ -7,6 +7,7 @@ import {
   createCobwebTexture
 } from '../world/textures.js';
 import { addBaseboard } from '../world/trim.js';
+import { steelKeyMaterial, brassKeyMaterial } from '../world/keyMaterials.js';
 import { createRainGlassMaterial } from '../world/RainGlassMaterial.js';
 import { loadModel, applyTextureByMaterialName } from '../world/modelLoader.js';
 import { line, linePicker } from '../dialogue/index.js';
@@ -232,6 +233,12 @@ const BEDSIDE_TABLE_POSITION_X = 3.3;
 const BEDSIDE_TABLE_POSITION_Z = -1.72;
 const SEARCH_NIGHTSTAND_POSITION_X = 0.60;
 const SEARCH_NIGHTSTAND_POSITION_Z = -2.2;
+/**
+ * The hole the loose floorboard sits in, cut out of the floor: its centre, its
+ * size (the board's own 0.72 x 0.28 m and a seam round it), and how deep the
+ * cavity under it is.
+ */
+const LOOSE_BOARD_HOLE = { x: -1.55, z: 2.3, width: 0.738, depth: 0.298, cavity: 0.12 };
 /** How much bigger the claw marks across the searchable nightstand's top are drawn than modelled. */
 const NIGHTSTAND_CLAW_MARK_SCALE = 3;
 const VANITY_SCALE = 1.18;
@@ -377,13 +384,44 @@ export function createBedroomLevel({
   structure.name = 'Structure';
   group.add(structure);
 
+  /**
+   * The floor, with the loose board's hole cut out of it, and a patch of the
+   * same floor that fills the hole until the rug is lifted -- part of the hole
+   * is out from under the rug's corner. Both carry the plane's own UVs, so the
+   * boards run straight across the cut. In the plane's space, before it is
+   * laid flat: x is world x, and y is world -z.
+   */
+  const floorShapeGeometry = (shape) => {
+    const geometry = new THREE.ShapeGeometry(shape);
+    const position = geometry.attributes.position;
+    const uv = geometry.attributes.uv;
+    for (let i = 0; i < uv.count; i++) {
+      uv.setXY(i, position.getX(i) / ROOM_W + 0.5, position.getY(i) / ROOM_D + 0.5);
+    }
+    return geometry;
+  };
+  const rectangle = (x0, y0, x1, y1) => new THREE.Path([
+    new THREE.Vector2(x0, y0), new THREE.Vector2(x1, y0), new THREE.Vector2(x1, y1), new THREE.Vector2(x0, y1)
+  ]);
+  const holeX0 = LOOSE_BOARD_HOLE.x - LOOSE_BOARD_HOLE.width / 2;
+  const holeX1 = LOOSE_BOARD_HOLE.x + LOOSE_BOARD_HOLE.width / 2;
+  const holeY0 = -LOOSE_BOARD_HOLE.z - LOOSE_BOARD_HOLE.depth / 2;
+  const holeY1 = -LOOSE_BOARD_HOLE.z + LOOSE_BOARD_HOLE.depth / 2;
+  const floorOutline = new THREE.Shape(rectangle(-ROOM_W / 2, -ROOM_D / 2, ROOM_W / 2, ROOM_D / 2).getPoints());
+  floorOutline.holes.push(rectangle(holeX0, holeY0, holeX1, holeY1));
   const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(ROOM_W, ROOM_D),
+    floorShapeGeometry(floorOutline),
     new THREE.MeshStandardMaterial({ map: floorTex, roughness: 0.78 })
   );
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   structure.add(floor);
+  const floorHolePatch = new THREE.Mesh(
+    floorShapeGeometry(new THREE.Shape(rectangle(holeX0, holeY0, holeX1, holeY1).getPoints())),
+    floor.material
+  );
+  floorHolePatch.receiveShadow = true;
+  floor.add(floorHolePatch);
 
   /** Dark, cracked plaster gives flashlight and lightning a subtle ceiling response. */
   const ceiling = new THREE.Mesh(
@@ -1937,6 +1975,10 @@ export function createBedroomLevel({
     lampDrawerLockAnchor = tableModel.getObjectByName('Level1DrawerLockAnchor');
     lampDrawerContentsAnchor = tableModel.getObjectByName('Level1DrawerContentsAnchor');
     lampDrawerKeyVisual = tableModel.getObjectByName('Level1DrawerBrassKey');
+    // Rusted brass, the same as the key in the hand once it is picked up.
+    lampDrawerKeyVisual?.traverse((child) => {
+      if (child.isMesh) child.material = brassKeyMaterial();
+    });
     if (!lampDrawerVisual || !lampDrawerLockAnchor || !lampDrawerContentsAnchor || !lampDrawerKeyVisual) {
       throw new Error('Level 1 bedside table is missing a required drawer hierarchy node.');
     }
@@ -2502,9 +2544,9 @@ export function createBedroomLevel({
   //
   // The model's top is warped, 0.013 to 0.027 above its own origin. Its LOWEST
   // corner stands LOOSE_BOARD_PROUD above the boards round it, so the whole
-  // top is clear of the floor and of the dark seam under it, and the warped
-  // corner lifts 2 cm -- where it used to stand 4 cm up like a lid.
-  const LOOSE_BOARD_SPOT = { x: -1.55, z: 2.3 };
+  // top is clear of the floor, and the warped corner lifts 2 cm -- where it
+  // used to stand 4 cm up like a lid.
+  const LOOSE_BOARD_SPOT = { x: LOOSE_BOARD_HOLE.x, z: LOOSE_BOARD_HOLE.z };
   const LOOSE_BOARD_PROUD = 0.005;
   const LOOSE_BOARD_REST_Y = LOOSE_BOARD_PROUD - 0.013;
   const looseFloorboard = new THREE.Group();
@@ -2514,17 +2556,45 @@ export function createBedroomLevel({
   group.add(looseFloorboard);
 
   /**
-   * The dark gap round the board, and the hole it leaves once it is up: the
-   * model's LooseFloorboardPryGap, a near-black slab a little bigger than the
-   * board, moved out of the board (which moves) into this host (which does
-   * not), and lifted to just over the floor so its edge shows round the board
-   * as a seam.
+   * The cavity under the board, below the hole cut in the floor: four sides
+   * of rough joist wood and a dusty bottom, all the room's own floor photo
+   * darkened, at its own scale -- the geometry's UVs are shrunk to the panel's
+   * size against the floor's, so the grain is the floor's size, not stretched.
+   * It is what shows through the seam round the board, and what the key lies
+   * in once the board is up.
    */
   const looseFloorboardHole = new THREE.Group();
   looseFloorboardHole.name = 'Level1LooseFloorboardHole';
-  looseFloorboardHole.position.set(LOOSE_BOARD_SPOT.x, 0.0015, LOOSE_BOARD_SPOT.z);
+  looseFloorboardHole.position.set(LOOSE_BOARD_HOLE.x, 0, LOOSE_BOARD_HOLE.z);
   looseFloorboardHole.visible = false;
   group.add(looseFloorboardHole);
+  {
+    const { width, depth, cavity } = LOOSE_BOARD_HOLE;
+    const joistMat = new THREE.MeshStandardMaterial({ map: floorTex, color: 0xb09878, roughness: 0.95 });
+    const dustMat = new THREE.MeshStandardMaterial({ map: floorTex, color: 0x8a7a66, roughness: 1 });
+    const cavityPanel = (w, h, material, x, y, z, rx, ry) => {
+      const geometry = new THREE.PlaneGeometry(w, h);
+      const uv = geometry.attributes.uv;
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * w / ROOM_W, uv.getY(i) * h / ROOM_D);
+      const panel = new THREE.Mesh(geometry, material);
+      panel.position.set(x, y, z);
+      panel.rotation.set(rx, ry, 0);
+      panel.receiveShadow = true;
+      looseFloorboardHole.add(panel);
+    };
+    // Each face turned inward, toward the middle of the cavity.
+    cavityPanel(width, depth, dustMat, 0, -cavity, 0, -Math.PI / 2, 0);
+    cavityPanel(width, cavity, joistMat, 0, -cavity / 2, -depth / 2, 0, 0);
+    cavityPanel(width, cavity, joistMat, 0, -cavity / 2, depth / 2, 0, Math.PI);
+    cavityPanel(depth, cavity, joistMat, -width / 2, -cavity / 2, 0, 0, Math.PI / 2);
+    cavityPanel(depth, cavity, joistMat, width / 2, -cavity / 2, 0, 0, -Math.PI / 2);
+  }
+
+  /** Shows the hole -- the cavity, not the patch of floor over it -- or covers it again. */
+  function setLooseBoardHoleOpen(open) {
+    looseFloorboardHole.visible = open;
+    floorHolePatch.visible = !open;
+  }
 
   /**
    * Prying it up: lifted off its far end by the crowbar (LOOSE_BOARD_LIFT),
@@ -2588,12 +2658,10 @@ export function createBedroomLevel({
       // darker enough to be the board that is out of place.
       if (child.material.name === 'LooseFloorboardWood') child.material.color.setScalar(0.85);
     });
+    // The model's own dark slab for the gap round the board is not needed:
+    // there is a real hole round it now, and the cavity shows through it.
     const gap = floorboardModel.getObjectByName('LooseFloorboardPryGap');
-    if (gap) {
-      looseFloorboardHole.add(gap);
-      gap.position.y = 0;
-      gap.castShadow = false;
-    }
+    gap?.parent?.remove(gap);
     looseFloorboard.add(floorboardModel);
   }).catch((error) => console.error('Could not load the Level 1 loose floorboard remodel:', error));
 
@@ -2644,11 +2712,12 @@ export function createBedroomLevel({
   looseFloorboardHitbox.visible = false;
 
   const bedroomKey = new THREE.Group();
-  // Lying in the hole the board leaves, on its dark floor.
-  bedroomKey.position.set(LOOSE_BOARD_SPOT.x, 0.032, LOOSE_BOARD_SPOT.z);
+  // Lying in the cavity the board leaves, on its dusty bottom.
+  bedroomKey.position.set(LOOSE_BOARD_SPOT.x, 0.03 - LOOSE_BOARD_HOLE.cavity, LOOSE_BOARD_SPOT.z);
   bedroomKey.rotation.y = 0.5;
   bedroomKey.visible = false;
-  const bedroomKeyMetal = new THREE.MeshStandardMaterial({ color: 0xb9c2cc, metalness: 0.8, roughness: 0.35 });
+  // The Level 2 pipes' photographed steel -- see world/keyMaterials.js.
+  const bedroomKeyMetal = steelKeyMaterial();
   const bedroomKeyShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.16, 8), bedroomKeyMetal);
   bedroomKeyShaft.rotation.z = Math.PI / 2;
   bedroomKey.add(bedroomKeyShaft);
@@ -3105,7 +3174,12 @@ export function createBedroomLevel({
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
   photoAreaHitbox.userData.interact = {
-    label: 'Examine corkboard',
+    // Read every frame by Interaction, so it changes as a photograph comes into the hand.
+    get label() {
+      const holdingPhoto = !puzzleState.photosArranged && Object.keys(photoSlots)
+        .some((key) => !puzzleState.pinnedPhotos.has(key) && isHolding(photoItemId(key)));
+      return holdingPhoto ? 'Pin picture' : 'Examine corkboard';
+    },
     onInteract: () => {
       if (puzzleState.photosArranged) {
         showCaption(line('dialog_corkboard_open'));
@@ -3235,7 +3309,11 @@ export function createBedroomLevel({
         showCaption(line('dialog_hold_brass_key'));
       } else if (puzzleState.photosArranged && puzzleState.hasBrassKey) {
         showCaption(line('dialog_lockbox_opened'));
+        // Out of the target list, not just hidden: the interaction ray still
+        // meets a hidden mesh, and the open box went on offering to be opened.
         boxHitbox.visible = false;
+        const boxIndex = interactables.indexOf(boxHitbox);
+        if (boxIndex >= 0) interactables.splice(boxIndex, 1);
         boxOpened = true;
         boxOpenElapsedSeconds = 0;
         puzzleState.hasBrassKey = false;
@@ -3426,6 +3504,7 @@ export function createBedroomLevel({
       updatePinboardCollision();
 
       boxHitbox.visible = true;
+      if (!interactables.includes(boxHitbox)) interactables.push(boxHitbox);
       boxOpened = false;
       boxOpenElapsedSeconds = 0;
       crowbarHandedOver = false;
@@ -3439,7 +3518,7 @@ export function createBedroomLevel({
       rugCornerHitbox.visible = Boolean(rugFoldCorner);
       if (rugCornerHitbox.visible && !interactables.includes(rugCornerHitbox)) interactables.push(rugCornerHitbox);
       looseFloorboard.visible = false;
-      looseFloorboardHole.visible = false;
+      setLooseBoardHoleOpen(false);
       resetLooseBoard();
       looseFloorboardHitbox.visible = false;
       const hiddenFloorboardIndex = interactables.indexOf(looseFloorboardHitbox);
@@ -3488,7 +3567,7 @@ export function createBedroomLevel({
           rugCornerOpen = true;
           if (!puzzleState.floorboardPried) {
             looseFloorboard.visible = true;
-            looseFloorboardHole.visible = true;
+            setLooseBoardHoleOpen(true);
             looseFloorboardHitbox.visible = true;
             if (!interactables.includes(looseFloorboardHitbox)) interactables.push(looseFloorboardHitbox);
           }
