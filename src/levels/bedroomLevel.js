@@ -230,6 +230,8 @@ const BEDSIDE_TABLE_POSITION_X = 3.3;
 const BEDSIDE_TABLE_POSITION_Z = -1.72;
 const SEARCH_NIGHTSTAND_POSITION_X = 0.60;
 const SEARCH_NIGHTSTAND_POSITION_Z = -2.2;
+/** How much bigger the claw marks across the searchable nightstand's top are drawn than modelled. */
+const NIGHTSTAND_CLAW_MARK_SCALE = 3;
 const VANITY_SCALE = 1.18;
 const DRESSER_POSITION_X = ROOM_W / 2 - 0.275 * VANITY_SCALE;
 const DRESSER_POSITION_Z = 1.35;
@@ -2726,6 +2728,23 @@ export function createBedroomLevel({
       tableModel.traverse((child) => {
         if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; }
       });
+      // The claw marks across its top are modelled, but as three hairlines
+      // 10 cm long, the raw wood in them barely paler than the varnish -- from
+      // standing height they could not be seen at all. Spread across most of
+      // the top about their own middle, and the wood they expose paled, so
+      // they catch the torch. Measured before the table is placed, so the
+      // box is in the model's own space.
+      const clawMarks = tableModel.getObjectByName('BedsideTopScratch');
+      if (clawMarks) {
+        const centre = new THREE.Box3().setFromObject(clawMarks).getCenter(new THREE.Vector3());
+        clawMarks.scale.set(NIGHTSTAND_CLAW_MARK_SCALE, 1, NIGHTSTAND_CLAW_MARK_SCALE);
+        clawMarks.position.set(centre.x * (1 - NIGHTSTAND_CLAW_MARK_SCALE), 0, centre.z * (1 - NIGHTSTAND_CLAW_MARK_SCALE));
+        clawMarks.traverse((child) => {
+          if (child.isMesh && child.material.name === 'BedsideTop_ExposedWoodFibres') {
+            child.material.color.setRGB(0.5, 0.33, 0.19);
+          }
+        });
+      }
       ns.add(tableModel);
       hitbox.visible = true;
     }).catch((error) => console.error('Could not load custom bedside table:', error));
