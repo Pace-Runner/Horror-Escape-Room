@@ -3094,6 +3094,8 @@ const backroomsHunter = createBackroomsHunter({
   colliders: backrooms.colliders,
   // Annabelle's rooms are partitioned; it must only ever aim for the open half.
   roomFloors: ROOM_FLOORS,
+  // And they are safe: it cannot catch you in one of her rooms.
+  safeFloors: ROOM_FLOORS,
   onBreathing: (level) => audio.setBreathing(level),
   onCaught: () => onHunterCaught()
 });
