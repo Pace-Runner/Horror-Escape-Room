@@ -9,7 +9,6 @@ line can be re-recorded without rebuilding this. The times match the
 subtitles in src/story/sessionTape.js:
 
      0.0  the REC key going down, the motor taking up, hiss from then on
-     0.3  his heavy breathing under sedation, once
     28.0  the restraints straining; at 28.2 him grunting, losing it, once
     32.0  a strap snapping
     35.6  the struggle at the trolley
@@ -20,10 +19,11 @@ subtitles in src/story/sessionTape.js:
     45.6  the recording cut off
 
 The room, the restraints, the fall and the alarm are synthesised from the
-standard library -- noise, filters and envelopes. His breathing, his grunting
-and the chamber's glass are recordings in blender/source/
-(male_heavy_breathing.mp3, male_grunting_and_panting.mp3,
-large_window_shatter.mp3), mixed in at those times. Blender reads them and
+standard library -- noise, filters and envelopes. His grunting and the
+chamber's glass are recordings in blender/source/
+(male_grunting_and_panting.mp3, large_window_shatter.mp3), mixed in at those
+times. His heavy breathing used to open the tape too, and was taken out: it
+played the instant PLAY was pressed and read as the player's own breathing. Blender reads them and
 encodes the result: it carries FFmpeg, and nothing else on a bare machine
 does. (Its
 sound mixdown would be the obvious way, but run headless it writes one
@@ -51,8 +51,8 @@ RECORDING_STOPS_AT_SECONDS = 45.6
 # How dull the room sounds once the recorder is on the floor, face down.
 ON_THE_FLOOR_CUTOFF_HZ = 900
 
-# Real recordings mixed in where synthesis would not do: the subject's breathing,
-# his grunting as he loses it, and the containment chamber's glass going.
+# Real recordings mixed in where synthesis would not do: the subject's grunting
+# as he loses it, and the containment chamber's glass going.
 SOURCE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'source')
 OUT_PATH = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                         '..', 'src', 'assets', 'audio', 'tape', 'session_14.m4a'))
@@ -230,9 +230,6 @@ def build_track():
     # The room: tape hiss and the hum of the lab's mains, all the way through.
     track.add(0.05, low_pass(noise(stop - 0.05), 5000), 0.035)
     track.add(0.05, tone(50, stop - 0.05), 0.012)
-    # His breathing (male_heavy_breathing.mp3), heavy under the sedation: once,
-    # as the tape starts.
-    track.add(0.3, recording('male_heavy_breathing.mp3'), 0.6)
     # Straining against the straps, and the table taking it.
     t = 28.0
     while t < 32.0:
