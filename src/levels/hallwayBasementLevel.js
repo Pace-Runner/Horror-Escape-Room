@@ -4,7 +4,6 @@ import {
   createPlasterBumpTexture,
   createConcreteTexture,
   createConcreteBumpTexture,
-  createStickyNoteTexture,
   createHazardSignTexture,
   createFuseCapStampTexture,
   createFixtureSteelTexture,
@@ -2079,7 +2078,7 @@ export function createHallwayBasementLevel({
    * whenever their prop moved -- and the room growing moves all of them.
    */
   const fuseRestingSpots = [
-    // workbench top, clear of the four tool props
+    // workbench top, clear of the microscope and slides
     { x: WORKBENCH_POSITION.x + 0.5, z: WORKBENCH_POSITION.z - 0.25, surfaceY: WORKBENCH_TOP_Y },
     // floor, just outside the workbench's collider
     { x: WORKBENCH_POSITION.x + 0.9, z: WORKBENCH_POSITION.z, surfaceY: LAB_FLOOR_Y },
@@ -3891,7 +3890,7 @@ export function createHallwayBasementLevel({
   /**
    * The CRT: crt_monitor.glb, sitting on the desk with its screen to the room.
    * `monitor` is the model's frame -- every part the level builds around the
-   * model (picture, power button, click target, sticky note) is placed in it,
+   * model (picture, power button, click target) is placed in it,
    * so they all move with the monitor if the monitor moves.
    */
   const monitor = new THREE.Group();
@@ -3918,8 +3917,8 @@ export function createHallwayBasementLevel({
 
   /**
    * The click target for the monitor as a whole: an invisible box over the
-   * casing. It stops just behind the bezel's face so the power button and the
-   * sticky note, which stand proud of it, are hit before it is. Keeps the old
+   * casing. It stops just behind the bezel's face so the power button, which
+   * stands proud of it, is hit before it is. Keeps the old
    * `monitorBody` name, which the rest of the level and its refs use.
    */
   const monitorBody = new THREE.Mesh(
@@ -4247,35 +4246,6 @@ export function createHallwayBasementLevel({
       remotePort
     ], 0.003, powerCableMat);
   }
-
-  const noteTex = createStickyNoteTexture("Restore power and pray it doesn't hear you.");
-  /**
-   * The sticky note, ON THE MONITOR'S BEZEL -- the storyline puts it "stuck on
-   * the corner" of the screen, and that is where it now is.
-   *
-   * It used to float at x = -0.35, which is 0.10 m clear of the monitor casing
-   * altogether: a note stuck to nothing, hanging in the air beside the screen.
-   *
-   * Sized to the bezel rather than placed on top of it. The CRT's side border
-   * runs from the picture opening at x = 0.186 to the casing's edge at 0.23, a
-   * 0.044 m strip; a 0.04 m note centred in it leaves the picture clear. Any
-   * bigger and it would either cover the picture -- which is the one thing in
-   * this room the player has to be able to read -- or hang off the side of the
-   * casing again.
-   */
-  const STICKY_SIZE = 0.04;
-  const sticky = new THREE.Mesh(
-    new THREE.PlaneGeometry(STICKY_SIZE, STICKY_SIZE),
-    new THREE.MeshStandardMaterial({ map: noteTex })
-  );
-  sticky.position.set(0.208, CRT_SCREEN.centreY + 0.105, CRT_BODY.front + 0.001);
-  sticky.rotation.z = 0.09;
-  sticky.userData.interact = {
-    label: 'Read sticky note',
-    onInteract: () => showCaption(line('dialog_sticky_note_examine'))
-  };
-  interactables.push(sticky);
-  monitor.add(sticky);
 
   // ---------- the cassette deck ----------
   /**
@@ -5211,13 +5181,6 @@ export function createHallwayBasementLevel({
     leg.position.set(x, 0.41, z);
     workbench.add(leg);
   });
-  const toolMat = new THREE.MeshStandardMaterial({ color: 0x4a4a4a, metalness: 0.6, roughness: 0.4 });
-  for (let i = 0; i < 4; i++) {
-    const tool = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.04, 0.06), toolMat);
-    tool.position.set(-0.4 + i * 0.22, 0.865, -0.15 + (i % 2) * 0.3);
-    tool.rotation.y = Math.random() * Math.PI;
-    workbench.add(tool);
-  }
   colliders.push({
     minX: workbench.position.x - 0.75, maxX: workbench.position.x + 0.75,
     minZ: LAB_Z + workbench.position.z - 0.45, maxZ: LAB_Z + workbench.position.z + 0.45

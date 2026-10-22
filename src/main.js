@@ -2181,12 +2181,6 @@ let creatureStanding = false;
  * of what you saw, which the old 0.45 s flash never was.
  */
 const CREATURE_LINGER_SECONDS = 3;
-/**
- * Level 2's arrival sighting: the lightning, and the creature it shows, last
- * this long -- one second, at the user's ask, where it used to stutter on for
- * CREATURE_LINGER_SECONDS.
- */
-const LAB_FLASH_SECONDS = 1.0;
 
 /** The appearance under way: seconds left on the FRAME clock, and what to run when it goes. */
 let creatureLinger = null;
@@ -3589,36 +3583,6 @@ const ON_ENTER = {
       while (hallwayRush) if (!await s.wait(0.1)) return;
       if (!await s.wait(0.8)) return;
       await s.play(line('dialog_hallway_enter'));
-    });
-  },
-
-  /**
-   * The hallway sighting. The storm catches, and it is standing at the far end.
-   *
-   * A running storm would make this a coin toss -- the flash has to land while
-   * the player is looking down the corridor, and a random one usually will not.
-   * Firing the lightning from the same script that places the creature is what
-   * guarantees the player is shown the thing the level is about.
-   *
-   * It stays CREATURE_LINGER_SECONDS now, not 0.45 -- and since one strike is
-   * dark again in half a second, the lightning stutters for exactly as long as
-   * it stands there and goes out with it. The captions start on the strike
-   * instead of after it has gone, timed (dialogue/level2_basement.js) so the
-   * second line arrives as it vanishes.
-   */
-  hallwayBasement: () => {
-    script.run(async (s) => {
-      if (!await s.wait(1.6)) return;
-      s.do(() => {
-        hallwayBasement.refs.stutter(LAB_FLASH_SECONDS);
-        // AT the player, worked out rather than written down -- showCreatureAt
-        // faces it at the camera. A hardcoded PI looked down +Z, straight away
-        // from a player who stands at smaller z, and showed its back.
-        showCreatureAt({ x: 0, z: 5.0, linger: LAB_FLASH_SECONDS });
-        // Right over the house: the strike the creature is seen by.
-        thunder({ near: true });
-      });
-      await s.play(line('dialog_hallway_sighting'));
     });
   },
 
