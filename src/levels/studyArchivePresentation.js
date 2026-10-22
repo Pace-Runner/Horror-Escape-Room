@@ -15,7 +15,7 @@ function sharedAgedPaper() {
     const grain = (random() - .5) * 9;
     const crease = Math.exp(-Math.abs(y - 315 - Math.sin(x * .011) * 3) / 1.7) * 5;
     const i = (y * 512 + x) * 4;
-    [207, 192, 158].forEach((base, c) => { pixels.data[i + c] = base + cloud + grain - edge * 21 - crease; });
+    [195, 181, 153].forEach((base, c) => { pixels.data[i + c] = base + cloud + grain - edge * 21 - crease; });
     pixels.data[i + 3] = 255;
   }
   ctx.putImageData(pixels, 0, 0);
@@ -29,6 +29,11 @@ function sharedAgedPaper() {
     const stain = ctx.createRadialGradient(x, y, 0, x, y, radius);
     stain.addColorStop(0, 'rgba(111,78,34,.10)'); stain.addColorStop(1, 'rgba(111,78,34,0)');
     ctx.fillStyle = stain; ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  }
+  // Sparse foxing stays faint enough to leave printed records legible.
+  for (let i = 0; i < 150; i++) {
+    ctx.fillStyle = `rgba(106,75,39,${.04 + random() * .06})`;
+    ctx.beginPath(); ctx.arc(random() * 512, random() * 512, .35 + random() * 1.1, 0, Math.PI * 2); ctx.fill();
   }
   const relief = new THREE.CanvasTexture(canvas);
   agedPaper = { canvas, relief };
@@ -50,13 +55,15 @@ export function createVisorGlassMap() {
 /** Archive cards only: handled stock, real thin edges, unchanged text interface. */
 export function createArchiveRecord(width, height, seed = 0) {
   const canvas = document.createElement('canvas');
-  canvas.width = 384; canvas.height = Math.min(512, Math.max(160, Math.round(384 * height / width)));
+  // Match the physical insert aspect, including the wide header; never stretch type.
+  const texelsPerUnit = 512 / Math.max(width, height);
+  canvas.width = Math.round(width * texelsPerUnit); canvas.height = Math.round(height * texelsPerUnit);
   const stock = sharedAgedPaper();
   const w = canvas.width, h = canvas.height;
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   const mesh = new THREE.Mesh(new RoundedBoxGeometry(width, height, 0.003, 1, 0.0007),
-    new THREE.MeshStandardMaterial({ map: texture, color: seed % 2 ? 0xf5efdf : 0xfff9eb,
+    new THREE.MeshStandardMaterial({ map: texture, color: seed % 2 ? 0xece3cf : 0xf0e6d2,
       roughness: 0.98, metalness: 0, emissive: 0,
       bumpMap: stock.relief, bumpScale: 0.00012 }));
   function write(lines) {

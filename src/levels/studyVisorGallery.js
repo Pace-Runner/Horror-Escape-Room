@@ -50,28 +50,77 @@ function atlasGeometry(tile, columns, rows, crop=0) {
     1-(Math.floor(tile/columns)+crop+(1-uv.getY(i))*(1-crop*2))/rows);
   return geometry;
 }
+// The catalogue uses the very same glyph IDs as the bookshelf targets.
+const catalogue = [0,5,4,3,10,7,8,6,9,5,4,1,7,10,3,6,8,2,9,5];
 function diagram(hidden) {
-  const [image,ctx]=canvas(512,768);stock(ctx,512,768);
-  ctx.strokeStyle='#73624d';ctx.lineWidth=1;ctx.strokeRect(25,25,462,718);
-  ctx.fillStyle='#594835';ctx.textAlign='center';ctx.font='19px Georgia';ctx.fillText('FIELD OBSERVATIONS · 1889',256,58);
-  ctx.font='11px Georgia';ctx.fillText('ARCHIVE / STUDY OF CORRESPONDENCES',256,80);
+  const [image,ctx]=canvas(512,320);stock(ctx,512,320);
+  ctx.strokeStyle='#6f5b42';ctx.lineWidth=.8;ctx.strokeRect(13,13,486,294);
+  ctx.strokeRect(17,17,478,286);
+  ctx.fillStyle='#493b2b';ctx.textAlign='left';ctx.font='19px Georgia';
+  ctx.fillText('PROJECT HOLLOW',27,39);
+  ctx.font='10px Georgia';ctx.fillText('SITE OBSERVATION MAP',28,54);
+  ctx.textAlign='center';ctx.font='11px Georgia';ctx.fillText('SYMBOL CATALOGUE',413,65);
+  // Faded survey grid, terrain contours, stream and a sketched estate.
+  ctx.save();ctx.beginPath();ctx.rect(26,69,292,180);ctx.clip();
+  ctx.strokeStyle='rgba(91,73,47,.15)';ctx.lineWidth=.5;
+  for(let x=28;x<320;x+=24){ctx.beginPath();ctx.moveTo(x,69);ctx.lineTo(x,249);ctx.stroke();}
+  for(let y=72;y<250;y+=24){ctx.beginPath();ctx.moveTo(26,y);ctx.lineTo(318,y);ctx.stroke();}
+  ctx.strokeStyle='rgba(80,66,43,.32)';
+  for(let contour=0;contour<18;contour++){
+    ctx.beginPath();
+    for(let x=25;x<=320;x+=3){
+      const y=75+contour*10+Math.sin(x*.027+contour*.31)*12+Math.cos(x*.055-contour*.24)*5;
+      x===25?ctx.moveTo(x,y):ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  }
+  ctx.strokeStyle='#76684e';ctx.lineWidth=1;
+  for(const offset of [-2,2]){ctx.beginPath();ctx.moveTo(290+offset,74);ctx.bezierCurveTo(212,114,304,143,213+offset,177);ctx.bezierCurveTo(148,201,199,225,128+offset,254);ctx.stroke();}
+  // Hatching and small trees give the grounds an engraved archival character.
+  for(let i=0;i<95;i++){
+    const x=32+(i*43%279),y=81+(i*67%160);
+    if(x>114&&x<219&&y>112&&y<184)continue;
+    ctx.strokeStyle='rgba(62,57,39,.50)';ctx.lineWidth=.6;ctx.beginPath();
+    ctx.moveTo(x,y+5);ctx.lineTo(x,y-5);ctx.moveTo(x-3,y+1);ctx.lineTo(x,y-5);ctx.lineTo(x+3,y+1);ctx.stroke();
+  }
+  // Main house, research wing, roof tiles and measured garden paths.
+  ctx.fillStyle='#ad9977';ctx.fillRect(127,139,65,35);ctx.fillRect(189,150,26,24);
+  ctx.strokeStyle='#534934';ctx.lineWidth=1;ctx.strokeRect(127,139,65,35);ctx.strokeRect(189,150,26,24);
+  ctx.beginPath();ctx.moveTo(120,140);ctx.lineTo(159,117);ctx.lineTo(199,140);ctx.closePath();ctx.stroke();
+  ctx.beginPath();ctx.moveTo(188,150);ctx.lineTo(202,136);ctx.lineTo(219,150);ctx.stroke();
+  ctx.strokeRect(149,153,12,21);ctx.strokeRect(174,123,5,14);
+  for(const x of [133,169,181,196,206])ctx.strokeRect(x,147+(x>190?9:0),5,7);
+  for(let row=0;row<4;row++){ctx.beginPath();ctx.moveTo(130+row*6,137-row*4);ctx.lineTo(188-row*6,137-row*4);ctx.stroke();}
+  ctx.setLineDash([3,2]);ctx.beginPath();ctx.moveTo(155,177);ctx.lineTo(149,204);ctx.lineTo(99,222);ctx.moveTo(215,164);ctx.lineTo(240,172);ctx.stroke();ctx.setLineDash([]);
+  ctx.font='italic 8px Georgia';ctx.textAlign='left';ctx.fillStyle='#5a4b37';
+  ctx.fillText('North grounds',36,91);ctx.fillText('Research wing',205,192);ctx.fillText('Survey boundary / 1889',33,240);
+  ctx.restore();
+  // Compass, plate annotations and modest handling marks remain visible normally.
+  ctx.strokeStyle='#66553c';ctx.lineWidth=.8;
+  ctx.beginPath();ctx.arc(297,49,9,0,Math.PI*2);ctx.moveTo(297,35);ctx.lineTo(297,63);ctx.moveTo(283,49);ctx.lineTo(311,49);ctx.stroke();
+  ctx.font='8px Georgia';ctx.textAlign='center';ctx.fillStyle='#51432f';ctx.fillText('N',297,31);
+  ctx.textAlign='left';ctx.font='9px Georgia';ctx.fillText('FIELD NOTES',28,266);
+  ctx.font='italic 8px Georgia';ctx.fillText('Marks recur across the grounds and surviving plates.',28,280);
+  ctx.fillText('Compare specimens before entering the subject record.',28,292);
+  for(const [x,y] of [[45,211],[309,282],[461,27]]){
+    const stain=ctx.createRadialGradient(x,y,0,x,y,24);stain.addColorStop(0,'rgba(91,60,24,.09)');stain.addColorStop(1,'rgba(91,60,24,0)');ctx.fillStyle=stain;ctx.fillRect(x-24,y-24,48,48);
+  }
+  // Twenty catalogue entries; each true glyph occurs exactly once.
+  ctx.strokeStyle='rgba(83,65,41,.45)';ctx.lineWidth=.6;
+  for(let col=0;col<=4;col++){ctx.beginPath();ctx.moveTo(335+col*39,82);ctx.lineTo(335+col*39,282);ctx.stroke();}
+  for(let row=0;row<=5;row++){ctx.beginPath();ctx.moveTo(335,82+row*40);ctx.lineTo(491,82+row*40);ctx.stroke();}
+  catalogue.forEach((id,i)=>glyph(ctx,symbols[id],354.5+i%4*39,102+Math.floor(i/4)*40,24));
   if(hidden){
-    const entries=[['triangle',.23,.23],['eye',.62,.20],['crescent',.82,.30],['diamond',.22,.47],['bars',.70,.44],['square',.45,.36],['rune',.80,.66],['cross',.23,.68],['circle',.43,.79],['spiral',.70,.86],['chevron',.48,.58]];
-    // A faint research route winds through the three true symbols only.
-    ctx.strokeStyle='#795047';ctx.lineWidth=2;ctx.setLineDash([6,4]);ctx.beginPath();
-    ctx.moveTo(118,177);ctx.bezierCurveTo(230,125,239,339,358,338);ctx.bezierCurveTo(430,458,215,470,220,607);ctx.stroke();ctx.setLineDash([]);
-    for(const [type,x,y] of entries) glyph(ctx,type,x*512,y*768,49);
-    ctx.strokeStyle='#795047';ctx.lineWidth=1.4;
-    for(const [x,y,n] of [[.23,.23,'I'],[.70,.44,'II'],[.43,.79,'III']]){ctx.beginPath();ctx.ellipse(x*512,y*768,36,40,.1,0,Math.PI*2);ctx.stroke();ctx.fillText(n,x*512+40,y*768-31);}
-  }else{
-    // Ordinary archival plan: rooms, survey marks, handwritten measurements.
-    ctx.strokeStyle='#74634e';ctx.lineWidth=2;ctx.strokeRect(100,180,310,390);
-    for(const [x,y,w,h] of [[110,190,110,140],[240,190,155,140],[110,350,170,200],[300,350,95,200]])ctx.strokeRect(x,y,w,h);
-    ctx.lineWidth=1;
-    for(let i=0;i<9;i++){ctx.beginPath();ctx.moveTo(65,145+i*52);ctx.lineTo(440,145+i*52);ctx.stroke();}
-    ctx.font='italic 13px Georgia';ctx.fillText('North wing · records & specimens',256,125);
-    ctx.font='12px Georgia';ctx.fillText('Ground survey / revised plate VII',256,610);
-    for(let i=0;i<5;i++)ctx.fillText(['Window elevation / 14 ft.','Original measurements retained','Section B · private collection','Observations entered by hand','Compare with the surviving plates'][i],256,645+i*16);
+    // Follow catalogue gutters, so the route never passes through a decoy.
+    ctx.strokeStyle='#814f40';ctx.fillStyle='#814f40';ctx.lineWidth=1.7;
+    ctx.beginPath();ctx.moveTo(366,102);ctx.lineTo(374,102);ctx.lineTo(374,83);
+    ctx.lineTo(490,83);ctx.lineTo(490,182);ctx.lineTo(483,182);ctx.stroke();
+    ctx.beginPath();ctx.moveTo(471.5,194);ctx.lineTo(471.5,202);ctx.lineTo(413,202);ctx.lineTo(413,262);ctx.lineTo(405,262);ctx.stroke();
+    for(const [x,y] of [[483,182],[405,262]]){ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+5,y-3);ctx.lineTo(x+5,y+3);ctx.closePath();ctx.fill();}
+    for(const id of [0,1,2]){
+      const i=catalogue.indexOf(id),x=354.5+i%4*39,y=102+Math.floor(i/4)*40;
+      ctx.beginPath();ctx.ellipse(x,y,16,17,.08,0,Math.PI*2);ctx.stroke();
+    }
   }
   return texture(image);
 }
@@ -126,7 +175,7 @@ export function createVisorGallery({group, wood, brass, loftY}) {
     root.name=layout.target>=0?`Archive_Photo_Target_${layout.target+1}`:`Archive_Photo_Decoy_${decoy}`;
     if(layout.target>=0)targets[layout.target]={position:root.position.clone(),width:layout.width,height:layout.height};
   });
-  picture(2.30,2.80,[3.35,2.02,6.41],Math.PI,new THREE.PlaneGeometry(1,1),new THREE.PlaneGeometry(1,1),
+  picture(4.225,2.65,[4.35,2.02,6.41],Math.PI,new THREE.PlaneGeometry(1,1),new THREE.PlaneGeometry(1,1),
     new THREE.MeshStandardMaterial({map:diagram(false),roughness:1}),new THREE.MeshStandardMaterial({map:diagram(true),roughness:1}));
   return {targets,setVisor(on){for(const c of contents){c.image.geometry=on?c.hiddenGeometry:c.photoGeometry;c.image.material=on?c.hiddenMaterial:c.normalMaterial;}}};
 }

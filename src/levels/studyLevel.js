@@ -1190,7 +1190,13 @@ export function createStudyLevel({
       if (puzzle.correctedTrailSolved) showCaption('PROJECT HOLLOW — RESTRICTED RECORDS');
     }
   };
-  hollowAlcove.add(restrictedPlaque.mesh);
+  const restrictedHeaderMount = new THREE.Mesh(new RoundedBoxGeometry(1.32, 0.28, 0.012, 1, 0.004), restrictedCabinetMat);
+  restrictedHeaderMount.position.set(0, 1.97, -0.162);
+  hollowAlcove.add(restrictedHeaderMount, restrictedPlaque.mesh);
+  const chronologyNote = createArchiveRecord(1.22, 0.20, 11);
+  chronologyNote.write(['Authorization precedes the method;', 'the consequence closes the file.']);
+  chronologyNote.mesh.position.set(0, 1.68, 0.24);
+  hollowAlcove.add(chronologyNote.mesh);
   const hollowArchivePanel = new THREE.Mesh(new RoundedBoxGeometry(0.70, 2.04, 0.045, 1, 0.006), restrictedCabinetMat);
   const restrictedLeftHinge = new THREE.Group(), restrictedRightHinge = new THREE.Group();
   restrictedLeftHinge.name = 'RestrictedArchiveLeftHinge';
@@ -1268,13 +1274,14 @@ Annabelle`;
   function updateTruthRecords(corrected = gameState.visorWorn) {
     truthRecordDisplays.forEach((display, index) => {
       const selected = puzzle.truthRecordsSolved || index < puzzle.truthRecordProgress;
-      const heading = `${selected ? `${index + 1}. ` : ''}${truthRecordNames[index]}`;
+      const heading = truthRecordNames[index];
       display.write([heading, ...(corrected ? truthCorrectedLines[index] : truthNormalLines[index])]);
       truthRecordHits[index].userData.interact.label = `${selected ? 'Selected: ' : 'Select '}${truthRecordNames[index]}`;
     });
   }
   truthRecordNames.forEach((name, index) => {
-    const x = (index - 1) * 0.46;
+    // Keep logical indices intact; the physical slots read OUTCOME / CONSENT / PROCEDURE.
+    const x = [0, 0.46, -0.46][index];
     const display = createArchiveRecord(0.404, 0.44, index + 7);
     display.mesh.position.set(x, 1.30, 0.24);
     hollowAlcove.add(display.mesh);
