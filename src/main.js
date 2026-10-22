@@ -4264,7 +4264,7 @@ window.addEventListener('keydown', (e) => {
     //
     // Every other level: G takes its real way out too, for testing --
     //   upstairsHallway  down the stairs (exitLevel, as walking down does)
-    //   backrooms        this crossing's exit door, through its own interact
+    //   backrooms        through this crossing's exit door, unlatched by its own interact
     //   hallwayBasement  out through the metal door's exit, power puzzle skipped
     //   study            the released ending
     const key = sceneManager.activeKey;
@@ -4274,9 +4274,7 @@ window.addEventListener('keydown', (e) => {
       showCaption('[debug] G: level skipped.');
       exitLevel(key);
     } else if (key === 'backrooms') {
-      const door = backrooms.refs.exitDoors[backrooms.crossing];
-      if (door?.slab) door.slab.userData.interact.onInteract();
-      else showCaption('[debug] G: the exit door has not loaded yet.');
+      backrooms.refs.walkThroughExitDoor();
     } else if (key === 'study') {
       playEnding('released');
     } else if (key !== 'bedroom') {
