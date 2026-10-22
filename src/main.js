@@ -2697,6 +2697,7 @@ const hallwayBasement = createDeferredLevel(() => createHallwayBasementLevel({
   isHolding: (id) => heldItems.isHolding(id),
   onFuseTaken: (id) => pickUpItem(id),
   onFuseSeated: (id) => consumeItem(id),
+  onFuseLeft: (id) => consumeItem(id),
   onTapeTaken: () => pickUpItem('sessionTape'),
   onTapeInserted: () => consumeItem('sessionTape'),
   onTapeEjected: () => pickUpItem('sessionTape'),

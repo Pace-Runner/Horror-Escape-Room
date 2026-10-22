@@ -633,6 +633,8 @@ export function createHallwayBasementLevel({
   onFuseTaken = () => {},
   /** Fired with a fuse's item id when it goes into the box: the host takes it out of the inventory. */
   onFuseSeated = () => {},
+  /** Fired with a fuse's item id when it is left by the box as a spare: the host takes it out of the inventory. */
+  onFuseLeft = () => {},
   /** Fired when the session tape comes out of the recorder: the host puts it in the inventory. */
   onTapeTaken = () => {},
   /** Fired when the tape goes into the deck: the host takes it out of the inventory. */
@@ -2297,6 +2299,40 @@ export function createHallwayBasementLevel({
   ]);
   let droppedFuseCount = 0;
 
+  /**
+   * The fuses still being carried once the right one is in, set down in the
+   * row on the floor beside the box, where the rejects go -- and still there
+   * to pick up again, since nothing about them is wrong.
+   */
+  function leaveSpareFuses(spares) {
+    for (const data of spares) {
+      const fuse = fuseMeshes[data.amps];
+      const slot = droppedFuseSlots[Math.min(droppedFuseCount, droppedFuseSlots.length - 1)];
+      droppedFuseCount += 1;
+      fuse.position.set(...slot);
+      fuse.rotation.set(0, 0, Math.PI / 2);
+      fuse.visible = true;
+      fuse.userData.interact = fusePickup(data, fuse);
+      if (!interactables.includes(fuse)) interactables.push(fuse);
+      onFuseLeft(data.id);
+    }
+    showCaption(line('dialog_fuse_spares_left'));
+  }
+
+  /**
+   * The box's prompt once the right fuse is in: whether there are spares to
+   * leave depends on the inventory, which changes without the box knowing,
+   * so it is read every frame.
+   */
+  dynamics.push({
+    update() {
+      if (puzzleState.slotFuse !== CORRECT_FUSE_AMPS || !fuseCover.open) return;
+      fuseBox.userData.interact.label = fuseData.some((data) => isCarrying(data.id))
+        ? 'Leave the spare fuses here'
+        : 'Fuse seated (30A)';
+    }
+  });
+
   const sparkLight = new THREE.PointLight(0xfff2b0, 0, 1.0, 2);
   sparkLight.position.copy(fuseBox.position);
   lab.add(sparkLight);
@@ -2318,6 +2354,13 @@ export function createHallwayBasementLevel({
        * the caption is worded to head that off before they try.
        */
       if (puzzleState.slotFuse === CORRECT_FUSE_AMPS) {
+        // With the right one in, the others are only weight: they can be
+        // left here rather than carried, or found and dropped one by one.
+        const spares = fuseData.filter((data) => isCarrying(data.id));
+        if (spares.length) {
+          leaveSpareFuses(spares);
+          return;
+        }
         showCaption(line('dialog_fuse_already_seated'));
         return;
       }

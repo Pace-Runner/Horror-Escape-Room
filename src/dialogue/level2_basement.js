@@ -172,6 +172,8 @@ export const dialog_fuse_rating_too_high = ["The {amps} fuse's rating is too hig
 
 export const dialog_fuse_hold_one = ["You need a fuse in your hand for this. Pick the one to try.", "level2/fuse_hold_one.m4a"];
 
+export const dialog_fuse_spares_left = ["You set the spare fuses down by the box. You won't be needing them.", "level2/fuse_spares_left.m4a"];
+
 export const dialog_fuse_taken = ["You take the {amps} fuse.", "level2/fuse_taken.m4a"];
 
 export const dialog_maintenance_log = ["\"REPLACE BLOWN FUSE. CORRECT RATING ONLY -- anything else will blow, or burn the line.\"", "level2/maintenance_log.m4a"];
