@@ -90,6 +90,36 @@ import { dressAnnabelleRooms } from './annabelleRooms.js';
  * every collider; that is not a mistake worth repeating.
  */
 
+/**
+ * THE EXIT DOORS SWING ON A HINGE WITH WEIGHT, and you leave by walking
+ * through one. Each stands in an opening cut in the end wall behind it
+ * (EXIT_DOORWAY), with a short dark passage beyond (EXIT_PASSAGE) for the leaf
+ * to swing into and the player to step into -- the level ends once they are
+ * EXIT_PASSAGE.exitDepth into it. Door 2's passage has 1.6 m of solid before
+ * the corridor behind it (V2_2-6), so 1.24 m deep leaves a wall's width.
+ *
+ * EXIT_DOOR_SWING is the leaf, in radians and seconds. Unlatched, it is shoved
+ * open at `unlatchSpeed`, slowed by `damping` (in proportion to its speed) and
+ * `friction` (a constant drag, so it comes to rest rather than creeping), and
+ * stopped at `open` -- short of square, so it clears the passage wall -- with
+ * `stopBounce` of its speed back. The player is a `bodyRadius` circle it cannot
+ * pass through: walked into, it is pushed ahead of them and keeps up to
+ * `pushCarry` rad/s of the push. The wrong door does not open at all: it
+ * jolts `rattleAngle` against its latch for `rattleSeconds` while the knob
+ * turns `knobTurn` and snaps back.
+ */
+const EXIT_DOORWAY = { halfWidth: 0.55, height: 2.05 };
+const EXIT_PASSAGE = { halfWidth: 0.6, depth: 1.24, exitDepth: 0.35 };
+const EXIT_DOOR_SWING = {
+  open: THREE.MathUtils.degToRad(92), unlatchSpeed: 2.2, nudge: 1.4,
+  damping: 1.3, friction: 0.35, stopBounce: 0.3, frameBounce: 0.15,
+  leafLength: 1.0, bodyRadius: 0.35, pushCarry: 3.5,
+  rattleSeconds: 0.45, rattleAngle: 0.012, knobTurn: 0.45
+};
+/** In a door frame's own space: where the leaf's hinge is, and how far in front of the wall the frame stands. */
+const EXIT_HINGE = { x: -0.5, z: 0.025 };
+const EXIT_FRAME_PROUD = 0.06;
+
 const HALL_H = 2.35;     // 3.2:2.35 is WIDER than tall. The bedroom is 2.29:1 and the
                          // Level 2 hallway is 0.89:1 (taller than wide, the house-corridor
                          // proportion). Squat is the strongest proportional tell of a
@@ -354,6 +384,26 @@ export function createBackroomsLevel({
   ceiling.position.set(boxCX, HALL_H, boxCZ);
   group.add(ceiling);
 
+  /**
+   * The opening an exit door stands in, if the wall run (axis, at, from..to) is
+   * the one behind an exit door: { from, to } along the run. The doors face
+   * along their wall's normal, so a door whose `axis` is the run's axis and
+   * whose position is on its line stands in it.
+   */
+  const EXIT_GAPS = Object.keys(CROSSINGS).map((key) => {
+    const door = exitPoint(key);
+    const along = door.axis === 'z' ? door.x : door.z;
+    return {
+      axis: door.axis,
+      at: door.axis === 'z' ? door.z : door.x,
+      from: along - EXIT_DOORWAY.halfWidth,
+      to: along + EXIT_DOORWAY.halfWidth
+    };
+  });
+  function exitGapOn(axis, at, from, to) {
+    return EXIT_GAPS.find((g) => g.axis === axis && Math.abs(g.at - at) < 0.05 && g.from > from && g.to < to) ?? null;
+  }
+
   // ---------- walls + colliders, both from WALL_RUNS ----------
   // A damp tide-line at the base of every wall, generated here for free.
   // Deliberately instead of trim.js's addBaseboard: Level 0 has no skirting
@@ -374,7 +424,7 @@ export function createBackroomsLevel({
   // Collected so they can be merged into one draw call per material below.
   const wallAndTideMeshes = [];
 
-  WALL_RUNS.forEach(({ axis, at, from, to }) => {
+  function addWallPiece(axis, at, from, to) {
     const len = to - from;
     const mid = (from + to) / 2;
     const wall = new THREE.Mesh(wallGeo, wallMatFor(len));
@@ -397,6 +447,49 @@ export function createBackroomsLevel({
     group.add(wall);
     group.add(tide);
     wallAndTideMeshes.push(wall, tide);
+  }
+
+  /**
+   * The wall over an exit doorway, from the top of the opening to the ceiling:
+   * the same paper, cropped to that band rather than squeezed into it, so it
+   * runs on from the walls either side.
+   */
+  function addLintel(axis, at, from, to) {
+    const len = to - from;
+    const band = HALL_H - EXIT_DOORWAY.height;
+    const crop = (tex) => {
+      const t = tiled(tex, len / 2.12, band / HALL_H);
+      t.offset.y = EXIT_DOORWAY.height / HALL_H;
+      return t;
+    };
+    const lintel = new THREE.Mesh(wallGeo, new THREE.MeshStandardMaterial({
+      map: crop(wallpaperTex),
+      normalMap: crop(wallpaperNormal),
+      normalScale: new THREE.Vector2(0.8, 0.8),
+      roughness: 0.93,
+      side: THREE.DoubleSide
+    }));
+    lintel.scale.set(len, band, 1);
+    const mid = (from + to) / 2;
+    const y = EXIT_DOORWAY.height + band / 2;
+    if (axis === 'x') {
+      lintel.position.set(at, y, mid);
+      lintel.rotation.y = Math.PI / 2;
+    } else {
+      lintel.position.set(mid, y, at);
+    }
+    group.add(lintel);
+  }
+
+  WALL_RUNS.forEach(({ axis, at, from, to }) => {
+    const gap = exitGapOn(axis, at, from, to);
+    if (!gap) {
+      addWallPiece(axis, at, from, to);
+      return;
+    }
+    addWallPiece(axis, at, from, gap.from);
+    addWallPiece(axis, at, gap.to, to);
+    addLintel(axis, at, gap.from, gap.to);
   });
   // ~180 wall panels and as many skirting boards were a draw call each. One
   // per material now (the walls are pooled by length in wallMatFor, the
@@ -505,6 +598,9 @@ export function createBackroomsLevel({
       const band = (i + 0.5) / n;
       const along = from + len * Math.min(0.92, Math.max(0.08,
         band + (rand() - 0.5) * (0.7 / n)));
+      // Not across an exit doorway, where there is no wall to stain.
+      const gap = exitGapOn(axis, at, from, to);
+      if (gap && along + w / 2 > gap.from && along - w / 2 < gap.to) continue;
       const stain = new THREE.Mesh(stainGeo, stainMats[Math.floor(rand() * stainMats.length)]);
       // Rising damp: the quad sits ON the skirting, so the stain's dense end
       // is at the floor where the canvas puts it.
@@ -1221,12 +1317,8 @@ export function createBackroomsLevel({
   let route = null;
   let crossing = 'first';
   let outFade = 1;
-  // Handle on the pending exit, so setRoute()/reset() can cancel it.
-  let exitTimer = null;
-  // +PI/2 swings the leaf into the frame's local -Z, which after the frame's
-  // own turn is AWAY from the player, opening onto black rather than into
-  // their face.
-  const doorOpenSwing = Math.PI / 2;
+  /** The exit lamp's own fade: it stays lit until the player has gone through the door. */
+  let exitFade = 1;
 
   // Deliberately lighter than createFurnitureWoodTexture's default (60,44,30),
   // which is tuned for the bedroom's warm bulb. This level's albedo is roughly
@@ -1235,6 +1327,7 @@ export function createBackroomsLevel({
   // catching any light -- the one object in the corridor the player has to be
   // able to see.
   const furnitureWoodTex = createFurnitureWoodTexture({ tint: [128, 96, 60] });
+  const exitPassageMat = new THREE.MeshStandardMaterial({ color: 0x0b0906, roughness: 1, side: THREE.DoubleSide });
   const furnitureWoodNormal = createFurnitureWoodNormalTexture();
 
   /**
@@ -1284,8 +1377,10 @@ export function createBackroomsLevel({
     frame.rotation.y = Math.atan2(at.nx, at.nz);
     group.add(frame);
 
+    // The leaf's own edge, opposite the knob. A positive turn swings it into
+    // the frame's local -Z: away from the player, into the passage.
     const hinge = new THREE.Object3D();
-    hinge.position.set(-0.5, 1.0, 0.025); // the leaf's own edge, opposite the knob
+    hinge.position.set(EXIT_HINGE.x, 1.0, EXIT_HINGE.z);
     frame.add(hinge);
 
     // Claw marks raked into the lower panel, same placement the bedroom door
@@ -1295,56 +1390,198 @@ export function createBackroomsLevel({
     claws.position.set(-0.15, 0.68, 0.13);
     frame.add(claws);
 
+    const door = {
+      key, frame, hinge, nx: at.nx, nz: at.nz,
+      /** Shut and latched until E unlatches it, on this crossing's door only. */
+      opened: false,
+      angle: 0,
+      speed: 0,
+      /** Which side of the leaf the player is on, +1 or -1, kept while they touch it. */
+      playerSide: -1,
+      exited: false,
+      rattle: 0,
+      knob: null
+    };
+
     loadDoorModel().then((doorModel) => {
       frame.add(doorModel);
-      // attach(), not add(): it preserves world transform, so nothing jumps
-      // when this async load resolves.
-      ['doorPanel', 'knobHandle', 'knobPlate'].forEach((name) => {
-        const part = doorModel.getObjectByName(name);
-        if (part) hinge.attach(part);
-      });
+      // The WHOLE leaf -- panel, window, bars, rails, knob -- hangs off this one
+      // empty in build_door.py. Only the panel and knob used to be moved onto
+      // the hinge, so the rest of the door stayed in the frame as it opened.
+      // attach(), not add(): it keeps the world transform, so nothing jumps
+      // when this async load resolves, whatever angle the leaf is at.
+      const leaf = doorModel.getObjectByName('doorLeaf');
+      if (leaf) hinge.attach(leaf);
+      door.knob = (leaf ?? doorModel).getObjectByName('knobHandle');
       hinge.attach(claws);
     }).catch((err) => console.error(`Failed to load door.glb for the backrooms exit (${key}):`, err));
 
-    // Invisible hitbox on the FRAME, not the hinge: it has to stay in the
-    // doorway after the swing, and it makes the door interactable before the
-    // model has loaded. Interaction's raycast is non-recursive, so this Mesh is
-    // what makes the door work at all.
+    /**
+     * The dark passage behind the opening, in the frame's space: the wall is
+     * EXIT_FRAME_PROUD behind the frame, and the passage runs back from it.
+     * Near-black rather than lit, because the corridor's lights cast no
+     * shadows and would otherwise light it through the wall.
+     */
+    const back = -EXIT_FRAME_PROUD;
+    const deep = back - EXIT_PASSAGE.depth;
+    const mid = (back + deep) / 2;
+    const width = EXIT_PASSAGE.halfWidth * 2;
+    for (const [w, h, x, y, z, rx, ry] of [
+      [EXIT_PASSAGE.depth, HALL_H, -EXIT_PASSAGE.halfWidth, HALL_H / 2, mid, 0, Math.PI / 2],
+      [EXIT_PASSAGE.depth, HALL_H, EXIT_PASSAGE.halfWidth, HALL_H / 2, mid, 0, -Math.PI / 2],
+      [width, HALL_H, 0, HALL_H / 2, deep, 0, 0],
+      [width, EXIT_PASSAGE.depth, 0, 0.002, mid, -Math.PI / 2, 0],
+      [width, EXIT_PASSAGE.depth, 0, HALL_H, mid, Math.PI / 2, 0]
+    ]) {
+      const piece = new THREE.Mesh(new THREE.PlaneGeometry(w, h), exitPassageMat);
+      piece.position.set(x, y, z);
+      piece.rotation.set(rx, ry, 0);
+      frame.add(piece);
+    }
+    const toWorld = (lx, lz) => frameToWorld(door, lx, lz);
+    colliders.push(
+      worldBox(toWorld(-EXIT_PASSAGE.halfWidth - 0.1, back), toWorld(-EXIT_PASSAGE.halfWidth, deep)),
+      worldBox(toWorld(EXIT_PASSAGE.halfWidth, back), toWorld(EXIT_PASSAGE.halfWidth + 0.1, deep)),
+      worldBox(toWorld(-EXIT_PASSAGE.halfWidth, deep), toWorld(EXIT_PASSAGE.halfWidth, deep - 0.1))
+    );
+    // Across the opening while the door is latched; parked out of the way once
+    // it is not, after which the leaf itself stands in the player's way.
+    door.latchBox = worldBox(toWorld(-EXIT_DOORWAY.halfWidth, back - 0.04), toWorld(EXIT_DOORWAY.halfWidth, 0.06));
+    door.latchCollider = { ...door.latchBox };
+    colliders.push(door.latchCollider);
+
+    // Invisible hitbox on the leaf, so the prompt goes where the door goes and
+    // an open doorway is not covered by an invisible door. Interaction's
+    // raycast is non-recursive, so this Mesh is what makes the door work at
+    // all, and it is here before the model has loaded.
     const slab = new THREE.Mesh(
       new THREE.BoxGeometry(1.0, 2.0, 0.06),
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
     );
-    slab.position.set(0, 1.0, 0);
-    frame.add(slab);
+    slab.position.set(-EXIT_HINGE.x, 0, -EXIT_HINGE.z);
+    hinge.add(slab);
+    door.slab = slab;
 
-    const door = { key, hinge, slab, opened: false };
     slab.userData.interact = {
       // No '[E] ' prefix -- Interaction.js prepends it.
       label: 'Open the door',
       onInteract: () => {
         if (key !== crossing) {
+          // It is a door, and it will not open: the leaf jolts on its latch
+          // and the knob turns and snaps back, with the sound.
+          door.rattle = EXIT_DOOR_SWING.rattleSeconds;
           onSfx('door_locked_rattle', { position: slab.getWorldPosition(new THREE.Vector3()) });
           showCaption(line('dialog_exit_door_not_this_way'));
           return;
         }
-        // Set SYNCHRONOUSLY, before the door-swing delay below: that delay is
-        // exactly the window a second E press lands in.
-        if (door.opened) {
-          showCaption(line('dialog_exit_door_already_open'));
+        if (!door.opened) {
+          // Unlatched and shoved: from here it is the hinge's to swing.
+          door.opened = true;
+          door.speed = EXIT_DOOR_SWING.unlatchSpeed;
+          door.latchCollider.minX = door.latchCollider.maxX = -1000;
+          onDoorOpening(slab.getWorldPosition(new THREE.Vector3()));
+          showCaption(line('dialog_exit_door_opens'));
           return;
         }
-        door.opened = true;
-        onDoorOpening(slab.getWorldPosition(new THREE.Vector3()));
-        showCaption(line('dialog_exit_door_opens'));
-        // The route is captured NOW, not read when the timer fires: a restart
-        // inside this delay calls setRoute(null), and a timer reading the live
-        // variable would hand onExit a null route.
-        const bound = route;
-        exitTimer = setTimeout(() => { exitTimer = null; onExit(bound); }, 1400);
+        // Not far open yet: another push. Wide open: there is nothing to do but go through.
+        if (door.angle < EXIT_DOOR_SWING.open / 2) {
+          door.speed = Math.max(door.speed, EXIT_DOOR_SWING.nudge);
+        } else {
+          showCaption(line('dialog_exit_door_already_open'));
+        }
       }
     };
     interactables.push(slab);
     exitDoors[key] = door;
+  }
+
+  /** A point in a door frame's own space (x across it, z out of the wall), in the world, as { x, z }. */
+  function frameToWorld(door, lx, lz) {
+    return {
+      x: door.frame.position.x + lx * door.nz + lz * door.nx,
+      z: door.frame.position.z - lx * door.nx + lz * door.nz
+    };
+  }
+  /** The other way: a world point in a door frame's own space. */
+  function worldToFrame(door, x, z) {
+    const dx = x - door.frame.position.x;
+    const dz = z - door.frame.position.z;
+    return { x: dx * door.nz - dz * door.nx, z: dx * door.nx + dz * door.nz };
+  }
+  /** The collider box with two opposite corners at `a` and `b`. */
+  function worldBox(a, b) {
+    return { minX: Math.min(a.x, b.x), maxX: Math.max(a.x, b.x), minZ: Math.min(a.z, b.z), maxZ: Math.max(a.z, b.z) };
+  }
+
+  /**
+   * One frame of an exit door: the rattle, or the hinge -- its speed bled off
+   * by damping and friction, the player as a body it cannot pass through and
+   * that pushes it, the stops at shut and at open -- and the player walking
+   * through it, which is how the maze is left.
+   */
+  function updateExitDoor(door, dt, playerPosition) {
+    const S = EXIT_DOOR_SWING;
+    if (door.rattle > 0) {
+      door.rattle = Math.max(0, door.rattle - dt);
+      const fade = door.rattle / S.rattleSeconds;
+      door.hinge.rotation.y = S.rattleAngle * Math.sin(door.rattle * 70) * fade;
+      if (door.knob) door.knob.rotation.z = S.knobTurn * Math.sin(Math.min(1, (1 - fade) * 4) * Math.PI) * fade;
+      if (door.rattle === 0) {
+        door.hinge.rotation.y = 0;
+        if (door.knob) door.knob.rotation.z = 0;
+      }
+    }
+    if (!door.opened) return;
+
+    const step = Math.min(dt, 1 / 30);
+    door.speed *= Math.exp(-S.damping * step);
+    const drag = S.friction * step;
+    door.speed = Math.abs(door.speed) <= drag ? 0 : door.speed - Math.sign(door.speed) * drag;
+    let angle = door.angle + door.speed * step;
+
+    let local = null;
+    if (playerPosition) {
+      local = worldToFrame(door, playerPosition.x, playerPosition.z);
+      // From the hinge: along the shut leaf, and out toward the corridor.
+      const u = local.x - EXIT_HINGE.x;
+      const w = local.z - EXIT_HINGE.z;
+      const reach = Math.hypot(u, w);
+      if (reach > S.bodyRadius * 0.5 && reach < S.leafLength + S.bodyRadius) {
+        // The angle the leaf would point straight at the player, and how much
+        // of an arc either side of that their body fills at this distance.
+        const toward = Math.atan2(-w, u);
+        const body = Math.asin(Math.min(1, S.bodyRadius / reach));
+        if (Math.abs(door.angle - toward) > body) door.playerSide = Math.sign(toward - door.angle);
+        if (door.playerSide < 0 && angle < toward + body) {
+          // The player is on the shut side: the leaf is pushed open ahead of
+          // them, and swings on with some of the push.
+          const pushed = toward + body;
+          door.speed = Math.min(S.pushCarry, Math.max(door.speed, (pushed - door.angle) / step));
+          angle = pushed;
+        } else if (door.playerSide > 0 && angle > toward - body) {
+          // On the open side: it cannot swing shut through them.
+          angle = toward - body;
+          door.speed = Math.min(door.speed, 0);
+        }
+      }
+    }
+
+    if (angle > S.open) {
+      angle = S.open;
+      door.speed = -Math.abs(door.speed) * S.stopBounce;
+    } else if (angle < 0) {
+      angle = 0;
+      door.speed = Math.abs(door.speed) * S.frameBounce;
+    }
+    door.angle = angle;
+    door.hinge.rotation.y = angle;
+
+    // Through it. Only this crossing's door was ever unlatched.
+    if (local && !door.exited && local.z < -EXIT_FRAME_PROUD - EXIT_PASSAGE.exitDepth
+      && Math.abs(local.x) < EXIT_PASSAGE.halfWidth) {
+      door.exited = true;
+      onExit(route);
+    }
   }
   /** The door this crossing leaves by. */
   const activeDoor = () => exitDoors[crossing];
@@ -1737,6 +1974,18 @@ export function createBackroomsLevel({
         return exitDoorAt;
       },
       exitDoors,
+      /**
+       * Unlatches this crossing's exit door and goes through it, for a debug
+       * skip: the door is left by walking through it now, not by opening it.
+       */
+      walkThroughExitDoor() {
+        const door = activeDoor();
+        if (!door.opened) door.slab.userData.interact.onInteract();
+        if (!door.exited) {
+          door.exited = true;
+          onExit(route);
+        }
+      },
       lamps,
       sealed,
       sealedEntries,
@@ -1763,10 +2012,6 @@ export function createBackroomsLevel({
      * second thing to remember, and no way to make the level visible unarmed.
      */
     setRoute(next) {
-      // Cancel any exit still in flight from a previous crossing, so it cannot
-      // fire into the freshly-armed one.
-      clearTimeout(exitTimer);
-      exitTimer = null;
       route = next ?? null;
       // Which crossing: by the level it came from. The first goes up the
       // drawing to Door 1 and Level 2, the second to Door 2 and Level 3.
@@ -1777,9 +2022,17 @@ export function createBackroomsLevel({
       exitLamp = exitLamps[crossing];
       for (const door of Object.values(exitDoors)) {
         door.opened = false;
+        door.angle = 0;
+        door.speed = 0;
+        door.playerSide = -1;
+        door.exited = false;
+        door.rattle = 0;
         door.hinge.rotation.y = 0;
+        if (door.knob) door.knob.rotation.z = 0;
+        Object.assign(door.latchCollider, door.latchBox);
       }
       outFade = 1;
+      exitFade = 1;
       lamps.forEach((l, i) => {
         l.light.intensity = l.base;
         l.mat.emissiveIntensity = l.emissiveBase;
@@ -1809,15 +2062,19 @@ export function createBackroomsLevel({
 
     reset() { this.setRoute(null); },
 
-    update(dt) {
+    update(dt, playerPosition) {
       this._t = (this._t ?? 0) + dt;
       annabelleRooms.update(dt);
 
+      for (const door of Object.values(exitDoors)) updateExitDoor(door, dt, playerPosition);
+
       // Exit punctuation: once the door is open every fluorescent fades out
       // over about a second, so the caption's "the humming stops all at once"
-      // is literally true on screen during the beat before the level switches.
+      // is literally true on screen. The lamp over the door stays on, to see
+      // the way through by, until the player has gone through.
       const opened = activeDoor().opened;
       if (opened) outFade = Math.max(0, outFade - dt * 1.1);
+      if (activeDoor().exited) exitFade = Math.max(0, exitFade - dt * 1.1);
 
       // Level-wide blackout. Not driven off this._t, because that clock is
       // reset per crossing and the player would learn the schedule.
@@ -1868,9 +2125,9 @@ export function createBackroomsLevel({
           v = l.lit ? 0.55 + Math.random() * 0.60 : 0.015;
         }
         // The exit lamp keeps its own steady character through everything: it
-        // is exempt from `blackout` and `outLevel`, and only the door's own
-        // fade-out can take it down.
-        v *= outFade * (l === exitLamp ? 1 : l.outLevel * blackout);
+        // is exempt from `blackout` and `outLevel`, and only the player going
+        // through the door can take it down.
+        v *= l === exitLamp ? exitFade : outFade * l.outLevel * blackout;
         l.light.intensity = l.base * v;
         // Driving emissiveIntensity alongside the light is what the lab's
         // flicker misses -- there the tube mesh glows steadily while the room
@@ -1897,12 +2154,6 @@ export function createBackroomsLevel({
       // Stretched by its own acceleration, which is what a falling drop does
       // and what stops it reading as a bead sliding down glass.
       drip.scale.set(1 - fall * 0.25, 1 + fall * 1.4, 1 - fall * 0.25);
-
-      // Eased swing, same treatment and rate as the bedroom's front door.
-      for (const door of Object.values(exitDoors)) {
-        const target = door.opened ? doorOpenSwing : 0;
-        door.hinge.rotation.y += (target - door.hinge.rotation.y) * Math.min(1, dt * 3);
-      }
     }
   };
 }
