@@ -88,6 +88,11 @@ export const ITEMS = {
   brassKey: { label: 'Brass safe key', name: 'brass key' },
   bedroomKey: { label: 'Bedroom door key', name: 'bedroom key' },
   sessionTape: { label: 'Cassette: SESSION 14', name: 'tape' },
+  // Level 1's four photographs, carried until they are pinned to the corkboard.
+  photo1984: { label: 'Photograph', name: 'photograph' },
+  photo1985: { label: 'Photograph', name: 'photograph' },
+  photo1986: { label: 'Photograph', name: 'photograph' },
+  photo1987: { label: 'Photograph', name: 'photograph' },
   // Level 2's four loose fuses. All one size; only the rating tells them apart.
   fuse15: { label: 'Fuse (15A)', name: '15A fuse' },
   fuse20: { label: 'Fuse (20A)', name: '20A fuse' },

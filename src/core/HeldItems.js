@@ -141,6 +141,16 @@ function fromTorchGrip(dx, dy, dz) {
  * line. A quarter turn about the long axis swings the face square to the
  * camera (its normal measured 0.94-0.99 toward the lens afterwards).
  */
+/** The four photographs are one card with four pictures, so they share one framing. */
+const PHOTO_FRAMING = {
+  pose: 'grip-cylinder',
+  anchorPose: 'hold-torch',
+  aim: [-0.1, 0.97, -0.2],
+  roll: deg(90),
+  offset: fromTorchGrip(0, -0.02, 0),
+  scale: 0.3
+};
+
 /** The four fuses are one model, so they share one framing. */
 const FUSE_FRAMING = {
   pose: 'grip-cylinder',
@@ -261,6 +271,11 @@ export const HELD_ITEM_FRAMING = {
     offset: fromTorchGrip(0, -0.02, 0),
     scale: 0.7
   },
+  // Level 1's photographs, held up by the bottom edge, picture to the camera.
+  photo1984: PHOTO_FRAMING,
+  photo1985: PHOTO_FRAMING,
+  photo1986: PHOTO_FRAMING,
+  photo1987: PHOTO_FRAMING,
   // Level 2's fuses, held up like a key so the rating on the cap can be read.
   fuse15: FUSE_FRAMING,
   fuse20: FUSE_FRAMING,

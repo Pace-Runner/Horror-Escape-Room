@@ -60,6 +60,11 @@ const REST_ROTATION = {
   visor: FACE_DOWN,
   // Undoes the builder's quarter turn below: lying flat, label up.
   sessionTape: [-Math.PI / 2, 0, 0],
+  // Face up.
+  photo1984: [-Math.PI / 2, 0, 0],
+  photo1985: [-Math.PI / 2, 0, 0],
+  photo1986: [-Math.PI / 2, 0, 0],
+  photo1987: [-Math.PI / 2, 0, 0],
   // On its side, like the loose fuses lying round the lab.
   fuse15: FLAT,
   fuse20: FLAT,
@@ -244,6 +249,12 @@ const BUILDERS = {
   // the label facing +Z and reading upright, and lifting it by half its depth
   // puts the tape edge in the fist -- held up the way you would read a label.
   sessionTape: (t) => (t ? fromTemplate(t, { rotation: [Math.PI / 2, 0, 0], position: [0, 0.03, 0] }) : null),
+  // bedroomLevel.js's photo cards stand in their own XY plane, picture to +Z;
+  // held by the bottom edge.
+  photo1984: (t) => (t ? fromTemplate(t, { position: [0, 0.1, 0] }) : null),
+  photo1985: (t) => (t ? fromTemplate(t, { position: [0, 0.1, 0] }) : null),
+  photo1986: (t) => (t ? fromTemplate(t, { position: [0, 0.1, 0] }) : null),
+  photo1987: (t) => (t ? fromTemplate(t, { position: [0, 0.1, 0] }) : null),
   // fuse.glb already stands along +Y; held by its lower cap.
   fuse15: (t) => (t ? fromTemplate(t, { rotation: [0, Math.PI / 2, 0], position: [0, 0.035, 0] }) : null),
   fuse20: (t) => (t ? fromTemplate(t, { rotation: [0, Math.PI / 2, 0], position: [0, 0.035, 0] }) : null),

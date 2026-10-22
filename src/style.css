@@ -1438,6 +1438,15 @@ html, body {
   position: relative;
 }
 
+/* A photograph's own picture is its icon. */
+.hotbar-photo {
+  width: 34px;
+  height: 42px;
+  object-fit: cover;
+  border: 2px solid #efe9db;
+  box-sizing: border-box;
+}
+
 /* What tells one of a set from the others -- a fuse's rating. */
 .hotbar-tag {
   position: absolute;

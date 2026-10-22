@@ -291,7 +291,14 @@ export function createBedroomLevel({
   onBedroomKeyUsed = () => {},
   onReadDrawerClue = () => {},
   onReadSafeTag = () => {},
+  // Called with the running count and the photograph's inventory item id
+  // ('photo1984'): the host puts it in the inventory, to be pinned by hand.
   onPhotoCollected = () => {},
+  // A photograph has gone from the hand onto the corkboard: the host takes it
+  // out of the inventory.
+  onPhotoPinned = () => {},
+  // Whether an item is anywhere in the inventory, in the hand or not.
+  isCarrying = () => false,
   onPhotoPuzzleSolved = () => {},
   onDrawerUnlocked = () => {},
   onSafeOpened = () => {},
@@ -324,6 +331,8 @@ export function createBedroomLevel({
     chainsEscaped: false,
     hasFlashlight: false,
     foundPhotos: new Set(),
+    /** The found photographs that have been pinned to the corkboard by hand. */
+    pinnedPhotos: new Set(),
     photosArranged: false,
     hasBrassKey: false,
     hasCrowbar: false,
@@ -1653,8 +1662,7 @@ export function createBedroomLevel({
     onInteract: () => {
       showCaption(line('dialog_pickup_floor_photo'));
       puzzleState.foundPhotos.add('floorPhoto');
-      onPhotoCollected(puzzleState.foundPhotos.size);
-      photoThumbMeshes.floorPhoto.visible = true;
+      onPhotoCollected(puzzleState.foundPhotos.size, photoItemId('floorPhoto'));
       floorPhoto.visible = false;
       floorPhotoHitbox.visible = false;
       const idx = interactables.indexOf(floorPhotoHitbox);
@@ -1699,8 +1707,7 @@ export function createBedroomLevel({
     onInteract: () => {
       showCaption(line('dialog_pickup_radiator_photo'));
       puzzleState.foundPhotos.add('windowPhoto');
-      onPhotoCollected(puzzleState.foundPhotos.size);
-      photoThumbMeshes.windowPhoto.visible = true;
+      onPhotoCollected(puzzleState.foundPhotos.size, photoItemId('windowPhoto'));
       windowPhoto.visible = false;
       windowPhotoHitbox.visible = false;
       const index = interactables.indexOf(windowPhotoHitbox);
@@ -2752,8 +2759,7 @@ export function createBedroomLevel({
       onInteract: () => {
         if (!canCollect() || puzzleState.foundPhotos.has(key)) return;
         puzzleState.foundPhotos.add(key);
-        onPhotoCollected(puzzleState.foundPhotos.size);
-        photoThumbMeshes[key].visible = true;
+        onPhotoCollected(puzzleState.foundPhotos.size, photoItemId(key));
         photo.visible = false;
         hitbox.visible = false;
         const index = interactables.indexOf(hitbox);
@@ -2942,6 +2948,57 @@ export function createBedroomLevel({
     photoThumbMeshes[key] = thumb;
   });
 
+  /**
+   * A photograph is carried in the inventory once it is picked up, and pinned
+   * to the corkboard by hand: the player holds one and uses the board. Its
+   * item id is its year, which is printed on it anyway.
+   */
+  function photoItemId(key) {
+    return `photo${photoSlots[key].date}`;
+  }
+  /** Each photograph as an item: its id, its picture for the hotbar, and a card for the hand. */
+  const photoItems = Object.entries(photoSlots).map(([key, slot]) => {
+    const card = new THREE.Mesh(
+      new THREE.PlaneGeometry(PUZZLE_PHOTO_HEIGHT_METRES * PUZZLE_PHOTO_ASPECT_RATIO, PUZZLE_PHOTO_HEIGHT_METRES),
+      // A trace of its own picture as emission, like the keys' trace of
+      // glow: the torch is put away while a photograph is in the hand, and
+      // unlit it was a black card.
+      new THREE.MeshStandardMaterial({
+        map: slot.tex, emissiveMap: slot.tex, emissive: 0xffffff, emissiveIntensity: 0.18,
+        roughness: 1, side: THREE.DoubleSide
+      })
+    );
+    card.name = `Level1PhotoCard_${slot.date}`;
+    return { id: photoItemId(key), url: PUZZLE_PHOTO_URLS[slot.date], card };
+  });
+
+  /** Pins the photograph `key` from the hand onto its place on the board. */
+  function pinPhoto(key) {
+    puzzleState.pinnedPhotos.add(key);
+    photoThumbMeshes[key].visible = true;
+    onPhotoPinned(photoItemId(key));
+    onSfx('paper');
+  }
+
+  function openPhotoArrangement() {
+    // Hand off to the close-up board view -- dragging the photos into
+    // place (and figuring out what order they actually belong in) is
+    // the real puzzle, not this in-world interact.
+    onExaminePhotos({
+      photos: Object.entries(photoSlots).map(([key, slot]) => ({
+        key,
+        date: slot.date,
+        dataUrl: PUZZLE_PHOTO_URLS[slot.date]
+      })),
+      onSolved: () => {
+        showCaption(line('dialog_corkboard_solved'));
+        puzzleState.photosArranged = true;
+        updateLockedBoxPresentation(0);
+        onPhotoPuzzleSolved();
+      }
+    });
+  }
+
   const photoAreaHitbox = new THREE.Mesh(
     new THREE.BoxGeometry(0.75, 0.79, 0.15 / PINBOARD_SCALE),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
@@ -2951,26 +3008,26 @@ export function createBedroomLevel({
     onInteract: () => {
       if (puzzleState.photosArranged) {
         showCaption(line('dialog_corkboard_open'));
-      } else if (puzzleState.foundPhotos.size < 4) {
-        showCaption(line('dialog_corkboard_needs_photos'));
-      } else {
-        // Hand off to the close-up board view -- dragging the photos into
-        // place (and figuring out what order they actually belong in) is
-        // the real puzzle, not this in-world interact.
-        onExaminePhotos({
-          photos: Object.entries(photoSlots).map(([key, slot]) => ({
-            key,
-            date: slot.date,
-            dataUrl: PUZZLE_PHOTO_URLS[slot.date]
-          })),
-          onSolved: () => {
-            showCaption(line('dialog_corkboard_solved'));
-            puzzleState.photosArranged = true;
-            updateLockedBoxPresentation(0);
-            onPhotoPuzzleSolved();
-          }
-        });
+        return;
       }
+      const unpinned = Object.keys(photoSlots).filter((key) => !puzzleState.pinnedPhotos.has(key));
+      const held = unpinned.find((key) => isHolding(photoItemId(key)));
+      if (held) {
+        pinPhoto(held);
+        // The last one up: straight into the close-up, to put them in order.
+        if (unpinned.length === 1) {
+          openPhotoArrangement();
+        } else {
+          showCaption(line('dialog_corkboard_pinned', { left: unpinned.length - 1 }));
+        }
+        return;
+      }
+      if (unpinned.length) {
+        const carrying = unpinned.some((key) => isCarrying(photoItemId(key)));
+        showCaption(line(carrying ? 'dialog_corkboard_hold_photo' : 'dialog_corkboard_needs_photos'));
+        return;
+      }
+      openPhotoArrangement();
     }
   };
   photoHolderGroup.add(photoAreaHitbox);
@@ -3139,6 +3196,8 @@ export function createBedroomLevel({
       bedPosition: [BED_POSITION_X, BED_POSITION_Z],
       cuff,
       bedsideTableCollider,
+      /** The four photographs as inventory items: id, hotbar picture, and the card for the hand. */
+      photoItems,
       disturbChair,
       disturbBin,
       flashLamp,
@@ -3301,6 +3360,7 @@ export function createBedroomLevel({
       puzzleState.chainsEscaped = false;
       puzzleState.hasFlashlight = false;
       puzzleState.foundPhotos.clear();
+      puzzleState.pinnedPhotos.clear();
       puzzleState.photosArranged = false;
       puzzleState.hasBrassKey = false;
       puzzleState.hasCrowbar = false;

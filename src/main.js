@@ -1775,6 +1775,8 @@ const bedroom = createDeferredLevel(() => createBedroomLevel({
   onThought: thought,
   // Every item puzzle in the room asks the hand, not just the inventory.
   isHolding: (id) => heldItems.isHolding(id),
+  isCarrying: (id) => gameState.inventory.has(id),
+  onPhotoPinned: (id) => consumeItem(id),
   // Picked up first, into the hand; the cuff only takes it on a second press.
   onPaperclipPicked: () => { pickUpItem('paperclip'); thought('l1_03'); },
 
@@ -1904,9 +1906,11 @@ const bedroom = createDeferredLevel(() => createBedroomLevel({
     // corridor, so the torch comes back out lit, as G's skip already does.
     if (gameState.inventory.has('flashlight') && heldItems.select('flashlight')) setFlashlight(true);
   },
-  onPhotoCollected: (count) => {
+  onPhotoCollected: (count, id) => {
     thought('l1_09');
     sfx('paper');
+    // Into the inventory, to be pinned to the corkboard by hand.
+    pickUpItem(id);
     if (count !== 2) return;
     runBedroomHorrorEvent('two-photos', (s) => {
       s.do(() => {
@@ -2056,6 +2060,11 @@ const bedroom = createDeferredLevel(() => createBedroomLevel({
   onSfx: (name) => sfx(name)
 }), (level) => {
   itemMeshes.setTemplate('paperclip', level.refs.paperclip);
+  for (const { id, url, card } of level.refs.photoItems) {
+    itemMeshes.setTemplate(id, card);
+    const icon = document.querySelector(`#hotbar .hotbar-slot[data-item="${id}"] .hotbar-photo`);
+    if (icon) icon.src = url;
+  }
   itemMeshes.setTemplate('bedroomKey', level.refs.bedroomKey);
   initializeBedroomPresentation();
 });
