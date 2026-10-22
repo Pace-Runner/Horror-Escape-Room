@@ -640,50 +640,6 @@ function setTorchPower(scale) {
   applyFlashlightBeam();
 }
 
-/**
- * THE TORCH FAILS. Every 67.5-90 s of it actually shining, it gives out for
- * 10-15 s: the beam dies, and for the whole of that it stutters -- short,
- * irregular flashes of light -- and the switch cannot fix it. Then it comes
- * back on its own. The clock only runs while the beam is lit, so a torch kept
- * in the pocket does not bank a failure for the moment it comes out.
- */
-const TORCH_FAULT_EVERY = [67.5, 90];
-const TORCH_FAULT_FOR = [10, 15];
-const torchFault = { nextIn: 0, left: 0, flickerIn: 0, flickerOn: false, flickerLevel: 1 };
-const randBetween = ([a, b]) => a + Math.random() * (b - a);
-function resetTorchFault() {
-  torchFault.nextIn = randBetween(TORCH_FAULT_EVERY);
-  torchFault.left = 0;
-  torchFault.flickerOn = false;
-}
-resetTorchFault();
-
-/** Advances the fault clock and the stutter. Once a frame, while playing. */
-function updateTorchFault(dt) {
-  if (torchFault.left > 0) {
-    torchFault.left -= dt;
-    torchFault.flickerIn -= dt;
-    if (torchFault.flickerIn <= 0) {
-      // Brief catches of light between longer dead stretches. The dead
-      // stretches average 0.94 s against a 0.12 s catch, about twelve catches
-      // in a 12.5 s failure.
-      torchFault.flickerOn = !torchFault.flickerOn;
-      torchFault.flickerIn = torchFault.flickerOn ? 0.04 + Math.random() * 0.16 : 0.24 + Math.random() * 1.4;
-      torchFault.flickerLevel = 0.25 + Math.random() * 0.75;
-    }
-    if (torchFault.left <= 0) resetTorchFault();
-    applyFlashlightBeam();
-  } else if (flashlightOn) {
-    torchFault.nextIn -= dt;
-    if (torchFault.nextIn <= 0) {
-      torchFault.left = randBetween(TORCH_FAULT_FOR);
-      torchFault.flickerOn = false;
-      torchFault.flickerIn = 0.1;
-      applyFlashlightBeam();
-    }
-  }
-}
-
 /** Flips the torch's switch. The beam follows it only while the torch is in hand. */
 function setFlashlight(on) {
   flashlightSwitchOn = !!on;
@@ -699,17 +655,15 @@ function applyFlashlightBeam() {
   // The spill drops well below the old 2.4: it is now filling AROUND a hot
   // spot rather than being the whole beam, and leaving both at full strength
   // would just be a brighter blob.
-  // A failing torch is switched on but dark, but for its stutter.
-  const failing = torchFault.left > 0;
-  const level = torchPower * (!flashlightOn ? 0 : !failing ? 1 : torchFault.flickerOn ? torchFault.flickerLevel : 0);
+  const level = torchPower * (flashlightOn ? 1 : 0);
   flashlightSpot.intensity = 1.75 * level;
   flashlightHot.intensity = 3.35 * level;
   dustMotes.setBeamOn(level > 0);
   flashlightStateEl.textContent = !flashlightFound ? 'not found'
     : !gameState.inventory.has('flashlight') ? 'dropped'
       : !inHand ? 'put away'
-        : flashlightOn ? (failing ? 'failing' : 'on') : 'off';
-  flashlightStateEl.classList.toggle('on', flashlightOn && !failing);
+        : flashlightOn ? 'on' : 'off';
+  flashlightStateEl.classList.toggle('on', flashlightOn);
 }
 
 // ---------- inventory, and what is in the hand ----------
@@ -3821,11 +3775,8 @@ const stairsScare = createStairsScare({
       setFlashlight(true);
     },
     setPower: setTorchPower,
-    // It works again afterwards, whatever failure it was in before the scare.
-    repair: () => {
-      resetTorchFault();
-      applyFlashlightBeam();
-    }
+    // It works again afterwards.
+    repair: () => applyFlashlightBeam()
   },
   hallway: upstairsHallway.refs,
   playBehindShot: async (standing) => {
@@ -4140,7 +4091,6 @@ function resetGame() {
   // Every "first time" line is a first time again, and being caught starts
   // its lines from the top.
   backroomsBarks.reset();
-  resetTorchFault();
   endHallwayRush({ quiet: true });
   resetDoorwayJoin();
   pickCaughtLine.reset();
@@ -4934,9 +4884,6 @@ player.controls.addEventListener('unlock', () => {
 // Nothing here grants a capability a player does not have with the keyboard.
 if (import.meta.env.DEV) {
   window.__game = {
-    // The torch's failure clock, so a harness can force one rather than wait 45 s.
-    torchFault,
-    updateTorchFault,
     get hallwayRush() { return hallwayRush; },
     // Opens the bedroom onto the hall as the door would, without the puzzle chain.
     openToHallway,
@@ -5687,7 +5634,6 @@ function tick() {
   // The difficulty's clock. Stopped by the same things, and by every moment
   // the player has no control: a fade between rooms, a cutscene, an ending.
   if (isPlaying && !transitionInFlight && !cutscene.isRunning && !stairsScare.isRunning && !endingInFlight) runTimer.update(dt);
-  if (isPlaying && !transitionInFlight && !endingInFlight) updateTorchFault(dt);
   captions.update(dt);
   // Only while it is actually on screen. The AI is not driving it in Level 2 --
   // it is placed by a script -- but it still has to breathe, or a figure
