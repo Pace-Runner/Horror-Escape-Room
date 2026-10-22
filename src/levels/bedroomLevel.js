@@ -1,8 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import {
-  createScratchedMessageTexture,
-  createScratchedMessageNormalTexture,
   createPolaroidTexture,
   createFurnitureWoodTexture,
   createFurnitureWoodNormalTexture,
@@ -46,6 +44,10 @@ import doorPlankNormalUrl from '../assets/textures/door/door_wood_normal_1k.png?
 import wallpaperBaseUrl from '../assets/textures/bedroom/distressed_victorian_damask_wallpaper.png?url';
 import clawRipUrl from '../assets/textures/bedroom/ripped_victorian_wallpaper_claw_marks.png?url';
 import bedroomFloorUrl from '../assets/textures/bedroom/weathered_dark_wooden_floorboards.png?url';
+// DON'T LET IT OUT, cut letter by letter from a photo of a carved wooden
+// alphabet by scripts/build_floor_message.py, with a normal map from its grooves.
+import floorMessageUrl from '../assets/textures/bedroom/floor_message.png?url';
+import floorMessageNormalUrl from '../assets/textures/bedroom/floor_message_normal.png?url';
 import bedroomCeilingUrl from '../assets/textures/bedroom/grimy_cracked_plaster_texture.png?url';
 import hauntedMansionSepiaUrl from '../assets/textures/bedroom/haunted_victorian_mansion_sepia.png?url';
 import photo1984Url from '../assets/textures/bedroom/level_1_1984_pic.png?url';
@@ -230,6 +232,8 @@ const BEDSIDE_TABLE_POSITION_X = 3.3;
 const BEDSIDE_TABLE_POSITION_Z = -1.72;
 const SEARCH_NIGHTSTAND_POSITION_X = 0.60;
 const SEARCH_NIGHTSTAND_POSITION_Z = -2.2;
+/** How much bigger the claw marks across the searchable nightstand's top are drawn than modelled. */
+const NIGHTSTAND_CLAW_MARK_SCALE = 3;
 const VANITY_SCALE = 1.18;
 const DRESSER_POSITION_X = ROOM_W / 2 - 0.275 * VANITY_SCALE;
 const DRESSER_POSITION_Z = 1.35;
@@ -291,7 +295,14 @@ export function createBedroomLevel({
   onBedroomKeyUsed = () => {},
   onReadDrawerClue = () => {},
   onReadSafeTag = () => {},
+  // Called with the running count and the photograph's inventory item id
+  // ('photo1984'): the host puts it in the inventory, to be pinned by hand.
   onPhotoCollected = () => {},
+  // A photograph has gone from the hand onto the corkboard: the host takes it
+  // out of the inventory.
+  onPhotoPinned = () => {},
+  // Whether an item is anywhere in the inventory, in the hand or not.
+  isCarrying = () => false,
   onPhotoPuzzleSolved = () => {},
   onDrawerUnlocked = () => {},
   onSafeOpened = () => {},
@@ -324,6 +335,8 @@ export function createBedroomLevel({
     chainsEscaped: false,
     hasFlashlight: false,
     foundPhotos: new Set(),
+    /** The found photographs that have been pinned to the corkboard by hand. */
+    pinnedPhotos: new Set(),
     photosArranged: false,
     hasBrassKey: false,
     hasCrowbar: false,
@@ -1653,8 +1666,7 @@ export function createBedroomLevel({
     onInteract: () => {
       showCaption(line('dialog_pickup_floor_photo'));
       puzzleState.foundPhotos.add('floorPhoto');
-      onPhotoCollected(puzzleState.foundPhotos.size);
-      photoThumbMeshes.floorPhoto.visible = true;
+      onPhotoCollected(puzzleState.foundPhotos.size, photoItemId('floorPhoto'));
       floorPhoto.visible = false;
       floorPhotoHitbox.visible = false;
       const idx = interactables.indexOf(floorPhotoHitbox);
@@ -1699,8 +1711,7 @@ export function createBedroomLevel({
     onInteract: () => {
       showCaption(line('dialog_pickup_radiator_photo'));
       puzzleState.foundPhotos.add('windowPhoto');
-      onPhotoCollected(puzzleState.foundPhotos.size);
-      photoThumbMeshes.windowPhoto.visible = true;
+      onPhotoCollected(puzzleState.foundPhotos.size, photoItemId('windowPhoto'));
       windowPhoto.visible = false;
       windowPhotoHitbox.visible = false;
       const index = interactables.indexOf(windowPhotoHitbox);
@@ -1711,10 +1722,13 @@ export function createBedroomLevel({
   group.add(windowPhotoHitbox);
   interactables.push(windowPhotoHitbox);
 
-  const messageTex = createScratchedMessageTexture("DON'T LET IT OUT");
-  const messageNormal = createScratchedMessageNormalTexture("DON'T LET IT OUT");
+  const messageTex = loadBedroomWallTexture(floorMessageUrl, false);
+  const messageNormal = loadBedroomWallTexture(floorMessageNormalUrl, false);
+  messageNormal.colorSpace = THREE.NoColorSpace;
+  // 1.7 m across, so the carved letters stand about 17 cm tall -- at the
+  // drawn texture's old 1.1 m they were too small to read from standing.
   const message = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.1, 0.55),
+    new THREE.PlaneGeometry(1.7, 0.85),
     new THREE.MeshStandardMaterial({
       map: messageTex,
       normalMap: messageNormal,
@@ -1730,7 +1744,8 @@ export function createBedroomLevel({
   );
   message.name = 'Level1EtchedFloorWordsDecal';
   message.rotation.x = -Math.PI / 2;
-  message.position.set(-0.85, 0.0025, -2.35);
+  // Clear of the knocked-over bin to its left, and short of the nightstand to its right.
+  message.position.set(-0.55, 0.0025, -2.35);
   message.userData.interact = {
     label: 'Read the floor',
     onInteract: () => {
@@ -2484,11 +2499,74 @@ export function createBedroomLevel({
 
   // The loose board sits partly beneath the rug corner. Folding that corner
   // reveals its existing crowbar interaction and the same key reward.
+  //
+  // The model's top is warped, 0.013 to 0.027 above its own origin. Its LOWEST
+  // corner stands LOOSE_BOARD_PROUD above the boards round it, so the whole
+  // top is clear of the floor and of the dark seam under it, and the warped
+  // corner lifts 2 cm -- where it used to stand 4 cm up like a lid.
+  const LOOSE_BOARD_SPOT = { x: -1.55, z: 2.3 };
+  const LOOSE_BOARD_PROUD = 0.005;
+  const LOOSE_BOARD_REST_Y = LOOSE_BOARD_PROUD - 0.013;
   const looseFloorboard = new THREE.Group();
   looseFloorboard.name = 'Level1LooseFloorboardVisualHost';
-  looseFloorboard.position.set(-1.55, 0.013, 2.3);
+  looseFloorboard.position.set(LOOSE_BOARD_SPOT.x, LOOSE_BOARD_REST_Y, LOOSE_BOARD_SPOT.z);
   looseFloorboard.visible = false;
   group.add(looseFloorboard);
+
+  /**
+   * The dark gap round the board, and the hole it leaves once it is up: the
+   * model's LooseFloorboardPryGap, a near-black slab a little bigger than the
+   * board, moved out of the board (which moves) into this host (which does
+   * not), and lifted to just over the floor so its edge shows round the board
+   * as a seam.
+   */
+  const looseFloorboardHole = new THREE.Group();
+  looseFloorboardHole.name = 'Level1LooseFloorboardHole';
+  looseFloorboardHole.position.set(LOOSE_BOARD_SPOT.x, 0.0015, LOOSE_BOARD_SPOT.z);
+  looseFloorboardHole.visible = false;
+  group.add(looseFloorboardHole);
+
+  /**
+   * Prying it up: lifted off its far end by the crowbar (LOOSE_BOARD_LIFT),
+   * then pulled clear and laid on the floor beside the hole, between it and
+   * the wall, where it stays. `t` is null until it is pried.
+   */
+  const LOOSE_BOARD_HALF_LENGTH = 0.36;
+  const LOOSE_BOARD_LIFT = { seconds: 0.55, angle: THREE.MathUtils.degToRad(68) };
+  const LOOSE_BOARD_SET_DOWN = { seconds: 0.75, x: 0.03, z: 0.36, yaw: 0.14, arc: 0.12 };
+  /** The board's underside is 0.012 below its origin: lying on the floor, the origin is that far up. */
+  const LOOSE_BOARD_LYING_Y = 0.012;
+  const looseBoardPry = { t: null };
+  function placeLooseBoard(t) {
+    const pivotX = LOOSE_BOARD_SPOT.x - LOOSE_BOARD_HALF_LENGTH;
+    if (t <= LOOSE_BOARD_LIFT.seconds) {
+      const k = t / LOOSE_BOARD_LIFT.seconds;
+      const angle = LOOSE_BOARD_LIFT.angle * k * k * (3 - 2 * k);
+      looseFloorboard.rotation.set(0, 0, angle);
+      looseFloorboard.position.set(
+        pivotX + LOOSE_BOARD_HALF_LENGTH * Math.cos(angle),
+        LOOSE_BOARD_REST_Y + LOOSE_BOARD_HALF_LENGTH * Math.sin(angle),
+        LOOSE_BOARD_SPOT.z
+      );
+      return;
+    }
+    const k = Math.min(1, (t - LOOSE_BOARD_LIFT.seconds) / LOOSE_BOARD_SET_DOWN.seconds);
+    const eased = k * k * (3 - 2 * k);
+    const liftedX = pivotX + LOOSE_BOARD_HALF_LENGTH * Math.cos(LOOSE_BOARD_LIFT.angle);
+    const liftedY = LOOSE_BOARD_REST_Y + LOOSE_BOARD_HALF_LENGTH * Math.sin(LOOSE_BOARD_LIFT.angle);
+    const lerp = THREE.MathUtils.lerp;
+    looseFloorboard.rotation.set(0, LOOSE_BOARD_SET_DOWN.yaw * eased, LOOSE_BOARD_LIFT.angle * (1 - eased));
+    looseFloorboard.position.set(
+      lerp(liftedX, LOOSE_BOARD_SPOT.x + LOOSE_BOARD_SET_DOWN.x, eased),
+      lerp(liftedY, LOOSE_BOARD_LYING_Y, eased) + LOOSE_BOARD_SET_DOWN.arc * Math.sin(Math.PI * k),
+      lerp(LOOSE_BOARD_SPOT.z, LOOSE_BOARD_SPOT.z + LOOSE_BOARD_SET_DOWN.z, eased)
+    );
+  }
+  function resetLooseBoard() {
+    looseBoardPry.t = null;
+    looseFloorboard.rotation.set(0, 0, 0);
+    looseFloorboard.position.set(LOOSE_BOARD_SPOT.x, LOOSE_BOARD_REST_Y, LOOSE_BOARD_SPOT.z);
+  }
 
   // The remodel is the same 72 cm board footprint as the old interaction,
   // with UVs sampling the matching patch from the room's existing floor map.
@@ -2505,7 +2583,17 @@ export function createBedroomLevel({
       if (!child.isMesh) return;
       child.castShadow = true;
       child.receiveShadow = true;
+      // Blender's dark-brown base colour multiplied the floor photo down to
+      // near black; a touch under white leaves it the floor's own wood, just
+      // darker enough to be the board that is out of place.
+      if (child.material.name === 'LooseFloorboardWood') child.material.color.setScalar(0.85);
     });
+    const gap = floorboardModel.getObjectByName('LooseFloorboardPryGap');
+    if (gap) {
+      looseFloorboardHole.add(gap);
+      gap.position.y = 0;
+      gap.castShadow = false;
+    }
     looseFloorboard.add(floorboardModel);
   }).catch((error) => console.error('Could not load the Level 1 loose floorboard remodel:', error));
 
@@ -2524,7 +2612,7 @@ export function createBedroomLevel({
     new THREE.BoxGeometry(0.78, 0.16, 0.36),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
-  looseFloorboardHitbox.position.copy(looseFloorboard.position);
+  looseFloorboardHitbox.position.set(LOOSE_BOARD_SPOT.x, 0.06, LOOSE_BOARD_SPOT.z);
   looseFloorboardHitbox.userData.interact = {
     label: 'Examine loose floorboard',
     onInteract: () => {
@@ -2539,7 +2627,9 @@ export function createBedroomLevel({
       }
       puzzleState.floorboardPried = true;
       useUpCrowbarIfDone();
-      looseFloorboard.visible = false;
+      // Lifted out and laid beside the hole, not taken away.
+      looseBoardPry.t = 0;
+      onSfx('planks_pry');
       looseFloorboardHitbox.visible = false;
       const floorboardIndex = interactables.indexOf(looseFloorboardHitbox);
       if (floorboardIndex >= 0) interactables.splice(floorboardIndex, 1);
@@ -2554,7 +2644,8 @@ export function createBedroomLevel({
   looseFloorboardHitbox.visible = false;
 
   const bedroomKey = new THREE.Group();
-  bedroomKey.position.set(-1.55, 0.07, 2.3);
+  // Lying in the hole the board leaves, on its dark floor.
+  bedroomKey.position.set(LOOSE_BOARD_SPOT.x, 0.032, LOOSE_BOARD_SPOT.z);
   bedroomKey.rotation.y = 0.5;
   bedroomKey.visible = false;
   const bedroomKeyMetal = new THREE.MeshStandardMaterial({ color: 0xb9c2cc, metalness: 0.8, roughness: 0.35 });
@@ -2719,6 +2810,23 @@ export function createBedroomLevel({
       tableModel.traverse((child) => {
         if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; }
       });
+      // The claw marks across its top are modelled, but as three hairlines
+      // 10 cm long, the raw wood in them barely paler than the varnish -- from
+      // standing height they could not be seen at all. Spread across most of
+      // the top about their own middle, and the wood they expose paled, so
+      // they catch the torch. Measured before the table is placed, so the
+      // box is in the model's own space.
+      const clawMarks = tableModel.getObjectByName('BedsideTopScratch');
+      if (clawMarks) {
+        const centre = new THREE.Box3().setFromObject(clawMarks).getCenter(new THREE.Vector3());
+        clawMarks.scale.set(NIGHTSTAND_CLAW_MARK_SCALE, 1, NIGHTSTAND_CLAW_MARK_SCALE);
+        clawMarks.position.set(centre.x * (1 - NIGHTSTAND_CLAW_MARK_SCALE), 0, centre.z * (1 - NIGHTSTAND_CLAW_MARK_SCALE));
+        clawMarks.traverse((child) => {
+          if (child.isMesh && child.material.name === 'BedsideTop_ExposedWoodFibres') {
+            child.material.color.setRGB(0.5, 0.33, 0.19);
+          }
+        });
+      }
       ns.add(tableModel);
       hitbox.visible = true;
     }).catch((error) => console.error('Could not load custom bedside table:', error));
@@ -2752,8 +2860,7 @@ export function createBedroomLevel({
       onInteract: () => {
         if (!canCollect() || puzzleState.foundPhotos.has(key)) return;
         puzzleState.foundPhotos.add(key);
-        onPhotoCollected(puzzleState.foundPhotos.size);
-        photoThumbMeshes[key].visible = true;
+        onPhotoCollected(puzzleState.foundPhotos.size, photoItemId(key));
         photo.visible = false;
         hitbox.visible = false;
         const index = interactables.indexOf(hitbox);
@@ -2942,6 +3049,57 @@ export function createBedroomLevel({
     photoThumbMeshes[key] = thumb;
   });
 
+  /**
+   * A photograph is carried in the inventory once it is picked up, and pinned
+   * to the corkboard by hand: the player holds one and uses the board. Its
+   * item id is its year, which is printed on it anyway.
+   */
+  function photoItemId(key) {
+    return `photo${photoSlots[key].date}`;
+  }
+  /** Each photograph as an item: its id, its picture for the hotbar, and a card for the hand. */
+  const photoItems = Object.entries(photoSlots).map(([key, slot]) => {
+    const card = new THREE.Mesh(
+      new THREE.PlaneGeometry(PUZZLE_PHOTO_HEIGHT_METRES * PUZZLE_PHOTO_ASPECT_RATIO, PUZZLE_PHOTO_HEIGHT_METRES),
+      // A trace of its own picture as emission, like the keys' trace of
+      // glow: the torch is put away while a photograph is in the hand, and
+      // unlit it was a black card.
+      new THREE.MeshStandardMaterial({
+        map: slot.tex, emissiveMap: slot.tex, emissive: 0xffffff, emissiveIntensity: 0.18,
+        roughness: 1, side: THREE.DoubleSide
+      })
+    );
+    card.name = `Level1PhotoCard_${slot.date}`;
+    return { id: photoItemId(key), url: PUZZLE_PHOTO_URLS[slot.date], card };
+  });
+
+  /** Pins the photograph `key` from the hand onto its place on the board. */
+  function pinPhoto(key) {
+    puzzleState.pinnedPhotos.add(key);
+    photoThumbMeshes[key].visible = true;
+    onPhotoPinned(photoItemId(key));
+    onSfx('paper');
+  }
+
+  function openPhotoArrangement() {
+    // Hand off to the close-up board view -- dragging the photos into
+    // place (and figuring out what order they actually belong in) is
+    // the real puzzle, not this in-world interact.
+    onExaminePhotos({
+      photos: Object.entries(photoSlots).map(([key, slot]) => ({
+        key,
+        date: slot.date,
+        dataUrl: PUZZLE_PHOTO_URLS[slot.date]
+      })),
+      onSolved: () => {
+        showCaption(line('dialog_corkboard_solved'));
+        puzzleState.photosArranged = true;
+        updateLockedBoxPresentation(0);
+        onPhotoPuzzleSolved();
+      }
+    });
+  }
+
   const photoAreaHitbox = new THREE.Mesh(
     new THREE.BoxGeometry(0.75, 0.79, 0.15 / PINBOARD_SCALE),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
@@ -2951,26 +3109,26 @@ export function createBedroomLevel({
     onInteract: () => {
       if (puzzleState.photosArranged) {
         showCaption(line('dialog_corkboard_open'));
-      } else if (puzzleState.foundPhotos.size < 4) {
-        showCaption(line('dialog_corkboard_needs_photos'));
-      } else {
-        // Hand off to the close-up board view -- dragging the photos into
-        // place (and figuring out what order they actually belong in) is
-        // the real puzzle, not this in-world interact.
-        onExaminePhotos({
-          photos: Object.entries(photoSlots).map(([key, slot]) => ({
-            key,
-            date: slot.date,
-            dataUrl: PUZZLE_PHOTO_URLS[slot.date]
-          })),
-          onSolved: () => {
-            showCaption(line('dialog_corkboard_solved'));
-            puzzleState.photosArranged = true;
-            updateLockedBoxPresentation(0);
-            onPhotoPuzzleSolved();
-          }
-        });
+        return;
       }
+      const unpinned = Object.keys(photoSlots).filter((key) => !puzzleState.pinnedPhotos.has(key));
+      const held = unpinned.find((key) => isHolding(photoItemId(key)));
+      if (held) {
+        pinPhoto(held);
+        // The last one up: straight into the close-up, to put them in order.
+        if (unpinned.length === 1) {
+          openPhotoArrangement();
+        } else {
+          showCaption(line('dialog_corkboard_pinned', { left: unpinned.length - 1 }));
+        }
+        return;
+      }
+      if (unpinned.length) {
+        const carrying = unpinned.some((key) => isCarrying(photoItemId(key)));
+        showCaption(line(carrying ? 'dialog_corkboard_hold_photo' : 'dialog_corkboard_needs_photos'));
+        return;
+      }
+      openPhotoArrangement();
     }
   };
   photoHolderGroup.add(photoAreaHitbox);
@@ -3139,6 +3297,8 @@ export function createBedroomLevel({
       bedPosition: [BED_POSITION_X, BED_POSITION_Z],
       cuff,
       bedsideTableCollider,
+      /** The four photographs as inventory items: id, hotbar picture, and the card for the hand. */
+      photoItems,
       disturbChair,
       disturbBin,
       flashLamp,
@@ -3279,6 +3439,8 @@ export function createBedroomLevel({
       rugCornerHitbox.visible = Boolean(rugFoldCorner);
       if (rugCornerHitbox.visible && !interactables.includes(rugCornerHitbox)) interactables.push(rugCornerHitbox);
       looseFloorboard.visible = false;
+      looseFloorboardHole.visible = false;
+      resetLooseBoard();
       looseFloorboardHitbox.visible = false;
       const hiddenFloorboardIndex = interactables.indexOf(looseFloorboardHitbox);
       if (hiddenFloorboardIndex >= 0) interactables.splice(hiddenFloorboardIndex, 1);
@@ -3301,6 +3463,7 @@ export function createBedroomLevel({
       puzzleState.chainsEscaped = false;
       puzzleState.hasFlashlight = false;
       puzzleState.foundPhotos.clear();
+      puzzleState.pinnedPhotos.clear();
       puzzleState.photosArranged = false;
       puzzleState.hasBrassKey = false;
       puzzleState.hasCrowbar = false;
@@ -3312,6 +3475,10 @@ export function createBedroomLevel({
       puzzleState.polaroidRead = false;
     },
     update(dt) {
+      if (looseBoardPry.t !== null && looseBoardPry.t < LOOSE_BOARD_LIFT.seconds + LOOSE_BOARD_SET_DOWN.seconds) {
+        looseBoardPry.t += dt;
+        placeLooseBoard(looseBoardPry.t);
+      }
       if (rugCornerOpening && rugFoldCorner) {
         rugFoldProgress = Math.min(1, rugFoldProgress + dt / rugFoldDurationSeconds);
         const eased = rugFoldProgress * rugFoldProgress * (3 - 2 * rugFoldProgress);
@@ -3321,6 +3488,7 @@ export function createBedroomLevel({
           rugCornerOpen = true;
           if (!puzzleState.floorboardPried) {
             looseFloorboard.visible = true;
+            looseFloorboardHole.visible = true;
             looseFloorboardHitbox.visible = true;
             if (!interactables.includes(looseFloorboardHitbox)) interactables.push(looseFloorboardHitbox);
           }

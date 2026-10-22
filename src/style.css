@@ -1485,6 +1485,37 @@ html, body {
   transform: translateY(-5px);
 }
 
+/* Slots for items that come in sets (Level 2's fuses, Level 1's photographs)
+   are only there while carried: a row of them empty would crowd the bar. */
+.hotbar-slot.transient:not(.filled) {
+  display: none;
+}
+
+.hotbar-slot {
+  position: relative;
+}
+
+/* A photograph's own picture is its icon. */
+.hotbar-photo {
+  width: 34px;
+  height: 42px;
+  object-fit: cover;
+  border: 2px solid #efe9db;
+  box-sizing: border-box;
+}
+
+/* What tells one of a set from the others -- a fuse's rating. */
+.hotbar-tag {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  font-size: 10px;
+  line-height: 1;
+  color: #efe9db;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
 /* The two keys share one icon shape; colour is what tells them apart, same
    as the brass/steel tint their actual 3D models use in studyLevel.js. */
 .hotbar-slot.key-brass.filled .hotbar-icon { color: #d8b34a; }

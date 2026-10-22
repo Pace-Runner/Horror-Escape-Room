@@ -22,6 +22,11 @@ import { LEGS, CORRIDORS, neighbours, crossPoint, legMid } from '../levels/backr
  * reaches you, the screen goes, and you wake at the mouth of the maze having
  * lost the crossing. See main.js's onCaught.
  *
+ * ANNABELLE'S ROOMS ARE SAFE. Inside one (`safeFloors`) the player cannot be
+ * caught, seen or heard, and it never picks one to wander to. It can still be
+ * standing in one already, or cut through one on its way somewhere -- it just
+ * cannot touch you there.
+ *
  * ------------------------------------------------------------------ hearing
  *
  * IT DOES NOT KNOW WHERE YOU ARE. The only thing that tells it is NOISE, and
@@ -310,6 +315,8 @@ export function createBackroomsHunter({
    * where a partition has sealed the rest off (annabelleRooms' ROOM_FLOORS).
    */
   roomFloors = {},
+  /** Leg name -> [x0, x1, z0, z1]: where the player is safe from it. */
+  safeFloors = {},
   onCaught = () => {},
   onBreathing = () => {}
 } = {}) {
@@ -338,6 +345,11 @@ export function createBackroomsHunter({
   let huntPlannedFor = null;    // the corridor the current hunt path leads to
   let huntReplanIn = 0;
 
+  const safeRects = Object.values(safeFloors);
+  function inSafeRoom(x, z) {
+    return safeRects.some(([x0, x1, z0, z1]) => x >= x0 && x <= x1 && z >= z0 && z <= z1);
+  }
+
   function setPath(target) {
     waypoints = pathBetween(pos, target);
   }
@@ -360,7 +372,7 @@ export function createBackroomsHunter({
    */
   function pickWanderTarget() {
     const here = legAt(pos.x, pos.z);
-    let names = Object.keys(LEGS).filter((n) => n !== here);
+    let names = Object.keys(LEGS).filter((n) => n !== here && !(n in safeFloors));
     if (Math.random() < DRIFT_SHARE) {
       const p = getPlayer();
       const near = names.filter((n) => {
@@ -620,7 +632,8 @@ export function createBackroomsHunter({
 
       const player = getPlayer();
       const dist = Math.hypot(player.x - pos.x, player.z - pos.z);
-      const seen = canSee(player.x, player.z);
+      const safe = inSafeRoom(player.x, player.z);
+      const seen = !safe && canSee(player.x, player.z);
 
       // --- what it knows ---------------------------------------------------
       if (seen) {
@@ -632,9 +645,15 @@ export function createBackroomsHunter({
       } else if (sawFor > 0) {
         sawFor -= dt;
       }
-      if (player.sprinting || (player.walking && dist <= HEAR_WALK)) {
+      if (!safe && (player.sprinting || (player.walking && dist <= HEAR_WALK))) {
         // Noise. It does not matter whether it can see you.
         heard = { x: player.x, z: player.z };
+      }
+      if (safe) {
+        // Gone into one of her rooms: it loses you at the door, and does not
+        // follow you in to wherever it last heard you.
+        sawFor = 0;
+        if (heard && inSafeRoom(heard.x, heard.z)) heard = null;
       }
 
       // --- what it does ----------------------------------------------------
@@ -766,7 +785,7 @@ export function createBackroomsHunter({
       const t = 1 - Math.min(1, Math.max(0, (dist - BREATH_NEAR) / (BREATH_FAR - BREATH_NEAR)));
       onBreathing(BREATH_MIN + (BREATH_MAX - BREATH_MIN) * t);
 
-      if (dist < CONTACT_RANGE && cooldown <= 0) {
+      if (dist < CONTACT_RANGE && cooldown <= 0 && !safe) {
         cooldown = CATCH_COOLDOWN;
         onCaught();
       }
