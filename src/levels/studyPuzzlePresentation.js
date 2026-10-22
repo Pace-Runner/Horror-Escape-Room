@@ -41,19 +41,36 @@ export function hingeMotion(hinges, axis = 'y', angle = Math.PI * 0.51, duration
   };
 }
 
-export function studyLabel(width, height, metal = false) {
+export function studyLabel(width, height, metal = false, engraved = false) {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = Math.min(768, Math.max(128, Math.round(512 * height / width)));
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  const material = new THREE.MeshBasicMaterial({ map: texture });
+  const material = engraved
+    ? new THREE.MeshStandardMaterial({ map: texture, bumpMap: texture, bumpScale: 0.0007, metalness: 0.65, roughness: 0.58 })
+    : new THREE.MeshBasicMaterial({ map: texture });
   const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
   function write(lines) {
     const ctx = canvas.getContext('2d'), w = canvas.width, h = canvas.height;
     ctx.fillStyle = metal ? '#51422e' : '#bfb69f'; ctx.fillRect(0, 0, w, h);
     ctx.strokeStyle = metal ? '#a18e69' : '#887b61'; ctx.lineWidth = 2;
     ctx.strokeRect(10, 10, w - 20, h - 20);
+    if (engraved) {
+      const patina = ctx.createLinearGradient(0, 0, w, h);
+      patina.addColorStop(0, '#746044'); patina.addColorStop(0.48, '#b49a66'); patina.addColorStop(1, '#665038');
+      ctx.fillStyle = patina; ctx.fillRect(0, 0, w, h);
+      ctx.lineWidth = 3; ctx.strokeStyle = '#d0b681'; ctx.strokeRect(8, 8, w - 16, h - 16);
+      ctx.lineWidth = 1; ctx.strokeStyle = '#493a26'; ctx.strokeRect(14, 14, w - 28, h - 28);
+      for (let y = 2; y < h; y += 3) {
+        ctx.strokeStyle = `rgba(44,31,18,${0.025 + (y % 7) * 0.006})`;
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y - 1); ctx.stroke();
+      }
+      for (const x of [23, w - 23]) for (const y of [23, h - 23]) {
+        ctx.fillStyle = '#4b3926'; ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.strokeStyle = '#c3aa76'; ctx.beginPath(); ctx.moveTo(x - 2, y + 1); ctx.lineTo(x + 2, y - 1); ctx.stroke();
+      }
+    }
     ctx.fillStyle = metal ? '#e1d4b5' : '#29251e'; ctx.textAlign = 'center';
     const font = Math.min(29, Math.max(17, Math.floor(h / 7)));
     ctx.font = `${font}px Georgia, serif`;
@@ -70,7 +87,13 @@ export function studyLabel(width, height, metal = false) {
     const spacing = Math.min(font * 1.55, (h - 38) / Math.max(1, wrapped.length));
     const first = (h - (wrapped.length - 1) * spacing) / 2;
     ctx.textBaseline = 'middle';
-    wrapped.forEach((line, i) => ctx.fillText(line, w / 2, first + i * spacing));
+    wrapped.forEach((line, i) => {
+      if (engraved) {
+        ctx.fillStyle = '#d3bd89'; ctx.fillText(line, w / 2 + 0.7, first + i * spacing + 0.9);
+        ctx.fillStyle = '#30251a';
+      }
+      ctx.fillText(line, w / 2, first + i * spacing);
+    });
     texture.needsUpdate = true;
   }
   return { mesh, write };
@@ -95,19 +118,82 @@ export function dressArchiveLeaf(leaf, width, height, wood, brass, hingeSide = -
   }
 }
 
-export function dressCrestControl(parent, brass, wood) {
+export function dressCrestControl(parent, brass) {
   parent.userData.studyStaticDetails = true;
-  part(parent, new THREE.TorusGeometry(0.117, 0.012, 5, 16), brass, 0, 0, 0.072);
-  const knob = part(parent, new THREE.CylinderGeometry(0.048, 0.054, 0.045, 12), wood, 0, 0, 0.118);
+  // Shallow circular escutcheon sits against the wall; no rectangular casing.
+  const mount = part(parent, new THREE.CylinderGeometry(0.105, 0.105, 0.018, 24), brass, 0, 0, -0.125);
+  mount.rotation.x = Math.PI / 2;
+  part(parent, new THREE.TorusGeometry(0.09, 0.006, 5, 24), brass, 0, 0, -0.112);
+  const collar = part(parent, new THREE.CylinderGeometry(0.068, 0.071, 0.014, 16), brass, 0, 0, -0.108);
+  collar.rotation.x = Math.PI / 2;
+  const dial = new THREE.Group();
+  dial.name = 'Crest_Rotary_Knob';
+  dial.userData.studyStaticDetails = true;
+  parent.add(dial);
+  const knob = part(dial, new THREE.CylinderGeometry(0.064, 0.070, 0.026, 20), brass, 0, 0, -0.088);
   knob.rotation.x = Math.PI / 2;
-  part(parent, new THREE.BoxGeometry(0.012, 0.045, 0.008), brass, 0, 0.012, 0.145);
-  const pointer = part(parent, new THREE.CircleGeometry(0.018, 3), brass, 0, 0.13, 0.09);
+  part(dial, new THREE.TorusGeometry(0.059, 0.003, 4, 24), brass, 0, 0, -0.073);
+  part(dial, new RoundedBoxGeometry(0.008, 0.033, 0.004, 1, 0.001), brass, 0, 0.016, -0.070);
+  for (const x of [-0.083, 0.083]) {
+    const screw = part(parent, new THREE.CylinderGeometry(0.005, 0.005, 0.002, 8), brass, x, 0, -0.114);
+    screw.rotation.x = Math.PI / 2;
+  }
+  const pointer = part(parent, new THREE.CircleGeometry(0.009, 3), brass, 0, 0.086, -0.104);
   pointer.rotation.z = -Math.PI / 2;
+  return dial;
+}
+
+/** Thin strips follow the small hinged plate using the existing AABB solver. */
+export function createCrestPanelCollision(panel, colliders) {
+  const strips = Array.from({ length: 4 }, (_, index) => {
+    const minX = -0.68 + index * 0.34;
+    return new THREE.Box3(new THREE.Vector3(minX, -0.68, -0.03),
+      new THREE.Vector3(minX + 0.34, 0.68, 0.055));
+  });
+  const boxes = strips.map(() => ({}));
+  colliders.push(...boxes);
+  const worldBox = new THREE.Box3();
+  const sync = () => {
+    panel.updateWorldMatrix(true, false);
+    strips.forEach((strip, index) => {
+      worldBox.copy(strip).applyMatrix4(panel.matrixWorld);
+      Object.assign(boxes[index], {
+        minX: worldBox.min.x, maxX: worldBox.max.x,
+        minY: worldBox.min.y, maxY: worldBox.max.y,
+        minZ: worldBox.min.z, maxZ: worldBox.max.z
+      });
+    });
+  };
+  sync();
+  return sync;
+}
+
+export function createCrestIndicatorGeometry() {
+  const bar = new RoundedBoxGeometry(0.065, 0.58, 0.022, 1, 0.008);
+  const pin = new THREE.CylinderGeometry(0.026, 0.026, 0.028, 10).rotateX(Math.PI / 2).translate(0, 0.245, 0.003);
+  const pinTriangles = pin.toNonIndexed();
+  const geometry = mergeGeometries([bar, pinTriangles]);
+  bar.dispose(); pin.dispose(); pinTriangles.dispose();
+  return geometry;
 }
 
 export function fillStudyKey(group, brass, override = false) {
   group.clear();
   group.userData.studyStaticDetails = true;
+  if (!override) {
+    const bow = part(group, new THREE.TorusGeometry(0.032, 0.006, 6, 24), brass, 0, 0.027);
+    bow.scale.x = 0.82;
+    part(group, new THREE.CylinderGeometry(0.007, 0.009, 0.125, 12), brass, 0, -0.055);
+    for (const y of [-0.009, -0.022]) part(group, new THREE.CylinderGeometry(0.011, 0.011, 0.006, 12), brass, 0, y);
+    const bit = new THREE.Shape();
+    bit.moveTo(0, 0); bit.lineTo(0.046, 0); bit.lineTo(0.046, -0.009);
+    bit.lineTo(0.030, -0.009); bit.lineTo(0.030, -0.017); bit.lineTo(0.046, -0.017);
+    bit.lineTo(0.046, -0.027); bit.lineTo(0.019, -0.027); bit.lineTo(0.019, -0.021);
+    bit.lineTo(0, -0.021); bit.closePath();
+    part(group, new THREE.ExtrudeGeometry(bit, { depth: 0.012, bevelEnabled: true,
+      bevelThickness: 0.001, bevelSize: 0.001, bevelSegments: 1, steps: 1 }), brass, 0, -0.089, -0.006);
+    return;
+  }
   const bow = part(group, new THREE.TorusGeometry(override ? 0.037 : 0.032, 0.007, 6, override ? 8 : 16), brass, 0, 0.027);
   if (override) bow.rotation.z = Math.PI / 8;
   part(group, new THREE.CylinderGeometry(0.008, 0.008, 0.12, 8), brass, 0, -0.055);

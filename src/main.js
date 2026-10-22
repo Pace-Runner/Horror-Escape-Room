@@ -59,7 +59,8 @@ import { installUnloadGuard } from './core/KeyboardGuard.js';
 import { Hands } from './systems/hands/hands.js';
 import { setHandAssetUrl } from './systems/hands/hand-mesh.js';
 import handsModelUrl from './assets/models/hands.glb?url';
-import { loadModel, deferModelLoads, startModelLoads } from './world/modelLoader.js';
+import { loadModel, preloadModel, preloadTexture, preloadFont, deferModelLoads, startModelLoads } from './world/modelLoader.js';
+import { LEVEL_ASSETS } from './world/levelAssetDependencies.js';
 import flashlightModelUrl from './assets/models/flashlight.glb?url';
 
 console.time('APP_BOOT');
@@ -2538,9 +2539,18 @@ function updateHallwayRush(dt) {
  * creature standing in the lab's corner behind the player.
  */
 function playCameraFiveSighting() {
-  thought('l2_09');
-  thought('l2_10');
-  thought('l2_11');
+  const finishTurnCue = () => {
+    if (labCreatureExit?.phase === 'stare') {
+      labCreatureExit.cueFinished = true;
+      labCreatureExit.t = 0;
+      labCreatureExit.seenAt = null;
+    }
+    thought('l2_11');
+  };
+  thought('l2_09', { priority: true });
+  thought('l2_10', { priority: true });
+  thought('l2_25', { priority: true, delay: 0.55,
+    onEnded: finishTurnCue, onFailed: finishTurnCue });
   // Camera five is this room. There is a figure standing in it -- the
   // creature itself, followed on the feed by updateLabCreatureExit().
   script.run(async (s) => {
@@ -2563,7 +2573,7 @@ function playCameraFiveSighting() {
       // lab if the room is ever resized again.
       const CORNER = hallwayBasement.refs.creatureCorner;
       showCreatureAt({ x: CORNER[0], z: CORNER[1], linger: null });
-      labCreatureExit = { phase: 'stare', t: 0, seenAt: null, leg: 0, doorsBurst: false };
+      labCreatureExit = { phase: 'stare', t: 0, seenAt: null, leg: 0, doorsBurst: false, cueFinished: false };
       audio.setBreathing(LEVEL_TWO_BREATHING.cctvBasement);
       creak();
     });
@@ -2622,6 +2632,8 @@ function updateLabCreatureExit(dt) {
   // is in the room.
   hallwayBasement.refs.setCameraFiveFigure(p, { running: exit.phase === 'run' });
   if (exit.phase === 'stare') {
+    // Keep the real creature available until the spoken turn-around cue ends.
+    if (!exit.cueFinished) return;
     if (exit.seenAt === null) {
       camera.getWorldDirection(_labCreatureView);
       const toX = p.x - camera.position.x;
@@ -2674,6 +2686,12 @@ function updateLabCreatureExit(dt) {
   }
 }
 
+let generatorProgressStarted = false;
+let breakerEngaged = false;
+let breakerHintSeconds = null;
+let levelTwoCriticalUntil = 0;
+const generatorHintPosition = new THREE.Vector3();
+
 const hallwayBasement = createDeferredLevel(() => createHallwayBasementLevel({
   showCaption,
   onThought: thought,
@@ -2719,6 +2737,7 @@ const hallwayBasement = createDeferredLevel(() => createHallwayBasementLevel({
     audio.stopVoice();
     markThoughts.setBlocked(true);
     tapeFocus.start(deck);
+    void preloadBackroomsForTape();
     if (source.hasRecording) audio.connectMediaElement(source.audio);
     else audio.setTapeHiss(true);
     tapeSoundsPlayed = 0;
@@ -2763,6 +2782,12 @@ const hallwayBasement = createDeferredLevel(() => createHallwayBasementLevel({
   // Thrown at the door, at the desk or by the clock running out (`cause`):
   // the same hand on the same lever, so the same beat.
   onBlackout: () => {
+    levelTwoCriticalUntil = performance.now() + 2000;
+    thought('l2_21', { onEnded: () => thought('l2_22', {
+      delay: 3,
+      when: () => sceneManager.activeKey === 'hallwayBasement'
+        && !generatorProgressStarted && hallwayBasement.refs.powerStage === 'blackout'
+    }) });
     script.run(async (s) => {
       s.do(() => {
         // A hand on the main lever, and the room running down with it.
@@ -2778,9 +2803,18 @@ const hallwayBasement = createDeferredLevel(() => createHallwayBasementLevel({
   },
 
   onGeneratorRunning: () => {
+    breakerHintSeconds = breakerEngaged || hallwayBasement.refs.breakerCoverOpen ? null : 10;
     script.run(async (s) => {
       if (!await s.play(line('dialog_generator_running'))) return;
     });
+  },
+
+  onGeneratorProgress: () => { generatorProgressStarted = true; },
+  onBreakerEngaged: () => {
+    // Earlier panel inspections do not cancel the later generator lesson.
+    if (!['blackout', 'running', 'routed'].includes(hallwayBasement.refs.powerStage)) return;
+    breakerEngaged = true;
+    breakerHintSeconds = null;
   },
 
   onOverload: () => {
@@ -2789,6 +2823,8 @@ const hallwayBasement = createDeferredLevel(() => createHallwayBasementLevel({
   },
 
   onPowerRouted: () => {
+    breakerHintSeconds = null;
+    thought('l2_24');
     sfx('main_lever');
     script.run(async (s) => {
       if (!await s.play(line('dialog_power_routed'))) return;
@@ -3116,7 +3152,7 @@ const backroomsHunter = createBackroomsHunter({
   // And they are safe: it cannot catch you in one of her rooms.
   safeFloors: ROOM_FLOORS,
   onBreathing: (level) => audio.setBreathing(level),
-  onCaught: () => onHunterCaught()
+  onCaught: (context) => onHunterCaught(context)
 });
 
 /** Which level this crossing started from, or null when not crossing. */
@@ -3646,8 +3682,14 @@ const pickRespawnLine = linePicker([
   'dialog_backrooms_respawn_3', 'dialog_backrooms_respawn_4'
 ], { order: 'sequence' });
 
-function onHunterCaught() {
+let sprintCatchLessonPlayed = false;
+let sprintCatchReminderIndex = 0;
+let sprintCatchNextAt = 0;
+let sprintCatchGeneration = 0;
+
+function onHunterCaught({ sprintContributed = false } = {}) {
   if (caughtInFlight || transitionInFlight) return;
+  const catchGeneration = ++sprintCatchGeneration;
   caughtInFlight = true;
   // First, so the sting lands on the catch and not on the caption after it --
   // and inside the guard above, so it is exactly once per catch.
@@ -3703,6 +3745,19 @@ function onHunterCaught() {
       if (caughtLine) await caughtLine;
       if (!s.alive()) return;
       await s.play(line(pickRespawnLine()));
+      if (!s.alive()) return;
+      if (sprintContributed && performance.now() >= sprintCatchNextAt) {
+        const key = sprintCatchLessonPlayed
+          ? ['backrooms_09', 'backrooms_10', 'backrooms_11'][sprintCatchReminderIndex % 3]
+          : 'backrooms_08';
+        thought(key, { replayable: true, delay: 1,
+          when: () => sceneManager.activeKey === 'backrooms' && catchGeneration === sprintCatchGeneration,
+          onEnded: () => {
+            if (sprintCatchLessonPlayed) sprintCatchReminderIndex++;
+            sprintCatchLessonPlayed = true;
+            sprintCatchNextAt = performance.now() + 45000;
+          } });
+      }
     } finally {
       caughtInFlight = false;
       // However it ended -- a restart mid-scream included -- the camera and
@@ -3881,7 +3936,14 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   ON_ENTER[key]?.();
   const prefixes = { bedroom: 'l1', upstairsHallway: 'hallway', hallwayBasement: 'l2', backrooms: 'backrooms', study: 'backrooms' };
   markThoughts.preload(prefixes[key]);
-  if (key === 'hallwayBasement') thought('l2_01');
+  if (key === 'hallwayBasement') {
+    generatorProgressStarted = false;
+    breakerEngaged = false;
+    breakerHintSeconds = null;
+    levelTwoCriticalUntil = 0;
+    thought('l2_01');
+    thought('l2_20', { delay: 1, when: () => hallwayBasement.refs.powerStage === 'dead' });
+  }
   if (key === 'backrooms') thought('backrooms_01');
   if (key === 'study') { thought('backrooms_06', { delay: 0.8 }); thought('backrooms_07'); }
   return level;
@@ -4011,8 +4073,7 @@ async function exitLevel(fromKey) {
  * it is spent thinking about what the paper said.
  */
 const INTERLUDES = {
-  bedroom: 'afterBedroom',
-  hallwayBasement: 'afterBasement'
+  bedroom: 'afterBedroom'
 };
 
 // ---------- game reset (restart without page refresh) ----------
@@ -4084,6 +4145,10 @@ function resetGame() {
   resetDoorwayJoin();
   pickCaughtLine.reset();
   pickRespawnLine.reset();
+  sprintCatchLessonPlayed = false;
+  sprintCatchReminderIndex = 0;
+  sprintCatchNextAt = 0;
+  sprintCatchGeneration++;
   activateLevel('bedroom', { lockMovement: true });
 }
 
@@ -4162,8 +4227,8 @@ window.addEventListener('keydown', (e) => {
   // Deliberately INSTANT, not faded: these are a mentor-demo tool and 1.7s of
   // black per press is friction. But each one aborts first, or a jump taken
   // mid-fade lands behind an overlay that will never lift.
-  // DEV TEST HOTKEY — L = LEVEL 2
-  if (import.meta.env.DEV && e.code === 'KeyL') {
+  // Preview shortcuts remain available in production/demo builds too.
+  if (e.code === 'KeyL' || e.code === 'Digit2' || e.code === 'Numpad2') {
     if (e.repeat || e.ctrlKey || e.metaKey || e.altKey
       || e.target?.closest?.('input, textarea, select, [contenteditable], [role="textbox"]')) return;
     e.preventDefault();
@@ -4697,10 +4762,7 @@ function beginGame() {
 
   // Start playback in the original click gesture; construction yields to its first paint.
   const newsFinished = openingNewsCutscene.play();
-  // Nothing is drawn while the report plays: Level 1 and anything later still
-  // waiting only compile, and their draws run behind the bar once it ends.
-  setWarmDrawsAllowed(false);
-  preloadLaterRooms();
+  // Prepare only the opening pair while the report covers the canvas.
   const levelOneReady = preloadLevel1();
   const skipOpeningNews = (event) => {
     if (event.code === 'KeyK' && openingNewsCutscene.skip()) event.preventDefault();
@@ -4712,12 +4774,9 @@ function beginGame() {
     if (!s.alive()) return;
     // A skipped report rests on the same four photographs as a watched one.
     if (newsResult?.skipped) openingNewsCutscene.showAllPhotos();
-    // Every room has to be warm before the report closes: warming shows each
-    // room in turn, which only the report can hide. Until then the report
-    // stays on its four photographs with the loading bar over them.
-    setWarmDrawsAllowed(true);
-    const hadToWait = !allWarmStepsDone();
-    if (hadToWait) await showLoadingUntil(warmStepsSettled());
+    // Keep the photographs visible until the opening pair is ready.
+    const hadToWait = !level1Ready;
+    await levelOneReady;
     if (!s.alive()) return;
     // After a wait, K is no longer a fresh enough gesture for the pointer lock.
     if (newsResult?.skipped && level1Ready && !hadToWait) {
@@ -5066,9 +5125,14 @@ const loadBars = [
 ];
 
 function setLoadProgress(fraction, hint) {
-  const width = `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`;
+  const percent = Math.floor(Math.min(1, Math.max(0, fraction)) * 100);
+  const width = `${percent}%`;
   for (const bar of loadBars) {
     bar.fill.style.width = width;
+    bar.fill.setAttribute('role', 'progressbar');
+    bar.fill.setAttribute('aria-valuemin', '0');
+    bar.fill.setAttribute('aria-valuemax', '100');
+    bar.fill.setAttribute('aria-valuenow', String(percent));
     if (hint) bar.hint.textContent = hint;
   }
 }
@@ -5357,6 +5421,18 @@ async function warmHouseCreature(houseSets, { compileOnly = false } = {}) {
 }
 
 const warmedLevelKeys = new Set();
+let tapeBackroomsPreload = null;
+
+/** Asset-only preparation: never borrows the live scene, camera or controls. */
+function preloadBackroomsForTape() {
+  if (!tapeBackroomsPreload) {
+    tapeBackroomsPreload = preloadAssetGroups(['backrooms', 'common']).catch((error) => {
+      tapeBackroomsPreload = null;
+      console.warn('Session 14 Backrooms preload failed:', error);
+    });
+  }
+  return tapeBackroomsPreload;
+}
 
 /** Upload textures and compile shadow variants without rendering a game level. */
 async function prepareGpuResources(roots) {
@@ -5424,183 +5500,101 @@ async function prepareGpuResources(roots) {
 }
 const openingShadowMaterials = [];
 
-/**
- * ONE WARM-UP STEP AT A TIME. Each step shows rooms and moves the camera while
- * it runs, so two at once would warm each other's rooms under the wrong lights.
- *
- * Every room is warmed in two steps: COMPILE (build its shaders in the
- * background, upload its textures) and DRAW (draw it once, unculled, so the
- * driver does its own first-draw work). Drawing blocks the page for a second
- * or so, which would stutter the opening report, so draw steps wait while it
- * plays (setWarmDrawsAllowed) and run behind the loading bar after it.
- *
- * The later rooms are queued the moment the page opens, behind the menu (see
- * preloadLaterRooms); Level 1 jumps the queue when Start is pressed (see
- * preloadLevel1). Highest priority first; equal priorities in queue order.
- */
-const WARM_PRIORITY = { levelOne: 2, compile: 1, draw: 0 };
-const warmSteps = [];
-const allWarmSteps = [];
-let warmStepRunning = false;
-let warmDrawsAllowed = true;
-let warmStepsDone = 0;
-
-/**
- * @param {object} step
- * @param {number} step.priority - see WARM_PRIORITY.
- * @param {boolean} [step.draws] - true if it draws a room (waits during the report).
- * @param {string} [step.hint] - the loading bar's caption while it runs.
- * @param {() => Promise<void>} step.run
- * @returns {Promise<void>} settles when the step has run. Never rejects: a
- *   failed step leaves that room to warm on its own fade instead.
- */
-function scheduleWarmStep({ priority, draws = false, hint, run }) {
-  const done = new Promise((resolve) => {
-    warmSteps.push({ priority, draws, hint, run, resolve });
-  });
-  allWarmSteps.push(done);
-  runWarmSteps();
-  return done;
-}
-
-async function runWarmSteps() {
-  if (warmStepRunning) return;
-  warmStepRunning = true;
-  for (;;) {
-    let next = null;
-    for (const step of warmSteps) {
-      if (step.draws && !warmDrawsAllowed) continue;
-      if (!next || step.priority > next.priority) next = step;
-    }
-    if (!next) break;
-    warmSteps.splice(warmSteps.indexOf(next), 1);
-    setLoadProgress(warmStepsDone / allWarmSteps.length, next.hint);
-    try {
-      await next.run();
-    } catch (err) {
-      console.warn('warm-up step failed; its room will warm on its own fade', err);
-    }
-    warmStepsDone++;
-    setLoadProgress(warmStepsDone / allWarmSteps.length, next.hint);
-    next.resolve();
+// Resource jobs are cached independently of playable room handles.
+const assetJobs = new Map();
+const warmedAssetModels = new Map();
+function resourceJobs(keys) {
+  const jobs = new Map();
+  const add = (type, url, run) => jobs.set(`${type}:${url}`, run);
+  for (const key of keys) {
+    const group = LEVEL_ASSETS[key];
+    for (const url of group?.models ?? []) add('model', url, async () => {
+      const gltf = await preloadModel(url);
+      if (!warmedAssetModels.has(url)) {
+        const warm = (async () => {
+          // Isolated asset probes, never a playable scene or live camera.
+          const probes = gltf.scene.clone(true);
+          probes.traverse((node) => { if (node.isMesh) node.castShadow = true; });
+          const resourceScene = new THREE.Scene();
+          resourceScene.add(probes, new THREE.AmbientLight(0xffffff, 1));
+          const resourceCamera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
+          resourceCamera.position.z = 4;
+          await renderer.compileAsync(resourceScene, resourceCamera);
+          await prepareGpuResources([probes]);
+          resourceScene.clear();
+        })();
+        warmedAssetModels.set(url, warm);
+        warm.catch(() => warmedAssetModels.delete(url));
+      }
+      await warmedAssetModels.get(url);
+    });
+    for (const url of group?.textures ?? []) add('texture', url, async () => {
+      const texture = await preloadTexture(url);
+      renderer.initTexture(texture);
+    });
+    for (const url of group?.fonts ?? []) add('font', url, () => preloadFont(url));
   }
-  warmStepRunning = false;
+  return jobs;
 }
 
-/** Off while the opening report plays; on lets the waiting draw steps run. */
-function setWarmDrawsAllowed(allowed) {
-  warmDrawsAllowed = allowed;
-  if (allowed) runWarmSteps();
-}
-
-/** True once every step queued so far has run. */
-function allWarmStepsDone() {
-  return warmStepsDone === allWarmSteps.length;
-}
-
-/** Settles once every step queued so far has run. */
-function warmStepsSettled() {
-  return Promise.all(allWarmSteps);
-}
-
-/**
- * Queues one room's compile and draw steps, and marks it warm once drawn so
- * its fade skips warmLevelForTransition. `before` runs first in the compile
- * step: whatever the room needs to exist (the hands, the torch).
- *
- * @param {string} key - the level.
- * @param {number} priority - for the compile step; drawing is always last.
- * @param {string[][]} creatureSets - the light sets the house creature is
- *   warmed under there. Ignored for the maze, which has its own figure.
- * @param {() => Promise<void>} [before]
- * @returns {Promise<void>} settles once the room is compiled and drawn.
- */
-function scheduleRoomWarmUp(key, priority, creatureSets, before = async () => {}) {
-  const hint = LOAD_HINTS[key] ?? 'entering the house...';
-  const compiled = scheduleWarmStep({
-    priority,
-    hint,
-    run: async () => {
-      await before();
-      const level = sceneManager.get(key);
-      await level.prepare?.();
-      enableSinglePassForFlatDecals(level.group);
-      darkShadowSkipper.addLights(findShadowCastingLights(scene));
-      await warmUp({ keys: [key], waitForAssets: false, compileOnly: true, showProgress: false });
-      if (key === 'backrooms') await warmMazeCreature({ compileOnly: true });
-      else await warmHouseCreature(creatureSets, { compileOnly: true });
-    }
-  });
-  const drawn = scheduleWarmStep({
-    priority: WARM_PRIORITY.draw,
-    draws: true,
-    hint,
-    run: async () => {
-      await compiled;
-      await warmUp({ keys: [key], waitForAssets: false, showProgress: false });
-      if (key === 'backrooms') await warmMazeCreature();
-      else await warmHouseCreature(creatureSets);
-      warmedLevelKeys.add(key);
-    }
-  });
-  return Promise.all([compiled, drawn]).then(() => {});
-}
-
-let laterRoomsQueued = false;
-
-/**
- * The maze and Levels 2 and 3, queued the moment the page opens: the menu
- * covers the canvas, so they can be drawn behind it. Whatever is not done by
- * Start carries on behind the report (compiling only) and the loading bar.
- */
-function preloadLaterRooms() {
-  if (laterRoomsQueued) return;
-  laterRoomsQueued = true;
+/** Bounded work, real settled-job progress, and one promise per resource. */
+async function preloadAssetGroups(keys, onProgress = () => {}) {
   startModelLoads();
-  scheduleRoomWarmUp('backrooms', WARM_PRIORITY.compile, []);
-  scheduleRoomWarmUp('hallwayBasement', WARM_PRIORITY.compile, [['hallwayBasement']]);
-  scheduleRoomWarmUp('study', WARM_PRIORITY.compile, [['study']]);
+  const jobs = [...resourceJobs(keys)];
+  let completed = 0;
+  let next = 0;
+  onProgress(0, jobs.length);
+  const worker = async () => {
+    while (next < jobs.length) {
+      const [id, run] = jobs[next++];
+      if (!assetJobs.has(id)) {
+        const ready = nextFrame().then(run);
+        assetJobs.set(id, ready);
+        ready.catch(() => assetJobs.delete(id));
+      }
+      await assetJobs.get(id);
+      onProgress(++completed, jobs.length);
+      await nextFrame();
+    }
+  };
+  await Promise.all([worker(), worker()]);
 }
 
 let level1PreloadPromise = null;
 let level1Ready = false;
 
-/**
- * Level 1, queued when Start is pressed, ahead of anything later still
- * waiting: the bedroom, then the upstairs hallway -- the hallway's creature
- * sets include the two rooms drawn together with the door open, a light set
- * no single room has. One promise, reused by Start and the continue gate.
- */
+/** Only the connected opening pair is constructed during the news report. */
 function preloadLevel1() {
   if (!level1PreloadPromise) {
-    startModelLoads();
-    const bedroomReady = scheduleRoomWarmUp('bedroom', WARM_PRIORITY.levelOne, [['bedroom']], async () => {
-      await Promise.all([initializeHands(), initializeHeldTorch(), audio.ready, markThoughts.preload('l1')]);
+    level1PreloadPromise = (async () => {
+      await preloadAssetGroups(['bedroom', 'upstairsHallway']);
+      await Promise.all([initializeHands(), initializeHeldTorch(), audio.ready,
+        markThoughts.preload('l1'), markThoughts.preload('hallway')]);
       postFX.prepare();
-    });
-    const hallwayReady = scheduleRoomWarmUp('upstairsHallway', WARM_PRIORITY.levelOne,
-      [['bedroom', 'upstairsHallway'], ['upstairsHallway']]);
-    level1PreloadPromise = Promise.all([bedroomReady, hallwayReady]).then(() => { level1Ready = true; });
+      for (const key of ['bedroom', 'upstairsHallway']) {
+        await nextFrame();
+        await sceneManager.get(key).prepare();
+        enableSinglePassForFlatDecals(sceneManager.get(key).group);
+        darkShadowSkipper.addLights(findShadowCastingLights(scene));
+        await warmUp({ keys: [key], waitForAssets: false, compileOnly: true, showProgress: false });
+        await warmHouseCreature(key === 'bedroom' ? [['bedroom']]
+          : [['bedroom', 'upstairsHallway'], ['upstairsHallway']], { compileOnly: true });
+        warmedLevelKeys.add(key);
+      }
+      level1Ready = true;
+    })();
   }
   return level1PreloadPromise;
 }
 
-/** Shows the loading bar over the opening's photographs until `work` is done. */
-async function showLoadingUntil(work) {
-  openingNewsLoading.classList.add('is-open');
-  openingNewsLoading.setAttribute('aria-hidden', 'false');
-  await work;
-  openingNewsLoading.classList.remove('is-open');
-  openingNewsLoading.setAttribute('aria-hidden', 'true');
-}
-
 /** Warms exactly one destination level while a transition already owns the screen. */
-async function warmLevelForTransition(key) {
+async function warmLevelForTransition(key, { showProgress = true } = {}) {
   if (warmedLevelKeys.has(key)) return;
+  await preloadAssetGroups([key]);
   await sceneManager.get(key)?.prepare?.();
   enableSinglePassForFlatDecals(sceneManager.get(key).group);
   darkShadowSkipper.addLights(findShadowCastingLights(scene));
-  await warmUp({ keys: [key], waitForAssets: false });
+  await warmUp({ keys: [key], waitForAssets: false, showProgress });
   // And whatever creature can show up there, or its first appearance is a
   // freeze of its own, seconds into the room.
   if (key === 'backrooms') await warmMazeCreature();
@@ -5608,16 +5602,45 @@ async function warmLevelForTransition(key) {
   warmedLevelKeys.add(key);
 }
 
-// Boot waits only for the opening's four decoded images and buffered audio.
-setLoadProgress(0, 'preparing the opening report...');
+// The menu remains covered until every counted resource job has settled.
+const bootHints = ['the walls do not end...', 'it can hear me...', 'feeling along the wall...', 'entering the house...'];
+let bootHintIndex = 0;
+let nextBootHintAt = performance.now() + 2600;
+setLoadProgress(0, bootHints[0]);
 const openingAssetsReady = openingNewsCutscene.preload();
-openingAssetsReady.then(() => {
+const bootJobs = resourceJobs(['common', 'hallwayBasement', 'study', 'backrooms']).size;
+let bootAssetsDone = 0;
+let openingBootReady = false;
+let levelTwoBootReady = false;
+const bootReady = Promise.all([
+  openingAssetsReady.then(() => { openingBootReady = true; updateBootProgress(); }),
+  preloadAssetGroups(['common', 'hallwayBasement', 'study', 'backrooms'], (done) => {
+    bootAssetsDone = done;
+    updateBootProgress();
+  }).then(async () => {
+    // Asset caching alone leaves scene creation and the first real lab draw
+    // on the hallway exit. Pay that existing warm-up while boot still covers it.
+    await warmLevelForTransition('hallwayBasement', { showProgress: false });
+    levelTwoBootReady = true;
+    updateBootProgress();
+  })
+]);
+function updateBootProgress() {
+  if (performance.now() >= nextBootHintAt) {
+    bootHintIndex = (bootHintIndex + 1) % bootHints.length;
+    nextBootHintAt = performance.now() + 2600;
+  }
+  setLoadProgress((bootAssetsDone + Number(openingBootReady) + Number(levelTwoBootReady)) / (bootJobs + 2),
+    bootHints[bootHintIndex]);
+}
+bootReady.then(() => {
   setLoadProgress(1);
   showMainMenu();
   loadingScreen.classList.add('is-done');
   console.timeEnd('APP_BOOT');
-  // Behind the menu from here on: everything after Level 1.
-  preloadLaterRooms();
+}).catch((error) => {
+  console.error('Initial asset preparation failed:', error);
+  loadingHintEl.textContent = 'the way is closed. reload to try again.';
 });
 
 // ---------- render loop ----------
@@ -5811,7 +5834,24 @@ function tick() {
   // After everything that moves the player, the hunter and the creature, so
   // the ears and every emitter are where this frame drew them.
   audioDirector.update(dt);
-  if (!transitionInFlight) markThoughts.update();
+  if (sceneManager.activeKey === 'hallwayBasement' && !generatorProgressStarted
+    && hallwayBasement.refs.powerStage === 'blackout' && player.moving > 0.5) {
+    hallwayBasement.refs.generator.getWorldPosition(generatorHintPosition);
+    if (Math.hypot(camera.position.x - generatorHintPosition.x,
+      camera.position.z - generatorHintPosition.z) < 2.5) generatorProgressStarted = true;
+  }
+  if (sceneManager.activeKey === 'hallwayBasement' && player.isLocked
+    && !transitionInFlight && !cutscene.isRunning && !captions.paused && breakerHintSeconds !== null) {
+    breakerHintSeconds -= dt;
+    if (breakerHintSeconds <= 0) {
+      breakerHintSeconds = null;
+      thought('l2_23', { when: () => !breakerEngaged
+        && hallwayBasement.refs.powerStage === 'running' && !hallwayBasement.refs.breakerCoverOpen });
+    }
+  }
+  markThoughts.update({ blocked: transitionInFlight || caughtInFlight || tapePlaying
+    || cutscene.isRunning || jumpScareRunning || labCreatureExit?.phase === 'run' || !player.isLocked
+    || (sceneManager.activeKey === 'hallwayBasement' && performance.now() < levelTwoCriticalUntil) });
 
   postFX.update(dt);
   // The rush's blackout overrides every light the levels and the storm set

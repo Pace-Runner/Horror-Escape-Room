@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js';
 
@@ -23,13 +24,17 @@ export function startModelLoads() {
   enableLoading = null;
 }
 
-export function loadModel(url) {
+export function preloadModel(url) {
   if (!models.has(url)) {
     const ready = loadingGate.then(() => loader.loadAsync(url));
     models.set(url, ready);
     ready.catch(() => models.delete(url));
   }
-  return models.get(url).then((gltf) => {
+  return models.get(url);
+}
+
+export function loadModel(url) {
+  return preloadModel(url).then((gltf) => {
     const scene = clone(gltf.scene);
     const materials = new Map();
     const geometries = new Map();
@@ -98,4 +103,23 @@ export function applyTextureByMaterialName(root, materialName, map, normalMap) {
       child.material.needsUpdate = true;
     }
   });
+}
+
+// Three's ImageLoader reads this same decoded-image cache at level creation.
+THREE.Cache.enabled = true;
+const texturePreloads = new Map();
+export function preloadTexture(url) {
+  if (!texturePreloads.has(url)) {
+    const ready = new THREE.TextureLoader().loadAsync(url);
+    texturePreloads.set(url, ready);
+    ready.catch(() => texturePreloads.delete(url));
+  }
+  return texturePreloads.get(url);
+}
+const fontPreloads = new Map();
+export function preloadFont(url) {
+  if (!fontPreloads.has(url)) {
+    fontPreloads.set(url, new FontFace('NoteHandwriting', `url(${url})`).load().then((face) => document.fonts.add(face)));
+  }
+  return fontPreloads.get(url);
 }
