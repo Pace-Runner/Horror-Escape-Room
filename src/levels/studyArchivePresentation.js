@@ -8,35 +8,53 @@ function sharedAgedPaper() {
   const ctx = canvas.getContext('2d'), pixels = ctx.createImageData(512, 512);
   let randomState = 91837;
   const random = () => ((randomState = Math.imul(randomState, 1664525) + 1013904223 >>> 0) / 4294967296);
-  // Multiscale stock mottling, irregular fibres and a gently oxidised perimeter.
+  // Irregular broad age clouds, oxidised edges and worn corners; quiet at the text centre.
+  const lattice = (x,y) => {
+    let n = Math.imul(x + 17, 374761393) ^ Math.imul(y + 31, 668265263);
+    n = Math.imul(n ^ (n >>> 13), 1274126177);
+    return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
+  };
+  function mottling(x,y,scale) {
+    const gx=x/scale, gy=y/scale, ix=Math.floor(gx), iy=Math.floor(gy);
+    const fx=gx-ix, fy=gy-iy, u=fx*fx*(3-2*fx), v=fy*fy*(3-2*fy);
+    return (lattice(ix,iy)*(1-u)+lattice(ix+1,iy)*u)*(1-v)
+      +(lattice(ix,iy+1)*(1-u)+lattice(ix+1,iy+1)*u)*v;
+  }
   for (let y = 0; y < 512; y++) for (let x = 0; x < 512; x++) {
-    const edge = Math.exp(-Math.min(x, y, 511 - x, 511 - y) / 19);
-    const cloud = Math.sin(x * .023 + Math.sin(y * .017)) * 2.4 + Math.cos(y * .041 + x * .009) * 1.6;
-    const grain = (random() - .5) * 9;
-    const crease = Math.exp(-Math.abs(y - 315 - Math.sin(x * .011) * 3) / 1.7) * 5;
-    const i = (y * 512 + x) * 4;
-    [195, 181, 153].forEach((base, c) => { pixels.data[i + c] = base + cloud + grain - edge * 21 - crease; });
-    pixels.data[i + 3] = 255;
+    const edgeDistance=Math.min(x, y, 511-x, 511-y);
+    const irregularity=3*Math.sin(x*.19+y*.11)+2*Math.sin(y*.37-x*.07);
+    const edge=Math.exp(-Math.max(0,edgeDistance+irregularity)/17);
+    const corner=Math.exp(-Math.min(Math.hypot(x,y),Math.hypot(511-x,y),Math.hypot(x,511-y),Math.hypot(511-x,511-y))/38);
+    const cloud=(mottling(x,y,79)-.5)*28+(mottling(x,y,23)-.5)*12;
+    const grain=(random()-.5)*6;
+    const crease=Math.exp(-Math.abs(y-315-Math.sin(x*.011)*3)/1.4)*3;
+    const i=(y*512+x)*4;
+    [191,170,132].forEach((base,c)=>{pixels.data[i+c]=base+cloud+grain-edge*(36+c*2)-corner*20-crease;});
+    pixels.data[i+3]=255;
   }
-  ctx.putImageData(pixels, 0, 0);
-  for (let i = 0; i < 700; i++) {
-    const x = random() * 512, y = random() * 512;
-    ctx.strokeStyle = i % 2 ? 'rgba(93,76,46,.09)' : 'rgba(245,231,193,.16)';
-    ctx.lineWidth = .5; ctx.beginPath(); ctx.moveTo(x, y);
-    ctx.lineTo(x + 1 + random() * 3, y + random() * 10); ctx.stroke();
+  ctx.putImageData(pixels,0,0);
+  for(let i=0;i<700;i++) {
+    const x=random()*512,y=random()*512;
+    ctx.strokeStyle=i%2?'rgba(93,76,46,.08)':'rgba(242,221,176,.12)';
+    ctx.lineWidth=.5;ctx.beginPath();ctx.moveTo(x,y);
+    ctx.lineTo(x+1+random()*3,y+random()*8);ctx.stroke();
   }
-  for (const [x, y, radius] of [[65,105,85], [420,370,105], [265,460,62]]) {
-    const stain = ctx.createRadialGradient(x, y, 0, x, y, radius);
-    stain.addColorStop(0, 'rgba(111,78,34,.10)'); stain.addColorStop(1, 'rgba(111,78,34,0)');
-    ctx.fillStyle = stain; ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  for(const [x,y,radius,opacity] of [[36,72,76,.22],[473,416,94,.24],[249,476,58,.17],[285,188,88,.075]]) {
+    const stain=ctx.createRadialGradient(x,y,0,x,y,radius);
+    stain.addColorStop(0,`rgba(112,71,28,${opacity})`);stain.addColorStop(1,'rgba(112,71,28,0)');
+    ctx.fillStyle=stain;ctx.fillRect(x-radius,y-radius,radius*2,radius*2);
   }
-  // Sparse foxing stays faint enough to leave printed records legible.
-  for (let i = 0; i < 150; i++) {
-    ctx.fillStyle = `rgba(106,75,39,${.04 + random() * .06})`;
-    ctx.beginPath(); ctx.arc(random() * 512, random() * 512, .35 + random() * 1.1, 0, Math.PI * 2); ctx.fill();
+  // Most foxing gathers at the edges, away from the readable central area.
+  for(let i=0;i<240;i++) {
+    let x=random()*512,y=random()*512;
+    if(i<190){const inset=4+Math.pow(random(),2)*45;
+      switch(i%4){case 0:x=inset;break;case 1:x=512-inset;break;case 2:y=inset;break;default:y=512-inset;}}
+    ctx.fillStyle=`rgba(114,72,28,${.07+random()*.12})`;
+    ctx.beginPath();ctx.arc(x,y,.4+random()*1.4,0,Math.PI*2);ctx.fill();
   }
   const relief = new THREE.CanvasTexture(canvas);
-  agedPaper = { canvas, relief };
+  const color = new THREE.CanvasTexture(canvas); color.colorSpace = THREE.SRGBColorSpace;
+  agedPaper = { canvas, relief, color };
   return agedPaper;
 }
 
@@ -52,6 +70,16 @@ export function createVisorGlassMap() {
   return texture;
 }
 
+/** Shared stock for printed records, loose notes and paper dressing. */
+export function createArchivePaperMaterial(seed = 0) {
+  const stock = sharedAgedPaper();
+  return new THREE.MeshStandardMaterial({ map: stock.color,
+    color: [0xd6c6a7, 0xcfc0a0, 0xdbcaab][seed % 3],
+    roughness: 1, metalness: 0, emissive: 0, emissiveIntensity: 0,
+    envMapIntensity: 0, vertexColors: false, toneMapped: true,
+    bumpMap: stock.relief, bumpScale: 0.0003 });
+}
+
 /** Archive cards only: handled stock, real thin edges, unchanged text interface. */
 export function createArchiveRecord(width, height, seed = 0, typography = {}) {
   const canvas = document.createElement('canvas');
@@ -62,12 +90,14 @@ export function createArchiveRecord(width, height, seed = 0, typography = {}) {
   const w = canvas.width, h = canvas.height;
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  const mesh = new THREE.Mesh(new RoundedBoxGeometry(width, height, 0.003, 1, 0.0007),
-    new THREE.MeshStandardMaterial({ map: texture, color: seed % 2 ? 0xece3cf : 0xf0e6d2,
-      roughness: 0.98, metalness: 0, emissive: 0,
-      bumpMap: stock.relief, bumpScale: 0.00012 }));
+  const material = createArchivePaperMaterial(seed); material.map = texture;
+  const mesh = new THREE.Mesh(new RoundedBoxGeometry(width, height, 0.003, 1, 0.0007), material);
   function write(lines) {
-    const ink = canvas.getContext('2d'); ink.drawImage(stock.canvas, 0, 0, w, h);
+    const ink = canvas.getContext('2d');
+    // Vary only the stock under the print, never the text or its alignment.
+    ink.save(); ink.translate(seed % 2 ? w : 0, seed % 3 === 1 ? h : 0);
+    ink.scale(seed % 2 ? -1 : 1, seed % 3 === 1 ? -1 : 1);
+    ink.drawImage(stock.canvas, 0, 0, w, h); ink.restore();
     const stain = ink.createRadialGradient(w * (0.24 + seed % 3 * 0.16), h * 0.68, 0,
       w * 0.5, h * 0.68, w * 0.48);
     stain.addColorStop(0, `rgba(129,105,62,${0.035 + seed % 3 * 0.008})`);

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
-import wallpaperUrl from '../assets/textures/study/weathered_victorian_damask_wallpaper.png?url';
+import wallpaperUrl from '../assets/textures/study/option_a_damask_512.jpg?url';
 import floorUrl from '../assets/textures/study/weathered_dark_hardwood_floor_texture.png?url';
-import ceilingUrl from '../assets/textures/study/smoke_plaster_ceiling_1k.jpg?url';
+import ceilingUrl from '../assets/textures/study/option_a_ceiling_512.jpg?url';
 import builtInWoodUrl from '../assets/textures/study/aged_dark_brown_wood_grain_texture.png?url';
 import trimWoodUrl from '../assets/textures/study/aged_espresso_wood_grain_texture.png?url';
 import featureWoodUrl from '../assets/textures/study/polished_mahogany_wood_grain_texture.png?url';
@@ -9,7 +9,7 @@ import wallRoughnessUrl from '../assets/textures/study/wall_roughness_512.png?ur
 import floorRoughnessUrl from '../assets/textures/study/floor_roughness_512.png?url';
 import woodRoughnessUrl from '../assets/textures/study/wood_roughness_512.png?url';
 
-// Supplied study images, resized on disk: 1024px architecture / 512px wood.
+// Option A wall/ceiling tiles are cropped from the supplied sheet at 512px; wood/floors unchanged.
 // No runtime image baking, duplicated texture loads or large source uploads.
 const surfaceTextures = new Map();
 function loadSurface(url, color = true, mirrored = false) {
@@ -25,7 +25,7 @@ function loadSurface(url, color = true, mirrored = false) {
 
 /** Shared study palette. Replace synthetic wood only; preserve other authored channels. */
 export function createStudySurfaces() {
-  const wallMap = loadSurface(wallpaperUrl, true, true);
+  const wallMap = loadSurface(wallpaperUrl);
   const wallRoughness = loadSurface(wallRoughnessUrl, false, true);
   const floorMap = loadSurface(floorUrl);
   const floorRoughness = loadSurface(floorRoughnessUrl, false);
@@ -190,14 +190,20 @@ export function createStudySurfaces() {
         for (let i = 0; i < uv.count; i++) {
           point.fromBufferAttribute(positions, i).applyMatrix4(object.matrixWorld);
           normal.fromBufferAttribute(normals, i).transformDirection(object.matrixWorld);
-          const across = Math.abs(normal.x) > 0.5 ? point.z : point.x;
-          uv.setXY(i, across / 1.6, point.y / 1.6);
+          // Unwrap once around the room: adjacent walls share phase at corners.
+          // 26 square repeats close exactly around the 58m perimeter, without mirroring.
+          const around = Math.abs(normal.x) > 0.5
+            ? (normal.x < 0 ? 16 + point.z + 6.5 : 45 + 6.5 - point.z)
+            : (normal.z < 0 ? 29 + 8 - point.x : point.x + 8);
+          const paperScale = 58 / 26;
+          uv.setXY(i, around / paperScale, point.y / paperScale);
           const cornerDistance = Math.abs(normal.x) > 0.5 ? 6.5 - Math.abs(point.z) : 8 - Math.abs(point.x);
           const baseWear = Math.exp(-Math.max(0, point.y) / 0.30)
             + (point.y >= 3.1 ? Math.exp(-(point.y - 3.1) / 0.22) * 0.45 : 0);
           const shade = 1 - 0.15 * Math.exp(-Math.max(0, cornerDistance) / 0.5)
             - 0.14 * baseWear - 0.05 * Math.exp(-(roomHeight - point.y) / 0.35);
-          colors.set([shade, shade, shade], i * 3);
+          const dust = 1 + 0.025 * Math.sin((point.x + point.z) * 0.39 + Math.sin(point.y * 0.53));
+          colors.set([shade * dust, shade * dust, shade * dust], i * 3);
         }
         geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
       } else if (object.userData.studyFloorSurface) {

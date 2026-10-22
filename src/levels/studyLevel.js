@@ -74,14 +74,14 @@ export function createStudyLevel({
   const ceiling = new THREE.Mesh(
     new THREE.PlaneGeometry(ROOM_W, ROOM_D),
     new THREE.MeshStandardMaterial({ map: studySurfaces.ceilingMap,
-      roughnessMap: studySurfaces.wallRoughness, color: 0xd9d0c0, roughness: 1, envMapIntensity: 0.15 })
+      color: 0xe7ded0, roughness: 1, metalness: 0, envMapIntensity: 0.15 })
   );
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.y = ROOM_H;
-  ceiling.geometry.attributes.uv.array.forEach((value, i, array) => { array[i] = value * (i % 2 ? ROOM_D : ROOM_W) / 4; });
+  ceiling.geometry.attributes.uv.array.forEach((value, i, array) => { array[i] = value * (i % 2 ? ROOM_D : ROOM_W) / 6; });
   group.add(ceiling);
 
-  const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughnessMap: studySurfaces.wallRoughness, color: 0xbbb4a7, roughness: 1, vertexColors: true });
+  const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, color: 0xe1dbc9, roughness: 1, metalness: 0, emissive: 0, envMapIntensity: 0.1, vertexColors: true });
   const wallGeometry = (w, h) => new THREE.PlaneGeometry(w, h, Math.max(1, Math.ceil(w / 1.6)), Math.max(1, Math.ceil(h / 0.32)));
   function wall(w, x, z, ry) {
     const m = new THREE.Mesh(wallGeometry(w, ROOM_H), wallMat);
@@ -274,8 +274,8 @@ export function createStudyLevel({
   function addRailing(length, x, z, alongX) {
     const railHeight = 1.05;
     const at = (offset, height) => [x + (alongX ? offset : 0), height, z + (alongX ? 0 : offset)];
-    addTimberRail(at(-length / 2, LOFT_Y + railHeight), at(length / 2, LOFT_Y + railHeight));
-    addTimberRail(at(-length / 2, LOFT_Y + 0.13), at(length / 2, LOFT_Y + 0.13), 0.065, 0.055);
+    addTimberRail(at(-length / 2, LOFT_Y + railHeight), at(length / 2 - 0.195, LOFT_Y + railHeight));
+    addTimberRail(at(-length / 2, LOFT_Y + 0.13), at(length / 2 - 0.19, LOFT_Y + 0.13), 0.065, 0.055);
     const postSpan = length - 0.20;
     const bays = Math.ceil(postSpan / 2.4);
     for (let index = 0; index <= bays; index++) {
@@ -329,8 +329,12 @@ export function createStudyLevel({
     loftFrontZ, stairTopZ, entryZ: ENTRY_DOOR_Z, entryWidth: ENTRY_DOOR_W, exitWidth: DOORWAY_W
   });
   // A single front rail stops before the stair opening.
-  const loftRailEndX = stairX - stairHalfWidth + 0.1;
-  addRailing(loftRailEndX + loftWidth / 2, (loftRailEndX - loftWidth / 2) / 2, loftFrontZ, true);
+  // Finish flush against the left bookcase face, rather than running through it.
+  // Its existing solid collider overlaps this rail's endpoint, leaving no safety gap.
+  const loftRailStartX = -loftWidth / 2 + 0.475;
+  // The final newel sits on the stair-return axis (posts inset 0.10m from rail ends).
+  const loftRailEndX = stairX - stairHalfWidth + 0.15;
+  addRailing(loftRailEndX - loftRailStartX, (loftRailEndX + loftRailStartX) / 2, loftFrontZ, true);
   const galleryLength = loftRailEndX + loftWidth / 2;
   const galleryCentreX = (loftRailEndX - loftWidth / 2) / 2;
   // Cover the slab edge within its existing depth, with a shallow base bead and floor lip.
@@ -380,33 +384,48 @@ export function createStudyLevel({
   const stairRailX = stairX - stairHalfWidth + 0.05;
   addNewel(stairRailX, 0, stairBottomZ);
   addNewel(stairRailX, LOFT_Y, stairTopZ);
-  addTimberRail([stairRailX, 0.98, stairBottomZ], [stairRailX, LOFT_Y + 0.98, stairTopZ]);
+  const stairHandrail = addTimberRail([stairRailX, 0.98, stairBottomZ], [stairRailX, LOFT_Y + 1.02, stairTopZ]);
+  // Cut the diagonal rail vertically at the landing post face, not through its centre.
+  stairHandrail.updateMatrix();
+  const railInverse = stairHandrail.matrix.clone().invert();
+  const railPositions = stairHandrail.geometry.attributes.position;
+  const railPoint = new THREE.Vector3(), postFaceZ = stairTopZ + 0.065;
+  for (let i = 0; i < railPositions.count; i++) {
+    railPoint.fromBufferAttribute(railPositions, i).applyMatrix4(stairHandrail.matrix);
+    if (railPoint.z < postFaceZ) {
+      railPoint.y -= (postFaceZ - railPoint.z) * (LOFT_Y + 0.04) / stairRun;
+      railPoint.z = postFaceZ;
+      railPoint.applyMatrix4(railInverse); railPositions.setXYZ(i, railPoint.x, railPoint.y, railPoint.z);
+    }
+  }
+  railPositions.needsUpdate = true; stairHandrail.geometry.computeVertexNormals();
+  stairHandrail.geometry.computeBoundingBox(); stairHandrail.geometry.computeBoundingSphere();
   const stairBalusters = [];
   for (let index = 0; index < stairCount; index++) {
     for (const fraction of [0.25, 0.75]) {
       const progress = (index + fraction) / stairCount;
+      // The last baluster previously overlapped the landing newel shaft.
+      if (stairRun * (1 - progress) < 0.11) continue;
       const bottom = stairRise * (index + 1) + 0.0555;
-      const top = LOFT_Y * progress + 0.94;
+      const top = LOFT_Y * progress + 0.94 + 0.04 * progress;
       stairBalusters.push([stairRailX, bottom, stairBottomZ - stairRun * progress, top - bottom]);
     }
   }
   addBalusters(stairBalusters);
   // Return the gallery handrail to the stair head, leaving the full landing opening clear.
-  addTimberRail([stairRailX, LOFT_Y + 1.05, stairTopZ], [stairRailX, LOFT_Y + 1.05, loftFrontZ]);
-  addTimberRail([stairRailX, LOFT_Y + 0.13, stairTopZ], [stairRailX, LOFT_Y + 0.13, loftFrontZ], 0.065, 0.055);
+  colliders.push({
+    minX: stairRailX - 0.06, maxX: stairRailX + 0.06,
+    minZ: stairTopZ, maxZ: loftFrontZ,
+    minY: LOFT_Y - 0.1, maxY: LOFT_Y + 1.09
+  });
+  addTimberRail([stairRailX, LOFT_Y + 1.02, stairTopZ + 0.065], [stairRailX, LOFT_Y + 1.02, loftFrontZ - 0.065]);
+  addTimberRail([stairRailX, LOFT_Y + 0.13, stairTopZ + 0.09], [stairRailX, LOFT_Y + 0.13, loftFrontZ - 0.09], 0.065, 0.055);
   const returnBalusters = [];
   const returnCount = Math.ceil(cutoutLength / 0.15);
   for (let index = 1; index < returnCount; index++) {
     returnBalusters.push([stairRailX, LOFT_Y + 0.165, stairTopZ + cutoutLength * index / returnCount, 0.84]);
   }
   addBalusters(returnBalusters);
-  // A matching wall handrail is anchored by three small timber brackets.
-  const wallRailX = ROOM_W / 2 - 0.065;
-  addTimberRail([wallRailX, 0.98, stairBottomZ], [wallRailX, LOFT_Y + 0.98, stairTopZ], 0.055, 0.055);
-  const bracketGeometry = new THREE.BoxGeometry(0.07, 0.06, 0.06);
-  for (const progress of [0.15, 0.5, 0.85]) {
-    addTimber(bracketGeometry, ROOM_W / 2 - 0.035, LOFT_Y * progress + 0.94, stairBottomZ - stairRun * progress);
-  }
   /** Resolve stacked floors using feet height, never just their shared X/Z. */
   function groundAt(x, z, currentGroundY = null) {
     const isOnStair = x >= stairX - stairHalfWidth && x <= stairX + stairHalfWidth
@@ -625,10 +644,9 @@ export function createStudyLevel({
   };
   clockMechanism.root.add(archiveTokenHitbox);
 
-  const incidentNote = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.42, 0.26),
-    new THREE.MeshStandardMaterial({ color: 0xb8ac8f, roughness: 1 })
-  );
+  const incidentRecord = createArchiveRecord(0.42, 0.26, 12);
+  incidentRecord.write(['Containment failure', 'logged at 23:15.']);
+  const incidentNote = incidentRecord.mesh;
   incidentNote.rotation.x = -Math.PI / 2;
   incidentNote.rotation.z = -0.12;
   incidentNote.position.set(-0.52, 0.791, -0.22);
@@ -1011,7 +1029,7 @@ export function createStudyLevel({
 
   // Small canvas labels repaint only when a record changes, never per frame.
   function makeArchiveLabel(width, height) {
-    return studyLabel(width, height);
+    return createArchiveRecord(width, height, 13, { fontSize: 17, paddingY: 6 });
   }
 
   function updateMemoryRecords() {
@@ -1181,7 +1199,7 @@ export function createStudyLevel({
   group.add(hollowAlcove);
   // The final exit bolts still share this material with the former alcove shell.
   const alcoveMat = new THREE.MeshStandardMaterial({ color: 0x272725, metalness: 0.4, roughness: 0.88 });
-  const restrictedPlaque = createArchiveRecord(1.28, 0.24, 6);
+  const restrictedPlaque = createArchiveRecord(1.28, 0.24, 6, { fontSize: 18, paddingY: 10 });
   restrictedPlaque.write(['PROJECT HOLLOW', '— RESTRICTED RECORDS']);
   restrictedPlaque.mesh.position.set(0, 1.97, -0.155);
   restrictedPlaque.mesh.userData.interact = {
@@ -1193,10 +1211,6 @@ export function createStudyLevel({
   const restrictedHeaderMount = new THREE.Mesh(new RoundedBoxGeometry(1.32, 0.28, 0.012, 1, 0.004), restrictedCabinetMat);
   restrictedHeaderMount.position.set(0, 1.97, -0.162);
   hollowAlcove.add(restrictedHeaderMount, restrictedPlaque.mesh);
-  const chronologyNote = createArchiveRecord(1.22, 0.12, 11, { fontSize: 16, paddingY: 7, fontFamily: 'Courier New' });
-  chronologyNote.write(['Authorization precedes the method;', 'the consequence closes the file.']);
-  chronologyNote.mesh.position.set(0, 1.76, -0.155);
-  hollowAlcove.add(chronologyNote.mesh);
   const hollowArchivePanel = new THREE.Mesh(new RoundedBoxGeometry(0.70, 2.04, 0.045, 1, 0.006), restrictedCabinetMat);
   const restrictedLeftHinge = new THREE.Group(), restrictedRightHinge = new THREE.Group();
   restrictedLeftHinge.name = 'RestrictedArchiveLeftHinge';
@@ -1272,10 +1286,14 @@ Annabelle`;
   const truthRecordDisplays = [];
   const truthRecordHits = [];
   function updateTruthRecords(corrected = gameState.visorWorn) {
+    // The same mounted title card reveals the clue; the lower pages stay fixed.
+    restrictedPlaque.write(corrected
+      ? ['Authorization precedes the method;', 'the consequence closes the file.']
+      : ['PROJECT HOLLOW', '\u2014 RESTRICTED RECORDS']);
     truthRecordDisplays.forEach((display, index) => {
       const selected = puzzle.truthRecordsSolved || index < puzzle.truthRecordProgress;
       const heading = truthRecordNames[index];
-      display.write([heading, ...(corrected ? truthCorrectedLines[index] : truthNormalLines[index])]);
+      display.write([heading, ...truthNormalLines[index]]);
       truthRecordHits[index].userData.interact.label = `${selected ? 'Selected: ' : 'Select '}${truthRecordNames[index]}`;
     });
   }
@@ -1420,18 +1438,6 @@ Annabelle`;
   const wallInk = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.55), wallInkMat);
   wallInk.position.set(-1.0, 1.85, -ROOM_D / 2 + 0.06);
   visorOnly.add(wallInk);
-
-  const wallInk2 = new THREE.Mesh(
-    new THREE.PlaneGeometry(1.5, 0.42),
-    new THREE.MeshBasicMaterial({
-      map: createHiddenWritingTexture(['SHE STAYED']),
-      transparent: true,
-      depthWrite: false
-    })
-  );
-  wallInk2.position.set(ROOM_W / 2 - 0.06, 1.6, 0.4);
-  wallInk2.rotation.y = -Math.PI / 2;
-  visorOnly.add(wallInk2);
 
   // Correspondence is mounted inside the fixed compartment. The existing
   // document callback still owns reading completion and mirror progression.

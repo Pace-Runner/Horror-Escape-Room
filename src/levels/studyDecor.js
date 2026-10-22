@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { createArchivePaperMaterial } from './studyArchivePresentation.js';
 
 /** Static, non-interactive dressing. Repeated parts are instanced after placement. */
 export function createStudyDecor({ woodMaterial, brassMaterial }) {
@@ -13,7 +14,8 @@ export function createStudyDecor({ woodMaterial, brassMaterial }) {
     [0.035, 0], [0.04, 0.025], [0.025, 0.075], [0.022, 0.43],
     [0.038, 0.49], [0.045, 0.55], [0.045, 0.57]
   ].map(([radius, height]) => new THREE.Vector2(radius, height)), 8);
-  const paper = new THREE.MeshStandardMaterial({ color: 0xafa183, roughness: 0.98 });
+  const paper = createArchivePaperMaterial();
+  const wax = new THREE.MeshStandardMaterial({ color: 0xafa183, roughness: 0.98 });
   const card = new THREE.MeshStandardMaterial({ color: 0x75664e, roughness: 0.94 });
   const linen = new THREE.MeshStandardMaterial({ color: 0x96896f, roughness: 0.97, side: THREE.DoubleSide });
   const green = new THREE.MeshStandardMaterial({ color: 0x29382f, roughness: 0.82 });
@@ -98,7 +100,7 @@ export function createStudyDecor({ woodMaterial, brassMaterial }) {
     cylinder(object, brassMaterial, 0.043, 0.012, [0, 0.006, 0]);
     cylinder(object, brassMaterial, 0.010, 0.14, [0, 0.08, 0]);
     cylinder(object, brassMaterial, 0.031, 0.012, [0, 0.155, 0]);
-    cylinder(object, paper, 0.012, 0.11, [0, 0.215, 0]);
+    cylinder(object, wax, 0.012, 0.11, [0, 0.215, 0]);
     return object;
   }
   function sideTable() {
@@ -169,9 +171,8 @@ export function createStudyDecor({ woodMaterial, brassMaterial }) {
     place(table, book(3, true, 0.20, 0.026), 0.075, 0.61, 0.035, -0.14);
 
     place(group, photo(photoTexture, 0.56, 0.42, [0.08, 0.08, 0.92, 0.92]), -7.978, 1.63, 2.65, Math.PI / 2);
-    // Clear of the right-wall hidden writing at Z=0.4, stairs, and entry door.
+    // Clear of the stairs and entry door.
     place(group, photo(photoTexture, 0.48, 0.60, [0.40, 0.08, 0.78, 0.95]), 7.978, 1.54, 3.15, -Math.PI / 2);
-    place(group, photo(photoTexture, 0.62, 0.44, [0.12, 0.10, 0.54, 0.94]), -3.75, loftY + 1.40, -6.478);
 
     // Collapse repeated static box/cylinder parts into a few shared instance batches.
     group.updateMatrixWorld(true);
