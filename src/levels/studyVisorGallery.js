@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import photoUrl from '../assets/textures/study/archive_gallery_photos.jpg?url';
+import mapArtUrl from '../assets/textures/study/project_hollow_observation_map.png?url';
 
 // Six 256px photographs share one atlas; glyphs share a second 4x4 atlas.
 const symbols = ['triangle', 'bars', 'circle', 'diamond', 'crescent', 'eye', 'cross', 'square', 'spiral', 'chevron', 'rune'];
@@ -15,16 +16,6 @@ export const GALLERY_LAYOUT = Array.from({ length: 15 }, (_, index) => {
 function canvas(width, height) {
   const image = document.createElement('canvas'); image.width = width; image.height = height;
   return [image, image.getContext('2d')];
-}
-function stock(ctx, w, h) {
-  ctx.fillStyle = '#b8a585'; ctx.fillRect(0, 0, w, h);
-  for (let i = 0; i < 1500; i++) {
-    ctx.fillStyle = i % 2 ? 'rgba(64,41,24,.055)' : 'rgba(245,229,188,.07)';
-    ctx.fillRect((i * 73) % w, (i * 109) % h, 2, 2);
-  }
-  const edge = ctx.createRadialGradient(w / 2, h / 2, w * .2, w / 2, h / 2, h * .7);
-  edge.addColorStop(0, 'rgba(64,38,19,0)'); edge.addColorStop(1, 'rgba(64,38,19,.25)');
-  ctx.fillStyle = edge; ctx.fillRect(0, 0, w, h);
 }
 function glyph(ctx, type, x, y, size) {
   ctx.save(); ctx.translate(x, y); ctx.scale(size / 100, size / 100);
@@ -50,78 +41,25 @@ function atlasGeometry(tile, columns, rows, crop=0) {
     1-(Math.floor(tile/columns)+crop+(1-uv.getY(i))*(1-crop*2))/rows);
   return geometry;
 }
-// The catalogue uses the very same glyph IDs as the bookshelf targets.
-const catalogue = [0,5,4,3,10,7,8,6,9,5,4,1,7,10,3,6,8,2,9,5];
-function diagram(hidden) {
-  const [image,ctx]=canvas(512,320);stock(ctx,512,320);
-  ctx.strokeStyle='#6f5b42';ctx.lineWidth=.8;ctx.strokeRect(13,13,486,294);
-  ctx.strokeRect(17,17,478,286);
-  ctx.fillStyle='#493b2b';ctx.textAlign='left';ctx.font='19px Georgia';
-  ctx.fillText('PROJECT HOLLOW',27,39);
-  ctx.font='10px Georgia';ctx.fillText('SITE OBSERVATION MAP',28,54);
-  ctx.textAlign='center';ctx.font='11px Georgia';ctx.fillText('SYMBOL CATALOGUE',413,65);
-  // Faded survey grid, terrain contours, stream and a sketched estate.
-  ctx.save();ctx.beginPath();ctx.rect(26,69,292,180);ctx.clip();
-  ctx.strokeStyle='rgba(91,73,47,.15)';ctx.lineWidth=.5;
-  for(let x=28;x<320;x+=24){ctx.beginPath();ctx.moveTo(x,69);ctx.lineTo(x,249);ctx.stroke();}
-  for(let y=72;y<250;y+=24){ctx.beginPath();ctx.moveTo(26,y);ctx.lineTo(318,y);ctx.stroke();}
-  ctx.strokeStyle='rgba(80,66,43,.32)';
-  for(let contour=0;contour<18;contour++){
-    ctx.beginPath();
-    for(let x=25;x<=320;x+=3){
-      const y=75+contour*10+Math.sin(x*.027+contour*.31)*12+Math.cos(x*.055-contour*.24)*5;
-      x===25?ctx.moveTo(x,y):ctx.lineTo(x,y);
-    }
-    ctx.stroke();
+function mapVisorOverlay() {
+  // Half-resolution coordinates align with the supplied 1536x1024 catalogue.
+  const [image,ctx]=canvas(768,512);
+  for(const [id,x,y] of [[0,545,125],[1,655,243],[2,545,355.5]]){
+    // Visor annotations resolve these three printed variants into the exact
+    // bookshelf glyphs. The supplied normal-view artwork is never modified.
+    const frost=ctx.createRadialGradient(x,y,25,x,y,32);
+    frost.addColorStop(0,'rgba(200,215,207,.98)');frost.addColorStop(1,'rgba(200,215,207,0)');
+    ctx.fillStyle=frost;ctx.fillRect(x-32,y-32,64,64);
+    glyph(ctx,symbols[id],x,y,48);
   }
-  ctx.strokeStyle='#76684e';ctx.lineWidth=1;
-  for(const offset of [-2,2]){ctx.beginPath();ctx.moveTo(290+offset,74);ctx.bezierCurveTo(212,114,304,143,213+offset,177);ctx.bezierCurveTo(148,201,199,225,128+offset,254);ctx.stroke();}
-  // Hatching and small trees give the grounds an engraved archival character.
-  for(let i=0;i<95;i++){
-    const x=32+(i*43%279),y=81+(i*67%160);
-    if(x>114&&x<219&&y>112&&y<184)continue;
-    ctx.strokeStyle='rgba(62,57,39,.50)';ctx.lineWidth=.6;ctx.beginPath();
-    ctx.moveTo(x,y+5);ctx.lineTo(x,y-5);ctx.moveTo(x-3,y+1);ctx.lineTo(x,y-5);ctx.lineTo(x+3,y+1);ctx.stroke();
-  }
-  // Main house, research wing, roof tiles and measured garden paths.
-  ctx.fillStyle='#ad9977';ctx.fillRect(127,139,65,35);ctx.fillRect(189,150,26,24);
-  ctx.strokeStyle='#534934';ctx.lineWidth=1;ctx.strokeRect(127,139,65,35);ctx.strokeRect(189,150,26,24);
-  ctx.beginPath();ctx.moveTo(120,140);ctx.lineTo(159,117);ctx.lineTo(199,140);ctx.closePath();ctx.stroke();
-  ctx.beginPath();ctx.moveTo(188,150);ctx.lineTo(202,136);ctx.lineTo(219,150);ctx.stroke();
-  ctx.strokeRect(149,153,12,21);ctx.strokeRect(174,123,5,14);
-  for(const x of [133,169,181,196,206])ctx.strokeRect(x,147+(x>190?9:0),5,7);
-  for(let row=0;row<4;row++){ctx.beginPath();ctx.moveTo(130+row*6,137-row*4);ctx.lineTo(188-row*6,137-row*4);ctx.stroke();}
-  ctx.setLineDash([3,2]);ctx.beginPath();ctx.moveTo(155,177);ctx.lineTo(149,204);ctx.lineTo(99,222);ctx.moveTo(215,164);ctx.lineTo(240,172);ctx.stroke();ctx.setLineDash([]);
-  ctx.font='italic 8px Georgia';ctx.textAlign='left';ctx.fillStyle='#5a4b37';
-  ctx.fillText('North grounds',36,91);ctx.fillText('Research wing',205,192);ctx.fillText('Survey boundary / 1889',33,240);
-  ctx.restore();
-  // Compass, plate annotations and modest handling marks remain visible normally.
-  ctx.strokeStyle='#66553c';ctx.lineWidth=.8;
-  ctx.beginPath();ctx.arc(297,49,9,0,Math.PI*2);ctx.moveTo(297,35);ctx.lineTo(297,63);ctx.moveTo(283,49);ctx.lineTo(311,49);ctx.stroke();
-  ctx.font='8px Georgia';ctx.textAlign='center';ctx.fillStyle='#51432f';ctx.fillText('N',297,31);
-  ctx.textAlign='left';ctx.font='9px Georgia';ctx.fillText('FIELD NOTES',28,266);
-  ctx.font='italic 8px Georgia';ctx.fillText('Marks recur across the grounds and surviving plates.',28,280);
-  ctx.fillText('Compare specimens before entering the subject record.',28,292);
-  for(const [x,y] of [[45,211],[309,282],[461,27]]){
-    const stain=ctx.createRadialGradient(x,y,0,x,y,24);stain.addColorStop(0,'rgba(91,60,24,.09)');stain.addColorStop(1,'rgba(91,60,24,0)');ctx.fillStyle=stain;ctx.fillRect(x-24,y-24,48,48);
-  }
-  // Twenty catalogue entries; each true glyph occurs exactly once.
-  ctx.strokeStyle='rgba(83,65,41,.45)';ctx.lineWidth=.6;
-  for(let col=0;col<=4;col++){ctx.beginPath();ctx.moveTo(335+col*39,82);ctx.lineTo(335+col*39,282);ctx.stroke();}
-  for(let row=0;row<=5;row++){ctx.beginPath();ctx.moveTo(335,82+row*40);ctx.lineTo(491,82+row*40);ctx.stroke();}
-  catalogue.forEach((id,i)=>glyph(ctx,symbols[id],354.5+i%4*39,102+Math.floor(i/4)*40,24));
-  if(hidden){
-    // Follow catalogue gutters, so the route never passes through a decoy.
-    ctx.strokeStyle='#814f40';ctx.fillStyle='#814f40';ctx.lineWidth=1.7;
-    ctx.beginPath();ctx.moveTo(366,102);ctx.lineTo(374,102);ctx.lineTo(374,83);
-    ctx.lineTo(490,83);ctx.lineTo(490,182);ctx.lineTo(483,182);ctx.stroke();
-    ctx.beginPath();ctx.moveTo(471.5,194);ctx.lineTo(471.5,202);ctx.lineTo(413,202);ctx.lineTo(413,262);ctx.lineTo(405,262);ctx.stroke();
-    for(const [x,y] of [[483,182],[405,262]]){ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x+5,y-3);ctx.lineTo(x+5,y+3);ctx.closePath();ctx.fill();}
-    for(const id of [0,1,2]){
-      const i=catalogue.indexOf(id),x=354.5+i%4*39,y=102+Math.floor(i/4)*40;
-      ctx.beginPath();ctx.ellipse(x,y,16,17,.08,0,Math.PI*2);ctx.stroke();
-    }
-  }
+  ctx.strokeStyle='rgba(203,232,235,.95)';ctx.fillStyle='rgba(203,232,235,.95)';ctx.lineWidth=2;
+  // Follow catalogue gutters rather than running the path across decoy glyphs.
+  ctx.beginPath();ctx.moveTo(563,125);ctx.lineTo(573,125);ctx.lineTo(573,155);
+  ctx.lineTo(628,155);ctx.lineTo(628,213);ctx.lineTo(655,213);ctx.lineTo(655,225);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(655,261);ctx.lineTo(655,273);ctx.lineTo(573,273);ctx.lineTo(573,355.5);ctx.lineTo(563,355.5);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(655,225);ctx.lineTo(651,219);ctx.lineTo(659,219);ctx.closePath();ctx.fill();
+  ctx.beginPath();ctx.moveTo(563,355.5);ctx.lineTo(569,351.5);ctx.lineTo(569,359.5);ctx.closePath();ctx.fill();
+  for(const [x,y] of [[545,125],[655,243],[545,355.5]]){ctx.beginPath();ctx.ellipse(x,y,20,21,.08,0,Math.PI*2);ctx.stroke();}
   return texture(image);
 }
 export function createVisorGallery({group, wood, brass, loftY}) {
@@ -190,10 +128,35 @@ export function createVisorGallery({group, wood, brass, loftY}) {
       const border=selectionBorder(layout.width,layout.height);root.add(border);selectionBorders[layout.target]=border;
     }
   });
-  picture(4.225,2.65,[4.35,2.02,6.41],Math.PI,new THREE.PlaneGeometry(1,1),new THREE.PlaneGeometry(1,1),
-    new THREE.MeshStandardMaterial({map:diagram(false),roughness:1}),new THREE.MeshStandardMaterial({map:diagram(true),roughness:1}));
+  const mapArt=new THREE.TextureLoader().load(mapArtUrl);
+  mapArt.colorSpace=THREE.SRGBColorSpace;mapArt.anisotropy=4;
+  mapArt.magFilter=THREE.LinearFilter;mapArt.minFilter=THREE.LinearMipmapLinearFilter;
+  const mapMaterial=new THREE.MeshStandardMaterial({map:mapArt,roughness:.98});
+  // Inner aperture 4.2 x 2.8 preserves the supplied artwork's exact 3:2 aspect.
+  const mapBoard=picture(4.225,2.825,[4.70,2.02,6.41],Math.PI,new THREE.PlaneGeometry(1,1),new THREE.PlaneGeometry(1,1),mapMaterial,mapMaterial);
+  mapBoard.name='Project_Hollow_Observation_Map';
+  const mapOverlay=new THREE.Mesh(new THREE.PlaneGeometry(4.2,2.8),
+    new THREE.MeshBasicMaterial({map:mapVisorOverlay(),transparent:true,depthWrite:false}));
+  mapOverlay.name='Project_Hollow_Visor_Route';mapOverlay.position.z=.016;mapOverlay.visible=false;mapBoard.add(mapOverlay);
+  // A single local, shadowless picture light; room lighting remains untouched.
+  const pictureLight=new THREE.Group();pictureLight.name='Project_Hollow_Picture_Light';
+  pictureLight.position.set(4.70,3.57,6.475);pictureLight.rotation.y=Math.PI;group.add(pictureLight);
+  pictureLight.userData.studyStaticDetails=true;
+  function lightPart(w,h,d,x,y,z,material=brass){
+    const part=new THREE.Mesh(frameGeometry,material);part.scale.set(w,h,d);part.position.set(x,y,z);pictureLight.add(part);
+  }
+  lightPart(.14,.10,.025,0,0,-.015);
+  lightPart(.024,.024,.23,0,.015,.11);
+  lightPart(1.10,.055,.09,0,.02,.23);
+  const diffuser=new THREE.MeshBasicMaterial({color:0xffd6a0,toneMapped:false});
+  lightPart(1.02,.008,.065,0,-.010,.235,diffuser);
+  const warmLight=new THREE.SpotLight(0xffd6a0,1.3,3.2,.90,.9,2);
+  warmLight.name='Project_Hollow_Map_Wash';warmLight.castShadow=false;
+  warmLight.position.set(4.70,3.52,6.13);warmLight.target.position.set(4.70,2.45,6.40);
+  group.add(warmLight,warmLight.target);
   return {targets,setVisor(on,progress=0,complete=false){
     for(const c of contents){c.image.geometry=on?c.hiddenGeometry:c.photoGeometry;c.image.material=on?c.hiddenMaterial:c.normalMaterial;}
     selectionBorders.forEach((border,index)=>{border.visible=!!on&&!complete&&index<progress;});
+    mapOverlay.visible=!!on;
   }};
 }
