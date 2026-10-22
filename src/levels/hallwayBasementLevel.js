@@ -4045,6 +4045,22 @@ export function createHallwayBasementLevel({
   );
   monitor.add(powerButton);
 
+  /**
+   * The button's click target: an invisible box well bigger than the 19 mm
+   * button, over it and its LED, standing a little proud of the bezel so the
+   * player's aim meets it before the monitor's own target. The button alone
+   * was so small it took several tries to land on.
+   */
+  const POWER_BUTTON_HIT = { width: 0.075, height: 0.05, depth: 0.03 };
+  const powerButtonHit = new THREE.Mesh(
+    new THREE.BoxGeometry(POWER_BUTTON_HIT.width, POWER_BUTTON_HIT.height, POWER_BUTTON_HIT.depth),
+    new THREE.MeshBasicMaterial({ visible: false })
+  );
+  powerButtonHit.position.set(
+    CRT_POWER_BUTTON.x + 0.012, CRT_POWER_BUTTON.y, CRT_POWER_BUTTON.ringFront + POWER_BUTTON_HIT.depth / 2
+  );
+  monitor.add(powerButtonHit);
+
   const powerLedMat = new THREE.MeshStandardMaterial({
     color: 0x1d2a1f, roughness: 0.3, emissive: POWER_GLOW_COLOR, emissiveIntensity: 0
   });
@@ -4073,10 +4089,10 @@ export function createHallwayBasementLevel({
       mesh.material.emissive.setHex(showing && feedId === activeFeedId ? 0x2e6b3a : 0x000000);
     });
     monitorBody.userData.interact.label = showing ? 'View camera feeds' : 'Examine the monitor';
-    powerButton.userData.interact.label = monitorSwitchedOn ? 'Switch the monitor off' : 'Switch the monitor on';
+    powerButtonHit.userData.interact.label = monitorSwitchedOn ? 'Switch the monitor off' : 'Switch the monitor on';
   }
 
-  powerButton.userData.interact = {
+  powerButtonHit.userData.interact = {
     label: 'Switch the monitor on',
     onInteract: () => {
       onSfx('switch_click');
@@ -4096,7 +4112,7 @@ export function createHallwayBasementLevel({
       }
     }
   };
-  interactables.push(powerButton);
+  interactables.push(powerButtonHit);
 
   dynamics.push({
     update: (dt, elapsed) => {
@@ -5889,7 +5905,7 @@ export function createHallwayBasementLevel({
   for (const [target, key] of [
     [fuseBox, 'l2_fuse'], [fuseCoverHit, 'l2_fuse'], [maintenanceNote, 'l2_fuse'],
     [breakerPanel, 'l2_generator'], [breakerCoverHit, 'l2_generator'], [mainSwitch, 'l2_generator'],
-    [powerButton, 'l2_cctv'], [monitorBody, 'l2_cctv'],
+    [powerButtonHit, 'l2_cctv'], [monitorBody, 'l2_cctv'],
     [doorNote, 'l2_security_info'], [metalDoor, 'l2_exit'],
     [recorderHit, 'l2_session14'], [tapeStackHit, 'l2_session14']
   ]) target.userData.hintKey = key;
