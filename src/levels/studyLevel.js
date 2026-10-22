@@ -7,7 +7,7 @@ import { createArchivePresentation } from './studyArchivePresentation.js';
 import { addStudyFootprints } from './studyFootprints.js';
 import { addStudyArchitectureTrim } from './studyArchitectureTrim.js';
 import { createStudyExterior } from './studyExterior.js';
-import { hingeMotion, studyLabel, dressArchiveLeaf, dressCrestControl, createCrestIndicatorGeometry, fillStudyKey, dressStudyDoor, dressFloorOrderClue, batchStudyPuzzleDetails } from './studyPuzzlePresentation.js';
+import { hingeMotion, studyLabel, dressArchiveLeaf, dressCrestControl, createCrestIndicatorGeometry, createCrestPanelCollision, fillStudyKey, dressStudyDoor, dressFloorOrderClue, batchStudyPuzzleDetails } from './studyPuzzlePresentation.js';
 import { loadModel } from '../world/modelLoader.js';
 import annabelleChairUrl from '../assets/models/study/annabelle_wingback_chair.glb?url';
 import centralDeskUrl from '../assets/models/study/central_victorian_desk.glb?url';
@@ -652,7 +652,6 @@ export function createStudyLevel({
   shadowCrest.position.set(-4.3, 1.65, 6.36);
   shadowCrest.rotation.y = Math.PI;
   group.add(shadowCrest);
-  const crestMat = new THREE.MeshStandardMaterial({ color: 0x625a49, metalness: 0.48, roughness: 0.66 });
   const crestBrassMat = new THREE.MeshStandardMaterial({ color: 0xa38a53, metalness: 0.72, roughness: 0.5 });
   const crestWoodMat = studySurfaces.woodMaterial(0.95, 'feature');
   const crestHitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
@@ -663,6 +662,8 @@ export function createStudyLevel({
       if (!object.isMesh) return;
       object.castShadow = false;
       object.receiveShadow = true;
+      const matchWood = (material) => /walnut/i.test(material.name) ? crestWoodMat : material;
+      object.material = Array.isArray(object.material) ? object.material.map(matchWood) : matchWood(object.material);
     });
     shadowCrest.add(model);
   }).catch((error) => console.warn('Shadow Crest housing could not load:', error));
@@ -680,7 +681,8 @@ export function createStudyLevel({
   let crestCoverTravel = 0;
   crestCover.scale.setScalar(0.45);
   crestHinge.add(crestCover);
-  const crestPlate = new THREE.Mesh(new THREE.CylinderGeometry(0.665, 0.68, 0.05, 32), crestMat);
+  const syncCrestPanelCollision = createCrestPanelCollision(crestCover, colliders);
+  const crestPlate = new THREE.Mesh(new THREE.CylinderGeometry(0.665, 0.68, 0.05, 32), crestWoodMat);
   crestPlate.rotation.x = Math.PI / 2;
   const crestTrim = new THREE.Group();
   crestTrim.userData.studyStaticDetails = true;
@@ -725,10 +727,7 @@ export function createStudyLevel({
   const crestLampNames = ['LEFT', 'CENTRE', 'RIGHT'];
   const crestLamps = [];
   const crestLampHits = [];
-  const lampGeometry = new RoundedBoxGeometry(0.225, 0.31, 0.17, 1, 0.022);
   const lampHitGeometry = new THREE.BoxGeometry(0.42, 0.44, 0.3);
-  const lampFaceGeometry = new RoundedBoxGeometry(0.10, 0.05, 0.016, 1, 0.006);
-  const lampFaceMat = new THREE.MeshStandardMaterial({ color: 0xd9ba77, emissive: 0x60401c, emissiveIntensity: 0.5 });
 
   function updateCrestShadows() {
     shadowPieces.forEach((piece, index) => {
@@ -749,7 +748,6 @@ export function createStudyLevel({
     const crestIndex = interactables.indexOf(crestHit);
     if (crestIndex >= 0) interactables.splice(crestIndex, 1);
     archiveKey.visible = true;
-    keyRest.visible = true;
     archiveKeyHit.visible = true;
     interactables.push(archiveKeyHit);
     for (const hit of crestLampHits) {
@@ -763,14 +761,10 @@ export function createStudyLevel({
   [[1.05, 0.2], [0, 0.85], [-1.05, 0.2]].forEach(([x, y], index) => {
     const sconce = new THREE.Group();
     sconce.position.set(x, y, 0.15);
-    const body = new THREE.Mesh(lampGeometry, crestBrassMat);
-    const face = new THREE.Mesh(lampFaceGeometry, lampFaceMat);
-    face.position.set(0, 0.095, 0.092);
-    sconce.add(body, face);
-    dressCrestControl(sconce, crestBrassMat, studySurfaces.woodMaterial(0.8, 'trim'));
+    const dial = dressCrestControl(sconce, crestBrassMat);
     shadowCrest.add(sconce);
-    crestLamps.push(sconce);
-    // Targets stay stationary while the small lamp bodies rotate.
+    crestLamps.push(dial);
+    // Housing and targets stay stationary; only the circular dial rotates.
     const hit = new THREE.Mesh(lampHitGeometry, crestHitMat);
     hit.position.copy(sconce.position);
     hit.userData.interact = {
@@ -828,12 +822,17 @@ export function createStudyLevel({
 
   const archiveKey = new THREE.Group();
   archiveKey.position.set(0, 0, 0.08);
-  fillStudyKey(archiveKey, crestBrassMat);
-  const keyRest = new THREE.Mesh(new THREE.CylinderGeometry(0.285, 0.285, 0.035, 32), crestWoodMat);
-  keyRest.rotation.x = Math.PI / 2;
-  keyRest.position.set(0, -0.025, 0.035);
-  keyRest.visible = false;
-  shadowCrest.add(keyRest);
+  // Reuse the sigil's existing 256px aged-brass maps without another texture.
+  const archiveKeyMat = archiveToken.children[0].material.clone();
+  archiveKeyMat.metalness = 0.78;
+  archiveKeyMat.roughness = 0.6;
+  fillStudyKey(archiveKey, archiveKeyMat);
+  const crestBacking = new THREE.Mesh(new THREE.CylinderGeometry(0.285, 0.285, 0.035, 32), crestWoodMat);
+  crestBacking.name = 'Permanent_Crest_Wood_Backing';
+  crestBacking.rotation.x = Math.PI / 2;
+  // Behind the closed door, independent of the reward's visibility and state.
+  crestBacking.position.set(0, -0.025, -0.005);
+  shadowCrest.add(crestBacking);
   archiveKey.visible = false;
   shadowCrest.add(archiveKey);
   const archiveKeyHit = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.5, 0.09), crestHitMat);
@@ -846,7 +845,6 @@ export function createStudyLevel({
       puzzle.hasArchiveKey = true;
       gameState.inventory.add('archiveKey');
       archiveKey.visible = false;
-      keyRest.visible = false;
       archiveKeyHit.visible = false;
       const index = interactables.indexOf(archiveKeyHit);
       if (index >= 0) interactables.splice(index, 1);
@@ -1999,8 +1997,8 @@ Annabelle`;
       installedSigil.visible = false;
       crestCoverTravel = 0;
       crestHinge.rotation.y = 0;
+      syncCrestPanelCollision();
       archiveKey.visible = false;
-      keyRest.visible = false;
       archiveKeyHit.visible = false;
       gameState.inventory.delete('archiveKey');
       if (!interactables.includes(crestHit)) interactables.push(crestHit);
@@ -2091,8 +2089,10 @@ Annabelle`;
       letterDoorMotion.update(dt, puzzle.truthRecordsSolved);
       clockMechanism.update(dt, puzzle.clockSolved);
       const crestTargetX = puzzle.crestSolved ? 2.05 : 0;
+      const previousCrestTravel = crestCoverTravel;
       crestCoverTravel += (crestTargetX - crestCoverTravel) * Math.min(1, dt * 5);
       crestHinge.rotation.y = -THREE.MathUtils.degToRad(100) * crestCoverTravel / 2.05;
+      if (crestCoverTravel !== previousCrestTravel) syncCrestPanelCollision();
       const doorTarget = doorState.open ? DOOR_OPEN_SWING : 0;
       doorHinge.rotation.y += (doorTarget - doorHinge.rotation.y) * Math.min(1, dt * 2.6);
     }

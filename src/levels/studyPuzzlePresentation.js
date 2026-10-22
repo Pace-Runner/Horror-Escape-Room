@@ -118,22 +118,54 @@ export function dressArchiveLeaf(leaf, width, height, wood, brass, hingeSide = -
   }
 }
 
-export function dressCrestControl(parent, brass, wood) {
+export function dressCrestControl(parent, brass) {
   parent.userData.studyStaticDetails = true;
-  part(parent, new RoundedBoxGeometry(0.258, 0.345, 0.028, 1, 0.012), wood, 0, 0, -0.088);
-  part(parent, new THREE.TorusGeometry(0.083, 0.009, 5, 20), brass, 0, -0.025, 0.091);
-  const collar = part(parent, new THREE.CylinderGeometry(0.065, 0.069, 0.026, 16), brass, 0, -0.025, 0.101);
+  // Shallow circular escutcheon sits against the wall; no rectangular casing.
+  const mount = part(parent, new THREE.CylinderGeometry(0.105, 0.105, 0.018, 24), brass, 0, 0, -0.125);
+  mount.rotation.x = Math.PI / 2;
+  part(parent, new THREE.TorusGeometry(0.09, 0.006, 5, 24), brass, 0, 0, -0.112);
+  const collar = part(parent, new THREE.CylinderGeometry(0.068, 0.071, 0.014, 16), brass, 0, 0, -0.108);
   collar.rotation.x = Math.PI / 2;
-  const knob = part(parent, new THREE.CylinderGeometry(0.052, 0.059, 0.032, 16), wood, 0, -0.025, 0.125);
+  const dial = new THREE.Group();
+  dial.name = 'Crest_Rotary_Knob';
+  dial.userData.studyStaticDetails = true;
+  parent.add(dial);
+  const knob = part(dial, new THREE.CylinderGeometry(0.064, 0.070, 0.026, 20), brass, 0, 0, -0.088);
   knob.rotation.x = Math.PI / 2;
-  part(parent, new THREE.TorusGeometry(0.047, 0.004, 4, 20), brass, 0, -0.025, 0.143);
-  part(parent, new RoundedBoxGeometry(0.009, 0.035, 0.005, 1, 0.002), brass, 0, -0.014, 0.146);
-  for (const x of [-0.083, 0.083]) for (const y of [-0.119, 0.119]) {
-    const screw = part(parent, new THREE.CylinderGeometry(0.007, 0.007, 0.003, 8), brass, x, y, 0.088);
+  part(dial, new THREE.TorusGeometry(0.059, 0.003, 4, 24), brass, 0, 0, -0.073);
+  part(dial, new RoundedBoxGeometry(0.008, 0.033, 0.004, 1, 0.001), brass, 0, 0.016, -0.070);
+  for (const x of [-0.083, 0.083]) {
+    const screw = part(parent, new THREE.CylinderGeometry(0.005, 0.005, 0.002, 8), brass, x, 0, -0.114);
     screw.rotation.x = Math.PI / 2;
   }
-  const pointer = part(parent, new THREE.CircleGeometry(0.014, 3), brass, 0, 0.135, 0.092);
+  const pointer = part(parent, new THREE.CircleGeometry(0.009, 3), brass, 0, 0.086, -0.104);
   pointer.rotation.z = -Math.PI / 2;
+  return dial;
+}
+
+/** Thin strips follow the small hinged plate using the existing AABB solver. */
+export function createCrestPanelCollision(panel, colliders) {
+  const strips = Array.from({ length: 4 }, (_, index) => {
+    const minX = -0.68 + index * 0.34;
+    return new THREE.Box3(new THREE.Vector3(minX, -0.68, -0.03),
+      new THREE.Vector3(minX + 0.34, 0.68, 0.055));
+  });
+  const boxes = strips.map(() => ({}));
+  colliders.push(...boxes);
+  const worldBox = new THREE.Box3();
+  const sync = () => {
+    panel.updateWorldMatrix(true, false);
+    strips.forEach((strip, index) => {
+      worldBox.copy(strip).applyMatrix4(panel.matrixWorld);
+      Object.assign(boxes[index], {
+        minX: worldBox.min.x, maxX: worldBox.max.x,
+        minY: worldBox.min.y, maxY: worldBox.max.y,
+        minZ: worldBox.min.z, maxZ: worldBox.max.z
+      });
+    });
+  };
+  sync();
+  return sync;
 }
 
 export function createCrestIndicatorGeometry() {
