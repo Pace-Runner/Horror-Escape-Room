@@ -326,6 +326,8 @@ export function createBackroomsHunter({
   let waypoints = [];
   /** The last place a sprint was heard. Null once it has been investigated. */
   let heard = null;
+  // Observation only: whether sprint noise contributed to this pursuit.
+  let sprintContributed = false;
   let sawFor = 0;
   let cooldown = 0;
   let yaw = 0;
@@ -571,6 +573,7 @@ export function createBackroomsHunter({
         if (d >= minFromPlayer) break;
       }
       pos.x = best.x;
+      sprintContributed = false;
       pos.z = best.z;
       stallFrom.x = best.x;
       stallFrom.z = best.z;
@@ -599,6 +602,7 @@ export function createBackroomsHunter({
     },
 
     stop() {
+      sprintContributed = false;
       state = 'stopped';
       waypoints = [];
       heard = null;
@@ -646,6 +650,7 @@ export function createBackroomsHunter({
         sawFor -= dt;
       }
       if (!safe && (player.sprinting || (player.walking && dist <= HEAR_WALK))) {
+        if (player.sprinting) sprintContributed = true;
         // Noise. It does not matter whether it can see you.
         heard = { x: player.x, z: player.z };
       }
@@ -665,6 +670,7 @@ export function createBackroomsHunter({
       } else {
         state = 'search';
       }
+      if (safe || state === 'search') sprintContributed = false;
 
       if (state !== 'search') scan = 0;      // being found ends the standing about
       if (state !== 'search') { peekFor = 0; peekDir = 0; }
@@ -787,7 +793,7 @@ export function createBackroomsHunter({
 
       if (dist < CONTACT_RANGE && cooldown <= 0 && !safe) {
         cooldown = CATCH_COOLDOWN;
-        onCaught();
+        onCaught({ sprintContributed });
       }
     }
   };

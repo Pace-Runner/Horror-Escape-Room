@@ -52,10 +52,14 @@ export const OPENING_NEWS_SUBTITLE_CUES = [
   { start: 71.342, end: 72.240, text: 'goes inside.' }
 ];
 
-function preloadImage(url) {
-  const image = new Image();
+function preloadImage(url, image) {
   image.src = url;
-  return image.decode?.().catch(() => undefined) ?? Promise.resolve();
+  if (image.decode) return image.decode();
+  if (image.complete && image.naturalWidth) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    image.addEventListener('load', resolve, { once: true });
+    image.addEventListener('error', reject, { once: true });
+  });
 }
 
 export function createOpeningNewsCutscene({ root }) {
@@ -74,20 +78,28 @@ export function createOpeningNewsCutscene({ root }) {
       const audioReady = fetch(newsAudioUrl).then((response) => {
         if (!response.ok) throw new Error(`News audio: HTTP ${response.status}`);
         return response.blob();
-      }).then((blob) => new Promise((resolve) => {
+      }).then((blob) => new Promise((resolve, reject) => {
         const finish = () => {
           audio.removeEventListener('canplaythrough', finish);
-          audio.removeEventListener('error', finish);
+          audio.removeEventListener('error', fail);
           resolve();
         };
+        const fail = () => {
+          audio.removeEventListener('canplaythrough', finish);
+          reject(new Error('Opening news audio could not decode'));
+        };
         audio.addEventListener('canplaythrough', finish, { once: true });
-        audio.addEventListener('error', finish, { once: true });
+        audio.addEventListener('error', fail, { once: true });
         audio.src = URL.createObjectURL(blob);
         audio.load();
       }));
+      const fonts = new Set([root, subtitle, ...photoCards].map((node) => getComputedStyle(node).font).filter(Boolean));
       preloadPromise = Promise.all([
-        audioReady, ...PHOTO_CUES.map((cue) => preloadImage(cue.image))
-      ]).catch((error) => console.warn('Opening asset preload failed:', error));
+        audioReady,
+        ...PHOTO_CUES.map((cue) => preloadImage(cue.image, photoCards[cue.slot].querySelector('img'))),
+        ...[...fonts].map((font) => document.fonts.load(font)),
+        document.fonts.ready
+      ]);
     }
     return preloadPromise;
   }

@@ -34,7 +34,9 @@ export function createMarkThoughts(audio) {
       buffers.set(key, buffer);
     }).catch((error) => {
       buffers.delete(key);
+      const failed = queue.filter((entry) => entry.key === key);
       queue = queue.filter((entry) => entry.key !== key);
+      for (const entry of failed) entry.onFailed?.();
       console.warn('Mark thought could not load:', file, error);
     }));
   }
@@ -51,11 +53,11 @@ export function createMarkThoughts(audio) {
   }
 
   return {
-    play(key, { replayable = false, delay = 0.4, priority = false } = {}) {
+    play(key, { replayable = false, delay = 0.4, priority = false, when = () => true, onEnded, onFailed } = {}) {
       if (!MARK_THOUGHTS[key] || current?.key === key || queue.some((entry) => entry.key === key)) return;
       if (!replayable && seen.has(key)) return;
       seen.add(key);
-      const entry = { key, delay, priority };
+      const entry = { key, delay, priority, when, onEnded, onFailed };
       // Post-recording conclusions precede any thought suspended by the tape.
       const index = priority ? queue.findIndex((pending) => !pending.priority) : -1;
       if (index < 0) queue.push(entry);
@@ -69,16 +71,23 @@ export function createMarkThoughts(audio) {
     setBlocked(value) {
       blocked = value;
       if (value && current) {
-        queue.unshift({ key: current.key, delay: 0.4 });
+        queue.unshift({ ...current.entry, startAt: undefined });
         stop();
       }
     },
-    update() {
-      if (blocked || !audio.ctx || audio.ctx.state !== 'running') return;
+    update({ blocked: busy = false } = {}) {
+      queue = queue.filter((entry) => entry.when());
+      if (blocked || busy || !audio.ctx || audio.ctx.state !== 'running') {
+        if (busy && current) {
+          queue.unshift({ ...current.entry, startAt: undefined });
+          stop();
+        }
+        return;
+      }
       // Existing voiced dialogue has priority; thoughts resume afterwards.
       if (audio.voiceSource) {
         if (current) {
-          queue.unshift({ key: current.key, delay: 0.4 });
+          queue.unshift({ ...current.entry, startAt: undefined });
           stop();
         }
         return;
@@ -94,13 +103,14 @@ export function createMarkThoughts(audio) {
       const source = audio.ctx.createBufferSource();
       source.buffer = buffer;
       source.connect(audio.voiceGain);
-      current = { key: entry.key, source };
+      current = { key: entry.key, source, entry };
       source.onended = () => {
         source.disconnect();
         current = null;
         box.style.transitionDelay = '0s';
         box.classList.remove('visible');
         readyAt = audio.ctx.currentTime + 0.2;
+        entry.onEnded?.();
       };
       box.textContent = MARK_THOUGHTS[entry.key][1];
       source.start();

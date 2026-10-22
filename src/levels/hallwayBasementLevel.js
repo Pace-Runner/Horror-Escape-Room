@@ -584,6 +584,8 @@ export function createHallwayBasementLevel({
   onBlackout = () => {},
   /** Fired when the generator restart sequence completes. */
   onGeneratorRunning = () => {},
+  onGeneratorProgress = () => {},
+  onBreakerEngaged = () => {},
   /** Fired once the breakers are set and the door bolts finally have power. */
   onPowerRouted = () => {},
   /** Fired when a breaker trips the panel by asking for more than it can carry. */
@@ -2633,6 +2635,7 @@ export function createHallwayBasementLevel({
     }
 
     // Whatever the puzzle makes of it, the control moves.
+    onGeneratorProgress();
     animateGeneratorControl(controlId);
     onSfx('switch_click');
 
@@ -3048,6 +3051,7 @@ export function createHallwayBasementLevel({
    * rather than one they stumble into by closing a switch.
    */
   function flickBreaker(circuitId) {
+    onBreakerEngaged();
     // The toggles sit behind the cover. Its own click target catches a press
     // while it is down, but one aimed past its edge must not reach through.
     if (!breakerCover.open) {
@@ -3096,6 +3100,7 @@ export function createHallwayBasementLevel({
    * in Level 2 -- would resolve itself before the player knew it was there.
    */
   function throwMainSwitch() {
+    onBreakerEngaged();
     if (powerStage === POWER_STAGE.ROUTED) {
       showCaption(line('dialog_main_lever_already_routed'));
       return;
@@ -3248,6 +3253,7 @@ export function createHallwayBasementLevel({
    * caption, for a restart.
    */
   function setBreakerCoverOpen(open, { quiet = false } = {}) {
+    if (open && !quiet) onBreakerEngaged();
     breakerCover.open = open;
     if (!quiet) onSfx('latch');
     breakerCoverHit.userData.interact.label = open ? 'Close the breaker cover' : 'Lift the breaker cover';
@@ -5950,6 +5956,7 @@ export function createHallwayBasementLevel({
       generator,
       /** True while its engine turns over -- every stage but the blackout. */
       get generatorRunning() { return isGeneratorRunning(); },
+      get breakerCoverOpen() { return breakerCover.open; },
       /** The lab lights' ramp, 0 dark to 1 lit, which the tubes' hum follows. */
       get powerLevel() { return powerLevel; },
       /** The session tape's sound and clock, for the host's voices and subtitles. */

@@ -1,4 +1,14 @@
 export const MARK_THOUGHTS = {
+  l2_20: ['LEVEL 2/l2_thought_20_initial_power.mp3', 'No power. I need to get this place running.'],
+  l2_21: ['LEVEL 2/l2_thought_21_power_failed_again.mp3', "Great. Power's gone again."],
+  l2_22: ['LEVEL 2/l2_thought_22_find_generator.mp3', 'There has to be a generator somewhere.'],
+  l2_23: ['LEVEL 2/l2_thought_23_flip_breaker.mp3', "Generator's running\u2026 I still need to flip the breaker."],
+  l2_24: ['LEVEL 2/l2_thought_24_check_computer.mp3', 'That did it. I should check the computer.'],
+  l2_25: ['LEVEL 2/l2_thought_25_behind_me.mp3', "It's behind me."],
+  backrooms_08: ['BACKROOMS/backrooms_thought_08_sprinting_alerts_it.mp3', 'It hears me when I sprint.'],
+  backrooms_09: ['BACKROOMS/backrooms_thought_09_stop_running.mp3', 'I need to stop running.'],
+  backrooms_10: ['BACKROOMS/backrooms_thought_10_dont_let_it_hear_me.mp3', "Slow down. Don't let it hear me."],
+  backrooms_11: ['BACKROOMS/backrooms_thought_11_running_gives_me_away.mp3', 'Running gives me away.'],
   "l1_01": [
     "LEVEL 1/l1_thought_01_wakeup.mp3",
     "What\u2026 where am I?"
