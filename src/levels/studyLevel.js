@@ -3,11 +3,11 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { createStudyDecor } from './studyDecor.js';
 import { createStudySurfaces } from './studySurfaces.js';
 import { createClockMechanism } from './clockMechanism.js';
-import { createArchivePresentation, createArchiveRecord, buildArchiveVisor } from './studyArchivePresentation.js';
+import { createArchivePresentation, createArchiveRecord, buildArchiveVisor, createVisorGlassMap } from './studyArchivePresentation.js';
 import { addStudyFootprints } from './studyFootprints.js';
 import { addStudyArchitectureTrim } from './studyArchitectureTrim.js';
 import { createStudyExterior } from './studyExterior.js';
-import { hingeMotion, studyLabel, dressArchiveLeaf, dressCrestControl, createCrestIndicatorGeometry, createCrestPanelCollision, fillStudyKey, dressStudyDoor, dressFloorOrderClue, batchStudyPuzzleDetails } from './studyPuzzlePresentation.js';
+import { hingeMotion, studyLabel, dressCrestControl, createCrestIndicatorGeometry, createCrestPanelCollision, fillStudyKey, dressStudyDoor, dressFloorOrderClue, batchStudyPuzzleDetails } from './studyPuzzlePresentation.js';
 import { loadModel } from '../world/modelLoader.js';
 import annabelleChairUrl from '../assets/models/study/annabelle_wingback_chair.glb?url';
 import centralDeskUrl from '../assets/models/study/central_victorian_desk.glb?url';
@@ -975,6 +975,7 @@ export function createStudyLevel({
   group.add(memoryArchive);
   const archiveCabinetMat = studySurfaces.woodMaterial(0.86);
   const memoryCabinetMat = studySurfaces.woodMaterial(0.78);
+  const restrictedCabinetMat = studySurfaces.woodMaterial(0.80);
   const archiveHitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
   const archiveDoorHinge = new THREE.Group();
   archiveDoorHinge.name = 'MemoryArchiveLeftHinge';
@@ -1114,17 +1115,14 @@ export function createStudyLevel({
   visorGroup.visible = false;
   group.add(visorGroup);
 
-  const visorBandMat = new THREE.MeshStandardMaterial({ color: 0x343a36, roughness: 0.68, metalness: 0.45 });
-  const visorLensMat = new THREE.MeshStandardMaterial({
-    color: 0x2f6fae,
-    roughness: 0.12,
-    metalness: 0.1,
-    transparent: true,
-    opacity: 0.72,
-    // It is the only blue thing in the house, and it has to be findable in a
-    // room lit at 8/255. A little emission keeps an edge alive on the glass.
-    emissive: 0x123a5e,
-    emissiveIntensity: 0.5
+  const visorBandMat = new THREE.MeshStandardMaterial({
+    color: 0x3c4243, roughness: 0.55, metalness: 0.82,
+    roughnessMap: archiveToken.children[0].material.roughnessMap
+  });
+  const visorLensMat = new THREE.MeshPhysicalMaterial({
+    color: 0xb1ddeb, map: createVisorGlassMap(), roughness: 0.10, metalness: 0,
+    transparent: true, opacity: 0.68, depthWrite: false,
+    clearcoat: 0.75, clearcoatRoughness: 0.08, ior: 1.46, transmission: 0
   });
   buildArchiveVisor(visorGroup, visorBandMat, visorLensMat, crestBrassMat);
 
@@ -1218,9 +1216,9 @@ export function createStudyLevel({
   group.add(hollowAlcove);
   // The final exit bolts still share this material with the former alcove shell.
   const alcoveMat = new THREE.MeshStandardMaterial({ color: 0x272725, metalness: 0.4, roughness: 0.88 });
-  const restrictedPlaque = makeArchiveLabel(1.30, 0.32);
+  const restrictedPlaque = createArchiveRecord(1.28, 0.24, 6);
   restrictedPlaque.write(['PROJECT HOLLOW', '— RESTRICTED RECORDS']);
-  restrictedPlaque.mesh.position.set(0, 1.97, -0.17);
+  restrictedPlaque.mesh.position.set(0, 1.97, -0.155);
   restrictedPlaque.mesh.userData.interact = {
     label: 'Restricted archive records',
     onInteract: () => {
@@ -1228,7 +1226,7 @@ export function createStudyLevel({
     }
   };
   hollowAlcove.add(restrictedPlaque.mesh);
-  const hollowArchivePanel = new THREE.Mesh(new THREE.BoxGeometry(0.70, 2.04, 0.045), shelfMat);
+  const hollowArchivePanel = new THREE.Mesh(new RoundedBoxGeometry(0.70, 2.04, 0.045, 1, 0.006), restrictedCabinetMat);
   const restrictedLeftHinge = new THREE.Group(), restrictedRightHinge = new THREE.Group();
   restrictedLeftHinge.name = 'RestrictedArchiveLeftHinge';
   restrictedRightHinge.name = 'RestrictedArchiveRightHinge';
@@ -1285,10 +1283,10 @@ Annabelle`;
   const truthDrawer = new THREE.Group();
   truthDrawer.position.set(0, 0.45, 0.28);
   hollowAlcove.add(truthDrawer);
-  const truthDrawerFront = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.26, 0.05), shelfMat);
+  const truthDrawerFront = new THREE.Mesh(new RoundedBoxGeometry(0.6, 0.26, 0.05, 1, 0.005), restrictedCabinetMat);
   truthDrawerFront.position.z = -0.01;
-  const truthDrawerFloor = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.03, 0.36), shelfMat);
-  truthDrawerFloor.position.set(0, -0.1, -0.1);
+  const truthDrawerFloor = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.03, 0.23), restrictedCabinetMat);
+  truthDrawerFloor.position.set(0, -0.1, -0.155);
   const truthDrawerHandle = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.035, 0.05), crestBrassMat);
   truthDrawerHandle.position.z = 0.03;
   const letterDoorHinge = new THREE.Group();
@@ -1312,7 +1310,7 @@ Annabelle`;
   }
   truthRecordNames.forEach((name, index) => {
     const x = (index - 1) * 0.46;
-    const display = makeArchiveLabel(0.43, 0.48);
+    const display = createArchiveRecord(0.404, 0.44, index + 7);
     display.mesh.position.set(x, 1.30, 0.24);
     hollowAlcove.add(display.mesh);
     truthRecordDisplays.push(display);
@@ -1369,41 +1367,32 @@ Annabelle`;
       object.castShadow = false;
       object.receiveShadow = true;
     });
-    const shell = model.getObjectByName('Victorian_Archive_Static_Shell');
-    // Multi-material GLTF exports wrap primitives in a Group, not a Mesh.
-    let walnut;
-    shell?.traverse((object) => {
-      walnut ??= [].concat(object.material || []).find(material => material.name === 'Archive aged walnut');
-    });
-    if (walnut) {
-      archiveDoor.material = memoryCabinetMat;
-      archiveRightDoor.material = memoryCabinetMat;
-      visorCompartmentCover.material = memoryCabinetMat;
-      hollowArchivePanel.material = walnut;
-      restrictedRightDoor.material = walnut;
-      truthDrawerFront.material = walnut;
-      truthDrawerFloor.material = walnut;
+    // Both shells use the same worn wood family; clone before assigning materials.
+    const restrictedModel = model.clone(true);
+    function matchWood(root, wood) {
+      root.traverse((object) => {
+        if (!object.isMesh) return;
+        const aged = material => /walnut/i.test(material.name) ? wood : material;
+        object.material = Array.isArray(object.material) ? object.material.map(aged) : aged(object.material);
+      });
     }
-    // Keep the other archive's existing materials and presentation untouched.
-    hollowAlcove.add(model.clone(true));
-    model.traverse((object) => {
-      if (!object.isMesh) return;
-      const aged = (material) => /walnut/i.test(material.name) ? memoryCabinetMat : material;
-      object.material = Array.isArray(object.material) ? object.material.map(aged) : aged(object.material);
-    });
+    matchWood(restrictedModel, restrictedCabinetMat);
+    matchWood(model, memoryCabinetMat);
+    hollowAlcove.add(restrictedModel);
     memoryArchive.add(model);
   }).catch((error) => console.warn('Archive cabinets could not load:', error));
 
   const archivePresentation = createArchivePresentation(archiveCabinetMat, crestBrassMat);
   const memoryPresentation = createArchivePresentation(memoryCabinetMat, crestBrassMat);
+  const restrictedPresentation = createArchivePresentation(restrictedCabinetMat, crestBrassMat);
   memoryPresentation.interior(memoryArchive, true);
-  archivePresentation.interior(hollowAlcove);
+  restrictedPresentation.interior(hollowAlcove, true, false);
   memoryPresentation.records(memoryContents, 0.21, 0.56, true);
-  archivePresentation.records(hollowAlcove, 0.24, 0.48);
+  restrictedPresentation.records(hollowAlcove, 0.24, 0.48, true, false);
   memoryPresentation.memoryDoor(archiveDoor);
   memoryPresentation.memoryDoor(archiveRightDoor);
-  dressArchiveLeaf(hollowArchivePanel, 0.7, 2.04, archiveCabinetMat, crestBrassMat);
-  dressArchiveLeaf(restrictedRightDoor, 0.7, 2.04, archiveCabinetMat, crestBrassMat, 1);
+  restrictedPresentation.memoryDoor(hollowArchivePanel, 2.04);
+  restrictedPresentation.memoryDoor(restrictedRightDoor, 2.04);
 
   // Clear rear-wall gaps, outside both archive shells, bookcase bays and portraits.
   const trailMarkerPositions = [
@@ -1486,11 +1475,11 @@ Annabelle`;
 
   // Correspondence is mounted inside the fixed compartment. The existing
   // document callback still owns reading completion and mirror progression.
-  const letterSheet = studyLabel(0.40, 0.30);
+  const letterSheet = createArchiveRecord(0.40, 0.20, 10);
   letterSheet.write(['Mark,', "If you're reading this,", "you've forgotten again.", 'Read the letter [E]']);
   const letterPaper = letterSheet.mesh;
   letterPaper.rotation.x = -0.10;
-  letterPaper.position.set(0, 0.015, 0.08);
+  letterPaper.position.set(0, 0.025, -0.075);
   letterPaper.visible = false;
   truthDrawer.add(letterPaper);
   let letterReading = false;
