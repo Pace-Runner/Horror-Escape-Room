@@ -262,7 +262,7 @@ const BUILDERS = {
   fuse45: (t) => (t ? fromTemplate(t, { rotation: [0, Math.PI / 2, 0], position: [0, 0.035, 0] }) : null)
 };
 
-/** Every id this module can build -- the same set the hotbar has slots for. */
+/** Every id this module can build -- the same set the hotbar has icons for. */
 export const ITEM_MESH_IDS = Object.freeze(Object.keys(BUILDERS));
 
 /**

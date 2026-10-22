@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { gameState, ITEMS } from './GameState.js';
+import { gameState, inventorySlots } from './GameState.js';
 import { HELD_MAGNIFICATION } from '../systems/hands/sockets.js';
 
 /**
@@ -535,13 +535,13 @@ export function createHeldItems({ hands, camera, itemMeshes, onChange = () => {}
   }
 
   /**
-   * The owned items in the order the hotbar draws its slots -- ITEMS' order,
-   * which index.html's markup follows -- NOT pickup order. The inventory Set is
-   * in pickup order, and a drop and re-pickup sends an item to its end, so
-   * stepping through that made the highlight jump between non-adjacent slots.
+   * The owned items in the order the hotbar draws them, left to right -- its
+   * slots (GameState.inventorySlots), NOT the inventory Set's pickup order: a
+   * dropped item's slot is kept for the next pickup, so the two can differ,
+   * and stepping through the Set would make the highlight jump about.
    */
   function ownedInSlotOrder() {
-    return Object.keys(ITEMS).filter(owns);
+    return inventorySlots().filter((id) => id !== null && owns(id));
   }
 
   /**
@@ -550,7 +550,8 @@ export function createHeldItems({ hands, camera, itemMeshes, onChange = () => {}
    */
   function selectAfterRemoval(id) {
     if (selected !== id) return;
-    const slots = Object.keys(ITEMS);
+    // Its slot as it was, before reading the slots syncs the gap in.
+    const slots = gameState.inventorySlots.slice();
     const at = slots.indexOf(id);
     const rest = ownedInSlotOrder().filter((other) => other !== id);
     selected = rest.find((other) => slots.indexOf(other) > at) ?? rest[0] ?? null;

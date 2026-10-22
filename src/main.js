@@ -22,7 +22,7 @@ import { createBackroomsLevel } from './levels/backroomsLevel.js';
 import { ROOM_FLOORS } from './levels/annabelleRooms.js';
 import { createUpstairsHallwayLevel } from './levels/upstairsHallwayLevel.js';
 import { createScreenFade, wait } from './core/ScreenFade.js';
-import { gameState, resetState, addItem, removeItem, ITEMS } from './core/GameState.js';
+import { gameState, resetState, addItem, removeItem, ITEMS, HOTBAR_SLOTS, inventorySlots } from './core/GameState.js';
 import { createHeldItems } from './core/HeldItems.js';
 import { createItemMeshes, ITEM_MESH_IDS } from './world/itemMeshes.js';
 import { MAIN_ONLY } from './core/RenderLayers.js';
@@ -94,7 +94,11 @@ const promptEl = document.getElementById('interact-prompt');
 const captionEl = document.getElementById('caption-box');
 const hintKeyEl = document.getElementById('hint-key');
 const flashlightStateEl = document.getElementById('flashlight-state');
-const hotbarSlots = document.querySelectorAll('#hotbar .hotbar-slot');
+const hotbarEl = document.getElementById('hotbar');
+/** Each item's slot as it looks carried (index.html's #item-icons), keyed by item id. */
+const itemIconTemplates = new Map(
+  [...document.getElementById('item-icons').content.querySelectorAll('.hotbar-slot')].map((el) => [el.dataset.item, el])
+);
 const minimapCanvas = document.getElementById('minimap');
 const minimapArrowEl = document.getElementById('minimap-arrow');
 const minimapWrapEl = document.getElementById('minimap-wrap');
@@ -718,18 +722,41 @@ function consumeItem(id) {
   refreshInventoryUI();
 }
 
+/**
+ * Draws the inventory bar from its slots (GameState.inventorySlots): never
+ * fewer than HOTBAR_SLOTS, more only once every one is full. A slot whose item
+ * has changed takes that item's icon, tint and title from #item-icons; the
+ * rest are left alone.
+ */
 function refreshInventoryUI() {
   const selected = heldItems.selected;
-  hotbarSlots.forEach((slot) => {
-    const item = slot.dataset.item;
-    const owned = gameState.inventory.has(item);
-    slot.classList.toggle('filled', owned);
-    slot.classList.toggle('selected', owned && item === selected);
+  const slots = inventorySlots();
+  const count = Math.max(HOTBAR_SLOTS, slots.length);
+  while (hotbarEl.children.length < count) {
+    const slot = document.createElement('div');
+    slot.className = 'hotbar-slot';
+    slot.dataset.item = '';
+    hotbarEl.append(slot);
+  }
+  while (hotbarEl.children.length > count) hotbarEl.lastElementChild.remove();
+  [...hotbarEl.children].forEach((slot, i) => {
+    const id = slots[i] ?? '';
+    if (slot.dataset.item !== id) {
+      const icon = itemIconTemplates.get(id);
+      slot.className = icon ? icon.className : 'hotbar-slot';
+      slot.title = icon ? icon.title : '';
+      slot.replaceChildren(...(icon ? [...icon.childNodes].map((node) => node.cloneNode(true)) : []));
+      slot.dataset.item = id;
+    }
+    slot.classList.toggle('filled', id !== '');
+    slot.classList.toggle('selected', id !== '' && id === selected);
   });
 }
+// The empty bar, from the first frame.
+refreshInventoryUI();
 
 /**
- * The mouse wheel steps through the owned items in hotbar slot order, wrapping.
+ * The mouse wheel steps through the owned items in the bar's slot order, wrapping.
  *
  * THROTTLED to one step per WHEEL_STEP_MS. A single notch on a free-spinning or
  * high-resolution wheel -- and any trackpad -- arrives as a burst of small wheel
@@ -2018,7 +2045,7 @@ const bedroom = createDeferredLevel(() => createBedroomLevel({
   itemMeshes.setTemplate('paperclip', level.refs.paperclip);
   for (const { id, url, card } of level.refs.photoItems) {
     itemMeshes.setTemplate(id, card);
-    const icon = document.querySelector(`#hotbar .hotbar-slot[data-item="${id}"] .hotbar-photo`);
+    const icon = itemIconTemplates.get(id)?.querySelector('.hotbar-photo');
     if (icon) icon.src = url;
   }
   itemMeshes.setTemplate('bedroomKey', level.refs.bedroomKey);
