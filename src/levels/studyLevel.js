@@ -1,5 +1,13 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { createStudyDecor } from './studyDecor.js';
+import { createStudySurfaces } from './studySurfaces.js';
+import { createClockMechanism } from './clockMechanism.js';
+import { createArchivePresentation } from './studyArchivePresentation.js';
+import { addStudyFootprints } from './studyFootprints.js';
+import { addStudyArchitectureTrim } from './studyArchitectureTrim.js';
+import { createStudyExterior } from './studyExterior.js';
+import { hingeMotion, studyLabel, dressArchiveLeaf, dressCrestControl, fillStudyKey, dressStudyDoor, dressFloorOrderClue, batchStudyPuzzleDetails } from './studyPuzzlePresentation.js';
 import { loadModel } from '../world/modelLoader.js';
 import annabelleChairUrl from '../assets/models/study/annabelle_wingback_chair.glb?url';
 import centralDeskUrl from '../assets/models/study/central_victorian_desk.glb?url';
@@ -11,17 +19,13 @@ import shadowCrestHousingUrl from '../assets/models/study/shadow_crest_housing.g
 import emergencyReleasePanelUrl from '../assets/models/study/emergency_release_panel.glb?url';
 import manualResealPanelUrl from '../assets/models/study/manual_reseal_panel.glb?url';
 import {
-  createWoodFloorTexture,
-  createWoodFloorBumpTexture,
-  createPlasterWallTexture,
-  createPlasterBumpTexture,
   createFamilyPhotoTexture,
   createRugTexture
 } from '../world/textures.js';
-import { addBaseboard, makeHandle } from '../world/trim.js';
+import { makeHandle } from '../world/trim.js';
 import { DOOR_PANEL_ROWS, getPanelSpans } from '../world/doorPanels.js';
 import { gameState } from '../core/GameState.js';
-import { createHiddenWritingTexture, createFootmarkTexture } from '../world/textures.js';
+import { createHiddenWritingTexture } from '../world/textures.js';
 import { line } from '../dialogue/index.js';
 
 const ROOM_W = 16;
@@ -50,30 +54,36 @@ export function createStudyLevel({
   const interactables = [];
   const colliders = [];
 
-  const floorTex = createWoodFloorTexture();
-  const floorBump = createWoodFloorBumpTexture();
-  const wallTex = createPlasterWallTexture('#5c5648');
-  const wallBump = createPlasterBumpTexture();
+  const studySurfaces = createStudySurfaces();
+  const loadStudyModel = (url) => loadModel(url).then(model => studySurfaces.harmoniseAsset(
+    model, url === archiveCabinetUrl || url === annabelleChairUrl ? 'builtIn' : 'feature'
+  ));
+  const floorTex = studySurfaces.floorMap;
+  const wallTex = studySurfaces.wallMap;
 
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(ROOM_W, ROOM_D),
-    new THREE.MeshStandardMaterial({ map: floorTex, bumpMap: floorBump, bumpScale: 0.4, roughness: 0.85 })
+    new THREE.MeshStandardMaterial({ map: floorTex, roughnessMap: studySurfaces.floorRoughness, roughness: 1, envMapIntensity: 0.25 })
   );
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
+  studySurfaces.floorSurface(floor);
   group.add(floor);
 
   const ceiling = new THREE.Mesh(
     new THREE.PlaneGeometry(ROOM_W, ROOM_D),
-    new THREE.MeshStandardMaterial({ color: 0x1a1712 })
+    new THREE.MeshStandardMaterial({ map: studySurfaces.ceilingMap,
+      roughnessMap: studySurfaces.wallRoughness, color: 0xd9d0c0, roughness: 1, envMapIntensity: 0.15 })
   );
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.y = ROOM_H;
+  ceiling.geometry.attributes.uv.array.forEach((value, i, array) => { array[i] = value * (i % 2 ? ROOM_D : ROOM_W) / 4; });
   group.add(ceiling);
 
-  const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, bumpMap: wallBump, bumpScale: 0.15, roughness: 0.9 });
+  const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, roughnessMap: studySurfaces.wallRoughness, color: 0xbbb4a7, roughness: 1, vertexColors: true });
+  const wallGeometry = (w, h) => new THREE.PlaneGeometry(w, h, Math.max(1, Math.ceil(w / 1.6)), Math.max(1, Math.ceil(h / 0.32)));
   function wall(w, x, z, ry) {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, ROOM_H), wallMat);
+    const m = new THREE.Mesh(wallGeometry(w, ROOM_H), wallMat);
     m.position.set(x, ROOM_H / 2, z);
     m.rotation.y = ry;
     group.add(m);
@@ -99,14 +109,14 @@ export function createStudyLevel({
     const leftX = -ROOM_W / 2 + leftW / 2;
     const rightX = ROOM_W / 2 - rightW / 2;
     for (const [w, x] of [[leftW, leftX], [rightW, rightX]]) {
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(w, ROOM_H), wallMat);
+      const m = new THREE.Mesh(wallGeometry(w, ROOM_H), wallMat);
       m.position.set(x, ROOM_H / 2, frontZ);
       m.rotation.y = Math.PI;
       group.add(m);
       colliders.push({ minX: x - w / 2, maxX: x + w / 2, minZ: frontZ - 0.15, maxZ: frontZ + 0.1 });
     }
     const lintel = new THREE.Mesh(
-      new THREE.PlaneGeometry(DOORWAY_W, ROOM_H - DOORWAY_H), wallMat
+      wallGeometry(DOORWAY_W, ROOM_H - DOORWAY_H), wallMat
     );
     lintel.position.set(DOOR_X, DOORWAY_H + (ROOM_H - DOORWAY_H) / 2, frontZ);
     lintel.rotation.y = Math.PI;
@@ -133,13 +143,13 @@ export function createStudyLevel({
       [ROOM_D / 2 - entryFrontStart, (entryFrontStart + ROOM_D / 2) / 2]
     ];
     for (const [length, z] of rightWallSections) {
-      const section = new THREE.Mesh(new THREE.PlaneGeometry(length, ROOM_H), wallMat);
+      const section = new THREE.Mesh(wallGeometry(length, ROOM_H), wallMat);
       section.position.set(rightX, ROOM_H / 2, z);
       section.rotation.y = -Math.PI / 2;
       group.add(section);
       colliders.push({ minX: rightX - 0.15, maxX: rightX + 0.1, minZ: z - length / 2, maxZ: z + length / 2 });
     }
-    const lintel = new THREE.Mesh(new THREE.PlaneGeometry(ENTRY_DOOR_W, ROOM_H - ENTRY_DOOR_H), wallMat);
+    const lintel = new THREE.Mesh(wallGeometry(ENTRY_DOOR_W, ROOM_H - ENTRY_DOOR_H), wallMat);
     lintel.position.set(rightX, ENTRY_DOOR_H + (ROOM_H - ENTRY_DOOR_H) / 2, ENTRY_DOOR_Z);
     lintel.rotation.y = -Math.PI / 2;
     group.add(lintel);
@@ -148,14 +158,9 @@ export function createStudyLevel({
     entryDoor.position.set(rightX - 0.06, ENTRY_DOOR_H / 2, ENTRY_DOOR_Z);
     const doorSlab = new THREE.Mesh(
       new THREE.BoxGeometry(0.08, ENTRY_DOOR_H, ENTRY_DOOR_W),
-      new THREE.MeshStandardMaterial({ color: 0x2b2119, roughness: 0.82 })
+      studySurfaces.woodMaterial(0.86, 'trim')
     );
-    const handle = new THREE.Mesh(
-      new THREE.SphereGeometry(0.045, 8, 6),
-      new THREE.MeshStandardMaterial({ color: 0xa58343, metalness: 0.45, roughness: 0.42 })
-    );
-    handle.position.set(-0.07, -0.05, 0.48);
-    entryDoor.add(doorSlab, handle);
+    entryDoor.add(doorSlab);
     group.add(entryDoor);
     colliders.push({
       minX: rightX - 0.15,
@@ -165,11 +170,9 @@ export function createStudyLevel({
     });
   }
 
-  addBaseboard(group, { width: ROOM_W, depth: ROOM_D, color: 0x161208 });
-
   // Deep stained casings make both openings read as part of the old house,
   // while leaving the authored slabs, hinges and collision untouched.
-  const trimMat = new THREE.MeshStandardMaterial({ color: 0x21170f, roughness: 0.78 });
+  const trimMat = studySurfaces.woodMaterial(0.86, 'trim');
   function addDoorCasing(x, z, width, height, facesFront) {
     const casing = new THREE.Group();
     casing.position.set(x, 0, z);
@@ -209,9 +212,12 @@ export function createStudyLevel({
 
   // The rear archive is a real second storey, leaving the front
   // half of the study open to the full ceiling height.
-  const balconyMat = new THREE.MeshStandardMaterial({ color: 0x302820, roughness: 0.9 });
-  // One shared material for all architectural timber; the desk supplies its cached walnut maps.
-  const architectureWoodMat = new THREE.MeshStandardMaterial({ color: 0x3c281c, roughness: 0.74 });
+  const balconyMat = studySurfaces.woodMaterial(0.82);
+  // Compact straight-grained architectural walnut stays independent of furniture UVs.
+  const architectureWoodMat = studySurfaces.woodMaterial(0.96);
+  const handrailWoodMat = studySurfaces.woodMaterial(0.78, 'trim');
+  const treadWoodMat = studySurfaces.woodMaterial(1.02, 'trim');
+  const stairWoodMat = studySurfaces.woodMaterial(0.92, 'trim');
   const newelShaftGeometry = new RoundedBoxGeometry(0.13, 1.08, 0.13, 1, 0.006);
   const newelFootGeometry = new RoundedBoxGeometry(0.18, 0.13, 0.18, 1, 0.006);
   const newelCapGeometry = new RoundedBoxGeometry(0.19, 0.055, 0.19, 1, 0.008);
@@ -224,29 +230,29 @@ export function createStudyLevel({
   const architectureRotation = new THREE.Quaternion();
   const architecturePosition = new THREE.Vector3();
   const architectureScale = new THREE.Vector3();
-  function addTimber(geometry, x, y, z) {
-    const mesh = new THREE.Mesh(geometry, architectureWoodMat);
+  function addTimber(geometry, x, y, z, material = architectureWoodMat) {
+    const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(x, y, z);
     mesh.receiveShadow = true;
     group.add(mesh);
     return mesh;
   }
   function addNewel(x, floorY, z) {
-    addTimber(newelShaftGeometry, x, floorY + 0.54, z);
-    addTimber(newelFootGeometry, x, floorY + 0.065, z);
-    addTimber(newelCapGeometry, x, floorY + 1.095, z);
-    addTimber(newelFinialGeometry, x, floorY + 1.165, z);
+    addTimber(newelShaftGeometry, x, floorY + 0.54, z, handrailWoodMat);
+    addTimber(newelFootGeometry, x, floorY + 0.065, z, handrailWoodMat);
+    addTimber(newelCapGeometry, x, floorY + 1.095, z, handrailWoodMat);
+    addTimber(newelFinialGeometry, x, floorY + 1.165, z, handrailWoodMat);
   }
   function addTimberRail(from, to, width = 0.085, depth = 0.075) {
     const a = new THREE.Vector3(...from);
     const b = new THREE.Vector3(...to);
-    const mesh = addTimber(new RoundedBoxGeometry(width, a.distanceTo(b), depth, 1, 0.008), 0, 0, 0);
+    const mesh = addTimber(new RoundedBoxGeometry(width, a.distanceTo(b), depth, 1, 0.008), 0, 0, 0, handrailWoodMat);
     mesh.position.copy(a).add(b).multiplyScalar(0.5);
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.sub(a).normalize());
     return mesh;
   }
   function addBalusters(placements) {
-    const mesh = new THREE.InstancedMesh(balusterGeometry, architectureWoodMat, placements.length);
+    const mesh = new THREE.InstancedMesh(balusterGeometry, handrailWoodMat, placements.length);
     placements.forEach(([x, bottom, z, height], index) => {
       architecturePosition.set(x, bottom, z);
       architectureScale.set(1, height / 0.84, 1);
@@ -315,6 +321,12 @@ export function createStudyLevel({
   loftLanding.position.set(stairX, LOFT_Y - 0.14, -ROOM_D / 2 + landingDepth / 2);
   loftLanding.receiveShadow = true;
   group.add(loftLanding);
+  studySurfaces.floorSurface(loft, balconyMat);
+  studySurfaces.floorSurface(loftLanding, balconyMat);
+  addStudyArchitectureTrim(group, trimMat, {
+    width: ROOM_W, depth: ROOM_D, height: ROOM_H, loftY: LOFT_Y,
+    loftFrontZ, stairTopZ, entryZ: ENTRY_DOOR_Z, entryWidth: ENTRY_DOOR_W, exitWidth: DOORWAY_W
+  });
   // A single front rail stops before the stair opening.
   const loftRailEndX = stairX - stairHalfWidth + 0.1;
   addRailing(loftRailEndX + loftWidth / 2, (loftRailEndX - loftWidth / 2) / 2, loftFrontZ, true);
@@ -342,16 +354,16 @@ export function createStudyLevel({
   const riserGeometry = new THREE.BoxGeometry(stairWidth - 0.07, stairRise - 0.015, 0.022);
   for (let index = 0; index < stairCount; index++) {
     const stepHeight = stairRise * (index + 1);
-    const step = new THREE.Mesh(stairGeometry, architectureWoodMat);
+    const step = new THREE.Mesh(stairGeometry, stairWoodMat);
     step.scale.y = stepHeight;
     step.position.set(stairX, stepHeight / 2, stairBottomZ - stairDepth * (index + 0.5));
     step.receiveShadow = true;
     group.add(step);
-    const tread = new THREE.Mesh(treadGeometry, architectureWoodMat);
+    const tread = new THREE.Mesh(treadGeometry, treadWoodMat);
     tread.position.set(stairX, stepHeight + 0.028, step.position.z + 0.015);
     tread.receiveShadow = true;
     group.add(tread);
-    addTimber(riserGeometry, stairX, stepHeight - stairRise / 2, stairBottomZ - stairDepth * index + 0.012);
+    addTimber(riserGeometry, stairX, stepHeight - stairRise / 2, stairBottomZ - stairDepth * index + 0.012, stairWoodMat);
   }
   const stringerLength = Math.hypot(stairRun, LOFT_Y);
   const stringerAngle = Math.atan2(LOFT_Y, stairRun);
@@ -361,7 +373,7 @@ export function createStudyLevel({
     const wallSide = side === 1;
     const stringer = addTimber(wallSide ? wallSkirtGeometry : stringerGeometry,
       wallSide ? ROOM_W / 2 - 0.018 : stairX - stairHalfWidth + 0.05,
-      LOFT_Y / 2 + 0.025, (stairBottomZ + stairTopZ) / 2);
+      LOFT_Y / 2 + 0.025, (stairBottomZ + stairTopZ) / 2, stairWoodMat);
     stringer.rotation.x = stringerAngle;
   }
   const stairRailX = stairX - stairHalfWidth + 0.05;
@@ -417,18 +429,12 @@ export function createStudyLevel({
   desk.rotation.y = 0;
   desk.scale.setScalar(1);
   group.add(desk);
-  loadModel(centralDeskUrl).then((model) => {
-    let walnutMaterial;
+  loadStudyModel(centralDeskUrl).then((model) => {
     model.traverse((object) => {
       if (!object.isMesh) return;
       object.castShadow = false;
       object.receiveShadow = true;
-      walnutMaterial ??= [].concat(object.material).find((material) => material.name === 'Aged dark walnut');
     });
-    if (walnutMaterial) {
-      architectureWoodMat.copy(walnutMaterial);
-      architectureWoodMat.needsUpdate = true;
-    }
     desk.add(model);
   }).catch((error) => console.warn('Central study desk could not load:', error));
   colliders.push({
@@ -474,10 +480,10 @@ export function createStudyLevel({
   desk.add(drawer);
 
   // Shared brass material for the new Override Key reward.
-  const keyMat = new THREE.MeshStandardMaterial({ color: 0xb9a55e, metalness: 0.85, roughness: 0.35 });
+  const keyMat = new THREE.MeshStandardMaterial({ color: 0x978258, metalness: 0.72, roughness: 0.66 });
 
   // desk chair, tucked in
-  const chairMat = new THREE.MeshStandardMaterial({ color: 0x2c2018, roughness: 0.8 });
+  const chairMat = studySurfaces.woodMaterial(0.90, 'feature');
   const chairGroup = new THREE.Group();
   chairGroup.position.set(0, 0, 1.9);
   const chairSeat = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.42), chairMat);
@@ -503,10 +509,10 @@ export function createStudyLevel({
   clock.position.set(clockX, 0, clockZ);
   group.add(clock);
 
-  const clockWoodMat = new THREE.MeshStandardMaterial({ color: 0x2b2118, roughness: 0.9 });
+  const clockWoodMat = studySurfaces.woodMaterial(0.82, 'feature');
   const clockHandMat = new THREE.MeshStandardMaterial({ color: 0x15120f, roughness: 0.75 });
   // The GLB supplies only the static case/dial. Its authored +Z faces into +X here.
-  loadModel(grandfatherClockUrl).then((model) => {
+  loadStudyModel(grandfatherClockUrl).then((model) => {
     model.rotation.y = Math.PI / 2;
     model.getObjectByName('Clock_Reward_Service_Panel').visible = false;
     model.traverse((object) => {
@@ -537,22 +543,14 @@ export function createStudyLevel({
   clockPin.position.z = 0.018;
   clockHands.add(clockPin);
 
-  const clockDrawer = new THREE.Group();
-  clockDrawer.position.set(0.24, 0.58, 0);
-  clock.add(clockDrawer);
-  const clockDrawerFront = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.27, 0.327), clockWoodMat);
-  clockDrawerFront.position.x = -0.06;
-  clockDrawer.add(clockDrawerFront);
-  const clockDrawerHandle = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.04, 0.05), clockHandMat);
-  clockDrawerHandle.position.set(-0.035, 0, 0);
-  clockDrawer.add(clockDrawerHandle);
-
-  const archiveTokenMat = new THREE.MeshStandardMaterial({ color: 0xb69a4d, metalness: 0.7, roughness: 0.35 });
-  const archiveToken = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.025, 12), archiveTokenMat);
-  archiveToken.position.set(0.1, 0.08, 0);
-  archiveToken.rotation.z = Math.PI / 2;
-  archiveToken.visible = false;
-  clockDrawer.add(archiveToken);
+  const clockMechanism = createClockMechanism({
+    woodMaterial: clockWoodMat,
+    interiorMaterial: studySurfaces.woodMaterial(0.48),
+    brassMaterial: keyMat
+  });
+  clock.add(clockMechanism.root);
+  const clockDrawer = clockMechanism.doorPivot;
+  const archiveToken = clockMechanism.sigil;
 
   function setClockHands() {
     hourHandPivot.rotation.z = -puzzle.clockHour * (Math.PI * 2 / 12);
@@ -568,7 +566,7 @@ export function createStudyLevel({
       interactables.push(archiveTokenHitbox);
     }
     onSfx('latch');
-    showCaption('A hidden drawer clicks open.');
+    showCaption('A hidden clock door clicks open.');
   }
 
   function rotateClockHand(part) {
@@ -609,26 +607,26 @@ export function createStudyLevel({
     new THREE.BoxGeometry(0.18, 0.18, 0.14),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
-  archiveTokenHitbox.position.set(0.11, 0.08, 0);
+  archiveTokenHitbox.position.copy(archiveToken.position);
   archiveTokenHitbox.visible = false;
   archiveTokenHitbox.userData.interact = {
-    label: 'Take the brass archive token',
+    label: 'Take the Brass Sigil',
     onInteract: () => {
-      if (!puzzle.clockSolved || puzzle.hasArchiveToken) return;
+      if (!puzzle.clockSolved || puzzle.hasArchiveToken || !clockMechanism.canCollect) return;
       puzzle.hasArchiveToken = true;
       archiveToken.visible = false;
       archiveTokenHitbox.visible = false;
       gameState.inventory.add('archiveToken');
       const index = interactables.indexOf(archiveTokenHitbox);
       if (index >= 0) interactables.splice(index, 1);
-      showCaption('Brass archive token acquired.');
+      showCaption('Brass Sigil acquired.');
     }
   };
-  clockDrawer.add(archiveTokenHitbox);
+  clockMechanism.root.add(archiveTokenHitbox);
 
   const incidentNote = new THREE.Mesh(
     new THREE.PlaneGeometry(0.42, 0.26),
-    new THREE.MeshStandardMaterial({ color: 0xcfc5aa, roughness: 1 })
+    new THREE.MeshStandardMaterial({ color: 0xb8ac8f, roughness: 1 })
   );
   incidentNote.rotation.x = -Math.PI / 2;
   incidentNote.rotation.z = -0.12;
@@ -655,10 +653,10 @@ export function createStudyLevel({
   shadowCrest.rotation.y = Math.PI;
   group.add(shadowCrest);
   const crestMat = new THREE.MeshStandardMaterial({ color: 0x8c8068, roughness: 0.9 });
-  const crestBrassMat = new THREE.MeshStandardMaterial({ color: 0xb69a4d, metalness: 0.55, roughness: 0.5 });
+  const crestBrassMat = new THREE.MeshStandardMaterial({ color: 0x88744b, metalness: 0.65, roughness: 0.72 });
   const crestHitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
   // Static housing mounts at the wall; the cover and reward remain separate game objects.
-  loadModel(shadowCrestHousingUrl).then((model) => {
+  loadStudyModel(shadowCrestHousingUrl).then((model) => {
     model.position.z = -0.13;
     model.traverse((object) => {
       if (!object.isMesh) return;
@@ -677,7 +675,11 @@ export function createStudyLevel({
   // Fit the existing visual assembly to the recess without changing its slide clock.
   crestCover.scale.setScalar(0.45);
   shadowCrest.add(crestCover);
-  const crestPlate = new THREE.Mesh(new THREE.CircleGeometry(0.68, 32), crestMat);
+  const crestPlate = new THREE.Mesh(new THREE.CylinderGeometry(0.68, 0.68, 0.035, 32), crestMat);
+  crestPlate.rotation.x = Math.PI / 2;
+  const crestRim = new THREE.Mesh(new THREE.TorusGeometry(0.66, 0.018, 6, 32), crestBrassMat);
+  crestRim.position.z = 0.025;
+  crestCover.add(crestRim);
   crestCover.add(crestPlate);
   const crestSocket = new THREE.Mesh(new THREE.RingGeometry(0.095, 0.14, 12), crestBrassMat);
   crestSocket.position.set(0, -0.36, 0.02);
@@ -705,7 +707,7 @@ export function createStudyLevel({
   const crestLampNames = ['LEFT', 'CENTRE', 'RIGHT'];
   const crestLamps = [];
   const crestLampHits = [];
-  const lampGeometry = new THREE.BoxGeometry(0.22, 0.3, 0.14);
+  const lampGeometry = new RoundedBoxGeometry(0.22, 0.3, 0.14, 1, 0.016);
   const lampHitGeometry = new THREE.BoxGeometry(0.42, 0.44, 0.3);
   const lampFaceGeometry = new THREE.BoxGeometry(0.13, 0.16, 0.02);
   const lampFaceMat = new THREE.MeshStandardMaterial({ color: 0xd9ba77, emissive: 0x60401c, emissiveIntensity: 0.5 });
@@ -729,6 +731,7 @@ export function createStudyLevel({
     const crestIndex = interactables.indexOf(crestHit);
     if (crestIndex >= 0) interactables.splice(crestIndex, 1);
     archiveKey.visible = true;
+    keyRest.visible = true;
     archiveKeyHit.visible = true;
     interactables.push(archiveKeyHit);
     for (const hit of crestLampHits) {
@@ -746,6 +749,7 @@ export function createStudyLevel({
     const face = new THREE.Mesh(lampFaceGeometry, lampFaceMat);
     face.position.z = 0.08;
     sconce.add(body, face);
+    dressCrestControl(sconce, crestBrassMat, studySurfaces.woodMaterial(0.8, 'trim'));
     shadowCrest.add(sconce);
     crestLamps.push(sconce);
     // Targets stay stationary while the small lamp bodies rotate.
@@ -791,7 +795,11 @@ export function createStudyLevel({
   shadowCrest.add(crestHit);
   interactables.push(crestHit);
 
-  const crestClue = new THREE.Mesh(new THREE.BoxGeometry(0.76, 0.32, 0.05), crestMat);
+  const crestClue = new THREE.Mesh(new RoundedBoxGeometry(0.76, 0.32, 0.05, 1, 0.012), crestBrassMat);
+  const crestInscription = studyLabel(0.71, 0.275, true);
+  crestInscription.write(['THREE LIGHTS GUARD THE ARCHIVE.', 'THE OUTER TWO TURN FROM THE CENTRE.', 'THE HEART REMAINS TRUE.']);
+  crestInscription.mesh.position.z = 0.027;
+  crestClue.add(crestInscription.mesh);
   crestClue.position.set(0, -0.94, 0.07);
   crestClue.userData.interact = {
     label: 'Read the crest plaque',
@@ -802,13 +810,11 @@ export function createStudyLevel({
 
   const archiveKey = new THREE.Group();
   archiveKey.position.set(0, 0, 0.08);
-  const archiveKeyBow = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.018, 6, 12), crestBrassMat);
-  archiveKeyBow.position.y = 0.1;
-  const archiveKeyShaft = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.22, 0.025), crestBrassMat);
-  archiveKeyShaft.position.y = -0.07;
-  const archiveKeyBit = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.04, 0.025), crestBrassMat);
-  archiveKeyBit.position.set(0.03, -0.16, 0);
-  archiveKey.add(archiveKeyBow, archiveKeyShaft, archiveKeyBit);
+  fillStudyKey(archiveKey, crestBrassMat);
+  const keyRest = new THREE.Mesh(new RoundedBoxGeometry(0.22, 0.29, 0.035, 1, 0.012), studySurfaces.woodMaterial(0.65));
+  keyRest.position.set(0, -0.025, 0.035);
+  keyRest.visible = false;
+  shadowCrest.add(keyRest);
   archiveKey.visible = false;
   shadowCrest.add(archiveKey);
   const archiveKeyHit = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.5, 0.09), crestHitMat);
@@ -821,6 +827,7 @@ export function createStudyLevel({
       puzzle.hasArchiveKey = true;
       gameState.inventory.add('archiveKey');
       archiveKey.visible = false;
+      keyRest.visible = false;
       archiveKeyHit.visible = false;
       const index = interactables.indexOf(archiveKeyHit);
       if (index >= 0) interactables.splice(index, 1);
@@ -830,38 +837,51 @@ export function createStudyLevel({
   shadowCrest.add(archiveKeyHit);
   updateCrestShadows();
 
-  const shelfMat = new THREE.MeshStandardMaterial({ color: 0x251b14, roughness: 0.95 });
+  const shelfMat = studySurfaces.woodMaterial(0.70);
+  const studyDecor = createStudyDecor({ woodMaterial: architectureWoodMat, brassMaterial: crestBrassMat });
   const shelfAlongWallGeometry = new THREE.BoxGeometry(2.8, 2.8, 0.45);
   const shelfAcrossWallGeometry = new THREE.BoxGeometry(0.45, 2.8, 2.8);
-  function addShelf(x, y, z, alongX, solid = false) {
-    const shelf = new THREE.Mesh(alongX ? shelfAlongWallGeometry : shelfAcrossWallGeometry, shelfMat);
-    shelf.position.set(x, y, z);
-    group.add(shelf);
-    // Applied pilasters, crown and shelf lines turn the simple collision block
-    // into a built-in archive bay without multiplying book-sized meshes.
-    const faceOffset = !alongX && x > 0 ? -0.24 : 0.24;
-    const bayWidth = 2.8;
-    for (const offset of [-bayWidth / 2, bayWidth / 2]) {
-      const pilaster = new THREE.Mesh(new THREE.BoxGeometry(0.11, 2.9, 0.1), trimMat);
-      pilaster.position.set(
-        x + (alongX ? offset : faceOffset),
-        y,
-        z + (alongX ? faceOffset : offset)
-      );
-      if (!alongX) pilaster.rotation.y = Math.PI / 2;
-      group.add(pilaster);
-    }
-    for (const shelfY of [-1.25, -0.42, 0.42, 1.25]) {
-      const shelfLip = new THREE.Mesh(
-        new THREE.BoxGeometry(alongX ? bayWidth : 0.1, 0.09, alongX ? 0.1 : bayWidth),
-        trimMat
-      );
-      shelfLip.position.set(x + (alongX ? 0 : faceOffset), y + shelfY, z + (alongX ? faceOffset : 0));
-      group.add(shelfLip);
+  function addShelf(x, y, z, alongX, solid = false, dressing = null) {
+    if (dressing) {
+      const bookcase = studyDecor.createBookcase(dressing.index, dressing.loft);
+      bookcase.position.set(x, y - 1.4, z);
+      bookcase.rotation.y = alongX ? 0 : x < 0 ? Math.PI / 2 : -Math.PI / 2;
+      group.add(bookcase);
+    } else {
+      const shelf = new THREE.Mesh(alongX ? shelfAlongWallGeometry : shelfAcrossWallGeometry, shelfMat);
+      const variation = Math.abs(Math.round(x * 7 + z * 13)) % 3;
+      shelf.material = studySurfaces.woodMaterial([0.70, 0.76, 0.82][variation]);
+      shelf.userData.studyGrainOffset = variation * 0.27;
+      shelf.position.set(x, y, z);
+      group.add(shelf);
+      // Applied pilasters, crown and shelf lines turn the simple collision block
+      // into a built-in archive bay without multiplying book-sized meshes.
+      const faceOffset = !alongX && x > 0 ? -0.24 : 0.24;
+      const bayWidth = 2.8;
+      for (const offset of [-bayWidth / 2, bayWidth / 2]) {
+        const pilaster = new THREE.Mesh(new THREE.BoxGeometry(0.11, 2.9, 0.1), trimMat);
+        pilaster.position.set(
+          x + (alongX ? offset : faceOffset),
+          y,
+          z + (alongX ? faceOffset : offset)
+        );
+        if (!alongX) pilaster.rotation.y = Math.PI / 2;
+        group.add(pilaster);
+      }
+      for (const shelfY of [-1.25, -0.42, 0.42, 1.25]) {
+        const shelfLip = new THREE.Mesh(
+          new THREE.BoxGeometry(alongX ? bayWidth : 0.1, 0.09, alongX ? 0.1 : bayWidth),
+          trimMat
+        );
+        shelfLip.position.set(x + (alongX ? 0 : faceOffset), y + shelfY, z + (alongX ? faceOffset : 0));
+        group.add(shelfLip);
+      }
     }
     if (solid) {
-      const halfWidth = alongX ? 1.4 : 0.225;
-      const halfDepth = alongX ? 0.225 : 1.4;
+      // Upstairs collision includes the applied pilasters/lips as well as the body.
+      const upstairs = y - 1.4 >= LOFT_Y - 0.001;
+      const halfWidth = alongX ? (upstairs ? 1.455 : 1.4) : (upstairs ? 0.29 : 0.225);
+      const halfDepth = alongX ? (upstairs ? 0.29 : 0.225) : (upstairs ? 1.455 : 1.4);
       colliders.push({
         minX: x - halfWidth, maxX: x + halfWidth,
         minZ: z - halfDepth, maxZ: z + halfDepth,
@@ -870,18 +890,18 @@ export function createStudyLevel({
     }
   }
   // Dressing bays leave the portrait, entry, stair approach and mirror clear.
-  [-4.8, -2].forEach((z) => addShelf(-7.75, 1.4, z, false, true));
-  [-2.4, 0.4].forEach((x) => addShelf(x, 1.4, -6.25, true, true));
-  [-4.8, -2].forEach((z) => addShelf(-7.75, LOFT_Y + 1.4, z, false));
-  addShelf(7.75, LOFT_Y + 1.4, -4.8, false);
-  [-1.5, 1.3].forEach((x) => addShelf(x, LOFT_Y + 1.4, -6.25, true));
+  [-4.8, -2].forEach((z) => addShelf(-7.75, 1.4, z, false, true, z === -2 ? { index: 0 } : null));
+  [-2.4, 0.4].forEach((x) => addShelf(x, 1.4, -6.25, true, true, x === 0.4 ? { index: 1 } : null));
+  [-4.8, -2].forEach((z) => addShelf(-7.75, LOFT_Y + 1.4, z, false, true, z === -2 ? { index: 2, loft: true } : null));
+  addShelf(7.75, LOFT_Y + 1.4, -4.8, false, true);
+  [-1.5, 1.3].forEach((x) => addShelf(x, LOFT_Y + 1.4, -6.25, true, true));
 
   // Floor-centred metre-scale fireplace, facing into the room from the same wall slot.
   const fireplace = new THREE.Group();
   fireplace.name = 'Victorian_Fireplace';
   fireplace.position.set(-5.3, 0, -6.26);
   group.add(fireplace);
-  loadModel(victorianFireplaceUrl).then((model) => {
+  loadStudyModel(victorianFireplaceUrl).then((model) => {
     model.traverse((object) => {
       if (!object.isMesh) return;
       object.castShadow = false;
@@ -896,7 +916,7 @@ export function createStudyLevel({
 
   const rug = new THREE.Mesh(
     new THREE.PlaneGeometry(3.8, 2.8),
-    new THREE.MeshStandardMaterial({ map: createRugTexture({ base: '#2e3a2a', border: '#1c241a', ring: '#3c4a30', trim: '#d8cfa0', core: '#8a6a2a' }), roughness: 1 })
+    new THREE.MeshStandardMaterial({ map: studySurfaces.ageRug(createRugTexture({ base: '#354032', border: '#30362b', ring: '#46503c', trim: '#8f8467', core: '#72613e' })), color: 0xc6bca8, roughness: 1 })
   );
   rug.rotation.x = -Math.PI / 2;
   rug.position.set(0, 0.008, 1.35);
@@ -916,7 +936,7 @@ export function createStudyLevel({
    */
   const portraitTexPlain = createFamilyPhotoTexture();
   const portraitTexTrue = createFamilyPhotoTexture({ figures: 4, scratchedFourth: true });
-  const portraitMat = new THREE.MeshStandardMaterial({ map: portraitTexPlain });
+  const portraitMat = new THREE.MeshStandardMaterial({ map: portraitTexPlain, color: 0xc0b6a4, roughness: 0.96 });
   const portrait = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.7), portraitMat);
   portrait.position.set(-ROOM_W / 2 + 0.05, 1.7, 1);
   portrait.rotation.y = Math.PI / 2;
@@ -936,16 +956,25 @@ export function createStudyLevel({
   memoryArchive.name = 'MemoryArchive';
   memoryArchive.position.set(-5.4, LOFT_Y, -6.255);
   group.add(memoryArchive);
-  const archiveCabinetMat = new THREE.MeshStandardMaterial({ color: 0x342f29, roughness: 0.9 });
+  const archiveCabinetMat = studySurfaces.woodMaterial(0.86);
   const archiveHitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
   const archiveDoorHinge = new THREE.Group();
-  archiveDoorHinge.position.set(-1.55, 0, 0.29);
+  archiveDoorHinge.name = 'MemoryArchiveLeftHinge';
+  archiveDoorHinge.position.set(-0.7, 0, 0.29);
   memoryArchive.add(archiveDoorHinge);
-  const archiveDoor = new THREE.Mesh(new THREE.BoxGeometry(1.40, 1.7, 0.045), archiveCabinetMat);
-  archiveDoor.position.set(1.55, 1, 0);
+  const archiveDoor = new THREE.Mesh(new THREE.BoxGeometry(0.70, 1.7, 0.045), archiveCabinetMat);
+  archiveDoor.position.set(0.35, 1, 0);
   archiveDoorHinge.add(archiveDoor);
+  const archiveRightHinge = new THREE.Group();
+  archiveRightHinge.name = 'MemoryArchiveRightHinge';
+  archiveRightHinge.position.set(0.7, 0, 0.29);
+  const archiveRightDoor = archiveDoor.clone();
+  archiveRightDoor.position.x = -0.35;
+  archiveRightHinge.add(archiveRightDoor);
+  memoryArchive.add(archiveRightHinge);
+  const memoryDoorMotion = hingeMotion([[archiveDoorHinge, -1], [archiveRightHinge, 1]]);
   const archiveLock = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.18, 0.04), crestBrassMat);
-  archiveLock.position.set(2.10, 0.95, 0.04);
+  archiveLock.position.set(0.61, 0.95, 0.04);
   archiveDoorHinge.add(archiveLock);
   const memoryContents = new THREE.Group();
   memoryContents.visible = false;
@@ -962,23 +991,7 @@ export function createStudyLevel({
 
   // Small canvas labels repaint only when a record changes, never per frame.
   function makeArchiveLabel(width, height) {
-    const canvas = document.createElement('canvas');
-    canvas.width = 768;
-    canvas.height = 320;
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), new THREE.MeshBasicMaterial({ map: texture }));
-    function write(lines) {
-      const context = canvas.getContext('2d');
-      context.fillStyle = '#d8cfb5';
-      context.fillRect(0, 0, 768, 320);
-      context.fillStyle = '#211d18';
-      context.font = '34px serif';
-      context.textAlign = 'center';
-      lines.forEach((text, index) => context.fillText(text, 384, 65 + index * 56, 730));
-      texture.needsUpdate = true;
-    }
-    return { mesh, write };
+    return studyLabel(width, height);
   }
 
   function updateMemoryRecords() {
@@ -1018,7 +1031,7 @@ export function createStudyLevel({
     hit.userData.interact = {
       label: recordCategories[index],
       onInteract: () => {
-        if (!puzzle.memoryArchiveUnlocked || puzzle.memoryArchiveSolved || archiveDoorHinge.position.x < 1.2) return;
+        if (!puzzle.memoryArchiveUnlocked || puzzle.memoryArchiveSolved || !memoryDoorMotion.isOpen()) return;
         puzzle.memoryRecordSelections[index] = (puzzle.memoryRecordSelections[index] + 1) % 3;
         updateMemoryRecords();
         showCaption(`${recordCategories[index]}: ${recordOptions[index][puzzle.memoryRecordSelections[index]]}`);
@@ -1037,7 +1050,7 @@ export function createStudyLevel({
   memoryClues.forEach(([text, lines], index) => {
     const display = makeArchiveLabel(0.43, 0.32);
     display.write(lines);
-    display.mesh.position.set((index - 1) * 0.46, 1.97, 0.33);
+    display.mesh.position.set([1, -1, 0][index] * 0.46, 1.97, 0.33);
     display.mesh.userData.interact = {
       label: `Read archive clue ${index + 1}`,
       onInteract: () => showCaption(text)
@@ -1068,8 +1081,13 @@ export function createStudyLevel({
   memoryArchive.add(archiveCabinetHit);
   interactables.push(archiveCabinetHit);
   const visorCompartmentCover = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.38, 0.04), archiveCabinetMat);
-  visorCompartmentCover.position.set(0, 0.68, 0.26);
-  memoryContents.add(visorCompartmentCover);
+  const visorCoverHinge = new THREE.Group();
+  visorCoverHinge.name = 'VisorCompartmentHinge';
+  visorCoverHinge.position.set(-0.33, 0.68, 0.26);
+  visorCompartmentCover.position.set(0.33, 0, 0);
+  visorCoverHinge.add(visorCompartmentCover);
+  memoryContents.add(visorCoverHinge);
+  const visorCoverMotion = hingeMotion([[visorCoverHinge, -1]], 'y', Math.PI * 0.52);
 
   // The existing visor is the archive reward; its pickup hook owns V gating.
   const visorGroup = new THREE.Group();
@@ -1114,7 +1132,7 @@ export function createStudyLevel({
   visorHitbox.userData.interact = {
     label: 'Pick up the visor',
     onInteract: () => {
-      if (!puzzle.memoryArchiveSolved || puzzle.memoryVisorCollected || visorCompartmentCover.position.x < 0.6) return;
+      if (!puzzle.memoryArchiveSolved || puzzle.memoryVisorCollected || !visorCoverMotion.isOpen()) return;
       puzzle.memoryVisorCollected = true;
       visorGroup.visible = false;
       visorHitbox.visible = false;
@@ -1138,7 +1156,7 @@ export function createStudyLevel({
    * toggle function somebody will forget to update.
    */
   const visorOnly = new THREE.Group();
-  visorOnly.visible = false;
+  visorOnly.visible = !!gameState.visorWorn;
   group.add(visorOnly);
 
   // Puzzle 4: the exact same stains read differently through corrected sight.
@@ -1149,36 +1167,8 @@ export function createStudyLevel({
   const bloodTrail = new THREE.Group();
   bloodTrail.name = 'CorrectedBloodTrail';
   visorOnly.add(bloodTrail);
-  const stainGeometry = new THREE.CircleGeometry(1, 9);
-  const blackStainMat = new THREE.MeshBasicMaterial({ color: 0x080709, transparent: true, opacity: 0.72, depthWrite: false });
-  const bloodStainMat = new THREE.MeshBasicMaterial({ color: 0x671514, transparent: true, opacity: 0.85, depthWrite: false });
-  const trailRoute = [
-    [-1.8, 2.25], [1.9, 2.8], [4.9, 3.25], [stairX, stairBottomZ],
-    [stairX, stairTopZ], [6.1, -3.3], [6.1, -4.5], [4.4, -4.95]
-  ];
-  let stainIndex = 0;
-  for (let segment = 1; segment < trailRoute.length; segment++) {
-    const [fromX, fromZ] = trailRoute[segment - 1];
-    const [toX, toZ] = trailRoute[segment];
-    const count = Math.ceil(Math.hypot(toX - fromX, toZ - fromZ) / 0.48);
-    for (let step = 0; step < count; step++, stainIndex++) {
-      const t = step / count;
-      const x = fromX + (toX - fromX) * t;
-      const z = fromZ + (toZ - fromZ) * t;
-      const onStairs = x >= stairX - stairHalfWidth && x <= stairX + stairHalfWidth
-        && z >= stairTopZ && z <= stairBottomZ;
-      const stain = new THREE.Mesh(stainGeometry, blackStainMat);
-      stain.position.set(x, groundAt(x, z) + 0.025, z);
-      stain.rotation.set(-Math.PI / 2 + (onStairs ? Math.atan(LOFT_Y / stairRun) : 0), 0, Math.sin(stainIndex * 2.1) * 0.5);
-      stain.scale.set(0.07 + (stainIndex % 3) * 0.02, 0.16 + (stainIndex % 4) * 0.025, 1);
-      distortedTrail.add(stain);
-      const blood = new THREE.Mesh(stainGeometry, bloodStainMat);
-      blood.position.copy(stain.position);
-      blood.rotation.copy(stain.rotation);
-      blood.scale.copy(stain.scale);
-      bloodTrail.add(blood);
-    }
-  }
+  addStudyFootprints({ distortedTrail, bloodTrail, visorOnly,
+    stairX, stairBottomZ, stairCount, stairDepth, stairRise, loftY: LOFT_Y });
 
   const trailSymbolMat = new THREE.MeshBasicMaterial({ color: 0xbc9c83, side: THREE.DoubleSide });
   const trailLineGeometry = new THREE.PlaneGeometry(0.035, 0.32);
@@ -1210,7 +1200,8 @@ export function createStudyLevel({
       new THREE.PlaneGeometry(0.28, 0.22),
       new THREE.MeshBasicMaterial({ map: createHiddenWritingTexture([['I', 'II', 'III'][index]]), transparent: true, depthWrite: false })
     );
-    numeral.position.set(0.38, 0, 0.002);
+    numeral.position.set(0.40, 0.02, 0.002);
+    dressFloorOrderClue(clue, index, trailSymbolMat);
     clue.add(numeral);
     visorOnly.add(clue);
   });
@@ -1221,7 +1212,7 @@ export function createStudyLevel({
   hollowAlcove.position.set(4.4, LOFT_Y, -6.255);
   group.add(hollowAlcove);
   // The final exit bolts still share this material with the former alcove shell.
-  const alcoveMat = new THREE.MeshStandardMaterial({ color: 0x211d19, roughness: 1 });
+  const alcoveMat = new THREE.MeshStandardMaterial({ color: 0x272725, metalness: 0.4, roughness: 0.88 });
   const restrictedPlaque = makeArchiveLabel(1.30, 0.32);
   restrictedPlaque.write(['PROJECT HOLLOW', '— RESTRICTED RECORDS']);
   restrictedPlaque.mesh.position.set(0, 1.97, -0.17);
@@ -1232,9 +1223,19 @@ export function createStudyLevel({
     }
   };
   hollowAlcove.add(restrictedPlaque.mesh);
-  const hollowArchivePanel = new THREE.Mesh(new THREE.BoxGeometry(1.40, 2.04, 0.045), shelfMat);
-  hollowArchivePanel.position.set(0, 1.12, 0.29);
-  hollowAlcove.add(hollowArchivePanel);
+  const hollowArchivePanel = new THREE.Mesh(new THREE.BoxGeometry(0.70, 2.04, 0.045), shelfMat);
+  const restrictedLeftHinge = new THREE.Group(), restrictedRightHinge = new THREE.Group();
+  restrictedLeftHinge.name = 'RestrictedArchiveLeftHinge';
+  restrictedRightHinge.name = 'RestrictedArchiveRightHinge';
+  restrictedLeftHinge.position.set(-0.7, 0, 0.29);
+  restrictedRightHinge.position.set(0.7, 0, 0.29);
+  hollowArchivePanel.position.set(0.35, 1.12, 0);
+  const restrictedRightDoor = hollowArchivePanel.clone();
+  restrictedRightDoor.position.x = -0.35;
+  restrictedLeftHinge.add(hollowArchivePanel);
+  restrictedRightHinge.add(restrictedRightDoor);
+  hollowAlcove.add(restrictedLeftHinge, restrictedRightHinge);
+  const restrictedDoorMotion = hingeMotion([[restrictedLeftHinge, -1], [restrictedRightHinge, 1]]);
 
   // Puzzle 5 lives entirely inside the restricted alcove. The old letter
   // mesh below is reused as the drawer reward, rather than left accessible.
@@ -1285,7 +1286,15 @@ Annabelle`;
   truthDrawerFloor.position.set(0, -0.1, -0.1);
   const truthDrawerHandle = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.035, 0.05), crestBrassMat);
   truthDrawerHandle.position.z = 0.03;
-  truthDrawer.add(truthDrawerFront, truthDrawerFloor, truthDrawerHandle);
+  const letterDoorHinge = new THREE.Group();
+  letterDoorHinge.name = 'LetterCompartmentHinge';
+  letterDoorHinge.position.set(0, -0.13, -0.01);
+  truthDrawerFront.position.set(0, 0.13, 0);
+  truthDrawerHandle.position.set(0, 0, 0.04);
+  truthDrawerFront.add(truthDrawerHandle);
+  letterDoorHinge.add(truthDrawerFront);
+  truthDrawer.add(letterDoorHinge, truthDrawerFloor);
+  const letterDoorMotion = hingeMotion([[letterDoorHinge, 1]], 'x', Math.PI * 0.51, 0.75);
   const truthRecordDisplays = [];
   const truthRecordHits = [];
   function updateTruthRecords(corrected = gameState.visorWorn) {
@@ -1307,7 +1316,7 @@ Annabelle`;
     hit.userData.interact = {
       label: `Select ${name}`,
       onInteract: () => {
-        if (!puzzle.correctedTrailSolved || hollowArchivePanel.position.x > -1.7 || puzzle.truthRecordsSolved) return;
+        if (!puzzle.correctedTrailSolved || !restrictedDoorMotion.isOpen() || puzzle.truthRecordsSolved) return;
         if (index !== puzzle.truthRecordProgress) {
           puzzle.truthRecordProgress = 0;
           updateTruthRecords();
@@ -1347,7 +1356,7 @@ Annabelle`;
       minY: LOFT_Y, maxY: LOFT_Y + 2.26
     });
   }
-  loadModel(archiveCabinetUrl).then((model) => {
+  loadStudyModel(archiveCabinetUrl).then((model) => {
     // Existing visor cover / letter drawer occupy this service recess instead.
     model.getObjectByName('Archive_Service_Panel').visible = false;
     model.traverse((object) => {
@@ -1356,11 +1365,17 @@ Annabelle`;
       object.receiveShadow = true;
     });
     const shell = model.getObjectByName('Victorian_Archive_Static_Shell');
-    const walnut = [].concat(shell.material).find((material) => material.name === 'Archive aged walnut');
+    // Multi-material GLTF exports wrap primitives in a Group, not a Mesh.
+    let walnut;
+    shell?.traverse((object) => {
+      walnut ??= [].concat(object.material || []).find(material => material.name === 'Archive aged walnut');
+    });
     if (walnut) {
       archiveDoor.material = walnut;
+      archiveRightDoor.material = walnut;
       visorCompartmentCover.material = walnut;
       hollowArchivePanel.material = walnut;
+      restrictedRightDoor.material = walnut;
       truthDrawerFront.material = walnut;
       truthDrawerFloor.material = walnut;
     }
@@ -1368,10 +1383,21 @@ Annabelle`;
     hollowAlcove.add(model.clone(true));
   }).catch((error) => console.warn('Archive cabinets could not load:', error));
 
+  const archivePresentation = createArchivePresentation(archiveCabinetMat, crestBrassMat);
+  archivePresentation.interior(memoryArchive);
+  archivePresentation.interior(hollowAlcove);
+  archivePresentation.records(memoryContents, 0.21, 0.56);
+  archivePresentation.records(hollowAlcove, 0.24, 0.48);
+  dressArchiveLeaf(archiveDoor, 0.7, 1.7, archiveCabinetMat, crestBrassMat);
+  dressArchiveLeaf(archiveRightDoor, 0.7, 1.7, archiveCabinetMat, crestBrassMat, 1);
+  dressArchiveLeaf(hollowArchivePanel, 0.7, 2.04, archiveCabinetMat, crestBrassMat);
+  dressArchiveLeaf(restrictedRightDoor, 0.7, 2.04, archiveCabinetMat, crestBrassMat, 1);
+
+  // Clear rear-wall gaps, outside both archive shells, bookcase bays and portraits.
   const trailMarkerPositions = [
-    [-7.46, LOFT_Y + 1.2, -3, Math.PI / 2],
-    [0.3, LOFT_Y + 1.2, -5.97, 0],
-    [7.46, LOFT_Y + 1.2, -4.6, -Math.PI / 2]
+    [6.85, LOFT_Y + 1.10, -6.4, 0],
+    [-6.85, LOFT_Y + 1.25, -6.4, 0],
+    [-3.65, LOFT_Y + 0.85, -6.4, 0]
   ];
   const trailMarkerMaterials = [];
   function updateTrailMarkers() {
@@ -1387,6 +1413,7 @@ Annabelle`;
     marker.position.set(x, y, z);
     marker.rotation.y = rotation;
     group.add(marker);
+    archivePresentation.marker(marker);
     const glyph = makeTrailSymbol(index);
     glyph.position.set(x + Math.sin(rotation) * 0.065, y, z + Math.cos(rotation) * 0.065);
     glyph.rotation.y = rotation;
@@ -1445,64 +1472,36 @@ Annabelle`;
   wallInk2.rotation.y = -Math.PI / 2;
   visorOnly.add(wallInk2);
 
-  /**
-   * Footmarks. They run from the door to the corner and back, over and over --
-   * somebody has been pacing this room for a long time. They are hers, and on a
-   * second playthrough they are the clearest evidence in the game that she never
-   * left.
-   */
-  const footMat = new THREE.MeshBasicMaterial({
-    map: createFootmarkTexture(),
-    transparent: true,
-    depthWrite: false
-  });
-  for (let i = 0; i < 14; i++) {
-    const t = i / 13;
-    const mark = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.3), footMat);
-    mark.rotation.x = -Math.PI / 2;
-    // A wandering line from the front door across to the far corner.
-    mark.position.set(
-      2.2 - t * 4.6 + Math.sin(i * 1.7) * 0.12,
-      0.006,
-      2.7 - t * 5.0 + Math.cos(i * 2.1) * 0.1
-    );
-    mark.rotation.z = Math.atan2(-4.6, -5.0) + (i % 2 ? 0.18 : -0.18);
-    visorOnly.add(mark);
-  }
-
-  /**
-   * The letter, face up on the floor, and BLANK.
-   *
-   * The storyline is precise about this: "you see a piece of paper on the
-   * floor, once blank, but with the visor on, writing becomes visible." So the
-   * paper is always there and always pickupable -- the player can find it early,
-   * read nothing, and put it down again. That is much crueller than hiding it,
-   * because on a second playthrough they will remember doing exactly that.
-   */
-  const letterPaper = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.26, 0.34),
-    new THREE.MeshStandardMaterial({ color: 0xbdb49c, roughness: 1 })
-  );
-  letterPaper.rotation.x = -Math.PI / 2;
-  letterPaper.rotation.z = 0.24;
-  letterPaper.position.set(0, -0.075, -0.1);
+  // Correspondence is mounted inside the fixed compartment. The existing
+  // document callback still owns reading completion and mirror progression.
+  const letterSheet = studyLabel(0.40, 0.30);
+  letterSheet.write(['Mark,', "If you're reading this,", "you've forgotten again.", 'Read the letter [E]']);
+  const letterPaper = letterSheet.mesh;
+  letterPaper.rotation.x = -0.10;
+  letterPaper.position.set(0, 0.015, 0.08);
   letterPaper.visible = false;
   truthDrawer.add(letterPaper);
+  let letterReading = false;
 
   const letterHit = new THREE.Mesh(
-    new THREE.BoxGeometry(0.34, 0.12, 0.4),
+    new THREE.BoxGeometry(0.46, 0.34, 0.15),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
-  letterHit.position.set(0, -0.02, -0.1);
+  letterHit.position.set(0, 0.02, 0.10);
   letterHit.visible = false;
   letterHit.userData.interact = {
     label: "Read Annabelle's letter",
     onInteract: () => {
-      if (!puzzle.truthRecordsSolved || truthDrawer.position.z < 0.58) return;
+      if (!puzzle.truthRecordsSolved || !letterDoorMotion.isOpen() || letterReading || puzzle.truthRecordsComplete) return;
+      letterReading = true;
       onReadLetter({
         body: annabelleLetterBody,
         onFinished: () => {
           if (puzzle.truthRecordsComplete || !puzzle.truthRecordsSolved) return;
+          letterReading = false;
+          letterHit.visible = false;
+          const hitIndex = interactables.indexOf(letterHit);
+          if (hitIndex >= 0) interactables.splice(hitIndex, 1);
           puzzle.truthRecordsComplete = true;
           puzzle.mirrorUnlocked = true;
           gameState.letterRead = true;
@@ -1519,7 +1518,7 @@ Annabelle`;
   mirrorFrame.name = 'Victorian_Full_Length_Mirror';
   mirrorFrame.position.set(4.8, 0, -6.425);
   group.add(mirrorFrame);
-  loadModel(victorianMirrorUrl).then((model) => {
+  loadStudyModel(victorianMirrorUrl).then((model) => {
     // Keep the game's existing interactive/reveal plane as the only mirror surface.
     model.getObjectByName('Neutral_Mirror_Surface').visible = false;
     model.traverse((object) => {
@@ -1586,7 +1585,7 @@ Annabelle`;
   concealmentChair.scale.setScalar(1);
   concealmentChair.rotation.y = 0;
   group.add(concealmentChair);
-  loadModel(annabelleChairUrl).then((model) => {
+  loadStudyModel(annabelleChairUrl).then((model) => {
     model.traverse((object) => {
       if (!object.isMesh) return;
       object.castShadow = false;
@@ -1625,15 +1624,10 @@ Annabelle`;
 
   const hollowOverrideKey = new THREE.Group();
   hollowOverrideKey.name = 'HollowOverrideKey';
-  hollowOverrideKey.position.set(-3.55, 0.055, -3.85);
+  hollowOverrideKey.position.set(-3.55, 0.014, -3.85);
   hollowOverrideKey.rotation.x = -Math.PI / 2;
   hollowOverrideKey.visible = false;
-  const overrideBow = new THREE.Mesh(new THREE.TorusGeometry(0.065, 0.018, 6, 12), keyMat);
-  const overrideShaft = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.2, 0.025), keyMat);
-  overrideShaft.position.y = -0.14;
-  const overrideBit = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.045, 0.025), keyMat);
-  overrideBit.position.set(0.025, -0.22, 0);
-  hollowOverrideKey.add(overrideBow, overrideShaft, overrideBit);
+  fillStudyKey(hollowOverrideKey, keyMat, true);
   group.add(hollowOverrideKey);
   const hollowOverrideKeyHit = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.24, 0.48), archiveHitMat);
   hollowOverrideKeyHit.position.set(-3.55, 0.12, -3.85);
@@ -1660,11 +1654,20 @@ Annabelle`;
   group.add(frontDoor);
 
   const doorSlab = new THREE.Mesh(
-    new THREE.BoxGeometry(1.05, 2.1, 0.07),
-    new THREE.MeshStandardMaterial({ color: 0x2c2015, roughness: 0.75 })
+    new THREE.BoxGeometry(1.78, 2.98, 0.09),
+    studySurfaces.woodMaterial(0.88)
   );
   doorSlab.position.y = 1.05;
   frontDoor.add(doorSlab);
+  const doorStopMat = studySurfaces.woodMaterial(0.72, 'trim');
+  for (const x of [-0.9, 0.9]) {
+    const stop = new THREE.Mesh(new THREE.BoxGeometry(0.025, 3, 0.10), doorStopMat);
+    stop.position.set(x, 1.5, 0.025);
+    frontDoor.add(stop);
+  }
+  const doorHeadStop = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.025, 0.10), doorStopMat);
+  doorHeadStop.position.set(0, 2.995, 0.025);
+  frontDoor.add(doorHeadStop);
 
   // No legacy lock objects or interaction volumes remain on the door.
   const frontDoorSlabHit = new THREE.Mesh(
@@ -1689,10 +1692,11 @@ Annabelle`;
   const doorState = { open: false };
   const DOOR_OPEN_SWING = -Math.PI / 2.1;
   const doorHinge = new THREE.Object3D();
-  doorHinge.position.set(-0.525, 0, 0);
+  doorHinge.position.set(-0.89, 0, 0);
   frontDoor.add(doorHinge);
   doorHinge.add(doorSlab);
-  doorSlab.position.set(0.525, 1.05, 0);
+  doorSlab.position.set(0.89, 1.49, 0);
+  dressStudyDoor(doorSlab, 1.78, 2.98, studySurfaces.woodMaterial(0.85, 'feature'), crestBrassMat, true);
 
   /**
    * The door's panelling -- three rows of raised panels, and the security
@@ -1708,16 +1712,16 @@ Annabelle`;
    * swing with it. The locks are children of `frontDoor` instead, because
    * those are bolts seated in the frame and stay where they are.
    *
-   * Layout: the slab is 1.05 x 2.1 centred on its own origin. The panel field
+   * Layout: the slab is 1.78 x 2.98 centred on its own origin. The panel field
    * takes the left 62% and the lock stile the right, which is how real
    * joinery does it -- a lock goes through the stile, never through a panel --
    * and which also keeps the lock bodies at x = +0.35 clear of every panel a
    * player has to count.
    */
   const PANEL_FIELD_WIDTH_FRACTION = 0.62;
-  const SLAB_W = 1.05;
-  const SLAB_H = 2.1;
-  const panelMat = new THREE.MeshStandardMaterial({ color: 0x33261a, roughness: 0.8 });
+  const SLAB_W = 1.78;
+  const SLAB_H = 2.98;
+  const panelMat = studySurfaces.woodMaterial(0.95);
 
   {
     const fieldW = SLAB_W * PANEL_FIELD_WIDTH_FRACTION;
@@ -1740,7 +1744,7 @@ Annabelle`;
         panel.position.set(
           fieldX + (span.x + span.width / 2) * fieldW,
           rowCentreY,
-          -0.042
+          -0.054
         );
         doorSlab.add(panel);
       }
@@ -1832,7 +1836,7 @@ Annabelle`;
     socketGroup.rotation.y = rotation;
     group.add(socketGroup);
     const isReleasePanel = choice === 'RELEASE';
-    loadModel(modelUrl).then((model) => {
+    loadStudyModel(modelUrl).then((model) => {
       model.traverse((object) => {
         if (!object.isMesh) return;
         object.castShadow = false;
@@ -1875,185 +1879,24 @@ Annabelle`;
   }
   updateOverrideLabels();
 
-  /**
-   * THE PORCH. Nothing existed past z = 3.25 at all, so the front door -- the
-   * object the entire game is spent trying to reach -- opened onto the void.
-   *
-   * Beyond it: boards, a rail, and the fence gate the storyline puts across it
-   * ("a fence door sealing the porch off"). The gate is the last obstacle and
-   * it is deliberately NOT openable yet: its key is hidden where only the visor
-   * can find it, which is Unit 15.
-   */
-  const PORCH_D = 2.6;
-  const porch = new THREE.Group();
-  porch.position.set(DOOR_X, 0, ROOM_D / 2 + PORCH_D / 2);
-  group.add(porch);
-
-  const porchBoardMat = new THREE.MeshStandardMaterial({
-    map: floorTex, bumpMap: floorBump, bumpScale: 0.5, roughness: 0.95, color: 0x6a6156
+  // The porch, its gate, the house front and everything outside: the yard,
+  // the woods, the night sky and the rain. See studyExterior.js.
+  const { porch, gate, exterior, update: updateExterior } = createStudyExterior({
+    roomW: ROOM_W, roomD: ROOM_D, roomH: ROOM_H, doorX: DOOR_X,
+    doorwayW: DOORWAY_W, doorwayH: DOORWAY_H, colliders
   });
-  const porchFloor = new THREE.Mesh(new THREE.PlaneGeometry(3.0, PORCH_D), porchBoardMat);
-  porchFloor.rotation.x = -Math.PI / 2;
-  porchFloor.position.y = 0.002;
-  porchFloor.receiveShadow = true;
-  porch.add(porchFloor);
+  group.add(porch, exterior);
 
-  const porchRoof = new THREE.Mesh(
-    new THREE.PlaneGeometry(3.0, PORCH_D),
-    new THREE.MeshStandardMaterial({ color: 0x14110d, side: THREE.DoubleSide })
-  );
-  porchRoof.rotation.x = Math.PI / 2;
-  porchRoof.position.y = 2.6;
-  porch.add(porchRoof);
-
-  const postMat = new THREE.MeshStandardMaterial({ color: 0x2a2018, roughness: 0.9 });
-  for (const px of [-1.4, 1.4]) {
-    const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 2.6, 0.12), postMat);
-    post.position.set(px, 1.3, PORCH_D / 2 - 0.1);
-    post.castShadow = true;
-    porch.add(post);
-    // Side rails, so the porch is enclosed rather than a floating deck.
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 1.0, PORCH_D - 0.2), postMat);
-    rail.position.set(px, 0.55, 0);
-    porch.add(rail);
-    colliders.push({
-      minX: DOOR_X + px - 0.1, maxX: DOOR_X + px + 0.1,
-      minZ: ROOM_D / 2 + 0.05, maxZ: ROOM_D / 2 + PORCH_D - 0.05
-    });
-  }
-
-  // The fence gate across the far end.
-  const gateMat = new THREE.MeshStandardMaterial({ color: 0x3f4144, metalness: 0.75, roughness: 0.5 });
-  const gate = new THREE.Group();
-  gate.position.set(0, 0, PORCH_D / 2 - 0.04);
-  porch.add(gate);
-  for (let i = 0; i < 9; i++) {
-    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 1.9, 6), gateMat);
-    bar.position.set(-1.2 + i * 0.3, 0.95, 0);
-    bar.castShadow = true;
-    gate.add(bar);
-  }
-  for (const by of [0.15, 1.85]) {
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(2.7, 0.05, 0.04), gateMat);
-    rail.position.set(0, by, 0);
-    gate.add(rail);
-  }
-  // The existing porch fence remains static scenery/collision.
-  const gateCollider = {
-    minX: DOOR_X - 1.4, maxX: DOOR_X + 1.4,
-    minZ: ROOM_D / 2 + PORCH_D - 0.12, maxZ: ROOM_D / 2 + PORCH_D + 0.05
-  };
-  colliders.push(gateCollider);
-  /**
-   * Porch lighting, and it has to be brighter than instinct says.
-   *
-   * At 0.34 the whole porch rendered as a black void with a few faint vertical
-   * lines in it -- and those lines are the gate, which is the thing stopping
-   * the player leaving. An obstacle the player cannot see is not an obstacle,
-   * it is a wall they walk into.
-   *
-   * Two sources, because one warm bulb makes the porch read as another room.
-   * The lamp over the door is the house; the cold fill from beyond the gate is
-   * the night, and having them disagree in colour is what says "outside".
-   */
-  /**
-   * THE OUTSIDE OF THE HOUSE.
-   *
-   * The closing shot flies the camera out over the treeline and looks back, and
-   * until this there was nothing to look back AT: every wall in this level is a
-   * single-sided plane facing inward, so from outside the study was an open
-   * dollhouse with its furniture on display, floating in pure black. A camera
-   * move is only as good as what it moves through.
-   *
-   * None of this is visible during play. The interior walls are opaque from the
-   * inside, which is exactly what hides it -- so this costs the player nothing
-   * and only exists for the twenty seconds at the end when it is the only thing
-   * on screen.
-   */
-  const exterior = new THREE.Group();
-  group.add(exterior);
-
-  // Ground. Wet, dark, and big enough that the camera never reaches its edge.
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(140, 140),
-    new THREE.MeshStandardMaterial({ color: 0x14161a, roughness: 0.72, metalness: 0.05 })
-  );
-  ground.rotation.x = -Math.PI / 2;
-  ground.position.y = -0.02;
-  ground.receiveShadow = true;
-  exterior.add(ground);
-
-  // The shell: outward-facing walls just outside the interior ones, so the
-  // house reads as a solid object from any angle the ending flies through.
-  const sidingMat = new THREE.MeshStandardMaterial({ color: 0x1d1a16, roughness: 0.95 });
-  const OUT = 0.22;
-  const SHELL_H = ROOM_H + 0.4;
-  const shellSpecs = [
-    [ROOM_W + OUT * 2, 0, -ROOM_D / 2 - OUT, Math.PI],
-    [ROOM_D + OUT * 2, -ROOM_W / 2 - OUT, 0, -Math.PI / 2],
-    [ROOM_D + OUT * 2, ROOM_W / 2 + OUT, 0, Math.PI / 2]
-  ];
-  for (const [w, x, z, ry] of shellSpecs) {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, SHELL_H), sidingMat);
-    m.position.set(x, SHELL_H / 2, z);
-    m.rotation.y = ry;
-    m.castShadow = true;
-    exterior.add(m);
-  }
-  // The front, in two pieces so the porch opening stays open.
-  for (const [w, x] of [
-    [(DOOR_X - 1.55) - (-ROOM_W / 2 - OUT), (-ROOM_W / 2 - OUT + DOOR_X - 1.55) / 2],
-    [(ROOM_W / 2 + OUT) - (DOOR_X + 1.55), (ROOM_W / 2 + OUT + DOOR_X + 1.55) / 2]
-  ]) {
-    if (w <= 0.01) continue;
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, SHELL_H), sidingMat);
-    m.position.set(x, SHELL_H / 2, ROOM_D / 2 + OUT);
-    m.castShadow = true;
-    exterior.add(m);
-  }
-
-  const roof = new THREE.Mesh(
-    new THREE.BoxGeometry(ROOM_W + OUT * 3, 0.22, ROOM_D + OUT * 3),
-    new THREE.MeshStandardMaterial({ color: 0x0f0d0b, roughness: 1 })
-  );
-  roof.position.set(0, SHELL_H + 0.11, 0);
-  roof.castShadow = true;
-  exterior.add(roof);
-
-  /**
-   * The treeline. Cones, because at the distance the ending views them from,
-   * a pine is a triangle -- and forty triangles read as a forest where forty
-   * modelled trees would read as forty models.
-   */
-  const treeMat = new THREE.MeshStandardMaterial({ color: 0x0a0d0b, roughness: 1 });
-  for (let i = 0; i < 44; i++) {
-    // Deterministic placement: the same wood every time the game is played.
-    const a = (i / 44) * Math.PI * 2 + Math.sin(i * 2.7) * 0.05;
-    const r = 17 + ((Math.sin(i * 5.13) + 1) / 2) * 13;
-    const h = 5.5 + ((Math.sin(i * 3.31) + 1) / 2) * 6.5;
-    const tree = new THREE.Mesh(new THREE.ConeGeometry(1.15 + h * 0.055, h, 6), treeMat);
-    tree.position.set(Math.cos(a) * r, h / 2 - 0.2, Math.sin(a) * r + 2.0);
-    exterior.add(tree);
-  }
-
-  // A cold wash over the whole outside, so the house has a night to sit in
-  // rather than a black void. Hemisphere rather than ambient: the ground reads
-  // darker than the sky, which is most of what says "outdoors".
-  const sky = new THREE.HemisphereLight(0x2a3550, 0x07090c, 0.55);
-  exterior.add(sky);
-  const moon = new THREE.DirectionalLight(0x93a8cc, 0.35);
-  moon.position.set(-14, 20, -18);
-  exterior.add(moon);
-
-  const porchLight = new THREE.PointLight(0xffd8a0, 1.15, 7, 2);
-  porchLight.position.set(0, 2.35, -0.5);
-  porchLight.castShadow = true;
-  porchLight.shadow.mapSize.set(512, 512);
-  porch.add(porchLight);
-
-  const nightFill = new THREE.PointLight(0x8fa6c8, 0.55, 9, 1.6);
-  nightFill.position.set(0, 2.0, PORCH_D / 2 + 1.6);
-  porch.add(nightFill);
+  // Decorative meshes only: no interaction registrations, lights, physics or new colliders.
+  group.userData.studyDecorPropCount = studyDecor.dressRoom({
+    group, desk, fireplace, photoTexture: portraitTexPlain, loftY: LOFT_Y
+  });
+  const entryFinish = new THREE.Group();
+  entryFinish.rotation.y = -Math.PI / 2;
+  entryDoor.add(entryFinish);
+  dressStudyDoor(entryFinish, ENTRY_DOOR_W, ENTRY_DOOR_H, trimMat, crestBrassMat);
+  studySurfaces.alignSurfaces(group, wallMat, ROOM_H);
+  batchStudyPuzzleDetails(group);
 
   return {
     group,
@@ -2124,7 +1967,7 @@ Annabelle`;
       puzzle.clockSolved = false;
       puzzle.hasArchiveToken = false;
       setClockHands();
-      clockDrawer.position.x = 0.24;
+      clockMechanism.reset();
       archiveToken.visible = false;
       archiveTokenHitbox.visible = false;
       const tokenIndex = interactables.indexOf(archiveTokenHitbox);
@@ -2137,6 +1980,7 @@ Annabelle`;
       installedSigil.visible = false;
       crestCover.position.x = 0;
       archiveKey.visible = false;
+      keyRest.visible = false;
       archiveKeyHit.visible = false;
       gameState.inventory.delete('archiveKey');
       if (!interactables.includes(crestHit)) interactables.push(crestHit);
@@ -2150,8 +1994,8 @@ Annabelle`;
       puzzle.memoryArchiveSolved = false;
       puzzle.memoryVisorCollected = false;
       memoryContents.visible = false;
-      archiveDoorHinge.position.x = -1.55;
-      visorCompartmentCover.position.x = 0;
+      memoryDoorMotion.reset();
+      visorCoverMotion.reset();
       for (const hit of memoryRecordHits) {
         const index = interactables.indexOf(hit);
         if (index >= 0) interactables.splice(index, 1);
@@ -2169,7 +2013,7 @@ Annabelle`;
       distortedTrail.visible = true;
       puzzle.correctedTrailProgress = 0;
       puzzle.correctedTrailSolved = false;
-      hollowArchivePanel.position.x = 0;
+      restrictedDoorMotion.reset();
       updateTrailMarkers();
       const restrictedIndex = interactables.indexOf(restrictedPlaque.mesh);
       if (restrictedIndex >= 0) interactables.splice(restrictedIndex, 1);
@@ -2197,7 +2041,8 @@ Annabelle`;
       const overrideIndex = interactables.indexOf(hollowOverrideKeyHit);
       if (overrideIndex >= 0) interactables.splice(overrideIndex, 1);
       mirrorGlass.userData.interact.label = 'Look into the mirror';
-      truthDrawer.position.z = 0.28;
+      letterDoorMotion.reset();
+      letterReading = false;
       letterPaper.visible = false;
       letterHit.visible = false;
       for (const hit of [letterHit, mirrorGlass]) {
@@ -2213,24 +2058,18 @@ Annabelle`;
     },
 
     update(dt) {
+      updateExterior(dt);
       if (resealBolts.visible) resealBolts.scale.x += (1 - resealBolts.scale.x) * Math.min(1, dt * 5);
       if (puzzle.endingChoice === 'RELEASE' && !puzzle.endingSequenceStarted && doorHinge.rotation.y < -0.8) {
         const position = getPlayerPosition();
         if (position && Math.abs(position.x - DOOR_X) < DOORWAY_W / 2
           && position.z >= frontZ + 0.2 && position.y < 2.5) startCommittedEnding();
       }
-      const truthDrawerTarget = puzzle.truthRecordsSolved ? 0.7 : 0.28;
-      truthDrawer.position.z += (truthDrawerTarget - truthDrawer.position.z) * Math.min(1, dt * 5);
-      const hollowPanelTarget = puzzle.correctedTrailSolved ? -1.95 : 0;
-      hollowArchivePanel.position.x += (hollowPanelTarget - hollowArchivePanel.position.x) * Math.min(1, dt * 3);
-      const archiveDoorTarget = puzzle.memoryArchiveUnlocked ? 1.65 : -1.55;
-      archiveDoorHinge.position.x += (archiveDoorTarget - archiveDoorHinge.position.x) * Math.min(1, dt * 5);
-      const visorCoverTarget = puzzle.memoryArchiveSolved ? 0.78 : 0;
-      visorCompartmentCover.position.x += (visorCoverTarget - visorCompartmentCover.position.x) * Math.min(1, dt * 5);
-      // The drawer slides, and the door swings. Eased rather than snapped, the
-      // same treatment the bedroom's door and corkboard get.
-      const clockDrawerTargetX = 0.24 + (puzzle.clockSolved ? 0.28 : 0);
-      clockDrawer.position.x += (clockDrawerTargetX - clockDrawer.position.x) * Math.min(1, dt * 6);
+      memoryDoorMotion.update(dt, puzzle.memoryArchiveUnlocked);
+      restrictedDoorMotion.update(dt, puzzle.correctedTrailSolved);
+      visorCoverMotion.update(dt, puzzle.memoryArchiveSolved);
+      letterDoorMotion.update(dt, puzzle.truthRecordsSolved);
+      clockMechanism.update(dt, puzzle.clockSolved);
       const crestTargetX = puzzle.crestSolved ? 2.05 : 0;
       crestCover.position.x += (crestTargetX - crestCover.position.x) * Math.min(1, dt * 5);
       const doorTarget = doorState.open ? DOOR_OPEN_SWING : 0;

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
+import { compileVisibleAsync } from './compileVisible.js';
 import { VisorPass } from './VisorPass.js';
 import { WakePass } from './WakePass.js';
 
@@ -77,6 +78,21 @@ export function createPostFX(renderer, scene, camera) {
   const CAUGHT_ON_TIME = 0.14;
   const CAUGHT_OFF_TIME = 1.1;
   let caughtTarget = 0;
+
+  /**
+   * Runs `work` with the composer's target set. compile() picks every program
+   * synchronously -- only the waiting is asynchronous -- so the target is only
+   * needed around each batch.
+   */
+  function intoComposerTarget(work) {
+    const previousTarget = renderer.getRenderTarget();
+    renderer.setRenderTarget(composer.readBuffer);
+    try {
+      work();
+    } finally {
+      renderer.setRenderTarget(previousTarget);
+    }
+  }
 
   /** Frame-rate independent approach, the same easing the player class uses. */
   function approach(current, goal, tau, dt) {
@@ -185,6 +201,20 @@ export function createPostFX(renderer, scene, camera) {
 
     render() {
       composer.render();
+    },
+
+    /**
+     * Builds, in the background, the shaders for everything visible as the
+     * RenderPass will really draw it. See compileVisibleAsync().
+     *
+     * A shader is built for its render target as well as its lights: drawn to
+     * the canvas it tone maps and converts to sRGB, drawn into the composer's
+     * target it does neither (OutputPass does that later). Built with no
+     * target set, every shader came out as the canvas variant and the first
+     * real frame built them all again, blocking the page while it did.
+     */
+    compileVisible(cam) {
+      return compileVisibleAsync(renderer, scene, cam, { around: intoComposerTarget });
     }
   };
 }

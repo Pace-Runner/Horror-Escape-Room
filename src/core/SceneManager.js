@@ -54,6 +54,41 @@ export function createDeferredLevel(factory, onCreated = () => {}) {
   });
 }
 
+/**
+ * How many matrix passes a hidden level sits out between updates -- about one
+ * a second, as each frame runs two (the main view and the minimap).
+ */
+const HIDDEN_LEVEL_MATRIX_INTERVAL = 120;
+
+/**
+ * Every render recomputes the world matrix of every object in the scene,
+ * hidden or not -- all five levels, every frame, once for the main view and
+ * again for the minimap. Measured at about a sixth of a backrooms frame. A
+ * hidden level is not drawn, so it only needs them now and then: every object
+ * that moves recomputes its own on the next pass anyway (three marks it when
+ * it rebuilds its local matrix).
+ *
+ * Not never: a model that loads into a level that has not been shown yet
+ * measures its bounds from its parents' world matrices (Box3.setFromObject),
+ * and those have to have been worked out at least once.
+ *
+ * @param {THREE.Object3D} group - a level's root group.
+ */
+function skipMatrixUpdatesWhileHidden(group) {
+  const updateMatrixWorld = group.updateMatrixWorld;
+  let passesSkipped = HIDDEN_LEVEL_MATRIX_INTERVAL;
+  group.updateMatrixWorld = function (force) {
+    if (this.visible || passesSkipped >= HIDDEN_LEVEL_MATRIX_INTERVAL) {
+      passesSkipped = 0;
+      updateMatrixWorld.call(this, force);
+      return;
+    }
+    passesSkipped++;
+    // Its parent moved while it was skipped: catch up on the next update.
+    if (force) this.matrixWorldNeedsUpdate = true;
+  };
+}
+
 // Holds every level as a sibling THREE.Group under one root, and switches
 // which one is visible/active/collidable. Deferred room factories are prepared
 // by loading orchestration before production activation.
@@ -67,6 +102,7 @@ export class SceneManager {
   register(key, level) {
     this.levels.set(key, level);
     level.group.visible = false;
+    skipMatrixUpdatesWhileHidden(level.group);
     this.root.add(level.group);
   }
 

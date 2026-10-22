@@ -713,6 +713,12 @@ html, body {
   text-shadow: 0 2px 3px #000;
 }
 
+/* No empty dark strip once the report has ended, under the loading bar or
+   the continue button. */
+.onc-subtitle:empty {
+  opacity: 0;
+}
+
 @keyframes onc-active-one {
   from { transform: scale(1) translate(0, 0); }
   to { transform: scale(1.05) translate(-1.2%, 0.8%); }
@@ -790,6 +796,57 @@ html, body {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   cursor: pointer;
+}
+
+/* The loading bar over the opening's photographs, in the continue button's
+   place and dressed like it. See showLoadingUntil() in main.js. */
+#opening-news-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 46;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 max(5vw, env(safe-area-inset-right)) max(3.5vh, env(safe-area-inset-bottom));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+
+#opening-news-loading.is-open {
+  opacity: 1;
+}
+
+.onl-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55em;
+  padding: 0.45em 1.1em 0.7em;
+  background: rgba(0, 0, 0, 0.48);
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.78);
+}
+
+.onl-hint {
+  color: #f1e7cb;
+  font: 600 clamp(14px, 1.5vw, 22px)/1.28 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: 0 2px 3px #000;
+}
+
+.onl-track {
+  width: min(320px, 60vw);
+  height: 2px;
+  background: rgba(234, 220, 184, 0.14);
+}
+
+.onl-fill {
+  width: 0%;
+  height: 100%;
+  background: #c69a50;
+  box-shadow: 0 0 8px rgba(198, 154, 80, 0.55);
+  transition: width 0.25s ease;
 }
 
 /* ---------- start screen ---------- */
