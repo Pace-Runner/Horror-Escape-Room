@@ -128,12 +128,24 @@ export function createVisorGallery({group, wood, brass, loftY}) {
   const atlas=new THREE.TextureLoader().load(photoUrl);atlas.colorSpace=THREE.SRGBColorSpace;atlas.anisotropy=2;
   const photoMaterial=new THREE.MeshStandardMaterial({map:atlas,color:0xd1c1a9,roughness:.96});
   const [symbolImage,ctx]=canvas(512,512);
-  symbols.forEach((name,i)=>{ctx.save();ctx.beginPath();ctx.rect(i%4*128,Math.floor(i/4)*128,128,128);ctx.clip();ctx.translate(i%4*128,Math.floor(i/4)*128);stock(ctx,128,128);glyph(ctx,name,64,64,79);ctx.restore();});
+  symbols.forEach((name,i)=>{ctx.save();ctx.beginPath();ctx.rect(i%4*128,Math.floor(i/4)*128,128,128);ctx.clip();ctx.translate(i%4*128,Math.floor(i/4)*128);ctx.fillStyle='#c5bcaa';ctx.fillRect(0,0,128,128);glyph(ctx,name,64,64,79);ctx.restore();});
   const symbolMaterial=new THREE.MeshStandardMaterial({map:texture(symbolImage),roughness:1});
   const frameGeometry=new RoundedBoxGeometry(1,1,1,1,.08);
   const standGeometry=new THREE.BoxGeometry(1,1,1);
   const trim=new THREE.Group();trim.name='Antique_Gallery_Frames';trim.userData.studyStaticDetails=true;group.add(trim);
-  const contents=[], targets=[];
+  const contents=[], targets=[], selectionBorders=[];
+  const selectionMaterial=new THREE.MeshBasicMaterial({color:0xcce5eb,toneMapped:false});
+  function selectionBorder(width,height) {
+    const outerW=width/2+.022,outerH=height/2+.022;
+    const innerW=width/2+.006,innerH=height/2+.006;
+    const shape=new THREE.Shape();shape.moveTo(-outerW,-outerH);shape.lineTo(outerW,-outerH);
+    shape.lineTo(outerW,outerH);shape.lineTo(-outerW,outerH);shape.closePath();
+    const hole=new THREE.Path();hole.moveTo(-innerW,-innerH);hole.lineTo(-innerW,innerH);
+    hole.lineTo(innerW,innerH);hole.lineTo(innerW,-innerH);hole.closePath();shape.holes.push(hole);
+    const border=new THREE.Mesh(new THREE.ShapeGeometry(shape),selectionMaterial);
+    border.name='Visor_Selected_Frame_Border';border.position.z=.034;border.visible=false;
+    return border;
+  }
   function picture(width,height,position,yaw,photoGeometry,hiddenGeometry,normalMaterial=photoMaterial,hiddenMaterial=symbolMaterial,freestanding=false){
     const root=new THREE.Group();root.position.set(...position);root.rotation.y=yaw;
     if(freestanding){
@@ -173,9 +185,15 @@ export function createVisorGallery({group, wood, brass, loftY}) {
     const root=picture(layout.width,layout.height,[layout.x,loftY+layout.y,-6.07],0,
       atlasGeometry((i*5+Math.floor(i/5))%6,3,2,.015+(i%3)*.012),atlasGeometry(symbol,4,4,.025),photoMaterial,symbolMaterial,true);
     root.name=layout.target>=0?`Archive_Photo_Target_${layout.target+1}`:`Archive_Photo_Decoy_${decoy}`;
-    if(layout.target>=0)targets[layout.target]={position:root.position.clone(),width:layout.width,height:layout.height};
+    if(layout.target>=0){
+      targets[layout.target]={position:root.position.clone(),width:layout.width,height:layout.height};
+      const border=selectionBorder(layout.width,layout.height);root.add(border);selectionBorders[layout.target]=border;
+    }
   });
   picture(4.225,2.65,[4.35,2.02,6.41],Math.PI,new THREE.PlaneGeometry(1,1),new THREE.PlaneGeometry(1,1),
     new THREE.MeshStandardMaterial({map:diagram(false),roughness:1}),new THREE.MeshStandardMaterial({map:diagram(true),roughness:1}));
-  return {targets,setVisor(on){for(const c of contents){c.image.geometry=on?c.hiddenGeometry:c.photoGeometry;c.image.material=on?c.hiddenMaterial:c.normalMaterial;}}};
+  return {targets,setVisor(on,progress=0,complete=false){
+    for(const c of contents){c.image.geometry=on?c.hiddenGeometry:c.photoGeometry;c.image.material=on?c.hiddenMaterial:c.normalMaterial;}
+    selectionBorders.forEach((border,index)=>{border.visible=!!on&&!complete&&index<progress;});
+  }};
 }

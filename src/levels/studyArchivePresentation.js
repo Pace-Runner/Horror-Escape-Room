@@ -53,7 +53,7 @@ export function createVisorGlassMap() {
 }
 
 /** Archive cards only: handled stock, real thin edges, unchanged text interface. */
-export function createArchiveRecord(width, height, seed = 0) {
+export function createArchiveRecord(width, height, seed = 0, typography = {}) {
   const canvas = document.createElement('canvas');
   // Match the physical insert aspect, including the wide header; never stretch type.
   const texelsPerUnit = 512 / Math.max(width, height);
@@ -73,8 +73,14 @@ export function createArchiveRecord(width, height, seed = 0) {
     stain.addColorStop(0, `rgba(129,105,62,${0.035 + seed % 3 * 0.008})`);
     stain.addColorStop(1, 'rgba(129,105,62,0)');
     ink.fillStyle = stain; ink.fillRect(0, 0, w, h);
-    const font = Math.min(28, Math.max(18, Math.floor(h / 8)));
-    ink.font = `${font}px Georgia, serif`; ink.textAlign = 'center'; ink.textBaseline = 'middle';
+    if (typography.folded) {
+      ink.strokeStyle = 'rgba(95,73,44,.14)'; ink.lineWidth = 1;
+      for (const y of [h * .16, h * .84]) {
+        ink.beginPath(); ink.moveTo(16, y); ink.lineTo(w - 16, y + 1); ink.stroke();
+      }
+    }
+    const font = typography.fontSize ?? Math.min(28, Math.max(18, Math.floor(h / 8)));
+    ink.font = `${typography.fontStyle ?? ''} ${font}px "${typography.fontFamily ?? 'Georgia'}", serif`; ink.textAlign = 'center'; ink.textBaseline = 'middle';
     const rows = [];
     for (const line of lines) {
       let row = '';
@@ -85,7 +91,7 @@ export function createArchiveRecord(width, height, seed = 0) {
       }
       rows.push(row);
     }
-    const spacing = Math.min(font * 1.55, (h - 58) / Math.max(1, rows.length));
+    const spacing = Math.min(font * 1.55, (h - (typography.paddingY ?? 29) * 2) / Math.max(1, rows.length));
     const first = (h - (rows.length - 1) * spacing) / 2;
     rows.forEach((row, index) => { ink.fillStyle = index === 0 ? '#6e4030' : '#302b23'; ink.fillText(row, w / 2, first + index * spacing); });
     texture.needsUpdate = true;

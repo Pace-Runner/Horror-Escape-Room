@@ -1193,9 +1193,9 @@ export function createStudyLevel({
   const restrictedHeaderMount = new THREE.Mesh(new RoundedBoxGeometry(1.32, 0.28, 0.012, 1, 0.004), restrictedCabinetMat);
   restrictedHeaderMount.position.set(0, 1.97, -0.162);
   hollowAlcove.add(restrictedHeaderMount, restrictedPlaque.mesh);
-  const chronologyNote = createArchiveRecord(1.22, 0.20, 11);
+  const chronologyNote = createArchiveRecord(1.22, 0.12, 11, { fontSize: 16, paddingY: 7, fontFamily: 'Courier New' });
   chronologyNote.write(['Authorization precedes the method;', 'the consequence closes the file.']);
-  chronologyNote.mesh.position.set(0, 1.68, 0.24);
+  chronologyNote.mesh.position.set(0, 1.76, -0.155);
   hollowAlcove.add(chronologyNote.mesh);
   const hollowArchivePanel = new THREE.Mesh(new RoundedBoxGeometry(0.70, 2.04, 0.045, 1, 0.006), restrictedCabinetMat);
   const restrictedLeftHinge = new THREE.Group(), restrictedRightHinge = new THREE.Group();
@@ -1368,7 +1368,7 @@ Annabelle`;
   const symbolGallery = createVisorGallery({ group, wood: archiveCabinetMat, brass: crestBrassMat, loftY: LOFT_Y });
   const trailMarkerHits = [];
   function setGallerySight(on) {
-    symbolGallery.setVisor(on);
+    symbolGallery.setVisor(on, puzzle.correctedTrailProgress, puzzle.correctedTrailSolved);
     for (const hit of trailMarkerHits) {
       const index = interactables.indexOf(hit);
       if (on && index < 0) interactables.push(hit);
@@ -1376,7 +1376,7 @@ Annabelle`;
     }
   }
   // No special frame tint gives the solution away in ordinary sight.
-  function updateTrailMarkers() { symbolGallery.setVisor(!!gameState.visorWorn); }
+  function updateTrailMarkers() { symbolGallery.setVisor(!!gameState.visorWorn, puzzle.correctedTrailProgress, puzzle.correctedTrailSolved); }
   symbolGallery.targets.forEach((target, index) => {
     const hit = new THREE.Mesh(new THREE.BoxGeometry(target.width, target.height, 0.06), archiveHitMat);
     hit.position.copy(target.position);
@@ -1435,8 +1435,8 @@ Annabelle`;
 
   // Correspondence is mounted inside the fixed compartment. The existing
   // document callback still owns reading completion and mirror progression.
-  const letterSheet = createArchiveRecord(0.40, 0.20, 10);
-  letterSheet.write(['Mark,', "If you're reading this,", "you've forgotten again.", 'Read the letter [E]']);
+  const letterSheet = createArchiveRecord(0.40, 0.20, 10, { fontSize: 34, fontStyle: 'italic', folded: true });
+  letterSheet.write(['MARK']);
   const letterPaper = letterSheet.mesh;
   letterPaper.rotation.x = -0.10;
   letterPaper.position.set(0, 0.025, -0.075);
