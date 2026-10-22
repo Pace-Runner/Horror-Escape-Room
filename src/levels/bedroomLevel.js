@@ -2493,11 +2493,74 @@ export function createBedroomLevel({
 
   // The loose board sits partly beneath the rug corner. Folding that corner
   // reveals its existing crowbar interaction and the same key reward.
+  //
+  // The model's top is warped, 0.013 to 0.027 above its own origin. Its LOWEST
+  // corner stands LOOSE_BOARD_PROUD above the boards round it, so the whole
+  // top is clear of the floor and of the dark seam under it, and the warped
+  // corner lifts 2 cm -- where it used to stand 4 cm up like a lid.
+  const LOOSE_BOARD_SPOT = { x: -1.55, z: 2.3 };
+  const LOOSE_BOARD_PROUD = 0.005;
+  const LOOSE_BOARD_REST_Y = LOOSE_BOARD_PROUD - 0.013;
   const looseFloorboard = new THREE.Group();
   looseFloorboard.name = 'Level1LooseFloorboardVisualHost';
-  looseFloorboard.position.set(-1.55, 0.013, 2.3);
+  looseFloorboard.position.set(LOOSE_BOARD_SPOT.x, LOOSE_BOARD_REST_Y, LOOSE_BOARD_SPOT.z);
   looseFloorboard.visible = false;
   group.add(looseFloorboard);
+
+  /**
+   * The dark gap round the board, and the hole it leaves once it is up: the
+   * model's LooseFloorboardPryGap, a near-black slab a little bigger than the
+   * board, moved out of the board (which moves) into this host (which does
+   * not), and lifted to just over the floor so its edge shows round the board
+   * as a seam.
+   */
+  const looseFloorboardHole = new THREE.Group();
+  looseFloorboardHole.name = 'Level1LooseFloorboardHole';
+  looseFloorboardHole.position.set(LOOSE_BOARD_SPOT.x, 0.0015, LOOSE_BOARD_SPOT.z);
+  looseFloorboardHole.visible = false;
+  group.add(looseFloorboardHole);
+
+  /**
+   * Prying it up: lifted off its far end by the crowbar (LOOSE_BOARD_LIFT),
+   * then pulled clear and laid on the floor beside the hole, between it and
+   * the wall, where it stays. `t` is null until it is pried.
+   */
+  const LOOSE_BOARD_HALF_LENGTH = 0.36;
+  const LOOSE_BOARD_LIFT = { seconds: 0.55, angle: THREE.MathUtils.degToRad(68) };
+  const LOOSE_BOARD_SET_DOWN = { seconds: 0.75, x: 0.03, z: 0.36, yaw: 0.14, arc: 0.12 };
+  /** The board's underside is 0.012 below its origin: lying on the floor, the origin is that far up. */
+  const LOOSE_BOARD_LYING_Y = 0.012;
+  const looseBoardPry = { t: null };
+  function placeLooseBoard(t) {
+    const pivotX = LOOSE_BOARD_SPOT.x - LOOSE_BOARD_HALF_LENGTH;
+    if (t <= LOOSE_BOARD_LIFT.seconds) {
+      const k = t / LOOSE_BOARD_LIFT.seconds;
+      const angle = LOOSE_BOARD_LIFT.angle * k * k * (3 - 2 * k);
+      looseFloorboard.rotation.set(0, 0, angle);
+      looseFloorboard.position.set(
+        pivotX + LOOSE_BOARD_HALF_LENGTH * Math.cos(angle),
+        LOOSE_BOARD_REST_Y + LOOSE_BOARD_HALF_LENGTH * Math.sin(angle),
+        LOOSE_BOARD_SPOT.z
+      );
+      return;
+    }
+    const k = Math.min(1, (t - LOOSE_BOARD_LIFT.seconds) / LOOSE_BOARD_SET_DOWN.seconds);
+    const eased = k * k * (3 - 2 * k);
+    const liftedX = pivotX + LOOSE_BOARD_HALF_LENGTH * Math.cos(LOOSE_BOARD_LIFT.angle);
+    const liftedY = LOOSE_BOARD_REST_Y + LOOSE_BOARD_HALF_LENGTH * Math.sin(LOOSE_BOARD_LIFT.angle);
+    const lerp = THREE.MathUtils.lerp;
+    looseFloorboard.rotation.set(0, LOOSE_BOARD_SET_DOWN.yaw * eased, LOOSE_BOARD_LIFT.angle * (1 - eased));
+    looseFloorboard.position.set(
+      lerp(liftedX, LOOSE_BOARD_SPOT.x + LOOSE_BOARD_SET_DOWN.x, eased),
+      lerp(liftedY, LOOSE_BOARD_LYING_Y, eased) + LOOSE_BOARD_SET_DOWN.arc * Math.sin(Math.PI * k),
+      lerp(LOOSE_BOARD_SPOT.z, LOOSE_BOARD_SPOT.z + LOOSE_BOARD_SET_DOWN.z, eased)
+    );
+  }
+  function resetLooseBoard() {
+    looseBoardPry.t = null;
+    looseFloorboard.rotation.set(0, 0, 0);
+    looseFloorboard.position.set(LOOSE_BOARD_SPOT.x, LOOSE_BOARD_REST_Y, LOOSE_BOARD_SPOT.z);
+  }
 
   // The remodel is the same 72 cm board footprint as the old interaction,
   // with UVs sampling the matching patch from the room's existing floor map.
@@ -2514,7 +2577,17 @@ export function createBedroomLevel({
       if (!child.isMesh) return;
       child.castShadow = true;
       child.receiveShadow = true;
+      // Blender's dark-brown base colour multiplied the floor photo down to
+      // near black; a touch under white leaves it the floor's own wood, just
+      // darker enough to be the board that is out of place.
+      if (child.material.name === 'LooseFloorboardWood') child.material.color.setScalar(0.85);
     });
+    const gap = floorboardModel.getObjectByName('LooseFloorboardPryGap');
+    if (gap) {
+      looseFloorboardHole.add(gap);
+      gap.position.y = 0;
+      gap.castShadow = false;
+    }
     looseFloorboard.add(floorboardModel);
   }).catch((error) => console.error('Could not load the Level 1 loose floorboard remodel:', error));
 
@@ -2533,7 +2606,7 @@ export function createBedroomLevel({
     new THREE.BoxGeometry(0.78, 0.16, 0.36),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
-  looseFloorboardHitbox.position.copy(looseFloorboard.position);
+  looseFloorboardHitbox.position.set(LOOSE_BOARD_SPOT.x, 0.06, LOOSE_BOARD_SPOT.z);
   looseFloorboardHitbox.userData.interact = {
     label: 'Examine loose floorboard',
     onInteract: () => {
@@ -2548,7 +2621,9 @@ export function createBedroomLevel({
       }
       puzzleState.floorboardPried = true;
       useUpCrowbarIfDone();
-      looseFloorboard.visible = false;
+      // Lifted out and laid beside the hole, not taken away.
+      looseBoardPry.t = 0;
+      onSfx('planks_pry');
       looseFloorboardHitbox.visible = false;
       const floorboardIndex = interactables.indexOf(looseFloorboardHitbox);
       if (floorboardIndex >= 0) interactables.splice(floorboardIndex, 1);
@@ -2563,7 +2638,8 @@ export function createBedroomLevel({
   looseFloorboardHitbox.visible = false;
 
   const bedroomKey = new THREE.Group();
-  bedroomKey.position.set(-1.55, 0.07, 2.3);
+  // Lying in the hole the board leaves, on its dark floor.
+  bedroomKey.position.set(LOOSE_BOARD_SPOT.x, 0.032, LOOSE_BOARD_SPOT.z);
   bedroomKey.rotation.y = 0.5;
   bedroomKey.visible = false;
   const bedroomKeyMetal = new THREE.MeshStandardMaterial({ color: 0xb9c2cc, metalness: 0.8, roughness: 0.35 });
@@ -3357,6 +3433,8 @@ export function createBedroomLevel({
       rugCornerHitbox.visible = Boolean(rugFoldCorner);
       if (rugCornerHitbox.visible && !interactables.includes(rugCornerHitbox)) interactables.push(rugCornerHitbox);
       looseFloorboard.visible = false;
+      looseFloorboardHole.visible = false;
+      resetLooseBoard();
       looseFloorboardHitbox.visible = false;
       const hiddenFloorboardIndex = interactables.indexOf(looseFloorboardHitbox);
       if (hiddenFloorboardIndex >= 0) interactables.splice(hiddenFloorboardIndex, 1);
@@ -3391,6 +3469,10 @@ export function createBedroomLevel({
       puzzleState.polaroidRead = false;
     },
     update(dt) {
+      if (looseBoardPry.t !== null && looseBoardPry.t < LOOSE_BOARD_LIFT.seconds + LOOSE_BOARD_SET_DOWN.seconds) {
+        looseBoardPry.t += dt;
+        placeLooseBoard(looseBoardPry.t);
+      }
       if (rugCornerOpening && rugFoldCorner) {
         rugFoldProgress = Math.min(1, rugFoldProgress + dt / rugFoldDurationSeconds);
         const eased = rugFoldProgress * rugFoldProgress * (3 - 2 * rugFoldProgress);
@@ -3400,6 +3482,7 @@ export function createBedroomLevel({
           rugCornerOpen = true;
           if (!puzzleState.floorboardPried) {
             looseFloorboard.visible = true;
+            looseFloorboardHole.visible = true;
             looseFloorboardHitbox.visible = true;
             if (!interactables.includes(looseFloorboardHitbox)) interactables.push(looseFloorboardHitbox);
           }
