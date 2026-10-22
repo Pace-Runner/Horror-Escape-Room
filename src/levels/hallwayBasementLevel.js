@@ -333,9 +333,20 @@ const BREAKER_PANEL_Z = 1.7 * LAB_SCALE;
 /**
  * Where the creature stands after camera five, in lab space: the far corner
  * on the opposite side from the desk, so turning round from the monitor puts
- * it in frame, and just behind where its black pool is left.
+ * it in frame. Its black pool is left on this spot.
  */
 const CREATURE_CORNER = { x: -2.6 * LAB_SCALE, z: -1.25 * LAB_SCALE };
+/**
+ * The way it leaves, in lab space: across the room to just inside the
+ * entrance, through the middle of the double doors, and on up the hallway the
+ * player came down. Clear of the generator in the entrance corner and of the
+ * workbench out in the middle; the trolley can be anywhere, so it is ignored.
+ */
+const CREATURE_EXIT_ROUTE = [
+  { x: -0.5, z: -LAB_D / 2 + 1.0 },
+  { x: 0, z: -LAB_D / 2 - 0.6 },
+  { x: 0, z: -LAB_D / 2 - 3.2 }
+];
 
 /**
  * The restraint table (operating_table.glb), in lab space, and its size in
@@ -1227,6 +1238,8 @@ export function createHallwayBasementLevel({
   /** -1 on the hallway side of the doors, +1 on the lab side; refreshed every frame. */
   let labDoorPlayerSide = -1;
   let labDoorHeavyHintShown = false;
+  /** Seconds the doors are still being held open toward the hallway by the creature running through. */
+  let labDoorBurst = 0;
   // Across the doorway while the doors are shut; parked out of the way while
   // they stand open far enough to walk through.
   const LAB_DOOR_COLLIDER_SHUT = { minZ: labDoorPivotZ - 0.06, maxZ: labDoorPivotZ + 0.06 };
@@ -1286,9 +1299,17 @@ export function createHallwayBasementLevel({
       stiffness = swing.heldStiffness;
       damping = swing.heldDamping;
     }
+    // The creature going through: flung open toward the hallway, then let go
+    // to swing back on their springs.
+    if (labDoorBurst > 0) {
+      labDoorBurst = Math.max(0, labDoorBurst - dt);
+      target = -swing.openAngle;
+      stiffness = swing.heldStiffness;
+      damping = swing.heldDamping;
+    }
     // Heavy only while being shoved toward the hallway from the lab side, so
     // they still swing shut behind the player rather than creeping to.
-    const isHeavy = labDoorHeld === 0 && !inDoorway && labDoorPlayerSide > 0;
+    const isHeavy = labDoorHeld === 0 && labDoorBurst === 0 && !inDoorway && labDoorPlayerSide > 0;
     const step = Math.min(dt, 1 / 30);
     for (const leaf of labLeaves) {
       const heavy = isHeavy && leaf.angle <= 0;
@@ -1311,8 +1332,15 @@ export function createHallwayBasementLevel({
     }
   }
 
+  /** Throws the doors open toward the hallway, as something goes through them at a run. */
+  function burstLabDoors(seconds) {
+    labDoorBurst = seconds;
+    for (const leaf of labLeaves) leaf.speed = Math.min(leaf.speed, -6);
+  }
+
   function resetLabDoors() {
     labDoorHeld = 0;
+    labDoorBurst = 0;
     labDoorHeavyHintShown = false;
     Object.assign(labDoorCollider, LAB_DOOR_COLLIDER_SHUT);
     for (const leaf of labLeaves) {
@@ -5014,7 +5042,8 @@ export function createHallwayBasementLevel({
   });
   const blackPool = new THREE.Mesh(createPoolGeometry(BLACK_POOL), poolMat);
   blackPool.rotation.x = -Math.PI / 2;
-  blackPool.position.set(-2.5 * LAB_SCALE, 0.006, -2.05 * LAB_SCALE);
+  // Under where it stood.
+  blackPool.position.set(CREATURE_CORNER.x, 0.006, CREATURE_CORNER.z);
   blackPool.receiveShadow = true;
   blackPool.visible = false;
   blackPool.userData.interact = {
@@ -5760,6 +5789,12 @@ export function createHallwayBasementLevel({
       blackPool,
       /** Where the creature stands after camera five, as world [x, z]. */
       creatureCorner: [CREATURE_CORNER.x, LAB_Z + CREATURE_CORNER.z],
+      /** The way it runs out after standing there, as world [x, z] points. */
+      creatureExitRoute: CREATURE_EXIT_ROUTE.map((p) => [p.x, LAB_Z + p.z]),
+      /** Where the lab doors hang, as world [x, z]: the point it bursts through. */
+      labDoorway: [0, labDoorPivotZ],
+      /** Flings the lab doors open toward the hallway for `seconds`. */
+      burstLabDoors,
       /** One lightning strike down the hallway. Returns how long it lasts. */
       strike: (duration = 0.55) => {
         flash.duration = duration;

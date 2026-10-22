@@ -2523,6 +2523,138 @@ function updateHallwayRush(dt) {
   creature.setSpeed(HALLWAY_RUSH_SPEED);
 }
 
+/**
+ * Camera five comes up on the CCTV desk: the figure on the screen, and the
+ * creature standing in the lab's corner behind the player.
+ */
+function playCameraFiveSighting() {
+  thought('l2_09');
+  thought('l2_10');
+  // Camera five is this room. There is a figure standing in it.
+  hallwayBasement.refs.feeds.showBasementFigure(3.4, () => thought('l2_11'));
+  script.run(async (s) => {
+    /**
+     * And it is behind you -- the instant camera five comes up, not after
+     * a beat: the figure on the screen and the thing in the corner are
+     * there together.
+     *
+     * The storyline: "Turning around you see the creature standing in the
+     * corner, staring at you, but not moving. Then it disappears back up
+     * the stairs, leaving a black pool where it was standing."
+     *
+     * It is placed, not spawned into the AI -- it must NOT wander, flee or
+     * block anything here. It stands for a few seconds, then runs out
+     * through the doors the player came in by -- see updateLabCreatureExit().
+     * The AI takes over in Level 3, where the player has room to be chased.
+     */
+    s.do(() => {
+      // Where it stands -- the level owns the spot, so it moves with the
+      // lab if the room is ever resized again.
+      const CORNER = hallwayBasement.refs.creatureCorner;
+      showCreatureAt({ x: CORNER[0], z: CORNER[1], linger: null });
+      labCreatureExit = { phase: 'stare', t: 0, seenAt: null, leg: 0, doorsBurst: false };
+      audio.setBreathing(LEVEL_TWO_BREATHING.cctvBasement);
+      creak();
+    });
+    if (!await s.play(line('dialog_cctv_basement').slice(0, 1))) return;
+    while (labCreatureExit?.phase === 'stare') if (!await s.wait(0.1)) return;
+    // "Then it turns and goes, back the way you came."
+    if (!await s.play(line('dialog_creature_corner').slice(-1))) return;
+    while (labCreatureExit) if (!await s.wait(0.1)) return;
+    // Back off: it has gone, and the room is only as bad as it was.
+    s.do(() => audio.setBreathing(LEVEL_TWO_BREATHING.settled));
+    if (!await s.wait(0.6)) return;
+    await s.play(line('dialog_black_pool'));
+  });
+}
+
+/**
+ * Level 2, camera five: the creature in the lab's corner stands only a few
+ * seconds, then runs out through the doors the player came in by, leaving its
+ * black pool where it stood. The user asked for it to be quick -- it used to
+ * stand there through two whole caption sequences.
+ *
+ * The stare is LAB_CREATURE_STARE_AFTER_SEEN once the player has turned to it,
+ * but never less than _MIN nor more than _MAX, so a player who never turns
+ * round still hears it go.
+ */
+const LAB_CREATURE_STARE_MIN = 2.5;
+const LAB_CREATURE_STARE_MAX = 5;
+const LAB_CREATURE_STARE_AFTER_SEEN = 1.5;
+/** Within this angle of the view's centre, it counts as looked at. */
+const LAB_CREATURE_SEEN_RADIANS = THREE.MathUtils.degToRad(35);
+const LAB_CREATURE_RUN_SPEED = 5;
+/** How fast it turns from the player to the way out, in radians a second. */
+const LAB_CREATURE_TURN_RATE = 9;
+/** This close to the doors, it throws them open. */
+const LAB_CREATURE_DOOR_REACH = 1.4;
+/** And they are held open this long, then left to swing back. */
+const LAB_CREATURE_DOOR_HOLD = 1.1;
+/** null, or { phase: 'stare' | 'run', t, seenAt, leg, doorsBurst }. */
+let labCreatureExit = null;
+const _labCreatureView = new THREE.Vector3();
+
+function updateLabCreatureExit(dt) {
+  const exit = labCreatureExit;
+  if (!exit) return;
+  if (sceneManager.activeKey !== 'hallwayBasement') {
+    labCreatureExit = null;
+    hideCreature();
+    return;
+  }
+  exit.t += dt;
+  const p = creature.position;
+  if (exit.phase === 'stare') {
+    if (exit.seenAt === null) {
+      camera.getWorldDirection(_labCreatureView);
+      const toX = p.x - camera.position.x;
+      const toZ = p.z - camera.position.z;
+      const cos = (_labCreatureView.x * toX + _labCreatureView.z * toZ)
+        / (Math.hypot(_labCreatureView.x, _labCreatureView.z) * Math.hypot(toX, toZ) || 1);
+      if (cos > Math.cos(LAB_CREATURE_SEEN_RADIANS)) {
+        exit.seenAt = exit.t;
+        thought('l2_17');
+      }
+    }
+    const due = exit.seenAt === null
+      ? LAB_CREATURE_STARE_MAX
+      : Math.min(LAB_CREATURE_STARE_MAX, Math.max(LAB_CREATURE_STARE_MIN, exit.seenAt + LAB_CREATURE_STARE_AFTER_SEEN));
+    if (exit.t < due) return;
+    exit.phase = 'run';
+    // It was standing in it.
+    hallwayBasement.refs.revealPool();
+    audio.footsteps({ count: 9, spacing: 0.24, pan: 0, level: 0.6 });
+  }
+
+  const route = hallwayBasement.refs.creatureExitRoute;
+  const [tx, tz] = route[exit.leg];
+  const dx = tx - p.x;
+  const dz = tz - p.z;
+  const d = Math.hypot(dx, dz);
+  const step = LAB_CREATURE_RUN_SPEED * dt;
+  if (d <= step) {
+    creature.setPosition(tx, tz);
+    exit.leg += 1;
+    if (exit.leg >= route.length) {
+      labCreatureExit = null;
+      hideCreature();
+    }
+    return;
+  }
+  creature.setPosition(p.x + (dx / d) * step, p.z + (dz / d) * step);
+  const yaw = creature.yaw;
+  const turn = Math.atan2(Math.sin(Math.atan2(-dx, -dz) - yaw), Math.cos(Math.atan2(-dx, -dz) - yaw));
+  creature.setYaw(yaw + Math.sign(turn) * Math.min(Math.abs(turn), LAB_CREATURE_TURN_RATE * dt));
+  creature.setSpeed(LAB_CREATURE_RUN_SPEED);
+
+  const [doorX, doorZ] = hallwayBasement.refs.labDoorway;
+  if (!exit.doorsBurst && Math.hypot(doorX - p.x, doorZ - p.z) < LAB_CREATURE_DOOR_REACH) {
+    exit.doorsBurst = true;
+    hallwayBasement.refs.burstLabDoors(LAB_CREATURE_DOOR_HOLD);
+    sfx('metal_door_open', { position: { x: doorX, y: 1.1, z: doorZ }, spans: true });
+  }
+}
+
 const hallwayBasement = createDeferredLevel(() => createHallwayBasementLevel({
   showCaption,
   onThought: thought,
@@ -2688,47 +2820,7 @@ const hallwayBasement = createDeferredLevel(() => createHallwayBasementLevel({
       return;
     }
 
-    if (id === 'basement') {
-      thought('l2_09');
-      thought('l2_10');
-      // Camera five is this room. There is a figure standing in it.
-      hallwayBasement.refs.feeds.showBasementFigure(3.4, () => thought('l2_11'));
-      script.run(async (s) => {
-        /**
-         * And it is behind you -- the instant camera five comes up, not after
-         * a beat: the figure on the screen and the thing in the corner are
-         * there together.
-         *
-         * The storyline: "Turning around you see the creature standing in the
-         * corner, staring at you, but not moving. Then it disappears back up
-         * the stairs, leaving a black pool where it was standing."
-         *
-         * It is placed, not spawned into the AI -- it must NOT wander, flee or
-         * block anything here. It stands, it is looked at, it goes. The AI takes
-         * over in Level 3, where the player has room to be chased.
-         */
-        s.do(() => {
-          // Where it stands -- the level owns the spot, so it moves with the
-          // lab if the room is ever resized again. For as long as the lines
-          // take, its aura looping, rather than a fixed linger.
-          const CORNER = hallwayBasement.refs.creatureCorner;
-          showCreatureAt({ x: CORNER[0], z: CORNER[1], linger: null });
-          audio.setBreathing(LEVEL_TWO_BREATHING.cctvBasement);
-          creak();
-        });
-        if (!await s.play(line('dialog_cctv_basement'))) return;
-        if (!await s.play(line('dialog_creature_corner'))) return;
-        s.do(() => thought('l2_17'));
-        s.do(() => {
-          hideCreature();
-          hallwayBasement.refs.revealPool();
-          // Back off: it has gone, and the room is only as bad as it was.
-          audio.setBreathing(LEVEL_TWO_BREATHING.settled);
-        });
-        if (!await s.wait(0.6)) return;
-        await s.play(line('dialog_black_pool'));
-      });
-    }
+    if (id === 'basement') playCameraFiveSighting();
   }
 }), (level) => {
   level.refs.tapeModelReady.then((model) => itemMeshes.setTemplate('sessionTape', model)).catch(() => {});
@@ -3694,6 +3786,7 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   // below hides the body; the director has already cut its aura.
   creatureLinger = null;
   creatureStalkToken = null;
+  labCreatureExit = null;
   const isBedroomRestraintActive = key === 'bedroom' && !level.refs.puzzleState.chainsEscaped;
   player.setLookBounds(isBedroomRestraintActive ? BEDROOM_RESTRAINED_LOOK_BOUNDS : null);
   interaction.setTargets(level.interactables);
@@ -4759,6 +4852,9 @@ if (import.meta.env.DEV) {
     // The stairs scare normally waits for the player to walk to the top step.
     playStairsScare,
     stairsScare,
+    // Camera five normally needs the whole power chain and the CCTV desk.
+    playCameraFiveSighting,
+    get labCreatureExit() { return labCreatureExit; },
     hands,
     THREE,
     sceneManager,
@@ -5374,6 +5470,7 @@ function tick() {
   // standing in a corner reads as a statue rather than as something watching.
   updateDoorwayJoin(dt);
   updateHallwayRush(dt);
+  updateLabCreatureExit(dt);
   if (creatureStanding) creature.update(dt);
   // A scripted appearance's linger, on the frame clock -- see showCreatureAt().
   if (creatureLinger) {
