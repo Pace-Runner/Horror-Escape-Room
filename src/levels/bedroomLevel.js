@@ -3105,7 +3105,12 @@ export function createBedroomLevel({
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
   );
   photoAreaHitbox.userData.interact = {
-    label: 'Examine corkboard',
+    // Read every frame by Interaction, so it changes as a photograph comes into the hand.
+    get label() {
+      const holdingPhoto = !puzzleState.photosArranged && Object.keys(photoSlots)
+        .some((key) => !puzzleState.pinnedPhotos.has(key) && isHolding(photoItemId(key)));
+      return holdingPhoto ? 'Pin picture' : 'Examine corkboard';
+    },
     onInteract: () => {
       if (puzzleState.photosArranged) {
         showCaption(line('dialog_corkboard_open'));
@@ -3235,7 +3240,11 @@ export function createBedroomLevel({
         showCaption(line('dialog_hold_brass_key'));
       } else if (puzzleState.photosArranged && puzzleState.hasBrassKey) {
         showCaption(line('dialog_lockbox_opened'));
+        // Out of the target list, not just hidden: the interaction ray still
+        // meets a hidden mesh, and the open box went on offering to be opened.
         boxHitbox.visible = false;
+        const boxIndex = interactables.indexOf(boxHitbox);
+        if (boxIndex >= 0) interactables.splice(boxIndex, 1);
         boxOpened = true;
         boxOpenElapsedSeconds = 0;
         puzzleState.hasBrassKey = false;
@@ -3426,6 +3435,7 @@ export function createBedroomLevel({
       updatePinboardCollision();
 
       boxHitbox.visible = true;
+      if (!interactables.includes(boxHitbox)) interactables.push(boxHitbox);
       boxOpened = false;
       boxOpenElapsedSeconds = 0;
       crowbarHandedOver = false;
