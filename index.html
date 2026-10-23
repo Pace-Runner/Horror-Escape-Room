@@ -334,17 +334,22 @@
   </div>
 
   <div id="credits-screen" class="hidden">
-    <div id="credits-panel">
+    <div id="credits-panel" role="dialog" aria-labelledby="credits-title">
       <div class="credits-ornament" aria-hidden="true">✦</div>
-      <h2>DON'T LET IT OUT</h2>
-      <section class="credits-section">
-        <h3>Team Members</h3>
-        <p>Daniel Passos, Owen Pace, Kiran Soodyall, Sanele Hlatshwayo</p>
+      <h2 id="credits-title">DON'T LET IT OUT</h2>
+      <p class="credits-tagline">A horror escape room &middot; COMS3006A / COMS3025A</p>
+      <div id="credits-epilogue" class="hidden"></div>
+      <section class="credits-section credits-team">
+        <h3>Created By</h3>
+        <ul>
+          <li>Daniel Passos</li>
+          <li>Owen Pace</li>
+          <li>Kiran Soodyall</li>
+          <li>Sanele Hlatshwayo</li>
+        </ul>
+        <p class="credits-note">Concept, story, world, puzzles and code.</p>
       </section>
-      <section class="credits-section credits-external">
-        <h3>External Assets / Credits</h3>
-        <ul id="credits-list"></ul>
-      </section>
+      <div id="credits-sections"></div>
       <button id="credits-close" type="button">Back to Menu</button>
     </div>
   </div>

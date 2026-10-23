@@ -2057,20 +2057,22 @@ html, body {
 }
 
 #credits-panel {
-  width: min(600px, calc(100vw - 48px));
-  max-height: min(82vh, 760px);
+  width: min(680px, calc(100vw - 48px));
+  max-height: min(86vh, 820px);
   overflow-y: auto;
-  padding: clamp(26px, 4vh, 42px) clamp(24px, 5vw, 58px);
+  padding: clamp(26px, 4vh, 44px) clamp(22px, 5vw, 58px) clamp(22px, 3vh, 34px);
   text-align: center;
   color: #d4c7aa;
-  background: linear-gradient(90deg, rgba(6, 3, 2, 0.78), rgba(22, 12, 6, 0.88), rgba(6, 3, 2, 0.78));
+  background: linear-gradient(90deg, rgba(6, 3, 2, 0.8), rgba(22, 12, 6, 0.9), rgba(6, 3, 2, 0.8));
   border-top: 1px solid rgba(187, 145, 72, 0.5);
   border-bottom: 1px solid rgba(187, 145, 72, 0.5);
   box-shadow: 0 22px 70px rgba(0, 0, 0, 0.62);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(187, 145, 72, 0.4) transparent;
 }
 
 #credits-panel h2 {
-  margin: 10px 0 28px;
+  margin: 10px 0 8px;
   font: 600 clamp(1.8rem, 4vw, 2.6rem)/1 Georgia, 'Times New Roman', serif;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -2078,42 +2080,79 @@ html, body {
   text-shadow: 0 0 17px rgba(174, 102, 27, 0.22);
 }
 
+.credits-tagline {
+  margin-bottom: 26px;
+  font: italic 0.85rem/1.4 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.1em;
+  color: #9c8d70;
+}
+
+#credits-epilogue {
+  margin: 0 auto 26px;
+  max-width: 460px;
+  padding: 16px 0;
+  border-top: 1px solid rgba(174, 132, 66, 0.4);
+  border-bottom: 1px solid rgba(174, 132, 66, 0.4);
+  font: italic 1rem/1.6 Georgia, 'Times New Roman', serif;
+  color: #e4d4ad;
+}
+
+#credits-epilogue.hidden { display: none; }
+#credits-epilogue p + p { margin-top: 8px; }
+
 .credits-section {
-  padding: 11px 0;
+  padding: 18px 0 12px;
   border-top: 1px solid rgba(174, 132, 66, 0.25);
 }
 
 .credits-section h3 {
-  margin-bottom: 7px;
+  margin-bottom: 12px;
   color: #cba462;
-  font: 600 0.79rem/1.3 Georgia, 'Times New Roman', serif;
-  letter-spacing: 0.16em;
+  font: 600 0.8rem/1.3 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
 }
 
-.credits-section p {
-  font: 0.92rem/1.5 Georgia, 'Times New Roman', serif;
-  letter-spacing: 0.04em;
-  color: #d6c7a8;
-}
-
-.credits-editable {
-  color: #a99a7f !important;
-  font-style: italic !important;
-}
-
-#credits-list {
+.credits-team ul {
   list-style: none;
-  margin-top: 12px;
-  text-align: center;
-  font: 0.87rem/1.55 Georgia, 'Times New Roman', serif;
-  letter-spacing: 0.025em;
-  color: #d6c7a8;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 30px;
 }
 
-#credits-list li {
-  padding: 10px 0;
-  border-top: 1px solid rgba(174, 132, 66, 0.22);
+.credits-team li {
+  font: 500 1.2rem/1.6 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.06em;
+  color: #eadcb8;
+}
+
+.credits-note {
+  margin: 4px auto 12px;
+  max-width: 480px;
+  font: italic 0.82rem/1.5 Georgia, 'Times New Roman', serif;
+  color: #9c8d70;
+}
+
+.credits-section dl {
+  display: grid;
+  gap: 12px;
+  text-align: center;
+}
+
+.credits-section dt {
+  font: 600 0.95rem/1.4 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.04em;
+  color: #e4d4ad;
+}
+
+.credits-section dd {
+  margin: 2px auto 0;
+  max-width: 540px;
+  font: 0.83rem/1.55 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.02em;
+  color: #b3a58a;
+  overflow-wrap: anywhere;
 }
 
 #credits-close {

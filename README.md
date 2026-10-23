@@ -117,8 +117,11 @@ reasoning behind the scenegraph hierarchy.
 
 ## Assets
 
-Every texture is generated on `<canvas>` at runtime, so there are no
-image files to path, credit, or break on a case-sensitive server. Wind,
+Many textures are generated on `<canvas>` at runtime; the rest are image
+files in `src/assets/textures/` (photographed materials from ambientCG and
+Texture Labs, plus textures made for the project). Who made what, and under
+which licence, is on the in-game credits screen (`CREDIT_SECTIONS` in
+`src/main.js`). Wind,
 thunder and creaks are synthesised with the Web Audio API; everything that
 is a performance rather than a signal (breathing, footsteps, doors, the
 monster) is a recording -- see Audio below. The models
