@@ -51,6 +51,15 @@
     <button type="button">Click or press any key to continue</button>
   </div>
 
+  <!-- Over the opening's photographs, if the rooms are still loading when the
+       report ends. Replaced by the continue button above once they are done. -->
+  <div id="opening-news-loading" aria-hidden="true">
+    <div class="onl-panel">
+      <div class="onl-hint">entering the house...</div>
+      <div class="onl-track"><div class="onl-fill"></div></div>
+    </div>
+  </div>
+
   <div id="crosshair"></div>
 
   <div id="hud">
@@ -74,20 +83,24 @@
       <div id="minimap-arrow"></div>
     </div>
 
-    <!-- A fixed slot per carryable story item, matching GameState.js's ITEMS
-         order. Slots are always present, empty or filled -- toggled by
-         refreshInventoryUI() adding/removing the 'filled' class per slot
-         rather than by building/tearing down markup. The one in the player's
-         hand also gets 'selected' (mouse wheel to change it). No image assets (see
-         the credits screen's own claim to that): every icon below is a
-         hand-authored inline SVG. -->
+    <!-- The inventory bar: HOTBAR_SLOTS slots (core/GameState.js) that carried
+         items fill left to right in the order they are picked up, built by
+         refreshInventoryUI() in src/main.js. An item keeps its slot while
+         carried, one used up or dropped leaves a gap for the next pickup, and
+         the bar only grows past HOTBAR_SLOTS when every slot is full. The one
+         in the player's hand gets 'selected' (mouse wheel to change it). -->
     <!-- Sprint stamina. Sits just above the hotbar and shares its centring, so
          the two read as one block rather than two unrelated overlays. Hidden by
          a class rather than removed, so there is no layout shift when it
          appears -- same approach as the hotbar's own .filled slots. -->
     <div id="stamina"><div id="stamina-fill"></div></div>
 
-    <div id="hotbar">
+    <div id="hotbar"></div>
+    <!-- Each item's slot as it looks when carried: its tint class, title
+         and icon, copied into whichever slot it lands in. No image assets
+         but the photographs (see the credits screen's own claim to that):
+         every other icon is a hand-authored inline SVG. -->
+    <template id="item-icons">
       <!-- First, because it is the first thing the player ever picks up. -->
       <div class="hotbar-slot key-steel" data-item="paperclip" title="Paperclip">
         <svg class="hotbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -122,6 +135,19 @@
           <path d="M16 12v3M19 12v2.5"/>
         </svg>
       </div>
+      <!-- Level 1's photographs. The picture is filled in from the bedroom once it is built. -->
+      <div class="hotbar-slot" data-item="photo1984" title="Photograph">
+        <img class="hotbar-icon hotbar-photo" alt="">
+      </div>
+      <div class="hotbar-slot" data-item="photo1985" title="Photograph">
+        <img class="hotbar-icon hotbar-photo" alt="">
+      </div>
+      <div class="hotbar-slot" data-item="photo1986" title="Photograph">
+        <img class="hotbar-icon hotbar-photo" alt="">
+      </div>
+      <div class="hotbar-slot" data-item="photo1987" title="Photograph">
+        <img class="hotbar-icon hotbar-photo" alt="">
+      </div>
       <div class="hotbar-slot" data-item="sessionTape" title="Cassette: SESSION 14">
         <svg class="hotbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <rect x="2.5" y="6" width="19" height="12" rx="1.5"/>
@@ -130,6 +156,39 @@
           <circle cx="15" cy="10.5" r="0.9"/>
           <path d="M6 15.5h12"/>
         </svg>
+      </div>
+      <!-- Level 2's fuses. The tag is the rating, the only thing that tells them apart. -->
+      <div class="hotbar-slot" data-item="fuse15" title="Fuse (15A)">
+        <svg class="hotbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="7" y="8" width="10" height="8" rx="1"/>
+          <path d="M3 9.5h4v5H3zM17 9.5h4v5h-4z"/>
+          <path d="M8.5 12c1.5-2 2.5 2 3.5 0s2 2 3.5 0"/>
+        </svg>
+        <span class="hotbar-tag">15A</span>
+      </div>
+      <div class="hotbar-slot" data-item="fuse20" title="Fuse (20A)">
+        <svg class="hotbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="7" y="8" width="10" height="8" rx="1"/>
+          <path d="M3 9.5h4v5H3zM17 9.5h4v5h-4z"/>
+          <path d="M8.5 12c1.5-2 2.5 2 3.5 0s2 2 3.5 0"/>
+        </svg>
+        <span class="hotbar-tag">20A</span>
+      </div>
+      <div class="hotbar-slot" data-item="fuse30" title="Fuse (30A)">
+        <svg class="hotbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="7" y="8" width="10" height="8" rx="1"/>
+          <path d="M3 9.5h4v5H3zM17 9.5h4v5h-4z"/>
+          <path d="M8.5 12c1.5-2 2.5 2 3.5 0s2 2 3.5 0"/>
+        </svg>
+        <span class="hotbar-tag">30A</span>
+      </div>
+      <div class="hotbar-slot" data-item="fuse45" title="Fuse (45A)">
+        <svg class="hotbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="7" y="8" width="10" height="8" rx="1"/>
+          <path d="M3 9.5h4v5H3zM17 9.5h4v5h-4z"/>
+          <path d="M8.5 12c1.5-2 2.5 2 3.5 0s2 2 3.5 0"/>
+        </svg>
+        <span class="hotbar-tag">45A</span>
       </div>
       <div class="hotbar-slot" data-item="visor" title="Annabelle's visor">
         <svg class="hotbar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -154,7 +213,7 @@
           <path d="M16 12v3M19 12v2.5"/>
         </svg>
       </div>
-    </div>
+    </template>
   </div>
 
   <div id="caption-box"></div>
@@ -275,17 +334,22 @@
   </div>
 
   <div id="credits-screen" class="hidden">
-    <div id="credits-panel">
+    <div id="credits-panel" role="dialog" aria-labelledby="credits-title">
       <div class="credits-ornament" aria-hidden="true">✦</div>
-      <h2>DON'T LET IT OUT</h2>
-      <section class="credits-section">
-        <h3>Team Members</h3>
-        <p>Daniel Passos, Owen Pace, Kiran Soodyall, Sanele Hlatshwayo</p>
+      <h2 id="credits-title">DON'T LET IT OUT</h2>
+      <p class="credits-tagline">A horror escape room &middot; COMS3006A / COMS3025A</p>
+      <div id="credits-epilogue" class="hidden"></div>
+      <section class="credits-section credits-team">
+        <h3>Created By</h3>
+        <ul>
+          <li>Daniel Passos</li>
+          <li>Owen Pace</li>
+          <li>Kiran Soodyall</li>
+          <li>Sanele Hlatshwayo</li>
+        </ul>
+        <p class="credits-note">Concept, story, world, puzzles and code.</p>
       </section>
-      <section class="credits-section credits-external">
-        <h3>External Assets / Credits</h3>
-        <ul id="credits-list"></ul>
-      </section>
+      <div id="credits-sections"></div>
       <button id="credits-close" type="button">Back to Menu</button>
     </div>
   </div>

@@ -18,14 +18,6 @@
 
 // ---- story beats ----------------------------------------------------------
 
-// Starts with the lightning. The creature stands there for 3 seconds, so the
-// first line holds 2.6 -- the second one comes up just as it vanishes.
-export const dialog_hallway_sighting = [
-  ["The lightning catches something at the end of the hallway.", "level2/hallway_sighting_1.m4a", 2.6],
-  ["Tall. Wrong. Watching you.", "level2/hallway_sighting_2.m4a", 2.8],
-  ["Then the dark comes back, and it is gone.", "level2/hallway_sighting_3.m4a"]
-];
-
 // NOT USED IN THE GAME YET -- written for a beat that has not been hooked up,
 // so editing this changes nothing you will see until it is.
 export const dialog_basement_arrival = [
@@ -42,8 +34,6 @@ export const dialog_cctv_no_power = [
 
 // NOT USED IN THE GAME YET -- written for a beat that has not been hooked up,
 // so editing this changes nothing you will see until it is.
-export const dialog_sticky_note = ["A sticky note on the corner of the screen: \"Restore power and pray it doesn’t hear you.\"", "level2/sticky_note.m4a"];
-
 export const dialog_creature_sketch = [
   ["A sketch, done fast and pressed hard enough to tear the paper.", "level2/creature_sketch_1.m4a", 4.2],
   ["Long arms. Thin body. Hunched back. A head at the wrong angle.", "level2/creature_sketch_2.m4a"]
@@ -180,7 +170,9 @@ export const dialog_fuse_burns_out = ["The {amps} fuse can't take the load -- it
 
 export const dialog_fuse_rating_too_high = ["The {amps} fuse's rating is too high -- every light in the lab surges into a blinding white flash, then dies back to dark.", "level2/fuse_rating_too_high.m4a"];
 
-export const dialog_fuse_already_holding = ["You're already holding a fuse. Install or remove it at the fuse box first.", "level2/fuse_already_holding.m4a"];
+export const dialog_fuse_hold_one = ["You need a fuse in your hand for this. Pick the one to try.", "level2/fuse_hold_one.m4a"];
+
+export const dialog_fuse_spares_left = ["You set the spare fuses down by the box. You won't be needing them.", "level2/fuse_spares_left.m4a"];
 
 export const dialog_fuse_taken = ["You take the {amps} fuse.", "level2/fuse_taken.m4a"];
 
@@ -255,8 +247,6 @@ export const dialog_monitor_feeds_live = ["Five feeds, live now. The kitchen. A 
 export const dialog_remote_dead = ["The remote is dead. Nothing on this desk has power.", "level2/remote_dead.m4a"];
 
 export const dialog_remote_monitor_off = ["The remote clicks, but the monitor is switched off.", "level2/remote_monitor_off.m4a"];
-
-export const dialog_sticky_note_examine = ["Restore power and pray it doesn't hear you.", "level2/sticky_note_examine.m4a"];
 
 export const dialog_door_bolts_unpowered = ["Heavy bolts, seated deep in the frame. Nothing is feeding them.", "level2/door_bolts_unpowered.m4a"];
 

@@ -61,8 +61,8 @@ startLoadTracking();
  * @returns {Promise<void>} resolves when everything has arrived, or after
  *   MAX_WAIT_MILLISECONDS, whichever is first.
  */
-export async function waitForAllLoads() {
-  const deadline = performance.now() + MAX_WAIT_MILLISECONDS;
+export async function waitForAllLoads({ timeoutMilliseconds = MAX_WAIT_MILLISECONDS } = {}) {
+  const deadline = performance.now() + timeoutMilliseconds;
   // A loop, because handling one load can start the next (a model loaded in a
   // .then() of another): the manager goes idle for a moment in between.
   while (performance.now() < deadline) {
@@ -70,8 +70,12 @@ export async function waitForAllLoads() {
       if (!isLoading) resolve();
       else idleResolvers.push(resolve);
     });
-    const timedOut = new Promise((resolve) => setTimeout(resolve, deadline - performance.now()));
-    await Promise.race([loadsFinished, timedOut]);
+    if (Number.isFinite(deadline)) {
+      let timeout;
+      const timedOut = new Promise((resolve) => { timeout = setTimeout(resolve, deadline - performance.now()); });
+      await Promise.race([loadsFinished, timedOut]);
+      clearTimeout(timeout);
+    } else await loadsFinished;
     await new Promise((resolve) => setTimeout(resolve, 0));
     if (!isLoading) return;
   }

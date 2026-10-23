@@ -4,7 +4,6 @@ import {
   createPlasterBumpTexture,
   createConcreteTexture,
   createConcreteBumpTexture,
-  createStickyNoteTexture,
   createHazardSignTexture,
   createFuseCapStampTexture,
   createFixtureSteelTexture,
@@ -333,9 +332,20 @@ const BREAKER_PANEL_Z = 1.7 * LAB_SCALE;
 /**
  * Where the creature stands after camera five, in lab space: the far corner
  * on the opposite side from the desk, so turning round from the monitor puts
- * it in frame, and just behind where its black pool is left.
+ * it in frame. Its black pool is left on this spot.
  */
 const CREATURE_CORNER = { x: -2.6 * LAB_SCALE, z: -1.25 * LAB_SCALE };
+/**
+ * The way it leaves, in lab space: across the room to just inside the
+ * entrance, through the middle of the double doors, and on up the hallway the
+ * player came down. Clear of the generator in the entrance corner and of the
+ * workbench out in the middle; the trolley can be anywhere, so it is ignored.
+ */
+const CREATURE_EXIT_ROUTE = [
+  { x: -0.5, z: -LAB_D / 2 + 1.0 },
+  { x: 0, z: -LAB_D / 2 - 0.6 },
+  { x: 0, z: -LAB_D / 2 - 3.2 }
+];
 
 /**
  * The restraint table (operating_table.glb), in lab space, and its size in
@@ -554,6 +564,7 @@ const FUSE_CRATE = CRATE_LAYOUT.reduce((a, b) => (b.stackY > a.stackY ? b : a));
  */
 export function createHallwayBasementLevel({
   showCaption = () => {},
+  onThought = () => {},
   onExit = () => {},
   // The metal door swinging open, with its world position, just before onExit.
   onDoorOpening = () => {},
@@ -572,6 +583,8 @@ export function createHallwayBasementLevel({
   onBlackout = () => {},
   /** Fired when the generator restart sequence completes. */
   onGeneratorRunning = () => {},
+  onGeneratorProgress = () => {},
+  onBreakerEngaged = () => {},
   /** Fired once the breakers are set and the door bolts finally have power. */
   onPowerRouted = () => {},
   /** Fired when a breaker trips the panel by asking for more than it can carry. */
@@ -610,6 +623,18 @@ export function createHallwayBasementLevel({
    * takes the tape from the inventory, whatever is in the player's hand.
    */
   isCarrying = () => false,
+  /**
+   * Whether the item `id` is the one in the player's hand. The fuse box takes
+   * the fuse being held, not any fuse in the inventory -- like every lock in
+   * Level 1, found is not enough.
+   */
+  isHolding = () => false,
+  /** Fired with a fuse's item id ('fuse30') when it is picked up: the host puts it in the inventory. */
+  onFuseTaken = () => {},
+  /** Fired with a fuse's item id when it goes into the box: the host takes it out of the inventory. */
+  onFuseSeated = () => {},
+  /** Fired with a fuse's item id when it is left by the box as a spare: the host takes it out of the inventory. */
+  onFuseLeft = () => {},
   /** Fired when the session tape comes out of the recorder: the host puts it in the inventory. */
   onTapeTaken = () => {},
   /** Fired when the tape goes into the deck: the host takes it out of the inventory. */
@@ -938,6 +963,27 @@ export function createHallwayBasementLevel({
   const westWall = labWall(LAB_D, -LAB_W / 2, 0, Math.PI / 2);
   const eastWall = labWall(LAB_D, LAB_W / 2, 0, -Math.PI / 2);
   const backWall = labWall(LAB_W, 0, LAB_D / 2, Math.PI);
+  // With the steel door's opening cut out of its middle, so the door has
+  // somewhere to open onto. The same UVs wallGeometry() gives, in metres from
+  // the wall's left edge and the floor, so the photo does not shift.
+  {
+    const halfW = LAB_W / 2;
+    const halfH = LAB_H / 2;
+    const doorHalf = DOOR_WIDTH_IN_METRES / 2;
+    const doorTop = -halfH + DOOR_HEIGHT_IN_METRES;
+    const outline = new THREE.Shape([
+      [-halfW, -halfH], [-doorHalf, -halfH], [-doorHalf, doorTop], [doorHalf, doorTop],
+      [doorHalf, -halfH], [halfW, -halfH], [halfW, halfH], [-halfW, halfH]
+    ].map(([x, y]) => new THREE.Vector2(x, y)));
+    const geometry = new THREE.ShapeGeometry(outline);
+    const position = geometry.attributes.position;
+    const uv = geometry.attributes.uv;
+    for (let i = 0; i < uv.count; i++) {
+      uv.setXY(i, (position.getX(i) + halfW) / CONCRETE_TEXTURE_METRES, (position.getY(i) + halfH) / CONCRETE_TEXTURE_METRES);
+    }
+    backWall.geometry.dispose();
+    backWall.geometry = geometry;
+  }
 
   /**
    * TEXTURE PREVIEW: green grime down the walls -- a second, transparent layer
@@ -1226,6 +1272,8 @@ export function createHallwayBasementLevel({
   /** -1 on the hallway side of the doors, +1 on the lab side; refreshed every frame. */
   let labDoorPlayerSide = -1;
   let labDoorHeavyHintShown = false;
+  /** Seconds the doors are still being held open toward the hallway by the creature running through. */
+  let labDoorBurst = 0;
   // Across the doorway while the doors are shut; parked out of the way while
   // they stand open far enough to walk through.
   const LAB_DOOR_COLLIDER_SHUT = { minZ: labDoorPivotZ - 0.06, maxZ: labDoorPivotZ + 0.06 };
@@ -1285,9 +1333,17 @@ export function createHallwayBasementLevel({
       stiffness = swing.heldStiffness;
       damping = swing.heldDamping;
     }
+    // The creature going through: flung open toward the hallway, then let go
+    // to swing back on their springs.
+    if (labDoorBurst > 0) {
+      labDoorBurst = Math.max(0, labDoorBurst - dt);
+      target = -swing.openAngle;
+      stiffness = swing.heldStiffness;
+      damping = swing.heldDamping;
+    }
     // Heavy only while being shoved toward the hallway from the lab side, so
     // they still swing shut behind the player rather than creeping to.
-    const isHeavy = labDoorHeld === 0 && !inDoorway && labDoorPlayerSide > 0;
+    const isHeavy = labDoorHeld === 0 && labDoorBurst === 0 && !inDoorway && labDoorPlayerSide > 0;
     const step = Math.min(dt, 1 / 30);
     for (const leaf of labLeaves) {
       const heavy = isHeavy && leaf.angle <= 0;
@@ -1310,8 +1366,15 @@ export function createHallwayBasementLevel({
     }
   }
 
+  /** Throws the doors open toward the hallway, as something goes through them at a run. */
+  function burstLabDoors(seconds) {
+    labDoorBurst = seconds;
+    for (const leaf of labLeaves) leaf.speed = Math.min(leaf.speed, -6);
+  }
+
   function resetLabDoors() {
     labDoorHeld = 0;
+    labDoorBurst = 0;
     labDoorHeavyHintShown = false;
     Object.assign(labDoorCollider, LAB_DOOR_COLLIDER_SHUT);
     for (const leaf of labLeaves) {
@@ -1879,7 +1942,6 @@ export function createHallwayBasementLevel({
   const POWER_RAMP_IN_SECONDS = 0.6;
 
   const puzzleState = {
-    heldFuse: null,   // amps string currently in the player's hand, or null
     slotFuse: null,   // amps string currently seated in the fuse box, or null
     overloaded: false // true while an overrated fuse is seated (its glare is only the first FUSE_FLARE_SECONDS)
   };
@@ -1924,6 +1986,18 @@ export function createHallwayBasementLevel({
     color: 0x24180f, roughness: 0.6, transparent: true, opacity: 0.78, depthWrite: false
   });
 
+  /**
+   * Each fuse visual's glass, its clean glass material and its two element
+   * wires, for the soot. Kept here rather than in the visual's userData, which
+   * Object3D.clone() copies through JSON -- and the visual is cloned as the
+   * fuse in the player's hand.
+   */
+  const fuseVisualParts = new WeakMap();
+  /** Resolves with every fuse's visual, keyed by item id, once fuse.glb is in: the templates for the hand. */
+  let resolveFuseVisuals;
+  const fuseVisualsReady = new Promise((resolve) => { resolveFuseVisuals = resolve; });
+  const fuseVisuals = {};
+
   function createGlassFuse(amps) {
     const fuse = new THREE.Mesh(fuseHitGeometry, fuseHitMaterial);
     fuse.userData.scorched = false;
@@ -1936,6 +2010,7 @@ export function createHallwayBasementLevel({
       // turning the model inside it changes nothing else.
       visual.rotation.y = Math.PI / 2;
       const stamp = createFuseCapStampTexture(amps);
+      const parts = {};
       visual.traverse((child) => {
         if (!child.isMesh) return;
         if (child.material.name === 'FuseCapMetal') {
@@ -1945,14 +2020,17 @@ export function createHallwayBasementLevel({
           child.material.bumpMap = stamp.bumpMap;
           child.material.bumpScale = 0.6;
         } else if (child.material.name === 'FuseGlass') {
-          visual.userData.glass = child;
-          visual.userData.cleanGlassMat = child.material;
+          parts.glass = child;
+          parts.cleanGlassMat = child.material;
         } else if (child.name === 'FuseElementWire') {
-          visual.userData.wire = child;
+          parts.wire = child;
         } else if (child.name === 'FuseElementWireBroken') {
-          visual.userData.brokenWire = child;
+          parts.brokenWire = child;
         }
       });
+      fuseVisualParts.set(visual, parts);
+      fuseVisuals[`fuse${parseInt(amps, 10)}`] = visual;
+      if (Object.keys(fuseVisuals).length === fuseData.length) resolveFuseVisuals({ ...fuseVisuals });
       fuse.userData.visual = visual;
       fuse.add(visual);
       applyFuseScorch(fuse);
@@ -1964,9 +2042,10 @@ export function createHallwayBasementLevel({
     const visual = fuse.userData.visual;
     if (!visual) return;
     const scorched = fuse.userData.scorched;
-    visual.userData.glass.material = scorched ? sootedGlassMat : visual.userData.cleanGlassMat;
-    visual.userData.wire.visible = !scorched;
-    visual.userData.brokenWire.visible = scorched;
+    const parts = fuseVisualParts.get(visual);
+    parts.glass.material = scorched ? sootedGlassMat : parts.cleanGlassMat;
+    parts.wire.visible = !scorched;
+    parts.brokenWire.visible = scorched;
   }
 
   /**
@@ -2001,7 +2080,7 @@ export function createHallwayBasementLevel({
    * whenever their prop moved -- and the room growing moves all of them.
    */
   const fuseRestingSpots = [
-    // workbench top, clear of the four tool props
+    // workbench top, clear of the microscope and slides
     { x: WORKBENCH_POSITION.x + 0.5, z: WORKBENCH_POSITION.z - 0.25, surfaceY: WORKBENCH_TOP_Y },
     // floor, just outside the workbench's collider
     { x: WORKBENCH_POSITION.x + 0.9, z: WORKBENCH_POSITION.z, surfaceY: LAB_FLOOR_Y },
@@ -2220,6 +2299,40 @@ export function createHallwayBasementLevel({
   ]);
   let droppedFuseCount = 0;
 
+  /**
+   * The fuses still being carried once the right one is in, set down in the
+   * row on the floor beside the box, where the rejects go -- and still there
+   * to pick up again, since nothing about them is wrong.
+   */
+  function leaveSpareFuses(spares) {
+    for (const data of spares) {
+      const fuse = fuseMeshes[data.amps];
+      const slot = droppedFuseSlots[Math.min(droppedFuseCount, droppedFuseSlots.length - 1)];
+      droppedFuseCount += 1;
+      fuse.position.set(...slot);
+      fuse.rotation.set(0, 0, Math.PI / 2);
+      fuse.visible = true;
+      fuse.userData.interact = fusePickup(data, fuse);
+      if (!interactables.includes(fuse)) interactables.push(fuse);
+      onFuseLeft(data.id);
+    }
+    showCaption(line('dialog_fuse_spares_left'));
+  }
+
+  /**
+   * The box's prompt once the right fuse is in: whether there are spares to
+   * leave depends on the inventory, which changes without the box knowing,
+   * so it is read every frame.
+   */
+  dynamics.push({
+    update() {
+      if (puzzleState.slotFuse !== CORRECT_FUSE_AMPS || !fuseCover.open) return;
+      fuseBox.userData.interact.label = fuseData.some((data) => isCarrying(data.id))
+        ? 'Leave the spare fuses here'
+        : 'Fuse seated (30A)';
+    }
+  });
+
   const sparkLight = new THREE.PointLight(0xfff2b0, 0, 1.0, 2);
   sparkLight.position.copy(fuseBox.position);
   lab.add(sparkLight);
@@ -2241,6 +2354,13 @@ export function createHallwayBasementLevel({
        * the caption is worded to head that off before they try.
        */
       if (puzzleState.slotFuse === CORRECT_FUSE_AMPS) {
+        // With the right one in, the others are only weight: they can be
+        // left here rather than carried, or found and dropped one by one.
+        const spares = fuseData.filter((data) => isCarrying(data.id));
+        if (spares.length) {
+          leaveSpareFuses(spares);
+          return;
+        }
         showCaption(line('dialog_fuse_already_seated'));
         return;
       }
@@ -2278,15 +2398,17 @@ export function createHallwayBasementLevel({
         return;
       }
 
-      // Slot is empty -- try installing whatever's in hand
-      if (!puzzleState.heldFuse) {
-        showCaption(line('dialog_fuse_slot_empty'));
+      // Slot is empty -- try installing the fuse in the player's hand
+      const held = fuseData.find((data) => isHolding(data.id));
+      if (!held) {
+        const carrying = fuseData.some((data) => isCarrying(data.id));
+        showCaption(line(carrying ? 'dialog_fuse_hold_one' : 'dialog_fuse_slot_empty'));
         return;
       }
 
-      const installed = puzzleState.heldFuse;
+      const installed = held.amps;
       const amps = parseInt(installed, 10);
-      puzzleState.heldFuse = null;
+      onFuseSeated(held.id);
 
       // Whatever goes in is seen to go in: the fuse the player carried over
       // stands in the empty clips, right or wrong, until it is pulled out.
@@ -2341,24 +2463,26 @@ export function createHallwayBasementLevel({
   interactables.push(fuseBox);
   lab.add(fuseBox);
 
-  fuseData.forEach((data, i) => {
-    const fuse = createGlassFuse(data.amps);
-    fuse.rotation.z = Math.PI / 2;
-    fuse.position.set(...fusePositions[i]);
-    fuse.userData.interact = {
+  /** A loose fuse's pickup: into the inventory, the way every item in Level 1 goes. */
+  function fusePickup(data, fuse) {
+    return {
       label: `Pick up fuse (${data.amps})`,
       onInteract: () => {
-        if (puzzleState.heldFuse) {
-          showCaption(line('dialog_fuse_already_holding'));
-          return;
-        }
-        puzzleState.heldFuse = data.amps;
         showCaption(line('dialog_fuse_taken', { amps: data.amps }));
         fuse.visible = false;
         const idx = interactables.indexOf(fuse);
         if (idx !== -1) interactables.splice(idx, 1);
+        onFuseTaken(data.id);
       }
     };
+  }
+
+  fuseData.forEach((data, i) => {
+    const fuse = createGlassFuse(data.amps);
+    fuse.rotation.z = Math.PI / 2;
+    fuse.position.set(...fusePositions[i]);
+    fuse.userData.hintKey = 'l2_fuse';
+    fuse.userData.interact = fusePickup(data, fuse);
     interactables.push(fuse);
     lab.add(fuse);
     fuseMeshes[data.amps] = fuse;
@@ -2393,7 +2517,7 @@ export function createHallwayBasementLevel({
   maintenanceNote.rotation.y = Math.PI / 2;
   maintenanceNote.userData.interact = {
     label: 'Read maintenance log',
-    onInteract: () => showCaption(line('dialog_maintenance_log'))
+    onInteract: () => { onThought('l2_06', { replayable: false }); showCaption(line('dialog_maintenance_log')); }
   };
   interactables.push(maintenanceNote);
   lab.add(maintenanceNote);
@@ -2553,6 +2677,7 @@ export function createHallwayBasementLevel({
     }
 
     // Whatever the puzzle makes of it, the control moves.
+    onGeneratorProgress();
     animateGeneratorControl(controlId);
     onSfx('switch_click');
 
@@ -2711,6 +2836,7 @@ export function createHallwayBasementLevel({
 
     const hit = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.08, 0.11), new THREE.MeshBasicMaterial({ visible: false }));
     hit.position.set(panelX + 0.035, rowY.control, GENERATOR_CONTROL_Z[controlId]);
+    hit.userData.hintKey = 'l2_generator';
     hit.userData.interact = {
       label: GENERATOR_CONTROLS[controlId].label,
       onInteract: () => pressGeneratorControl(controlId)
@@ -2967,6 +3093,7 @@ export function createHallwayBasementLevel({
    * rather than one they stumble into by closing a switch.
    */
   function flickBreaker(circuitId) {
+    onBreakerEngaged();
     // The toggles sit behind the cover. Its own click target catches a press
     // while it is down, but one aimed past its edge must not reach through.
     if (!breakerCover.open) {
@@ -2982,6 +3109,7 @@ export function createHallwayBasementLevel({
       return;
     }
     if (powerStage !== POWER_STAGE.RUNNING) {
+      onThought('l2_05', { replayable: false });
       showCaption(line('dialog_breakers_dead'));
       return;
     }
@@ -3014,6 +3142,7 @@ export function createHallwayBasementLevel({
    * in Level 2 -- would resolve itself before the player knew it was there.
    */
   function throwMainSwitch() {
+    onBreakerEngaged();
     if (powerStage === POWER_STAGE.ROUTED) {
       showCaption(line('dialog_main_lever_already_routed'));
       return;
@@ -3023,6 +3152,7 @@ export function createHallwayBasementLevel({
       return;
     }
     if (powerStage !== POWER_STAGE.RUNNING) {
+      onThought('l2_05', { replayable: false });
       showCaption(line('dialog_main_lever_dead'));
       return;
     }
@@ -3165,6 +3295,7 @@ export function createHallwayBasementLevel({
    * caption, for a restart.
    */
   function setBreakerCoverOpen(open, { quiet = false } = {}) {
+    if (open && !quiet) onBreakerEngaged();
     breakerCover.open = open;
     if (!quiet) onSfx('latch');
     breakerCoverHit.userData.interact.label = open ? 'Close the breaker cover' : 'Lift the breaker cover';
@@ -3229,6 +3360,7 @@ export function createHallwayBasementLevel({
     const x = BREAKER_MODULE_X[i];
     const toggle = new THREE.Mesh(breakerLeverGeometry, breakerLeverMat);
     toggle.position.set(x, BREAKER_MODULE_CENTRE_Y, BREAKER_TOGGLE_BASE_Z);
+    toggle.userData.hintKey = 'l2_generator';
     toggle.userData.interact = {
       label: `${circuit.label} (${circuit.loadInAmps}A)`,
       onInteract: () => flickBreaker(circuit.id)
@@ -3719,7 +3851,7 @@ export function createHallwayBasementLevel({
     deckPlaying = true;
     tapeRanOut = false;
     tapeSource.play();
-    onPlayTape({ source: tapeSource });
+    onPlayTape({ source: tapeSource, deck });
   }
 
   /** Stops the deck part way and rewinds the tape. Says so only if it was running. */
@@ -3747,6 +3879,7 @@ export function createHallwayBasementLevel({
    */
   function updateSessionTape(deltaTimeInSeconds) {
     if (!deckPlaying) return;
+    if (tapeSource.hasFailed) { stopTape(); return; }
     if (!isCctvPowered()) {
       stopTape();
       return;
@@ -3800,7 +3933,7 @@ export function createHallwayBasementLevel({
   /**
    * The CRT: crt_monitor.glb, sitting on the desk with its screen to the room.
    * `monitor` is the model's frame -- every part the level builds around the
-   * model (picture, power button, click target, sticky note) is placed in it,
+   * model (picture, power button, click target) is placed in it,
    * so they all move with the monitor if the monitor moves.
    */
   const monitor = new THREE.Group();
@@ -3827,8 +3960,8 @@ export function createHallwayBasementLevel({
 
   /**
    * The click target for the monitor as a whole: an invisible box over the
-   * casing. It stops just behind the bezel's face so the power button and the
-   * sticky note, which stand proud of it, are hit before it is. Keeps the old
+   * casing. It stops just behind the bezel's face so the power button, which
+   * stands proud of it, is hit before it is. Keeps the old
    * `monitorBody` name, which the rest of the level and its refs use.
    */
   const monitorBody = new THREE.Mesh(
@@ -3912,6 +4045,22 @@ export function createHallwayBasementLevel({
   );
   monitor.add(powerButton);
 
+  /**
+   * The button's click target: an invisible box well bigger than the 19 mm
+   * button, over it and its LED, standing a little proud of the bezel so the
+   * player's aim meets it before the monitor's own target. The button alone
+   * was so small it took several tries to land on.
+   */
+  const POWER_BUTTON_HIT = { width: 0.075, height: 0.05, depth: 0.03 };
+  const powerButtonHit = new THREE.Mesh(
+    new THREE.BoxGeometry(POWER_BUTTON_HIT.width, POWER_BUTTON_HIT.height, POWER_BUTTON_HIT.depth),
+    new THREE.MeshBasicMaterial({ visible: false })
+  );
+  powerButtonHit.position.set(
+    CRT_POWER_BUTTON.x + 0.012, CRT_POWER_BUTTON.y, CRT_POWER_BUTTON.ringFront + POWER_BUTTON_HIT.depth / 2
+  );
+  monitor.add(powerButtonHit);
+
   const powerLedMat = new THREE.MeshStandardMaterial({
     color: 0x1d2a1f, roughness: 0.3, emissive: POWER_GLOW_COLOR, emissiveIntensity: 0
   });
@@ -3940,26 +4089,30 @@ export function createHallwayBasementLevel({
       mesh.material.emissive.setHex(showing && feedId === activeFeedId ? 0x2e6b3a : 0x000000);
     });
     monitorBody.userData.interact.label = showing ? 'View camera feeds' : 'Examine the monitor';
-    powerButton.userData.interact.label = monitorSwitchedOn ? 'Switch the monitor off' : 'Switch the monitor on';
+    powerButtonHit.userData.interact.label = monitorSwitchedOn ? 'Switch the monitor off' : 'Switch the monitor on';
   }
 
-  powerButton.userData.interact = {
+  powerButtonHit.userData.interact = {
     label: 'Switch the monitor on',
     onInteract: () => {
       onSfx('switch_click');
       // The desk only ever has power once the panel is routed, so a dead
       // button is always simply dead -- never "the power has gone again".
       if (!isCctvPowered()) {
+        onThought('l2_05', { replayable: false });
         showCaption(line('dialog_monitor_button_no_power'));
         return;
       }
       monitorSwitchedOn = !monitorSwitchedOn;
       syncMonitor();
       syncScreenSignal();
-      if (monitorSwitchedOn) showCaption(line('dialog_monitor_switched_on'));
+      if (monitorSwitchedOn) {
+        onThought('l2_08');
+        showCaption(line('dialog_monitor_switched_on'));
+      }
     }
   };
-  interactables.push(powerButton);
+  interactables.push(powerButtonHit);
 
   dynamics.push({
     update: (dt, elapsed) => {
@@ -3984,6 +4137,7 @@ export function createHallwayBasementLevel({
     onInteract: () => {
       if (!isCctvPowered()) {
         // Dead until the panel is routed: the fuse never reached the desk.
+        onThought('l2_05', { replayable: false });
         showCaption(line('dialog_monitor_dead'));
         return;
       }
@@ -4151,35 +4305,6 @@ export function createHallwayBasementLevel({
       remotePort
     ], 0.003, powerCableMat);
   }
-
-  const noteTex = createStickyNoteTexture("Restore power and pray it doesn't hear you.");
-  /**
-   * The sticky note, ON THE MONITOR'S BEZEL -- the storyline puts it "stuck on
-   * the corner" of the screen, and that is where it now is.
-   *
-   * It used to float at x = -0.35, which is 0.10 m clear of the monitor casing
-   * altogether: a note stuck to nothing, hanging in the air beside the screen.
-   *
-   * Sized to the bezel rather than placed on top of it. The CRT's side border
-   * runs from the picture opening at x = 0.186 to the casing's edge at 0.23, a
-   * 0.044 m strip; a 0.04 m note centred in it leaves the picture clear. Any
-   * bigger and it would either cover the picture -- which is the one thing in
-   * this room the player has to be able to read -- or hang off the side of the
-   * casing again.
-   */
-  const STICKY_SIZE = 0.04;
-  const sticky = new THREE.Mesh(
-    new THREE.PlaneGeometry(STICKY_SIZE, STICKY_SIZE),
-    new THREE.MeshStandardMaterial({ map: noteTex })
-  );
-  sticky.position.set(0.208, CRT_SCREEN.centreY + 0.105, CRT_BODY.front + 0.001);
-  sticky.rotation.z = 0.09;
-  sticky.userData.interact = {
-    label: 'Read sticky note',
-    onInteract: () => showCaption(line('dialog_sticky_note_examine'))
-  };
-  interactables.push(sticky);
-  monitor.add(sticky);
 
   // ---------- the cassette deck ----------
   /**
@@ -4356,6 +4481,7 @@ export function createHallwayBasementLevel({
     const target = new THREE.Mesh(new THREE.BoxGeometry(...size), hiddenHitMat);
     target.position.set(...centre);
     target.userData.interact = interact;
+    target.userData.hintKey = 'l2_session14';
     deck.add(target);
     interactables.push(target);
     return target;
@@ -4562,6 +4688,69 @@ export function createHallwayBasementLevel({
   addSteelDoorHardware(metalDoor);
 
   /**
+   * The door swings open into the lab on its hinges -- the knuckles are on
+   * the room face, at its -x edge -- when the player finally goes through it.
+   * Turned about the hinge rather than its middle, so the slab is moved as
+   * well as turned. It starts the level's exit part way round, so the fade
+   * comes down over a door that is opening rather than one that never moved.
+   */
+  const METAL_DOOR_OPEN_ANGLE = THREE.MathUtils.degToRad(100);
+  const METAL_DOOR_SWING_SECONDS = 1.6;
+  const METAL_DOOR_EXIT_AFTER_SECONDS = 0.75;
+  const metalDoorRest = metalDoor.position.clone();
+  const metalDoorHingeX = metalDoorRest.x - DOOR_WIDTH_IN_METRES / 2;
+  /** null while shut; once opened, how long it has been swinging and whether the exit has been asked for. */
+  let metalDoorSwing = null;
+  function setMetalDoorAngle(angle) {
+    const half = DOOR_WIDTH_IN_METRES / 2;
+    metalDoor.rotation.y = angle;
+    metalDoor.position.set(metalDoorHingeX + half * Math.cos(angle), metalDoorRest.y, metalDoorRest.z - half * Math.sin(angle));
+  }
+  dynamics.push({
+    update(dt) {
+      if (!metalDoorSwing) return;
+      metalDoorSwing.t += dt;
+      const k = Math.min(1, metalDoorSwing.t / METAL_DOOR_SWING_SECONDS);
+      // Slow to get going and slow to stop: a heavy door.
+      setMetalDoorAngle(METAL_DOOR_OPEN_ANGLE * k * k * (3 - 2 * k));
+      if (!metalDoorSwing.exited && metalDoorSwing.t >= METAL_DOOR_EXIT_AFTER_SECONDS) {
+        metalDoorSwing.exited = true;
+        onExit();
+      }
+    }
+  });
+
+  /**
+   * What the open door shows: a short passage running on into the dark, so
+   * there is something beyond it rather than the void behind the back wall.
+   * The lab's lights cast no shadows, so its walls are painted near-black
+   * rather than left to be lit through the wall.
+   */
+  {
+    const PASSAGE_DEPTH = 3;
+    const passageWidth = DOOR_WIDTH_IN_METRES + 0.4;
+    const passageHeight = DOOR_HEIGHT_IN_METRES + 0.3;
+    const passageMat = labWallMat.clone();
+    passageMat.color.setScalar(0.12);
+    const startZ = LAB_D / 2;
+    const midZ = startZ + PASSAGE_DEPTH / 2;
+    const pieces = [
+      // [width, height, x, y, z, rotX, rotY]
+      [PASSAGE_DEPTH, passageHeight, -passageWidth / 2, passageHeight / 2, midZ, 0, Math.PI / 2],
+      [PASSAGE_DEPTH, passageHeight, passageWidth / 2, passageHeight / 2, midZ, 0, -Math.PI / 2],
+      [passageWidth, passageHeight, 0, passageHeight / 2, startZ + PASSAGE_DEPTH, 0, Math.PI],
+      [passageWidth, PASSAGE_DEPTH, 0, 0.001, midZ, -Math.PI / 2, 0],
+      [passageWidth, PASSAGE_DEPTH, 0, passageHeight, midZ, Math.PI / 2, 0]
+    ];
+    for (const [w, h, x, y, z, rx, ry] of pieces) {
+      const piece = new THREE.Mesh(new THREE.PlaneGeometry(w, h), passageMat);
+      piece.position.set(x, y, z);
+      piece.rotation.set(rx, ry, 0);
+      lab.add(piece);
+    }
+  }
+
+  /**
    * The raised parts of the steel door, built where its photo has them, as
    * children of the door so they go wherever it goes. Rusted iron: duller
    * and browner than the door's own steel.
@@ -4673,9 +4862,12 @@ export function createHallwayBasementLevel({
       }
 
       if (securityCleared) {
+        if (metalDoorSwing) return;
         showCaption(line('dialog_metal_door_opens'));
         onDoorOpening(metalDoor.getWorldPosition(new THREE.Vector3()));
-        onExit();
+        metalDoorSwing = { t: 0, exited: false };
+        // The note taped to it goes round with it.
+        metalDoor.attach(doorNote);
         return;
       }
 
@@ -4696,6 +4888,7 @@ export function createHallwayBasementLevel({
         onSolved: () => {
           securityCleared = true;
           metalDoor.userData.interact.label = 'Open the door';
+          onThought('l2_19', { replayable: false });
           showCaption(line('dialog_security_lockout_released'));
         }
       });
@@ -5000,12 +5193,13 @@ export function createHallwayBasementLevel({
   });
   const blackPool = new THREE.Mesh(createPoolGeometry(BLACK_POOL), poolMat);
   blackPool.rotation.x = -Math.PI / 2;
-  blackPool.position.set(-2.5 * LAB_SCALE, 0.006, -2.05 * LAB_SCALE);
+  // Under where it stood.
+  blackPool.position.set(CREATURE_CORNER.x, 0.006, CREATURE_CORNER.z);
   blackPool.receiveShadow = true;
   blackPool.visible = false;
   blackPool.userData.interact = {
     label: 'Examine the pool',
-    onInteract: () => showCaption(line('dialog_black_pool_examine'))
+    onInteract: () => { onThought('l2_18', { replayable: true }); showCaption(line('dialog_black_pool_examine')); }
   };
   lab.add(blackPool);
 
@@ -5046,13 +5240,6 @@ export function createHallwayBasementLevel({
     leg.position.set(x, 0.41, z);
     workbench.add(leg);
   });
-  const toolMat = new THREE.MeshStandardMaterial({ color: 0x4a4a4a, metalness: 0.6, roughness: 0.4 });
-  for (let i = 0; i < 4; i++) {
-    const tool = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.04, 0.06), toolMat);
-    tool.position.set(-0.4 + i * 0.22, 0.865, -0.15 + (i % 2) * 0.3);
-    tool.rotation.y = Math.random() * Math.PI;
-    workbench.add(tool);
-  }
   colliders.push({
     minX: workbench.position.x - 0.75, maxX: workbench.position.x + 0.75,
     minZ: LAB_Z + workbench.position.z - 0.45, maxZ: LAB_Z + workbench.position.z + 0.45
@@ -5236,7 +5423,7 @@ export function createHallwayBasementLevel({
   tornNotes.position.set(-0.2, 0.848, 0.15);
   tornNotes.userData.interact = {
     label: 'Read the torn notes',
-    onInteract: () => showCaption(line('dialog_torn_notes'))
+    onInteract: () => { onThought('l2_04', { replayable: true }); showCaption(line('dialog_torn_notes')); }
   };
   interactables.push(tornNotes);
   workbench.add(tornNotes);
@@ -5322,7 +5509,7 @@ export function createHallwayBasementLevel({
   operatingTableHit.position.set(OPERATING_TABLE.x, OPERATING_TABLE.padTop - 0.03, OPERATING_TABLE.z);
   operatingTableHit.userData.interact = {
     label: 'Examine the table',
-    onInteract: () => showCaption(line('dialog_operating_table'))
+    onInteract: () => { onThought('l2_02', { replayable: true }); onThought('l2_13'); showCaption(line('dialog_operating_table')); }
   };
   interactables.push(operatingTableHit);
   lab.add(operatingTableHit);
@@ -5469,9 +5656,12 @@ export function createHallwayBasementLevel({
   trolleyHit.position.set(0, INSTRUMENT_TROLLEY.top + 0.03, 0);
   trolleyHit.userData.interact = {
     label: 'Examine the instruments',
-    onInteract: () => showCaption(line(
-      instrumentTrolley.fallen ? 'dialog_instrument_trolley_fallen' : 'dialog_instrument_trolley'
-    ))
+    onInteract: () => {
+      onThought('l2_03', { replayable: true });
+      showCaption(line(
+        instrumentTrolley.fallen ? 'dialog_instrument_trolley_fallen' : 'dialog_instrument_trolley'
+      ));
+    }
   };
   // Inside the trolley's body, so it rolls with it and goes over with it --
   // it is still raycast directly, since it is listed in interactables itself.
@@ -5712,6 +5902,15 @@ export function createHallwayBasementLevel({
     onGlare(overloadGlare);
   }
 
+  for (const [target, key] of [
+    [fuseBox, 'l2_fuse'], [fuseCoverHit, 'l2_fuse'], [maintenanceNote, 'l2_fuse'],
+    [breakerPanel, 'l2_generator'], [breakerCoverHit, 'l2_generator'], [mainSwitch, 'l2_generator'],
+    [powerButtonHit, 'l2_cctv'], [monitorBody, 'l2_cctv'],
+    [doorNote, 'l2_security_info'], [metalDoor, 'l2_exit'],
+    [recorderHit, 'l2_session14'], [tapeStackHit, 'l2_session14']
+  ]) target.userData.hintKey = key;
+  for (const { mesh } of feedButtons) mesh.userData.hintKey = 'l2_cctv';
+
   return {
     group,
     interactables,
@@ -5734,6 +5933,24 @@ export function createHallwayBasementLevel({
       blackPool,
       /** Where the creature stands after camera five, as world [x, z]. */
       creatureCorner: [CREATURE_CORNER.x, LAB_Z + CREATURE_CORNER.z],
+      /** The way it runs out after standing there, as world [x, z] points. */
+      creatureExitRoute: CREATURE_EXIT_ROUTE.map((p) => [p.x, LAB_Z + p.z]),
+      /** Where the lab doors hang, as world [x, z]: the point it bursts through. */
+      labDoorway: [0, labDoorPivotZ],
+      /** Flings the lab doors open toward the hallway for `seconds`. */
+      burstLabDoors,
+      /**
+       * Shows the creature on camera five where it stands, from its world
+       * position -- or takes it off with null, and once it is out of the lab.
+       */
+      setCameraFiveFigure(position, { running = false } = {}) {
+        const labZ = position ? position.z - LAB_Z : -Infinity;
+        feeds.setBasementFigure(labZ >= -LAB_D / 2
+          ? { across: position.x / (LAB_W / 2), depth: (labZ + LAB_D / 2) / LAB_D, running }
+          : null);
+      },
+      /** Resolves with each loose fuse's model, keyed by item id: the templates for the one in the player's hand. */
+      fuseVisualsReady,
       /** One lightning strike down the hallway. Returns how long it lasts. */
       strike: (duration = 0.55) => {
         flash.duration = duration;
@@ -5761,6 +5978,7 @@ export function createHallwayBasementLevel({
       generator,
       /** True while its engine turns over -- every stage but the blackout. */
       get generatorRunning() { return isGeneratorRunning(); },
+      get breakerCoverOpen() { return breakerCover.open; },
       /** The lab lights' ramp, 0 dark to 1 lit, which the tubes' hum follows. */
       get powerLevel() { return powerLevel; },
       /** The session tape's sound and clock, for the host's voices and subtitles. */
@@ -5795,7 +6013,7 @@ export function createHallwayBasementLevel({
      * restart left the breaker flipped and the exit door still reading "Open
      * the door".
      *
-     * Two halves: the fuse puzzle (held/seated fuse, overload glare, spark
+     * Two halves: the fuse puzzle (seated fuse, overload glare, spark
      * flash, the dropped-fuse row, and the four fuse meshes with fresh pickup
      * handlers), and everything restoring the power changed (lights, screen,
      * feeds, the creature's pool).
@@ -5804,7 +6022,6 @@ export function createHallwayBasementLevel({
       powerStage = POWER_STAGE.DEAD;
       blackoutTimerSecondsLeft = 0;
       resetLabDoors();
-      puzzleState.heldFuse = null;
       puzzleState.slotFuse = null;
       puzzleState.overloaded = false;
       fuseFlareRemaining = 0;
@@ -5884,6 +6101,9 @@ export function createHallwayBasementLevel({
       fuseCoverHinge.rotation.y = 0;
       if (fuseCover.pivot) fuseCover.pivot.rotation.y = fuseCover.closedRotationY;
       metalDoor.userData.interact.label = DOOR_LABELS[POWER_STAGE.DEAD];
+      metalDoorSwing = null;
+      setMetalDoorAngle(0);
+      if (doorNote.parent === metalDoor) lab.attach(doorNote);
 
       fuseData.forEach((data, i) => {
         const fuse = fuseMeshes[data.amps];
@@ -5892,20 +6112,8 @@ export function createHallwayBasementLevel({
         fuse.rotation.z = Math.PI / 2;
         fuse.visible = true;
         setFuseScorched(fuse, false);
-        fuse.userData.interact = {
-          label: `Pick up fuse (${data.amps})`,
-          onInteract: () => {
-            if (puzzleState.heldFuse) {
-              showCaption(line('dialog_fuse_already_holding'));
-              return;
-            }
-            puzzleState.heldFuse = data.amps;
-            showCaption(line('dialog_fuse_taken', { amps: data.amps }));
-            fuse.visible = false;
-            const idx = interactables.indexOf(fuse);
-            if (idx !== -1) interactables.splice(idx, 1);
-          }
-        };
+        fuse.userData.hintKey = 'l2_fuse';
+        fuse.userData.interact = fusePickup(data, fuse);
         if (!interactables.includes(fuse)) interactables.push(fuse);
       });
     },

@@ -54,19 +54,22 @@ export function createSessionTapeSource() {
   }
 
   let playing = false;
+  let paused = false;
+  let failed = false;
   let placeholderTime = 0;
   const usingAudio = () => audio !== null;
 
   return {
     get hasRecording() { return usingAudio(); },
     get audio() { return audio; },
+    get hasFailed() { return failed; },
     get currentTimeInSeconds() { return usingAudio() ? audio.currentTime : placeholderTime; },
     get durationInSeconds() {
       return usingAudio() && Number.isFinite(audio.duration) ? audio.duration : SESSION_TAPE_LENGTH_IN_SECONDS;
     },
     /** Whether the tape is actually moving past the head: played, and neither paused nor run out. */
     get isRunning() {
-      if (!playing) return false;
+      if (!playing || paused) return false;
       return usingAudio() ? !audio.paused && !audio.ended : placeholderTime < SESSION_TAPE_LENGTH_IN_SECONDS;
     },
     get hasEnded() {
@@ -76,15 +79,29 @@ export function createSessionTapeSource() {
     /** Starts the tape from the beginning. */
     play() {
       playing = true;
+      paused = false;
+      failed = false;
       placeholderTime = 0;
       if (!usingAudio()) return;
       audio.currentTime = 0;
-      audio.play().catch((err) => console.warn('[tape] the tape would not play', err));
+      audio.play().catch((err) => {
+        failed = true;
+        console.warn('[tape] the tape would not play', err);
+      });
+    },
+
+    /** Pause the recording's own clock with the game, preserving its position. */
+    setPaused(value) {
+      paused = value;
+      if (!usingAudio() || !playing) return;
+      if (paused) audio.pause();
+      else audio.play().catch(() => { failed = true; });
     },
 
     /** Stops the tape and rewinds it, the way the deck does when it is stopped. */
     stop() {
       playing = false;
+      paused = false;
       placeholderTime = 0;
       if (!usingAudio()) return;
       audio.pause();
@@ -98,7 +115,7 @@ export function createSessionTapeSource() {
      * @param {number} deltaTimeInSeconds - frame time.
      */
     update(deltaTimeInSeconds) {
-      if (!playing || usingAudio()) return;
+      if (!playing || paused || usingAudio()) return;
       placeholderTime = Math.min(SESSION_TAPE_LENGTH_IN_SECONDS, placeholderTime + deltaTimeInSeconds);
     }
   };

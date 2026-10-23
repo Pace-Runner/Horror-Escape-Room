@@ -2,11 +2,8 @@
  * The session tape's subtitles, along the bottom of the screen while the deck
  * on the lab's desk plays it.
  *
- * The tape plays in the room, not in front of the player: they stay free to
- * look round, walk off, or stand at the deck and listen. So this takes nothing
- * from them -- no pointer, no keys -- and only shows what is being said, with
- * its speaker, or what is heard, in italics. It sits under the caption box so
- * the player's own thoughts can still come and go while it plays.
+ * The cassette focus scene owns the controls. This helper only displays the
+ * spoken words and anonymous speaker labels, using the recording's clock.
  *
  * WHY THE HOST CALLS update(). The subtitles follow the TAPE's clock, not wall
  * time, so they stay on the words whether the source is the recording (its
@@ -24,12 +21,12 @@ export function createTapeSubtitles({ subtitles }) {
   /** The subtitle lines on screen, joined, so the DOM is only touched when they change. */
   let shownKey = '';
 
-  /** Every subtitle showing at `timeInSeconds`; sounds and speech can overlap. */
+  /** Only spoken subtitles showing at the tape's current time. */
   function readActiveSubtitles(timeInSeconds) {
-    return subtitles.filter((cue) => timeInSeconds >= cue.start && timeInSeconds < cue.end);
+    return subtitles.filter((cue) => cue.speaker && timeInSeconds >= cue.start && timeInSeconds < cue.end);
   }
 
-  /** Puts `cues` on screen: a speaker's words with their name, a sound in italics. */
+  /** Puts spoken words on screen with their anonymous speaker label. */
   function render(cues) {
     const key = cues.map((cue) => cue.text).join('|');
     if (key === shownKey) return;
@@ -41,7 +38,7 @@ export function createTapeSubtitles({ subtitles }) {
       if (cue.speaker) {
         const name = document.createElement('span');
         name.className = 'tape-speaker';
-        name.textContent = cue.speaker;
+        name.textContent = `[${cue.speaker}]`;
         row.append(name, document.createTextNode(cue.text));
       } else {
         row.className = 'tape-sound';

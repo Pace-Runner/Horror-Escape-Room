@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { buildBrassKey, buildIronKey } from './keyModels.js';
 
 /**
  * One mesh builder per inventory item, shared by the hand and the floor.
@@ -51,15 +52,25 @@ const REST_ROTATION = {
   flashlight: FLAT,
   crowbar: FLAT,
   brassKey: FACE_DOWN,
-  // The two study keys and the bedroom key keep the attitude their own level
-  // gave them -- FLAT undoes the canonical frame's quarter turn exactly.
-  bedroomKey: FLAT,
+  // The two study keys keep the attitude their own level gave them -- FLAT
+  // undoes the canonical frame's quarter turn exactly.
+  bedroomKey: FACE_DOWN,
   doorKey: FLAT,
   gateKey: FLAT,
   paperclip: FACE_DOWN,
   visor: FACE_DOWN,
   // Undoes the builder's quarter turn below: lying flat, label up.
-  sessionTape: [-Math.PI / 2, 0, 0]
+  sessionTape: [-Math.PI / 2, 0, 0],
+  // Face up.
+  photo1984: [-Math.PI / 2, 0, 0],
+  photo1985: [-Math.PI / 2, 0, 0],
+  photo1986: [-Math.PI / 2, 0, 0],
+  photo1987: [-Math.PI / 2, 0, 0],
+  // On its side, like the loose fuses lying round the lab.
+  fuse15: FLAT,
+  fuse20: FLAT,
+  fuse30: FLAT,
+  fuse45: FLAT
 };
 
 /**
@@ -164,41 +175,6 @@ function buildCrowbar() {
 }
 
 /**
- * The brass safe key. Never had a mesh either: the lamp drawer's pin pad grants
- * it. Small and old-fashioned -- a round bow, a collar, two bit teeth -- in the
- * same brass the study's keys use, with the same trace of emission they carry so
- * it stays findable on a dark floor.
- *
- * Its broad face is local XY (the bow's ring and the teeth both lie in it), which
- * is why it rests FACE_DOWN rather than FLAT.
- */
-function buildBrassKey() {
-  const brass = new THREE.MeshStandardMaterial({
-    color: 0xc9a24a, metalness: 0.85, roughness: 0.32,
-    emissive: 0x241a08, emissiveIntensity: 0.35
-  });
-  const key = new THREE.Group();
-  key.name = 'brassKey';
-
-  const bow = new THREE.Mesh(new THREE.TorusGeometry(0.0115, 0.0032, 8, 18), brass);
-  bow.position.y = -0.0085;
-  key.add(bow);
-  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.0046, 0.0046, 0.004, 10), brass);
-  collar.position.y = 0.0045;
-  key.add(collar);
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.0028, 0.0028, 0.042, 8), brass);
-  shaft.position.y = 0.0275;
-  key.add(shaft);
-  const toothA = new THREE.Mesh(new THREE.BoxGeometry(0.010, 0.006, 0.0026), brass);
-  toothA.position.set(0.0058, 0.041, 0);
-  key.add(toothA);
-  const toothB = new THREE.Mesh(new THREE.BoxGeometry(0.007, 0.0045, 0.0026), brass);
-  toothB.position.set(0.0046, 0.0325, 0);
-  key.add(toothB);
-  return key;
-}
-
-/**
  * Builders, keyed by the same ids as GameState's ITEMS. Each takes the item's
  * template (or nothing) and returns it in the canonical frame, or null when the
  * template it needs has not arrived yet.
@@ -213,11 +189,10 @@ const BUILDERS = {
   flashlight: (t) => (t ? fromTemplate(t) : null),
 
   crowbar: () => buildCrowbar(),
+  // Level 1's keys are modelled in keyModels.js, in the canonical frame already.
   brassKey: () => buildBrassKey(),
 
-  // bedroomLevel.js: shaft along X, bow at -X, bit at +X. A quarter turn about
-  // Z stands it up with the bow at the bottom, in the fist.
-  bedroomKey: (t) => (t ? fromTemplate(t, { rotation: [0, 0, Math.PI / 2], position: [0, 0.055, 0] }) : null),
+  bedroomKey: () => buildIronKey(),
 
   // studyLevel.js's desk-drawer key: the same layout as the bedroom key, smaller.
   doorKey: (t) => (t ? fromTemplate(t, { rotation: [0, 0, Math.PI / 2], position: [0, 0.045, 0] }) : null),
@@ -238,10 +213,21 @@ const BUILDERS = {
   // label up, its tape edge toward +Z. A quarter turn about X stands it up with
   // the label facing +Z and reading upright, and lifting it by half its depth
   // puts the tape edge in the fist -- held up the way you would read a label.
-  sessionTape: (t) => (t ? fromTemplate(t, { rotation: [Math.PI / 2, 0, 0], position: [0, 0.03, 0] }) : null)
+  sessionTape: (t) => (t ? fromTemplate(t, { rotation: [Math.PI / 2, 0, 0], position: [0, 0.03, 0] }) : null),
+  // bedroomLevel.js's photo cards stand in their own XY plane, picture to +Z;
+  // held by the bottom edge.
+  photo1984: (t) => (t ? fromTemplate(t, { position: [0, 0.1, 0] }) : null),
+  photo1985: (t) => (t ? fromTemplate(t, { position: [0, 0.1, 0] }) : null),
+  photo1986: (t) => (t ? fromTemplate(t, { position: [0, 0.1, 0] }) : null),
+  photo1987: (t) => (t ? fromTemplate(t, { position: [0, 0.1, 0] }) : null),
+  // fuse.glb already stands along +Y; held by its lower cap.
+  fuse15: (t) => (t ? fromTemplate(t, { rotation: [0, Math.PI / 2, 0], position: [0, 0.035, 0] }) : null),
+  fuse20: (t) => (t ? fromTemplate(t, { rotation: [0, Math.PI / 2, 0], position: [0, 0.035, 0] }) : null),
+  fuse30: (t) => (t ? fromTemplate(t, { rotation: [0, Math.PI / 2, 0], position: [0, 0.035, 0] }) : null),
+  fuse45: (t) => (t ? fromTemplate(t, { rotation: [0, Math.PI / 2, 0], position: [0, 0.035, 0] }) : null)
 };
 
-/** Every id this module can build -- the same set the hotbar has slots for. */
+/** Every id this module can build -- the same set the hotbar has icons for. */
 export const ITEM_MESH_IDS = Object.freeze(Object.keys(BUILDERS));
 
 /**

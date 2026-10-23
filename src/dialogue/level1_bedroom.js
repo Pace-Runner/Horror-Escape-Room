@@ -123,6 +123,10 @@ export const dialog_middle_drawer_shut = ["The middle drawer slides shut.", "lev
 
 export const dialog_corkboard_open = ["The corkboard hangs open.", "level1/corkboard_open.m4a"];
 
+export const dialog_corkboard_pinned = ["You pin the photograph in an empty place. {left} to go.", "level1/corkboard_pinned.m4a"];
+
+export const dialog_corkboard_hold_photo = ["Take a photograph out to pin it to the board.", "level1/corkboard_hold_photo.m4a"];
+
 export const dialog_corkboard_needs_photos = ["A corkboard with four empty places. You need to find the rest of the family photographs.", "level1/corkboard_needs_photos.m4a"];
 
 export const dialog_corkboard_solved = ["Something clicks nearby... The corkboard swings open on a hidden hinge, revealing a hollow in the wall.", "level1/corkboard_solved.m4a"];
@@ -175,7 +179,7 @@ export const dialog_hint_photo_place_bedside_drawer = ["one in the bedside drawe
 export const dialog_hint_photo_place_floor = ["one on the floor beside the corkboard", ""];
 export const dialog_hint_photo_place_vanity_drawer = ["one in the vanity's middle drawer", ""];
 
-export const dialog_hint_corkboard_1 = ["You have all four photographs. Take them to the corkboard.", ""];
+export const dialog_hint_corkboard_1 = ["You have all four photographs. Hold each one up to the corkboard to pin it.", ""];
 export const dialog_hint_corkboard_2 = ["Each photograph has a year printed on it. Pin them in order, oldest first.", ""];
 
 export const dialog_hint_lamp_1 = ["The lamp on the bedside table is not quite dead. Watch it for a while.", ""];

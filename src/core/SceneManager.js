@@ -1,7 +1,97 @@
+import * as THREE from 'three';
+import { waitForAllLoads } from './LoadTracker.js';
+
+/** A stable room handle: constructing it downloads nothing. Existing consumers
+ * retain the same group, refs and collider array when its factory runs later.
+ */
+export function createDeferredLevel(factory, onCreated = () => {}) {
+  let instance = null;
+  let preparation = null;
+  const empty = [];
+  // Async model callbacks keep mutating the factory's own arrays after creation.
+  const forwardArray = (read) => new Proxy([], {
+    get(_target, key) {
+      const array = read() ?? empty;
+      const value = Reflect.get(array, key, array);
+      return typeof value === 'function' ? value.bind(array) : value;
+    },
+    set(_target, key, value) { return Reflect.set(read() ?? empty, key, value); }
+  });
+  const handle = {
+    group: new THREE.Group(),
+    refs: { candleAnchors: forwardArray(() => instance?.refs?.candleAnchors) },
+    colliders: forwardArray(() => instance?.colliders),
+    get isPrepared() { return instance !== null; },
+    initialize() {
+      if (instance) return;
+      instance = factory();
+      handle.group.add(instance.group);
+      const descriptors = Object.getOwnPropertyDescriptors(instance.refs ?? {});
+      if (descriptors.candleAnchors) {
+        delete descriptors.candleAnchors;
+      }
+      Object.defineProperties(handle.refs, descriptors);
+      onCreated(handle);
+    },
+    prepare() {
+      if (!preparation) preparation = Promise.resolve().then(() => {
+        handle.initialize();
+        return waitForAllLoads({ timeoutMilliseconds: Infinity });
+      });
+      return preparation;
+    },
+    reset() { instance?.reset?.(); },
+    update(...args) { instance?.update?.(...args); }
+  };
+  return new Proxy(handle, {
+    get(target, key) {
+      if (key in target) return target[key];
+      if (key === 'then') return undefined;
+      handle.initialize();
+      const value = instance[key];
+      return typeof value === 'function' ? value.bind(instance) : value;
+    }
+  });
+}
+
+/**
+ * How many matrix passes a hidden level sits out between updates -- about one
+ * a second, as each frame runs two (the main view and the minimap).
+ */
+const HIDDEN_LEVEL_MATRIX_INTERVAL = 120;
+
+/**
+ * Every render recomputes the world matrix of every object in the scene,
+ * hidden or not -- all five levels, every frame, once for the main view and
+ * again for the minimap. Measured at about a sixth of a backrooms frame. A
+ * hidden level is not drawn, so it only needs them now and then: every object
+ * that moves recomputes its own on the next pass anyway (three marks it when
+ * it rebuilds its local matrix).
+ *
+ * Not never: a model that loads into a level that has not been shown yet
+ * measures its bounds from its parents' world matrices (Box3.setFromObject),
+ * and those have to have been worked out at least once.
+ *
+ * @param {THREE.Object3D} group - a level's root group.
+ */
+function skipMatrixUpdatesWhileHidden(group) {
+  const updateMatrixWorld = group.updateMatrixWorld;
+  let passesSkipped = HIDDEN_LEVEL_MATRIX_INTERVAL;
+  group.updateMatrixWorld = function (force) {
+    if (this.visible || passesSkipped >= HIDDEN_LEVEL_MATRIX_INTERVAL) {
+      passesSkipped = 0;
+      updateMatrixWorld.call(this, force);
+      return;
+    }
+    passesSkipped++;
+    // Its parent moved while it was skipped: catch up on the next update.
+    if (force) this.matrixWorldNeedsUpdate = true;
+  };
+}
+
 // Holds every level as a sibling THREE.Group under one root, and switches
-// which one is visible/active/collidable. Levels are built once up front
-// (cheap at this world's poly count) so jumping between them for a mentor
-// demo is instant -- there is no async load between rooms.
+// which one is visible/active/collidable. Deferred room factories are prepared
+// by loading orchestration before production activation.
 export class SceneManager {
   constructor(root) {
     this.root = root;
@@ -12,6 +102,7 @@ export class SceneManager {
   register(key, level) {
     this.levels.set(key, level);
     level.group.visible = false;
+    skipMatrixUpdatesWhileHidden(level.group);
     this.root.add(level.group);
   }
 
@@ -39,6 +130,7 @@ export class SceneManager {
       console.warn(`SceneManager.activate: no level registered under "${key}"`);
       return null;
     }
+    level.initialize?.();
     if (this.activeKey && !seamless) {
       this.levels.get(this.activeKey).group.visible = false;
     }

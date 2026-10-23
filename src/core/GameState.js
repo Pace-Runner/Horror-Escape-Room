@@ -69,7 +69,13 @@ function initialState() {
 
     // --- inventory ---------------------------------------------------------
     /** Ids of carried items, in pickup order. See ITEMS below for display info. */
-    inventory: new Set()
+    inventory: new Set(),
+    /**
+     * Which hotbar slot each carried item sits in, left to right: ids, with
+     * null for a gap. Read it through inventorySlots(), which keeps it in step
+     * with `inventory`.
+     */
+    inventorySlots: []
   };
 }
 
@@ -88,10 +94,48 @@ export const ITEMS = {
   brassKey: { label: 'Brass safe key', name: 'brass key' },
   bedroomKey: { label: 'Bedroom door key', name: 'bedroom key' },
   sessionTape: { label: 'Cassette: SESSION 14', name: 'tape' },
+  // Level 1's four photographs, carried until they are pinned to the corkboard.
+  photo1984: { label: 'Photograph', name: 'photograph' },
+  photo1985: { label: 'Photograph', name: 'photograph' },
+  photo1986: { label: 'Photograph', name: 'photograph' },
+  photo1987: { label: 'Photograph', name: 'photograph' },
+  // Level 2's four loose fuses. All one size; only the rating tells them apart.
+  fuse15: { label: 'Fuse (15A)', name: '15A fuse' },
+  fuse20: { label: 'Fuse (20A)', name: '20A fuse' },
+  fuse30: { label: 'Fuse (30A)', name: '30A fuse' },
+  fuse45: { label: 'Fuse (45A)', name: '45A fuse' },
   visor: { label: "Annabelle's visor", name: 'visor', hint: 'V to toggle' },
   doorKey: { label: 'Desk drawer key', name: 'desk drawer key' },
   gateKey: { label: 'Gate key', name: 'gate key' }
 };
+
+/** The slots the inventory bar always shows; it only grows past this when they are all full. */
+export const HOTBAR_SLOTS = 9;
+
+/**
+ * The hotbar's slots, left to right: each an item id, or null for an empty
+ * slot. An item keeps its slot while it is carried; one used up or dropped
+ * leaves a gap, and the next item picked up fills the first gap rather than
+ * going on the end. Only items with display info in ITEMS take a slot.
+ *
+ * Synced from `inventory` on every read rather than kept by addItem() and
+ * removeItem(), because some code edits the Set directly (the study's quest
+ * items) and the slots must never go stale behind it.
+ */
+export function inventorySlots() {
+  const slots = gameState.inventorySlots;
+  for (let i = 0; i < slots.length; i++) {
+    if (slots[i] !== null && !gameState.inventory.has(slots[i])) slots[i] = null;
+  }
+  for (const id of gameState.inventory) {
+    if (!ITEMS[id] || slots.includes(id)) continue;
+    const gap = slots.indexOf(null);
+    if (gap >= 0) slots[gap] = id;
+    else slots.push(id);
+  }
+  while (slots.length && slots[slots.length - 1] === null) slots.pop();
+  return slots;
+}
 
 /** Adds an item to the carried set. A no-op if it is already there. */
 export function addItem(id) {

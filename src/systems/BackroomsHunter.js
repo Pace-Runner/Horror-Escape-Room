@@ -22,6 +22,11 @@ import { LEGS, CORRIDORS, DOORWAYS, NECK_W, neighbours, crossPoint, legMid } fro
  * reaches you, the screen goes, and you wake at the mouth of the maze having
  * lost the crossing. See main.js's onCaught.
  *
+ * ANNABELLE'S ROOMS ARE SAFE. Inside one (`safeFloors`) the player cannot be
+ * caught, seen or heard, and it never picks one to wander to. It can still be
+ * standing in one already, or cut through one on its way somewhere -- it just
+ * cannot touch you there.
+ *
  * ------------------------------------------------------------------ hearing
  *
  * IT DOES NOT KNOW WHERE YOU ARE. The only thing that tells it is NOISE, and
@@ -353,6 +358,8 @@ export function createBackroomsHunter({
    * when it gets there. main.js roars.
    */
   onEnraged = () => {},
+  /** Leg name -> [x0, x1, z0, z1]: where the player is safe from it. */
+  safeFloors = {},
   onCaught = () => {},
   onBreathing = () => {}
 } = {}) {
@@ -392,6 +399,8 @@ export function createBackroomsHunter({
   let waypoints = [];
   /** The last place a sprint was heard. Null once it has been investigated. */
   let heard = null;
+  // Observation only: whether sprint noise contributed to this pursuit.
+  let sprintContributed = false;
   let sawFor = 0;
   let cooldown = 0;
   let yaw = 0;
@@ -437,6 +446,12 @@ export function createBackroomsHunter({
     return pickWanderTarget();
   }
 
+  const safeRects = Object.values(safeFloors);
+  /** In a safe room, or the tunnel through the wall into one. */
+  function inSafeRoom(x, z) {
+    return isSafeAt(x, z) || safeRects.some(([x0, x1, z0, z1]) => x >= x0 && x <= x1 && z >= z0 && z <= z1);
+  }
+
   function setPath(target) {
     waypoints = pathBetween(pos, target, adjacent, skipSafe);
   }
@@ -459,7 +474,7 @@ export function createBackroomsHunter({
    */
   function pickWanderTarget() {
     const here = legAt(pos.x, pos.z, skipSafe);
-    let names = Object.keys(LEGS).filter((n) => n !== here && !safe.has(n));
+    let names = Object.keys(LEGS).filter((n) => n !== here && !safe.has(n) && !(n in safeFloors));
     if (Math.random() < DRIFT_SHARE) {
       const p = getPlayer();
       const near = names.filter((n) => {
@@ -667,6 +682,7 @@ export function createBackroomsHunter({
       guard = null;
       wasPlayerSafe = false;
       pos.x = best.x;
+      sprintContributed = false;
       pos.z = best.z;
       stallFrom.x = best.x;
       stallFrom.z = best.z;
@@ -695,6 +711,7 @@ export function createBackroomsHunter({
     },
 
     stop() {
+      sprintContributed = false;
       state = 'stopped';
       guard = null;
       waypoints = [];
@@ -731,11 +748,11 @@ export function createBackroomsHunter({
 
       const player = getPlayer();
       const dist = Math.hypot(player.x - pos.x, player.z - pos.z);
-      const seen = canSee(player.x, player.z);
+      const playerSafe = inSafeRoom(player.x, player.z);
+      const seen = !playerSafe && canSee(player.x, player.z);
 
       // --- a safe room -----------------------------------------------------
       if (roarCool > 0) roarCool -= dt;
-      const playerSafe = isSafeAt(player.x, player.z);
       if (playerSafe && !wasPlayerSafe) {
         const door = nearestSafeDoor(player.x, player.z);
         const coming = !!door && (state === 'chase' || state === 'hunt' || dist <= ENRAGE_NEAR);
@@ -765,8 +782,15 @@ export function createBackroomsHunter({
         sawFor -= dt;
       }
       if (!playerSafe && (player.sprinting || (player.walking && dist <= HEAR_WALK))) {
+        if (player.sprinting) sprintContributed = true;
         // Noise. It does not matter whether it can see you.
         heard = { x: player.x, z: player.z };
+      }
+      if (playerSafe) {
+        // Gone into one of her rooms: it loses you at the door, and does not
+        // follow you in to wherever it last heard you.
+        sawFor = 0;
+        if (heard && inSafeRoom(heard.x, heard.z)) heard = null;
       }
 
       // --- what it does ----------------------------------------------------
@@ -780,6 +804,7 @@ export function createBackroomsHunter({
       } else {
         state = 'search';
       }
+      if (playerSafe || state === 'search') sprintContributed = false;
 
       if (state !== 'search') scan = 0;      // being found ends the standing about
       if (state !== 'search') { peekFor = 0; peekDir = 0; }
@@ -942,7 +967,7 @@ export function createBackroomsHunter({
 
       if (dist < CONTACT_RANGE && cooldown <= 0 && !playerSafe) {
         cooldown = CATCH_COOLDOWN;
-        onCaught();
+        onCaught({ sprintContributed });
       }
     }
   };

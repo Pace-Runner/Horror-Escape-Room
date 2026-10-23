@@ -593,147 +593,6 @@ export function createConcreteTexture() {
   return finish(canvas, 3, 3);
 }
 
-// Shared height canvas for the scratched floor message. It is deliberately
-// a sparse set of hand-dragged strokes, rather than filled typography, so the
-// level's thin decal reads as gouges in the existing boards instead of ink on
-// a card laid over the floor.
-function buildScratchedMessageHeightCanvas(text) {
-  const W = 512;
-  const H = 256;
-  const src = makeCanvas(W, H);
-  const sctx = src.getContext('2d');
-  let randomState = 0x6d2b79f5;
-  for (const character of text) randomState = ((randomState ^ character.charCodeAt(0)) * 1664525 + 1013904223) >>> 0;
-  const random = () => {
-    randomState = (randomState * 1664525 + 1013904223) >>> 0;
-    return randomState / 0x100000000;
-  };
-  const letters = [...text];
-  const font = 'italic 42px "Segoe Print", "Bradley Hand", cursive';
-
-  sctx.font = font;
-  const letterWidths = letters.map((letter) => sctx.measureText(letter).width);
-  const textWidth = letterWidths.reduce((total, width) => total + width, 0);
-  let cursorX = (W - textWidth) / 2;
-  sctx.save();
-  sctx.font = font;
-  sctx.textAlign = 'left';
-  sctx.textBaseline = 'middle';
-  sctx.strokeStyle = '#fff';
-  for (let index = 0; index < letters.length; index++) {
-    const letter = letters[index];
-    const letterWidth = letterWidths[index];
-    if (letter !== ' ') {
-      const baselineY = H / 2 + (random() - 0.5) * 12;
-      const angle = (random() - 0.5) * 0.11;
-      // Two thin, imperfect passes mimic a point catching and retracing a
-      // gouge without forming a broad, outlined font shape.
-      for (let passIndex = 0; passIndex < 2; passIndex++) {
-        sctx.save();
-        sctx.translate(cursorX, baselineY);
-        sctx.rotate(angle + (random() - 0.5) * 0.025);
-        sctx.lineWidth = passIndex === 0 ? 1.6 : 0.75;
-        sctx.globalAlpha = passIndex === 0 ? 0.9 : 0.58;
-        sctx.strokeText(letter, (random() - 0.5) * 1.8, (random() - 0.5) * 1.4);
-        sctx.restore();
-      }
-    }
-    cursorX += letterWidth;
-  }
-  sctx.restore();
-  const srcAlpha = sctx.getImageData(0, 0, W, H).data;
-  const alphaAt = (x, y) => (x < 0 || x >= W || y < 0 || y >= H ? 0 : srcAlpha[(y * W + x) * 4 + 3]);
-
-  const canvas = makeCanvas(W, H);
-  const ctx = canvas.getContext('2d');
-  const out = ctx.createImageData(W, H);
-
-  // Per-scanline drift breaks up the font-derived stroke silhouette. Small
-  // skipped sections and retraced lines leave the uneven rhythm of a hand
-  // carving across grain rather than a clean printed message.
-  let wander = 0;
-  for (let y = 0; y < H; y++) {
-    wander += (random() - 0.5) * 1.6;
-    wander = Math.max(-5, Math.min(5, wander));
-    const rowGap = random() < 0.075;
-    const rowSmear = random() < 0.13 ? 1 + random() * 2 : 0;
-    for (let x = 0; x < W; x++) {
-      let v = 0;
-      if (!rowGap) {
-        const shift = Math.round(wander);
-        v = alphaAt(x - shift, y);
-        if (rowSmear) v = Math.max(v, alphaAt(x - shift - Math.round(rowSmear), y));
-      }
-      const idx = (y * W + x) * 4;
-      out.data[idx] = v;
-      out.data[idx + 1] = v;
-      out.data[idx + 2] = v;
-      out.data[idx + 3] = 255;
-    }
-  }
-  ctx.putImageData(out, 0, 0);
-
-  // Ragged chips and short skids keep the cuts from resolving into a crisp
-  // alphabet while preserving enough of each character to read by flashlight.
-  ctx.globalCompositeOperation = 'destination-out';
-  for (let i = 0; i < 52; i++) {
-    const x = random() * W;
-    const y = H / 2 + (random() - 0.5) * 90;
-    if (alphaAt(Math.round(x), Math.round(y)) < 40) continue;
-    ctx.beginPath();
-    ctx.arc(x, y, 0.6 + random() * 1.6, 0, Math.PI * 2);
-    ctx.fillStyle = '#fff';
-    ctx.fill();
-  }
-  ctx.globalCompositeOperation = 'source-over';
-
-  // A few shallow skids run with the board grain, not an isolated halo of
-  // decoration around the words.
-  ctx.strokeStyle = 'rgba(255,255,255,0.34)';
-  ctx.lineWidth = 0.7;
-  for (let i = 0; i < 11; i++) {
-    const x0 = random() * W;
-    const y0 = H / 2 + (random() - 0.5) * 70;
-    ctx.beginPath();
-    ctx.moveTo(x0, y0);
-    ctx.lineTo(x0 + (random() - 0.5) * 24, y0 + (random() - 0.5) * 4);
-    ctx.stroke();
-  }
-
-  return canvas;
-}
-
-export function createScratchedMessageTexture(text = "DON'T LET IT OUT") {
-  const height = buildScratchedMessageHeightCanvas(text);
-  const hData = height.getContext('2d').getImageData(0, 0, height.width, height.height).data;
-
-  const canvas = makeCanvas(height.width, height.height);
-  const ctx = canvas.getContext('2d');
-  const out = ctx.createImageData(canvas.width, canvas.height);
-  for (let i = 0; i < hData.length; i += 4) {
-    const t = hData[i] / 255;
-    // Dirty brown sits in the narrow groove while a restrained exposed-wood
-    // value catches at fragmented stroke edges. Alpha leaves every untouched
-    // pixel fully transparent, exposing the real floorboards underneath.
-    const exposedWood = Math.max(0, Math.min(1, (t - 0.42) * 2.2));
-    out.data[i] = 18 + 67 * exposedWood;
-    out.data[i + 1] = 9 + 36 * exposedWood;
-    out.data[i + 2] = 4 + 13 * exposedWood;
-    out.data[i + 3] = Math.round(Math.min(0.76, t * 0.76) * 255);
-  }
-  ctx.putImageData(out, 0, 0);
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-// Normal-map counterpart -- lets the gouge actually catch the bedroom
-// bulb/lightning at a raking angle instead of being flat dark paint on
-// the floor.
-export function createScratchedMessageNormalTexture(text = "DON'T LET IT OUT") {
-  return finishBump(heightToNormalMap(buildScratchedMessageHeightCanvas(text), 2.2));
-}
-
 export function createPolaroidTexture({ caption = 'PROJECT HOLLOW', date = 'JUNE 1987' } = {}) {
   const canvas = makeCanvas(256, 300);
   const ctx = canvas.getContext('2d');
@@ -1357,7 +1216,6 @@ function buildClawMarksHeightCanvas() {
 }
 
 // Colour + alpha version -- a dark gouge with a faint torn-highlight edge,
-// same "scratched into the surface" look as createScratchedMessageTexture,
 // meant to sit on top of a wall/wood texture with alpha blending rather
 // than replacing it.
 export function createClawMarksTexture() {
@@ -1580,33 +1438,6 @@ export function createPeelingWallpaperTexture({ paperColor = [82, 75, 67] } = {}
   edgePts.forEach(([x, y]) => ctx.lineTo(x, y));
   ctx.stroke();
 
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  return tex;
-}
-
-export function createStickyNoteTexture(text) {
-  const canvas = makeCanvas(200, 200);
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#d8c85a';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = '#2b2620';
-  ctx.font = '18px "Comic Sans MS", cursive';
-  ctx.textAlign = 'center';
-  const words = text.split(' ');
-  let line = '';
-  let y = 40;
-  words.forEach((w) => {
-    const test = line + w + ' ';
-    if (ctx.measureText(test).width > 170) {
-      ctx.fillText(line, canvas.width / 2, y);
-      line = w + ' ';
-      y += 24;
-    } else {
-      line = test;
-    }
-  });
-  ctx.fillText(line, canvas.width / 2, y);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   return tex;

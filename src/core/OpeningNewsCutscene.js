@@ -52,16 +52,20 @@ export const OPENING_NEWS_SUBTITLE_CUES = [
   { start: 71.342, end: 72.240, text: 'goes inside.' }
 ];
 
-function preloadImage(url) {
-  const image = new Image();
+function preloadImage(url, image) {
   image.src = url;
-  return image.decode?.().catch(() => undefined) ?? Promise.resolve();
+  if (image.decode) return image.decode();
+  if (image.complete && image.naturalWidth) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    image.addEventListener('load', resolve, { once: true });
+    image.addEventListener('error', reject, { once: true });
+  });
 }
 
 export function createOpeningNewsCutscene({ root }) {
   const photoCards = [...root.querySelectorAll('.onc-photo-card')];
   const subtitle = root.querySelector('.onc-subtitle');
-  const audio = new Audio(newsAudioUrl);
+  const audio = new Audio();
   audio.preload = 'auto';
 
   let preloadPromise = null;
@@ -71,8 +75,31 @@ export function createOpeningNewsCutscene({ root }) {
 
   function preload() {
     if (!preloadPromise) {
-      audio.load();
-      preloadPromise = Promise.all(PHOTO_CUES.map((cue) => preloadImage(cue.image))).catch(() => undefined);
+      const audioReady = fetch(newsAudioUrl).then((response) => {
+        if (!response.ok) throw new Error(`News audio: HTTP ${response.status}`);
+        return response.blob();
+      }).then((blob) => new Promise((resolve, reject) => {
+        const finish = () => {
+          audio.removeEventListener('canplaythrough', finish);
+          audio.removeEventListener('error', fail);
+          resolve();
+        };
+        const fail = () => {
+          audio.removeEventListener('canplaythrough', finish);
+          reject(new Error('Opening news audio could not decode'));
+        };
+        audio.addEventListener('canplaythrough', finish, { once: true });
+        audio.addEventListener('error', fail, { once: true });
+        audio.src = URL.createObjectURL(blob);
+        audio.load();
+      }));
+      const fonts = new Set([root, subtitle, ...photoCards].map((node) => getComputedStyle(node).font).filter(Boolean));
+      preloadPromise = Promise.all([
+        audioReady,
+        ...PHOTO_CUES.map((cue) => preloadImage(cue.image, photoCards[cue.slot].querySelector('img'))),
+        ...[...fonts].map((font) => document.fonts.load(font)),
+        document.fonts.ready
+      ]);
     }
     return preloadPromise;
   }
@@ -135,6 +162,24 @@ export function createOpeningNewsCutscene({ root }) {
   return {
     preload,
     close,
+    /**
+     * Lays all four photographs out as the report ends, without the flashes,
+     * so a skipped report rests on the same screen as one watched through.
+     */
+    showAllPhotos() {
+      root.classList.remove('onc-stage-1', 'onc-stage-2', 'onc-stage-3');
+      root.classList.add('onc-stage-4');
+      for (const cue of PHOTO_CUES) {
+        const card = photoCards[cue.slot];
+        card.querySelector('img').src = cue.image;
+        card.classList.remove('is-active', 'is-photo-change', 'is-strong-flash');
+        card.classList.add('is-visible');
+      }
+    },
+    /** True from play() until close() has finished: the report covers the screen. */
+    get isOpen() {
+      return root.classList.contains('is-open');
+    },
     skip() {
       return finish({ skipped: true });
     },

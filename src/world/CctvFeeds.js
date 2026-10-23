@@ -228,6 +228,38 @@ function figure(ctx, x, groundY, scale, t) {
   ctx.restore();
 }
 
+/**
+ * Camera five's view of the lab: mounted high on the entrance wall, looking
+ * into the room toward the back wall and the CCTV desk. The drawn room
+ * (DRAWERS.basement) and the creature on it share this one view, so the
+ * figure stands on the floor that is drawn.
+ *
+ * Positions come in as fractions of the lab: `across` -1..1 from its +x wall
+ * to its -x wall as world x runs, and `depth` 0 at the entrance wall to 1 at
+ * the back. The camera sits CAMERA_FIVE.eyeDepth behind the entrance wall (a
+ * wide lens, so further back than the wall itself), and the bottom of the
+ * frame is the floor CAMERA_FIVE.nearestDepth into the room -- anything
+ * nearer, such as the doors right under the camera, is out of shot.
+ */
+const CAMERA_FIVE = { horizon: 0.34, spread: 1.9, eyeDepth: -0.42, nearestDepth: 0.15, figureScaleAtBackWall: 0.77 };
+
+/** Where a spot on the lab floor lands on camera five, and how big the figure is there. */
+function projectOntoCameraFive(across, depth) {
+  const { horizon, spread, eyeDepth, nearestDepth, figureScaleAtBackWall } = CAMERA_FIVE;
+  const toBack = 1 - eyeDepth;
+  const toNearest = nearestDepth - eyeDepth;
+  const distance = Math.max(0.05, depth - eyeDepth);
+  // 0 at the bottom of the frame, 1 at the foot of the back wall.
+  const up = (1 / distance - 1 / toNearest) / (1 / toBack - 1 / toNearest);
+  const nearness = toBack / distance;
+  return {
+    // The camera faces +z, so the room's -x side is on the right of the picture.
+    x: W / 2 - across * (W / (2 * spread)) * nearness,
+    y: H + (H * horizon - H) * up,
+    scale: figureScaleAtBackWall * nearness
+  };
+}
+
 /** Timestamp and camera label, burned in the way a real unit does. */
 function overlay(ctx, label, seconds) {
   ctx.font = '11px monospace';
@@ -354,8 +386,10 @@ export function createCctvFeeds() {
   let active = 'kitchen';
   /** Set by the level to script the two sightings. */
   let hallwayDashAt = null;
-  let basementFigure = false;
+  /** Where the creature is in the lab, as camera five sees it: { across, depth, running }, or null when it is not in the room. */
+  let basementFigure = null;
   let basementLostAt = null;
+  let onBasementSignalLost = null;
 
   /**
    * Which breaker circuits are currently feeding the rooms on camera.
@@ -511,7 +545,7 @@ export function createCctvFeeds() {
     },
 
     basement(ctx) {
-      const hy = room(ctx, { horizon: 0.34, spread: 1.9 });
+      const hy = room(ctx, CAMERA_FIVE);
       // pipes across the ceiling and the shelving, so it is recognisably the
       // room the player is standing in while they look at it
       ctx.strokeStyle = INK.light;
@@ -549,8 +583,12 @@ export function createCctvFeeds() {
       }
     }
     if (id === 'basement' && basementFigure) {
-      // Standing still, in the corner, facing the camera. It does not move.
-      figure(ctx, W * 0.74, H * 0.80, 1.5, 0);
+      // Wherever it really is in the room the player is standing in: still in
+      // the corner, then running at the camera and out of the bottom of the
+      // frame toward the doors under it.
+      const spot = projectOntoCameraFive(basementFigure.across, basementFigure.depth);
+      const stride = basementFigure.running ? (elapsed * 1.6) % 1 : 0;
+      figure(ctx, spot.x, spot.y, spot.scale, stride);
     }
 
     /**
@@ -654,10 +692,22 @@ export function createCctvFeeds() {
       hallwayDashAt = elapsed + delay;
     },
 
-    /** The figure standing in the basement, and the feed dying after it. */
-    showBasementFigure(loseSignalAfter = 2.6) {
-      basementFigure = true;
-      basementLostAt = elapsed + loseSignalAfter;
+    /**
+     * Puts the creature on camera five where it is in the lab, or takes it off
+     * with null. The host calls this every frame it is in the room, so the
+     * feed shows it standing, then leaving -- and never once it has gone.
+     *
+     * @param {{across: number, depth: number, running?: boolean} | null} spot -
+     *   see CAMERA_FIVE for what `across` and `depth` measure.
+     */
+    setBasementFigure(spot) {
+      basementFigure = spot ? { across: spot.across, depth: spot.depth, running: spot.running === true } : null;
+    },
+
+    /** Camera five breaks up into static `after` seconds from now, and stays that way. */
+    loseBasementSignal(after = 0.8, onSignalLost = null) {
+      basementLostAt = elapsed + after;
+      onBasementSignalLost = onSignalLost;
     },
 
     get basementSignalLost() {
@@ -666,6 +716,11 @@ export function createCctvFeeds() {
 
     update(dt) {
       elapsed += dt;
+      if (onBasementSignalLost && basementLostAt !== null && elapsed > basementLostAt + 0.6) {
+        const callback = onBasementSignalLost;
+        onBasementSignalLost = null;
+        callback();
+      }
       // The screen comes on showing camera one without setActive ever being
       // called, so the watched camera's clip is started from here as well.
       // play() is a no-op once running, so this costs nothing per frame.
@@ -679,8 +734,9 @@ export function createCctvFeeds() {
       elapsed = 0;
       active = 'kitchen';
       hallwayDashAt = null;
-      basementFigure = false;
+      basementFigure = null;
       basementLostAt = null;
+      onBasementSignalLost = null;
       roomZoneLit.house = false;
       roomZoneLit.lab = true;
       // Rewound and paused; the first update() of the next run starts camera

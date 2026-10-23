@@ -713,6 +713,12 @@ html, body {
   text-shadow: 0 2px 3px #000;
 }
 
+/* No empty dark strip once the report has ended, under the loading bar or
+   the continue button. */
+.onc-subtitle:empty {
+  opacity: 0;
+}
+
 @keyframes onc-active-one {
   from { transform: scale(1) translate(0, 0); }
   to { transform: scale(1.05) translate(-1.2%, 0.8%); }
@@ -790,6 +796,57 @@ html, body {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   cursor: pointer;
+}
+
+/* The loading bar over the opening's photographs, in the continue button's
+   place and dressed like it. See showLoadingUntil() in main.js. */
+#opening-news-loading {
+  position: fixed;
+  inset: 0;
+  z-index: 46;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 max(5vw, env(safe-area-inset-right)) max(3.5vh, env(safe-area-inset-bottom));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+
+#opening-news-loading.is-open {
+  opacity: 1;
+}
+
+.onl-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55em;
+  padding: 0.45em 1.1em 0.7em;
+  background: rgba(0, 0, 0, 0.48);
+  box-shadow: 0 2px 7px rgba(0, 0, 0, 0.78);
+}
+
+.onl-hint {
+  color: #f1e7cb;
+  font: 600 clamp(14px, 1.5vw, 22px)/1.28 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: 0 2px 3px #000;
+}
+
+.onl-track {
+  width: min(320px, 60vw);
+  height: 2px;
+  background: rgba(234, 220, 184, 0.14);
+}
+
+.onl-fill {
+  width: 0%;
+  height: 100%;
+  background: #c69a50;
+  box-shadow: 0 0 8px rgba(198, 154, 80, 0.55);
+  transition: width 0.25s ease;
 }
 
 /* ---------- start screen ---------- */
@@ -1428,12 +1485,81 @@ html, body {
   transform: translateY(-5px);
 }
 
+.hotbar-slot {
+  position: relative;
+}
+
+/* A photograph's own picture is its icon. */
+.hotbar-photo {
+  width: 34px;
+  height: 42px;
+  object-fit: cover;
+  border: 2px solid #efe9db;
+  box-sizing: border-box;
+}
+
+/* What tells one of a set from the others -- a fuse's rating. */
+.hotbar-tag {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  font-size: 10px;
+  line-height: 1;
+  color: #efe9db;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
 /* The two keys share one icon shape; colour is what tells them apart, same
    as the brass/steel tint their actual 3D models use in studyLevel.js. */
 .hotbar-slot.key-brass.filled .hotbar-icon { color: #d8b34a; }
 .hotbar-slot.key-steel.filled .hotbar-icon { color: #b9c2cc; }
 
 /* ---------- captions (examine text) ---------- */
+#contextual-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 32%;
+  transform: translateX(-50%);
+  width: min(600px, 85vw);
+  box-sizing: border-box;
+  padding: 12px 18px;
+  background: rgba(20, 20, 17, 0.9);
+  border: 1px solid rgba(215, 195, 147, 0.5);
+  border-radius: 5px;
+  color: #f5efdd;
+  text-align: center;
+  font-size: 16px;
+  line-height: 1.45;
+  pointer-events: none;
+  z-index: 56;
+}
+#contextual-hint strong { font-size: 11px; letter-spacing: 0.16em; color: #d7c393; }
+#contextual-hint p { margin: 5px 0 0; }
+
+#mark-thought {
+  position: fixed;
+  bottom: 10%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 70vw;
+  padding: 9px 18px;
+  color: #fff0d6;
+  font-size: clamp(17px, 1.45vw, 24px);
+  font-style: italic;
+  line-height: 1.4;
+  text-align: center;
+  background: rgba(12, 9, 6, 0.56);
+  border-radius: 4px;
+  text-shadow: 0 2px 5px #000;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+  z-index: 19;
+}
+#mark-thought.visible { opacity: 1; }
+
 #caption-box {
   position: fixed;
   bottom: 26%;
@@ -1931,20 +2057,22 @@ html, body {
 }
 
 #credits-panel {
-  width: min(600px, calc(100vw - 48px));
-  max-height: min(82vh, 760px);
+  width: min(680px, calc(100vw - 48px));
+  max-height: min(86vh, 820px);
   overflow-y: auto;
-  padding: clamp(26px, 4vh, 42px) clamp(24px, 5vw, 58px);
+  padding: clamp(26px, 4vh, 44px) clamp(22px, 5vw, 58px) clamp(22px, 3vh, 34px);
   text-align: center;
   color: #d4c7aa;
-  background: linear-gradient(90deg, rgba(6, 3, 2, 0.78), rgba(22, 12, 6, 0.88), rgba(6, 3, 2, 0.78));
+  background: linear-gradient(90deg, rgba(6, 3, 2, 0.8), rgba(22, 12, 6, 0.9), rgba(6, 3, 2, 0.8));
   border-top: 1px solid rgba(187, 145, 72, 0.5);
   border-bottom: 1px solid rgba(187, 145, 72, 0.5);
   box-shadow: 0 22px 70px rgba(0, 0, 0, 0.62);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(187, 145, 72, 0.4) transparent;
 }
 
 #credits-panel h2 {
-  margin: 10px 0 28px;
+  margin: 10px 0 8px;
   font: 600 clamp(1.8rem, 4vw, 2.6rem)/1 Georgia, 'Times New Roman', serif;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1952,42 +2080,79 @@ html, body {
   text-shadow: 0 0 17px rgba(174, 102, 27, 0.22);
 }
 
+.credits-tagline {
+  margin-bottom: 26px;
+  font: italic 0.85rem/1.4 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.1em;
+  color: #9c8d70;
+}
+
+#credits-epilogue {
+  margin: 0 auto 26px;
+  max-width: 460px;
+  padding: 16px 0;
+  border-top: 1px solid rgba(174, 132, 66, 0.4);
+  border-bottom: 1px solid rgba(174, 132, 66, 0.4);
+  font: italic 1rem/1.6 Georgia, 'Times New Roman', serif;
+  color: #e4d4ad;
+}
+
+#credits-epilogue.hidden { display: none; }
+#credits-epilogue p + p { margin-top: 8px; }
+
 .credits-section {
-  padding: 11px 0;
+  padding: 18px 0 12px;
   border-top: 1px solid rgba(174, 132, 66, 0.25);
 }
 
 .credits-section h3 {
-  margin-bottom: 7px;
+  margin-bottom: 12px;
   color: #cba462;
-  font: 600 0.79rem/1.3 Georgia, 'Times New Roman', serif;
-  letter-spacing: 0.16em;
+  font: 600 0.8rem/1.3 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
 }
 
-.credits-section p {
-  font: 0.92rem/1.5 Georgia, 'Times New Roman', serif;
-  letter-spacing: 0.04em;
-  color: #d6c7a8;
-}
-
-.credits-editable {
-  color: #a99a7f !important;
-  font-style: italic !important;
-}
-
-#credits-list {
+.credits-team ul {
   list-style: none;
-  margin-top: 12px;
-  text-align: center;
-  font: 0.87rem/1.55 Georgia, 'Times New Roman', serif;
-  letter-spacing: 0.025em;
-  color: #d6c7a8;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 30px;
 }
 
-#credits-list li {
-  padding: 10px 0;
-  border-top: 1px solid rgba(174, 132, 66, 0.22);
+.credits-team li {
+  font: 500 1.2rem/1.6 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.06em;
+  color: #eadcb8;
+}
+
+.credits-note {
+  margin: 4px auto 12px;
+  max-width: 480px;
+  font: italic 0.82rem/1.5 Georgia, 'Times New Roman', serif;
+  color: #9c8d70;
+}
+
+.credits-section dl {
+  display: grid;
+  gap: 12px;
+  text-align: center;
+}
+
+.credits-section dt {
+  font: 600 0.95rem/1.4 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.04em;
+  color: #e4d4ad;
+}
+
+.credits-section dd {
+  margin: 2px auto 0;
+  max-width: 540px;
+  font: 0.83rem/1.55 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.02em;
+  color: #b3a58a;
+  overflow-wrap: anywhere;
 }
 
 #credits-close {

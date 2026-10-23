@@ -525,21 +525,23 @@ export class AudioEngine {
     // Fetched here and not at module load: decodeAudioData needs a context,
     // and a context before the user gesture is a context the browser blocks.
     this.#loadBreathing();
-    this.#loadFootstepSet(WALK_STEP_URL, 'walking').then((set) => { this.stepWalk = set; });
-    this.#loadFootstepSet(RUN_STEP_URL, 'running').then((set) => { this.stepRun = set; });
+    const loading = [this.breathLoading];
+    loading.push(this.#loadFootstepSet(WALK_STEP_URL, 'walking').then((set) => { this.stepWalk = set; }));
+    loading.push(this.#loadFootstepSet(RUN_STEP_URL, 'running').then((set) => { this.stepRun = set; }));
     for (const [key, surface] of Object.entries(STEP_SURFACES)) {
-      this.#loadFootstepSet(cueUrl(surface.cue), surface.cue, surface)
-        .then((set) => { this.stepSurfaceSets[key] = set; });
+      loading.push(this.#loadFootstepSet(cueUrl(surface.cue), surface.cue, surface)
+        .then((set) => { this.stepSurfaceSets[key] = set; }));
     }
-    this.#loadClip(TROLLEY_ROLL_URL).then((buffer) => { this.trolleyRollBuffer = buffer; });
-    this.#loadClip(TROLLEY_CRASH_URL).then((buffer) => { this.trolleyCrashBuffer = buffer; });
+    loading.push(this.#loadClip(TROLLEY_ROLL_URL).then((buffer) => { this.trolleyRollBuffer = buffer; }));
+    loading.push(this.#loadClip(TROLLEY_CRASH_URL).then((buffer) => { this.trolleyCrashBuffer = buffer; }));
     // Every director cue, in the background. Nothing waits on these: a cue
     // asked for before its buffer lands is skipped, not queued -- see cue().
     for (const name of CUE_NAMES) {
-      this.#loadClip(cueUrl(name)).then((buffer) => {
+      loading.push(this.#loadClip(cueUrl(name)).then((buffer) => {
         if (buffer && this.ctx) this.cueBuffers.set(name, buffer);
-      });
+      }));
     }
+    this.ready = Promise.all(loading);
   }
 
   // ---------- the director's cues ----------

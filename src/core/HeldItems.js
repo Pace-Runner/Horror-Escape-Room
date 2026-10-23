@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { gameState, ITEMS } from './GameState.js';
+import { gameState, inventorySlots } from './GameState.js';
 import { HELD_MAGNIFICATION } from '../systems/hands/sockets.js';
 
 /**
@@ -26,6 +26,12 @@ import { HELD_MAGNIFICATION } from '../systems/hands/sockets.js';
  * ACTIVE_SIDES in systems/hands/hands.js).
  */
 const SIDE = 'right';
+
+/**
+ * The torch lives in the LEFT hand (core/LeftTorch.js), so it is never selected
+ * into this one: picking up or scrolling to another item leaves it out and lit.
+ */
+const LEFT_HAND_ITEM = 'flashlight';
 
 /**
  * If the drop clip's hands:release never arrives (hands not loaded, tab hidden),
@@ -141,6 +147,26 @@ function fromTorchGrip(dx, dy, dz) {
  * line. A quarter turn about the long axis swings the face square to the
  * camera (its normal measured 0.94-0.99 toward the lens afterwards).
  */
+/** The four photographs are one card with four pictures, so they share one framing. */
+const PHOTO_FRAMING = {
+  pose: 'grip-cylinder',
+  anchorPose: 'hold-torch',
+  aim: [-0.1, 0.97, -0.2],
+  roll: deg(90),
+  offset: fromTorchGrip(0, -0.02, 0),
+  scale: 0.3
+};
+
+/** The four fuses are one model, so they share one framing. */
+const FUSE_FRAMING = {
+  pose: 'grip-cylinder',
+  anchorPose: 'hold-torch',
+  aim: [-0.2, 0.9, -0.38],
+  roll: deg(180),
+  offset: fromTorchGrip(-0.01, 0, 0),
+  scale: 0.9
+};
+
 export const HELD_ITEM_FRAMING = {
   flashlight: {
     pose: 'hold-torch',
@@ -175,7 +201,7 @@ export const HELD_ITEM_FRAMING = {
     aim: [-0.2, 0.9, -0.38],
     roll: deg(90),
     offset: fromTorchGrip(-0.01, 0, 0),
-    scale: 1.5
+    scale: 0.95
   },
   bedroomKey: {
     pose: 'grip-cylinder',
@@ -250,7 +276,17 @@ export const HELD_ITEM_FRAMING = {
     roll: deg(90),
     offset: fromTorchGrip(0, -0.02, 0),
     scale: 0.7
-  }
+  },
+  // Level 1's photographs, held up by the bottom edge, picture to the camera.
+  photo1984: PHOTO_FRAMING,
+  photo1985: PHOTO_FRAMING,
+  photo1986: PHOTO_FRAMING,
+  photo1987: PHOTO_FRAMING,
+  // Level 2's fuses, held up like a key so the rating on the cap can be read.
+  fuse15: FUSE_FRAMING,
+  fuse20: FUSE_FRAMING,
+  fuse30: FUSE_FRAMING,
+  fuse45: FUSE_FRAMING
 };
 
 /** For an id the table has no row for: the torch's spot, pointing up. */
@@ -312,7 +348,7 @@ export function createHeldItems({ hands, camera, itemMeshes, onChange = () => {}
 
   /** What the player is holding as far as the GAME is concerned, or null. */
   function heldId() {
-    return selected && owns(selected) && !suppressed(selected) ? selected : null;
+    return selected && selected !== LEFT_HAND_ITEM && owns(selected) && !suppressed(selected) ? selected : null;
   }
 
   function specFor(id) {
@@ -505,13 +541,13 @@ export function createHeldItems({ hands, camera, itemMeshes, onChange = () => {}
   }
 
   /**
-   * The owned items in the order the hotbar draws its slots -- ITEMS' order,
-   * which index.html's markup follows -- NOT pickup order. The inventory Set is
-   * in pickup order, and a drop and re-pickup sends an item to its end, so
-   * stepping through that made the highlight jump between non-adjacent slots.
+   * The owned items in the order the hotbar draws them, left to right -- its
+   * slots (GameState.inventorySlots), NOT the inventory Set's pickup order: a
+   * dropped item's slot is kept for the next pickup, so the two can differ,
+   * and stepping through the Set would make the highlight jump about.
    */
   function ownedInSlotOrder() {
-    return Object.keys(ITEMS).filter(owns);
+    return inventorySlots().filter((id) => id !== null && id !== LEFT_HAND_ITEM && owns(id));
   }
 
   /**
@@ -520,7 +556,8 @@ export function createHeldItems({ hands, camera, itemMeshes, onChange = () => {}
    */
   function selectAfterRemoval(id) {
     if (selected !== id) return;
-    const slots = Object.keys(ITEMS);
+    // Its slot as it was, before reading the slots syncs the gap in.
+    const slots = gameState.inventorySlots.slice();
     const at = slots.indexOf(id);
     const rest = ownedInSlotOrder().filter((other) => other !== id);
     selected = rest.find((other) => slots.indexOf(other) > at) ?? rest[0] ?? null;
@@ -562,7 +599,7 @@ export function createHeldItems({ hands, camera, itemMeshes, onChange = () => {}
     /** Selects an owned item, or null for an empty hand. Refused mid-drop. */
     select(id) {
       if (dropping) return false;
-      if (id !== null && !owns(id)) return false;
+      if (id !== null && (id === LEFT_HAND_ITEM || !owns(id))) return false;
       selected = id;
       notifyIfChanged();
       return true;
@@ -597,6 +634,8 @@ export function createHeldItems({ hands, camera, itemMeshes, onChange = () => {}
       // A pickup landing mid-drop finishes the drop first, so the item on its
       // way to the floor is not lost under the new one.
       if (dropping) finishDrop(dropping.token);
+      // The torch is carried in the other hand: taking it must not touch this one.
+      if (id === LEFT_HAND_ITEM) return;
       if (animate && hands.ready) {
         unequipView();
         hands.play(SIDE, 'pickup', { fade: 0.15 });
