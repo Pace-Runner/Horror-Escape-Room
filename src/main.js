@@ -2797,6 +2797,9 @@ const STUDY_LOCK_SFX = { deadbolt: 'deadbolt_open', combination: 'padlock_open',
 const study = createDeferredLevel(() => createStudyLevel({
   showCaption,
   getPlayerPosition: () => camera.position,
+  // Into the hotbar and the hand, as the other levels' pickups are.
+  onPickUpItem: (id) => pickUpItem(id),
+  onUseItem: (id) => consumeItem(id),
   onDoorOpening: (position) => audioDirector.door(position),
   // The study is the last room, so its exit is the ENDING rather than another
   // level. Unit 17 replaces this; until then it says so plainly instead of
@@ -2985,9 +2988,10 @@ const study = createDeferredLevel(() => createStudyLevel({
     });
   }
 }), (level) => {
-  itemMeshes.setTemplate('doorKey', level.refs.doorKey);
-  itemMeshes.setTemplate('gateKey', level.refs.gateKey);
   itemMeshes.setTemplate('visor', level.refs.visorGroup);
+  itemMeshes.setTemplate('archiveToken', level.refs.archiveToken);
+  itemMeshes.setTemplate('archiveKey', level.refs.archiveKey);
+  itemMeshes.setTemplate('hollowOverrideKey', level.refs.hollowOverrideKey);
 });
 sceneManager.register('study', study);
 

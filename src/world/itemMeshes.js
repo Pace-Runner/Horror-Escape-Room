@@ -70,7 +70,11 @@ const REST_ROTATION = {
   fuse15: FLAT,
   fuse20: FLAT,
   fuse30: FLAT,
-  fuse45: FLAT
+  fuse45: FLAT,
+  // Level 3's: the sigil face up, like a photograph; the keys flat, like the rest.
+  archiveToken: [-Math.PI / 2, 0, 0],
+  archiveKey: FACE_DOWN,
+  hollowOverrideKey: FACE_DOWN
 };
 
 /**
@@ -224,7 +228,14 @@ const BUILDERS = {
   fuse15: (t) => (t ? fromTemplate(t, { rotation: [0, Math.PI / 2, 0], position: [0, 0.035, 0] }) : null),
   fuse20: (t) => (t ? fromTemplate(t, { rotation: [0, Math.PI / 2, 0], position: [0, 0.035, 0] }) : null),
   fuse30: (t) => (t ? fromTemplate(t, { rotation: [0, Math.PI / 2, 0], position: [0, 0.035, 0] }) : null),
-  fuse45: (t) => (t ? fromTemplate(t, { rotation: [0, Math.PI / 2, 0], position: [0, 0.035, 0] }) : null)
+  fuse45: (t) => (t ? fromTemplate(t, { rotation: [0, Math.PI / 2, 0], position: [0, 0.035, 0] }) : null),
+  // clockMechanism.js's sigil: a 10.5 cm medallion facing +Z in its own XY
+  // plane (the clock lays it flat). Held by its bottom edge, face to the camera.
+  archiveToken: (t) => (t ? fromTemplate(t, { position: [0, 0.0525, 0] }) : null),
+  // studyPuzzlePresentation.js's fillStudyKey: shaft along Y, bow at the top.
+  // Half a turn about X puts the bow at the bottom, in the fist.
+  archiveKey: (t) => (t ? fromTemplate(t, { rotation: [Math.PI, 0, 0], position: [0, 0.027, 0] }) : null),
+  hollowOverrideKey: (t) => (t ? fromTemplate(t, { rotation: [Math.PI, 0, 0], position: [0, 0.027, 0] }) : null)
 };
 
 /** Every id this module can build -- the same set the hotbar has icons for. */

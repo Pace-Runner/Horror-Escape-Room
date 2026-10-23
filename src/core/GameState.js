@@ -106,7 +106,11 @@ export const ITEMS = {
   fuse45: { label: 'Fuse (45A)', name: '45A fuse' },
   visor: { label: "Annabelle's visor", name: 'visor', hint: 'V to toggle' },
   doorKey: { label: 'Desk drawer key', name: 'desk drawer key' },
-  gateKey: { label: 'Gate key', name: 'gate key' }
+  gateKey: { label: 'Gate key', name: 'gate key' },
+  // Level 3's: the sigil from the clock, the key behind the crest, the key by Annabelle.
+  archiveToken: { label: 'Brass Sigil', name: 'brass sigil' },
+  archiveKey: { label: 'Archive key', name: 'archive key' },
+  hollowOverrideKey: { label: 'HOLLOW override key', name: 'override key' }
 };
 
 /** The slots the inventory bar always shows; it only grows past this when they are all full. */

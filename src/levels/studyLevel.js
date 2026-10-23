@@ -49,7 +49,11 @@ export function createStudyLevel({
   onChooseEnding = () => {},
   getPlayerPosition = () => null,
   /** A sound effect by name (AudioDirector's SFX); the level has no audio of its own. */
-  onSfx = () => {}
+  onSfx = () => {},
+  /** An item taken: into the inventory and the hand, as every other level's pickups go. */
+  onPickUpItem = (id) => gameState.inventory.add(id),
+  /** An item used up -- the sigil seated, a key turned. */
+  onUseItem = (id) => gameState.inventory.delete(id)
 } = {}) {
   const group = new THREE.Group();
   group.name = 'Level3_Study';
@@ -640,7 +644,7 @@ export function createStudyLevel({
       puzzle.hasArchiveToken = true;
       archiveToken.visible = false;
       archiveTokenHitbox.visible = false;
-      gameState.inventory.add('archiveToken');
+      onPickUpItem('archiveToken');
       const index = interactables.indexOf(archiveTokenHitbox);
       if (index >= 0) interactables.splice(index, 1);
       showCaption('Brass Sigil acquired.');
@@ -818,7 +822,7 @@ export function createStudyLevel({
         showCaption('An empty brass socket.');
         return;
       }
-      gameState.inventory.delete('archiveToken');
+      onUseItem('archiveToken');
       puzzle.crestSigilInserted = true;
       installedSigil.visible = true;
       interactables.push(...crestLampHits);
@@ -866,7 +870,7 @@ export function createStudyLevel({
     onInteract: () => {
       if (!puzzle.crestSolved || puzzle.hasArchiveKey || crestCoverTravel < 0.8) return;
       puzzle.hasArchiveKey = true;
-      gameState.inventory.add('archiveKey');
+      onPickUpItem('archiveKey');
       archiveKey.visible = false;
       archiveKeyHit.visible = false;
       const index = interactables.indexOf(archiveKeyHit);
@@ -1110,7 +1114,7 @@ export function createStudyLevel({
         showCaption('Locked. Archive access required.');
         return;
       }
-      gameState.inventory.delete('archiveKey');
+      onUseItem('archiveKey');
       puzzle.memoryArchiveUnlocked = true;
       memoryContents.visible = true;
       const index = interactables.indexOf(archiveCabinetHit);
@@ -1635,7 +1639,7 @@ Annabelle`;
     onInteract: () => {
       if (!puzzle.mirrorRevealed || puzzle.hasHollowOverrideKey) return;
       puzzle.hasHollowOverrideKey = true;
-      gameState.inventory.add('hollowOverrideKey');
+      onPickUpItem('hollowOverrideKey');
       hollowOverrideKey.visible = false;
       hollowOverrideKeyHit.visible = false;
       const index = interactables.indexOf(hollowOverrideKeyHit);
@@ -1804,7 +1808,7 @@ Annabelle`;
       return;
     }
     puzzle.endingChoice = choice;
-    gameState.inventory.delete('hollowOverrideKey');
+    onUseItem('hollowOverrideKey');
     socket.installedKey.visible = true;
     for (const { hit } of overrideSockets) {
       const index = interactables.indexOf(hit);
