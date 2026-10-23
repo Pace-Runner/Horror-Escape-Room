@@ -7,7 +7,7 @@ import {
   createPlumPaintTexture, createPosterGhostTexture, createFairyLightsTexture,
   createDamaskWallpaperTexture, createPeelingSeamTexture, createTearRevealTexture
 } from '../world/annabelleWallpapers.js';
-import { LEGS, DOORWAYS, legRect, runCollider, buildWallRuns } from './backroomsMaze.js';
+import { LEGS, DOORWAYS, EXIT_SPOTS, legRect, runCollider, buildWallRuns } from './backroomsMaze.js';
 import bedUrl from '../assets/models/bed.glb?url';
 import bedsideTableUrl from '../assets/models/bedside_table.glb?url';
 import lampUrl from '../assets/models/bedside_lamp.glb?url';
@@ -323,10 +323,12 @@ const PICTURES = {
 // The dressing
 // ---------------------------------------------------------------------------
 
-export function dressAnnabelleRooms({ group, colliders, wallMatFor, hallH, backroomsWallpaper }) {
+export function dressAnnabelleRooms({ group, colliders, wallMatFor, hallH, backroomsWallpaper, exitDoorway }) {
   const root = new THREE.Group();
   root.name = 'AnnabelleRooms';
   group.add(root);
+  /** Where this file's own colliders start, for checkExitSpots(). */
+  const firstCollider = colliders.length;
   const spinners = [];   // { obj, speed }
   const rockers = [];    // { obj, phase, amp, rate }
   let t = 0;
@@ -376,6 +378,8 @@ export function dressAnnabelleRooms({ group, colliders, wallMatFor, hallH, backr
 
   // One parse per URL; every placement takes a clone.
   const cache = new Map();
+  /** Every place() still measuring its model, so the exit check runs on real footprints. */
+  const placements = [];
   const model = (url) => {
     if (!cache.has(url)) cache.set(url, loadModel(url));
     return cache.get(url).then((m) => m.clone(true));
@@ -401,7 +405,7 @@ export function dressAnnabelleRooms({ group, colliders, wallMatFor, hallH, backr
     root.add(host);
     const col = collide ? { minX: 1e6, maxX: 1e6, minZ: 1e6, maxZ: 1e6 } : null;
     if (col) colliders.push(col);
-    model(url).then((m) => {
+    const loading = model(url).then((m) => {
       if (rot) m.rotation.set(rot[0], rot[1], rot[2]);
       shadowed(m);
       host.add(m);
@@ -417,6 +421,7 @@ export function dressAnnabelleRooms({ group, colliders, wallMatFor, hallH, backr
       }
       then?.(m, host);
     }).catch((err) => console.error(`annabelleRooms: could not load ${url}:`, err));
+    placements.push(loading);
     return host;
   }
 
@@ -686,30 +691,66 @@ export function dressAnnabelleRooms({ group, colliders, wallMatFor, hallH, backr
     adult: { tex: createDamaskWallpaperTexture(), skirting: 0x5a4636 }
   };
   const skirtingGeo = new THREE.BoxGeometry(1, 0.11, 0.018);
+  /**
+   * The paper over each exit spot, by its index in EXIT_SPOTS: the part of the
+   * doorway's height, and its skirting, as a patch the level hides on the
+   * crossing whose door stands there. One sheet hung right across the wall
+   * covered the opening, so the open door showed wallpaper, not its passage.
+   */
+  const exitPatches = {};
+  /** The exit spots on this stretch of wall, as { i, from, to } along it, in order. */
+  const exitGapsOn = (seg) => EXIT_SPOTS.flatMap((spot, i) => {
+    if (spot.axis !== seg.axis || Math.abs((spot.axis === 'x' ? spot.x : spot.z) - seg.at) > 0.01) return [];
+    const c = spot.axis === 'x' ? spot.z : spot.x;
+    const gap = { i, from: c - exitDoorway.halfWidth, to: c + exitDoorway.halfWidth };
+    return gap.from > seg.from && gap.to < seg.to ? [gap] : [];
+  }).sort((a, b) => a.from - b.from);
+
   for (const [key, def] of Object.entries(ROOMS)) {
     const { tex, skirting } = PAPERS[key];
     const skirtMat = mat(skirting, 0.55);
+    const period = tex.userData.periodM;
     for (const seg of roomWalls(def, rects[key])) {
-      const len = seg.to - seg.from;
-      const mid = (seg.from + seg.to) / 2;
       const rotY = facing(seg.axis, seg.n);
-      const sheet = new THREE.Mesh(
-        new THREE.PlaneGeometry(len, hallH),
-        new THREE.MeshStandardMaterial({ map: tiled(tex, len / tex.userData.periodM, 1), roughness: 0.92 })
-      );
-      const skirt = new THREE.Mesh(skirtingGeo, skirtMat);
-      skirt.scale.x = len;
+      // Which way the sheet's own +x runs along the wall, so every piece's
+      // print carries on from the one beside it, as one sheet's did.
+      const sign = seg.axis === 'x' ? -Math.sin(rotY) : Math.cos(rotY);
       const d = PAPER_OFF + 0.009;   // the board's centre, so its back sits on the paper
-      if (seg.axis === 'x') {
-        sheet.position.set(seg.at + seg.n * PAPER_OFF, hallH / 2, mid);
-        skirt.position.set(seg.at + seg.n * d, 0.055, mid);
-      } else {
-        sheet.position.set(mid, hallH / 2, seg.at + seg.n * PAPER_OFF);
-        skirt.position.set(mid, 0.055, seg.at + seg.n * d);
+      const atWall = (along, off, y, obj) => {
+        if (seg.axis === 'x') obj.position.set(seg.at + seg.n * off, y, along);
+        else obj.position.set(along, y, seg.at + seg.n * off);
+        obj.rotation.y = rotY;
+        obj.receiveShadow = true;
+        return obj;
+      };
+      /** Paper from `from` to `to` along the wall, `y0` to `y1` up it. */
+      const paper = (from, to, y0, y1) => {
+        const map = tiled(tex, (to - from) / period, (y1 - y0) / hallH);
+        map.offset.set((sign > 0 ? from - seg.from : seg.to - to) / period, y0 / hallH);
+        const sheet = new THREE.Mesh(
+          new THREE.PlaneGeometry(to - from, y1 - y0),
+          new THREE.MeshStandardMaterial({ map, roughness: 0.92 })
+        );
+        return atWall((from + to) / 2, PAPER_OFF, (y0 + y1) / 2, sheet);
+      };
+      const skirt = (from, to) => {
+        const board = new THREE.Mesh(skirtingGeo, skirtMat);
+        board.scale.x = to - from;
+        return atWall((from + to) / 2, d, 0.055, board);
+      };
+
+      // Full height between the exit spots; over each one, the paper above
+      // the doorway stays and the rest is that spot's patch.
+      let from = seg.from;
+      for (const gap of exitGapsOn(seg)) {
+        root.add(paper(from, gap.from, 0, hallH), skirt(from, gap.from), paper(gap.from, gap.to, exitDoorway.height, hallH));
+        const patch = new THREE.Group();
+        patch.add(paper(gap.from, gap.to, 0, exitDoorway.height), skirt(gap.from, gap.to));
+        root.add(patch);
+        exitPatches[gap.i] = patch;
+        from = gap.to;
       }
-      sheet.rotation.y = skirt.rotation.y = rotY;
-      sheet.receiveShadow = skirt.receiveShadow = true;
-      root.add(sheet, skirt);
+      root.add(paper(from, seg.to, 0, hallH), skirt(from, seg.to));
     }
   }
 
@@ -801,15 +842,18 @@ export function dressAnnabelleRooms({ group, colliders, wallMatFor, hallH, backr
     onWall(PICTURES.corridor(), 0.68, 0.51, wx, 1.05, 14.6, Math.PI / 2, 0.09);
     // ...and straight onto the wallpaper, at the height she could reach.
     paperDecal(createCrayonScribbleTexture(0), { axis: 'x', at: -3.2, n: -1 }, 10.0, 0.6, { tilt: 0.04 });
-    paperDecal(createCrayonScribbleTexture(1), { axis: 'z', at: 17.6, n: -1 }, -4.05, 0.55);
+    paperDecal(createCrayonScribbleTexture(1), { axis: 'x', at: -3.2, n: -1 }, 15.0, 0.55, { tilt: 0.02 });
     paperDecal(createCrayonScribbleTexture(2), { axis: 'x', at: wx, n: 1 }, 15.85, 0.5, { tilt: -0.03 });
 
     // Toy blocks as big as the bed: one sunk into the floor, one twice over,
-    // the copies inside each other, and the C up in the ceiling tiles.
+    // the copies inside each other, and the C up in the ceiling tiles. In the
+    // two corners of the south wall, either side of its exit spot (x -6.15 to
+    // -5.05): the Bs stood right in front of it, and that door could not be
+    // reached.
     const giant = [
-      ['A', -6.55, 0.18, 17.05, 0.12, 0.1, '#d8302a'],
-      ['B', -5.5, 0.45, 16.95, -0.22, 0, '#2a5fa8'],
-      ['B', -5.22, 0.52, 16.7, 0.31, 0.12, '#2a5fa8'],
+      ['A', -6.76, 0.18, 17.05, 0.12, 0.1, '#d8302a'],
+      ['B', -3.75, 0.45, 16.95, -0.22, 0, '#2a5fa8'],
+      ['B', -4.02, 0.52, 16.7, 0.31, 0.12, '#2a5fa8'],
       ['C', -5.1, hallH - 0.22, 11.4, 0.6, 0.35, '#3b9c3b']
     ];
     for (const [ch, x, y, z, r, tilt, bg] of giant) {
@@ -977,12 +1021,34 @@ export function dressAnnabelleRooms({ group, colliders, wallMatFor, hallH, backr
     paperDecal(createTearRevealTexture(strata, { seed: 7 }), west, 35.0, 1.75, { tilt: 0.2 });
     paperDecal(createTearRevealTexture(strata, { seed: 11 }), { axis: 'z', at: 33.6, n: 1 }, 61.0, 1.85);
     paperDecal(createTearRevealTexture(strata.slice(1), { seed: 19 }), { axis: 'x', at: wx, n: -1 }, 39.9, 1.3, { tilt: -0.5 });
-    paperDecal(createPeelingSeamTexture(layer('adult')), west, 41.4, hallH / 2);
+    // Clear of the exit spot on this wall (z 40.65 to 41.75), which it hung across.
+    paperDecal(createPeelingSeamTexture(layer('adult')), west, 42.6, hallH / 2);
     lamp(62.6, 2.0, 37.0, 0xd8dcff, 0.35, 5);
   }
 
+  /**
+   * Nothing of the rooms' may stand in an exit doorway or the floor in front
+   * of it: a door the draw picks there cannot be reached. Run once every
+   * model is placed, on the footprints the colliders really took.
+   */
+  Promise.allSettled(placements).then(() => {
+    const ours = colliders.slice(firstCollider);
+    EXIT_SPOTS.forEach((spot) => {
+      const across = spot.axis === 'x' ? spot.z : spot.x;
+      const wall = spot.axis === 'x' ? spot.x : spot.z;
+      const n = spot.axis === 'x' ? spot.nx : spot.nz;
+      // From just clear of the wall's own thickness, out to where you stand to use it.
+      const [d0, d1] = [wall + n * 0.16, wall + n * 1.3].sort((a, b) => a - b);
+      const [a0, a1] = [across - exitDoorway.halfWidth - 0.1, across + exitDoorway.halfWidth + 0.1];
+      const zone = spot.axis === 'x' ? [d0, d1, a0, a1] : [a0, a1, d0, d1];
+      const blocked = ours.some((b) => b.minX < zone[1] && b.maxX > zone[0] && b.minZ < zone[3] && b.maxZ > zone[2]);
+      if (blocked) console.warn(`annabelleRooms: something stands in front of the exit spot in ${spot.room} at (${spot.x}, ${spot.z})`);
+    });
+  });
+
   return {
     rects,
+    exitPatches,
     /** The maze legs these rooms are, so the level can keep its own dressing out. */
     rooms: new Set(Object.values(ROOMS).map((d) => d.room)),
     update(dt) {

@@ -1760,7 +1760,7 @@ export function createBackroomsLevel({
   // wrong: no crates, no desks, no chairs out here. The furniture is all in the
   // rooms, which are Annabelle's bedroom at four ages (annabelleRooms.js).
   const annabelleRooms = dressAnnabelleRooms({
-    group, colliders, wallMatFor, hallH: HALL_H, backroomsWallpaper: wallpaperTex
+    group, colliders, wallMatFor, hallH: HALL_H, backroomsWallpaper: wallpaperTex, exitDoorway: EXIT_DOORWAY
   });
 
   // Peeling flaps, matched to THIS level's wallpaper via the existing
@@ -2052,6 +2052,9 @@ export function createBackroomsLevel({
       const open = spot === exit;
       exitPlugs[i].plug.visible = !open;
       Object.assign(exitPlugs[i].collider, open ? PARKED_BOX : exitPlugs[i].box);
+      // In Annabelle's rooms the plug is papered over too; the open one is not.
+      const patch = annabelleRooms.exitPatches[i];
+      if (patch) patch.visible = !open;
     });
     moveFixture(exitLamps[key], exit.x + exit.nx * 1.2, exit.z + exit.nz * 1.2, across(exit.axis));
     const m = marks[key];

@@ -1289,6 +1289,28 @@ Annabelle`;
   const letterDoorMotion = hingeMotion([[letterDoorHinge, 1]], 'x', Math.PI * 0.51, 0.75);
   const truthRecordDisplays = [];
   const truthRecordHits = [];
+  /**
+   * A lit border round each record while it is selected, so the order picked
+   * so far can be seen and not only read off the prompt. Just outside the
+   * record's frame (0.444 x 0.48, its face at z 0.25).
+   */
+  const truthRecordBorders = [];
+  const truthRecordBorderMat = new THREE.MeshBasicMaterial({ color: 0xf0c878, toneMapped: false });
+  function truthRecordBorder() {
+    const [outerW, outerH, innerW, innerH] = [0.444 / 2 + 0.022, 0.48 / 2 + 0.022, 0.444 / 2 + 0.006, 0.48 / 2 + 0.006];
+    const shape = new THREE.Shape([
+      new THREE.Vector2(-outerW, -outerH), new THREE.Vector2(outerW, -outerH),
+      new THREE.Vector2(outerW, outerH), new THREE.Vector2(-outerW, outerH)
+    ]);
+    shape.holes.push(new THREE.Path([
+      new THREE.Vector2(-innerW, -innerH), new THREE.Vector2(-innerW, innerH),
+      new THREE.Vector2(innerW, innerH), new THREE.Vector2(innerW, -innerH)
+    ]));
+    const border = new THREE.Mesh(new THREE.ShapeGeometry(shape), truthRecordBorderMat);
+    border.name = 'Restricted_Record_Selected_Border';
+    border.visible = false;
+    return border;
+  }
   function updateTruthRecords(corrected = gameState.visorWorn) {
     // The same mounted title card reveals the clue; the lower pages stay fixed.
     restrictedPlaque.write(corrected
@@ -1299,6 +1321,7 @@ Annabelle`;
       const heading = truthRecordNames[index];
       display.write([heading, ...truthNormalLines[index]]);
       truthRecordHits[index].userData.interact.label = `${selected ? 'Selected: ' : 'Select '}${truthRecordNames[index]}`;
+      truthRecordBorders[index].visible = selected;
     });
   }
   truthRecordNames.forEach((name, index) => {
@@ -1308,6 +1331,10 @@ Annabelle`;
     display.mesh.position.set(x, 1.30, 0.24);
     hollowAlcove.add(display.mesh);
     truthRecordDisplays.push(display);
+    const border = truthRecordBorder();
+    border.position.set(x, 1.30, 0.255);
+    hollowAlcove.add(border);
+    truthRecordBorders.push(border);
     const hit = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.5, 0.12), archiveHitMat);
     hit.position.copy(display.mesh.position);
     hit.userData.interact = {
