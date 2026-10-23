@@ -1353,6 +1353,111 @@ export class AudioEngine {
   }
 
   /**
+   * THE ROAR, synthesised: what the monster does when you get into one of
+   * Annabelle's rooms and it cannot follow. The stand-in until a recording is
+   * chosen -- AudioDirector.roar() plays monster/roar if the build has it.
+   *
+   * A throat, not a siren: three saws a fifth or so apart, rising into the
+   * roar and sagging out of it, driven through a hard clipper and two vowel
+   * formants; a rasp of noise chopped at vocal-fry rate; and a sub under it.
+   * Panned by the caller toward where it is, and sent to the shared echo so
+   * it carries down the corridors.
+   *
+   * @param {object} [o]
+   * @param {number} [o.pan] - -1 left .. 1 right
+   * @param {number} [o.level] - 0..1.5, how loud it arrives
+   * @param {number} [o.seconds]
+   */
+  roar({ pan = 0, level = 1, seconds = 2.3 } = {}) {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const end = now + seconds;
+
+    const out = ctx.createGain();
+    out.gain.setValueAtTime(0.0001, now);
+    out.gain.exponentialRampToValueAtTime(Math.max(0.001, level), now + 0.14);
+    out.gain.setValueAtTime(Math.max(0.001, level * 0.85), now + seconds * 0.55);
+    out.gain.exponentialRampToValueAtTime(0.0001, end);
+    const panner = ctx.createStereoPanner();
+    panner.pan.value = Math.max(-1, Math.min(1, pan));
+    out.connect(panner).connect(this.master);
+    const echo = this.echoInput?.();
+    if (echo) {
+      const send = ctx.createGain();
+      send.gain.value = 0.45;
+      panner.connect(send).connect(echo);
+    }
+
+    // The throat: clipped, then shaped into a vowel.
+    const clip = ctx.createWaveShaper();
+    const curve = new Float32Array(1024);
+    for (let i = 0; i < curve.length; i++) curve[i] = Math.tanh(((i / (curve.length - 1)) * 2 - 1) * 4);
+    clip.curve = curve;
+    const throat = ctx.createGain();
+    throat.gain.value = 0.55;
+    const low = ctx.createBiquadFilter();
+    low.type = 'lowpass';
+    low.frequency.value = 2400;
+    for (const [freq, q, gain] of [[430, 2.2, 1.0], [1150, 3.5, 0.55]]) {
+      const formant = ctx.createBiquadFilter();
+      formant.type = 'bandpass';
+      formant.frequency.value = freq;
+      formant.Q.value = q;
+      const g = ctx.createGain();
+      g.gain.value = gain;
+      clip.connect(formant).connect(g).connect(low);
+    }
+    low.connect(throat).connect(out);
+    const sources = [];
+    for (const [ratio, detune] of [[1, 0], [1.5, 12], [2.02, -9]]) {
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(78 * ratio, now);
+      osc.frequency.exponentialRampToValueAtTime(128 * ratio, now + 0.28);
+      osc.frequency.exponentialRampToValueAtTime(96 * ratio, now + seconds * 0.6);
+      osc.frequency.exponentialRampToValueAtTime(64 * ratio, end);
+      osc.detune.value = detune;
+      osc.connect(clip);
+      sources.push(osc);
+    }
+
+    // The rasp: noise, chopped at vocal-fry rate.
+    const rasp = ctx.createBufferSource();
+    rasp.buffer = this.#noiseBuffer(seconds);
+    const raspBand = ctx.createBiquadFilter();
+    raspBand.type = 'bandpass';
+    raspBand.frequency.value = 900;
+    raspBand.Q.value = 0.7;
+    const chop = ctx.createGain();
+    chop.gain.value = 0.5;
+    const fry = ctx.createOscillator();
+    fry.type = 'square';
+    fry.frequency.setValueAtTime(34, now);
+    fry.frequency.linearRampToValueAtTime(22, end);
+    const fryDepth = ctx.createGain();
+    fryDepth.gain.value = 0.45;
+    fry.connect(fryDepth).connect(chop.gain);
+    rasp.connect(raspBand).connect(chop).connect(out);
+    sources.push(rasp, fry);
+
+    // And the chest it comes out of.
+    const sub = ctx.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(52, now);
+    sub.frequency.linearRampToValueAtTime(40, end);
+    const subGain = ctx.createGain();
+    subGain.gain.value = 0.6;
+    sub.connect(subGain).connect(out);
+    sources.push(sub);
+
+    for (const source of sources) {
+      source.start(now);
+      source.stop(end + 0.05);
+    }
+  }
+
+  /**
    * One shake of a dead torch: the batteries knocking inside the barrel. Two
    * short, high clicks a few hundredths apart -- the cells hitting one end of
    * the tube and then the spring -- rather than one, which reads as a switch.

@@ -20,6 +20,7 @@ import { createHallwayBasementLevel } from './levels/hallwayBasementLevel.js';
 import { createStudyLevel } from './levels/studyLevel.js';
 import { createBackroomsLevel } from './levels/backroomsLevel.js';
 import { ROOM_FLOORS } from './levels/annabelleRooms.js';
+import { DOORWAYS, drawMonsterStart, roomInteriors } from './levels/backroomsMaze.js';
 import { createUpstairsHallwayLevel } from './levels/upstairsHallwayLevel.js';
 import { createScreenFade, wait } from './core/ScreenFade.js';
 import { gameState, resetState, addItem, removeItem, ITEMS, HOTBAR_SLOTS, inventorySlots } from './core/GameState.js';
@@ -35,8 +36,8 @@ import { createPostFX } from './world/Postprocessing.js';
 import { createContextualHints, getAvailableHintKeys, selectHintKey } from './core/ContextualHints.js';
 import { enableSinglePassForFlatDecals, createDarkShadowSkipper, findShadowCastingLights } from './world/renderOptimizations.js';
 import { createCutsceneRunner } from './core/Cutscene.js';
-import { hallwayReveal } from './cutscenes/hallwayReveal.js';
 import { wakeUp } from './cutscenes/wakeUp.js';
+import { comeRound } from './cutscenes/comeRound.js';
 import { stairsBehind } from './cutscenes/stairsBehind.js';
 import { createCutsceneExport } from './core/CutsceneExport.js';
 import { createCutsceneSkip } from './core/CutsceneSkip.js';
@@ -44,6 +45,8 @@ import { createNewspaper } from './core/Newspaper.js';
 import { createOpeningNewsCutscene } from './core/OpeningNewsCutscene.js';
 import { createJumpScare } from './core/JumpScare.js';
 import { createStairsScare } from './core/StairsScare.js';
+import { createHallwayBlinks } from './core/HallwayBlinks.js';
+import { createStairsFall } from './core/StairsFall.js';
 import { DIFFICULTIES, DEFAULT_DIFFICULTY, createRunTimer } from './core/Difficulty.js';
 import { FreeCamera } from './core/FreeCamera.js';
 import { createScriptRunner } from './core/Script.js';
@@ -1307,7 +1310,13 @@ worldRoot.add(creature.group);
  * it from the minimap, and a partial correction. Two instances keep each one's
  * state its own. They share the cached file, not a skeleton.
  */
-const okabe = createOkabeCreature({ scale: MONSTER_SCALE });
+/**
+ * 10% smaller than the house's (user, 2026-10-23): the backrooms ceiling is
+ * 2.35 m, where the house's hall is 2.9, and at full size its head went
+ * through the tiles.
+ */
+const BACKROOMS_MONSTER_SCALE = MONSTER_SCALE * 0.9;
+const okabe = createOkabeCreature({ scale: BACKROOMS_MONSTER_SCALE });
 okabe.visible = false;
 worldRoot.add(okabe.group);
 
@@ -1477,8 +1486,8 @@ function applyFreeCameraVisibility() {
 // ---------- cutscenes ----------
 /**
  * Every scene the game can play, by name. Each one BUILDS its definition at the
- * moment it plays, from where things actually are -- the reveal is framed off
- * where the player opened the door from. See src/cutscenes/ and
+ * moment it plays, from where things actually are -- the stairs shot is framed
+ * off where the player is standing. See src/cutscenes/ and
  * docs/CUTSCENES.md.
  */
 const SCENES = {
@@ -1504,12 +1513,26 @@ const SCENES = {
       baseFov: BASE_FOV
     });
   },
-  hallwayReveal: () => hallwayReveal({
-    eye: camera.getWorldPosition(new THREE.Vector3()),
-    standing: { x: creature.position.x, z: creature.position.z },
-    creatureEyes: creature.getEyePosition(new THREE.Vector3()),
-    baseFov: BASE_FOV
-  }),
+  /**
+   * Coming round on the backrooms carpet where the player now stands: after
+   * the fall down the hallway stairs, and after being caught. Framed off their
+   * spawn, so it ends on exactly the view play starts from.
+   */
+  comeRound: ({ seconds } = {}) => {
+    const yaw = player.yaw;
+    const fx = -Math.sin(yaw);
+    const fz = -Math.cos(yaw);
+    const { x, z } = camera.position;
+    // The crossing hangs a fixture just in front of where it puts you down.
+    const lampY = (backrooms.refs.ceilingHeight ?? 2.35) - 0.1;
+    return comeRound({
+      spawn: { x, z, yaw },
+      eyeHeight: player.eyeHeight,
+      lampAt: [x + fx * 0.4, lampY, z + fz * 0.4],
+      baseFov: BASE_FOV,
+      seconds
+    });
+  },
   /** The stairs scare's shot of it behind the player. Stands it there, too. */
   stairsBehind: ({ standing }) => {
     const def = stairsBehind({
@@ -1561,6 +1584,8 @@ const cutsceneContext = {
   restingBreath: () => (sceneManager.activeKey === 'bedroom' ? LEVEL_ONE_BREATHING_BASE : BREATH_BASE_LEVEL),
   /** A light that is always in the scene and off: a scene positions and lights it, and turns it off in onEnd. */
   keyLight: cinematicLight,
+  /** Lifts the black a transition or a catch left up, from inside a scene that opens on closed eyes. */
+  clearFade: () => fade.clear(),
   /** Puts the player's body in the shot (or takes it out); the views that show it anyway keep it. */
   showPlayerBody(on) {
     cutsceneBodyShown = !!on;
@@ -2235,7 +2260,7 @@ const HALL_AMBIENT = 0.31;
 let doorwayJoined = false;
 /** Set by G: the player is carried through the door the moment it opens. */
 let skipThroughDoor = false;
-/** G's carry: the rush starts once the hall is the active level, not before. */
+/** G's carry: the blinks start once the hall is the active level, not before. */
 let rushAfterSwitch = false;
 const joinedColliders = [];
 
@@ -2259,8 +2284,8 @@ function openToHallway() {
     // activation clears any creature on screen, so the rush waits for that.
     rushAfterSwitch = true;
   } else {
-    // The door is opening onto it: it is already standing at the end of the hall.
-    startHallwayRush();
+    // The door is opening onto the hall, and the lights are about to go.
+    startHallwayBlinks();
   }
 }
 
@@ -2268,7 +2293,7 @@ function openToHallway() {
 function updateDoorwayJoin(dt) {
   if (!doorwayJoined || sceneManager.activeKey !== 'bedroom') return;
   // Seen through the open door, the hall is alive -- its pendant, its rain,
-  // and the light the rush puts out -- though the bedroom is the active level.
+  // and the lights the blinks put out -- though the bedroom is the active level.
   upstairsHallway.update(dt, camera.position);
   if (camera.position.z < upstairsHallway.refs.doorway.z + HALL_ENTER_DEPTH) return;
   bedroom.refs.ambient.intensity = 0;
@@ -2278,8 +2303,8 @@ function updateDoorwayJoin(dt) {
   player.setColliders(joinedColliders);
   if (rushAfterSwitch) {
     rushAfterSwitch = false;
-    // Carried in facing down the hall, away from the door: no reveal to play.
-    startHallwayRush({ reveal: false });
+    // Carried in, already facing down the hall: the same scene, from there.
+    startHallwayBlinks();
   }
 }
 
@@ -2307,7 +2332,7 @@ function resetDoorwayJoin() {
   doorwayJoined = false;
   skipThroughDoor = false;
   rushAfterSwitch = false;
-  hallwayRushDone = false;
+  hallwayBlinksDone = false;
   bedroom.refs.setDoorwayOpen(false);
   upstairsHallway.refs.setDoorwayOpen(false);
   upstairsHallway.refs.ambient.intensity = HALL_AMBIENT;
@@ -2315,25 +2340,14 @@ function resetDoorwayJoin() {
 }
 
 /**
- * THE HALLWAY RUSH. As the bedroom door opens, it is standing at the far end
- * of the hall. For a second it only stands there; then every light in the
- * house goes (setHouseLightsOut), and in the dark it SPRINTS at you. When it is nearly on you it is gone -- the dark
- * holds a second longer, the light comes back on an empty hall, and only then
- * does the singing start, faint, from down the stairs (AudioDirector's
- * startSinging). Once per run.
- *
- * The player is held still from the first sight of it until it vanishes, so
- * it always reaches them: the beat is that there was nowhere to go, not a
- * chase to win. On the frame clock in tick(), so a pause freezes it; a restart
- * (resetGame) or leaving both rooms ends it.
+ * THE LIGHTS GO, AND IT COMES DOWN THE HALL. As the bedroom door opens, the
+ * hall is lit and empty; then the lights go, and each time they come back it
+ * is standing closer -- the far end, a fifth of the way, half way -- until
+ * the last time, when the hall is empty. Only then does the singing start,
+ * faint, from down the stairs (AudioDirector's startSinging). Once per run.
+ * See core/HallwayBlinks.js, which runs it through the player's own eyes.
  */
-const HALLWAY_RUSH_STARE = 1.0;     // seconds it stands there, lit, before the light goes
-const HALLWAY_RUSH_SPEED = 5.2 * 1.3; // m/s: 30% up on the first pass, at the user's ask
-const HALLWAY_RUSH_VANISH = 1.6;    // metres from the player where it is gone
-const HALLWAY_RUSH_MAX = 4.5;       // seconds of sprinting at most, whatever happens
-const HALLWAY_RUSH_DARK_AFTER = 1.0; // seconds the light stays out after it has gone
-let hallwayRush = null;
-let hallwayRushDone = false;
+let hallwayBlinksDone = false;
 
 /**
  * THE HOUSE GOES DARK, for the rush: every light in the bedroom and the hall
@@ -2392,116 +2406,25 @@ function applyHouseBlackout() {
   for (const uniform of houseBlackout.flashes) uniform.value = 0;
 }
 
-/** Half the bedroom doorway's width, less room for the casing and the lens's near plane. */
-const DOORWAY_SIGHT_HALF_WIDTH = 0.35;
-
-/** Whether the floor line from `eye` to `target` passes through the open bedroom doorway. */
-function lineThroughDoorway(eye, target) {
-  const door = upstairsHallway.refs.doorway;
-  const along = (door.z - eye.z) / (target.z - eye.z);
-  if (!(along > 0 && along < 1)) return false;
-  const xAtDoor = eye.x + (target.x - eye.x) * along;
-  return Math.abs(xAtDoor - door.x) < DOORWAY_SIGHT_HALF_WIDTH;
-}
-
 /**
- * What is left of the stare once the reveal scene has played: the scene WAS
- * the stare, so the light goes almost as soon as the view is handed back.
+ * Its own script runner, as the stairs scare has: a new script.run() cancels
+ * the one before, and nothing else starting a beat should cut this one off
+ * half way with the camera taken.
  */
-const HALLWAY_RUSH_STARE_AFTER_REVEAL = 0.3;
+const hallwayBlinksScript = createScriptRunner({ captions });
 
-/**
- * @param reveal play the hallway reveal (cutscenes/hallwayReveal.js) first. The
- *   G skip-through carries the player straight into the hall facing away from
- *   the door, so it asks for the bare rush instead.
- */
-function startHallwayRush({ reveal = true } = {}) {
-  if (hallwayRush || hallwayRushDone) return;
+function startHallwayBlinks() {
+  if (hallwayBlinks.isRunning || hallwayBlinksDone) return;
   thought('hallway_01');
   thought('hallway_02');
-  hallwayRushDone = true;
-  const { x, z } = upstairsHallway.refs.farEnd;
-  player.movementEnabled = false;
-  // It breathes from its body while it is there (the stalking aura).
-  showCreatureAt({ x, z, linger: null });
-  // The reveal is framed down the line from the player's eye to it, so it only
-  // plays when that line goes through the open doorway. The door can be opened
-  // from well off to one side (it answers from 3 m, and the key comes from
-  // under the rug in the corner), and from there every one of its shots would
-  // be of bedroom wall. Those players get the bare stare, as before.
-  if (reveal && !lineThroughDoorway(camera.position, { x, z })) reveal = false;
-  if (!reveal) {
-    hallwayRush = { phase: 'stare', t: 0 };
-    return;
-  }
-  // Held in 'reveal' while the scene plays; updateHallwayRush() waits on it.
-  const rush = { phase: 'reveal', t: 0 };
-  hallwayRush = rush;
-  playCutscene('hallwayReveal').then(() => {
-    // Finished or cancelled, the rush goes on unless something already ended
-    // it (a restart clears hallwayRush, and this is then no longer it).
-    if (hallwayRush !== rush) return;
-    rush.phase = 'stare';
-    rush.t = HALLWAY_RUSH_STARE - HALLWAY_RUSH_STARE_AFTER_REVEAL;
-    // The scene handed movement back as it found it -- off, as set above.
-    player.movementEnabled = false;
+  hallwayBlinksDone = true;
+  hallwayBlinksScript.run(async (s) => {
+    const finished = await hallwayBlinks.run({ isAlive: s.alive });
+    if (!finished || !s.alive()) return;
+    // The light is back, the hall is empty -- and someone is singing below.
+    thought('hallway_03');
+    audioDirector.startSinging();
   });
-}
-
-/** It is gone: the body goes, the player can move, the dark holds a moment. */
-function vanishHallwayRush() {
-  thought('hallway_03');
-  hideCreature();
-  player.movementEnabled = true;
-  sfx('gasp');
-  hallwayRush.phase = 'dark';
-  hallwayRush.t = 0;
-}
-
-function endHallwayRush({ quiet = false } = {}) {
-  if (!hallwayRush) return;
-  const wasPhase = hallwayRush.phase;
-  hallwayRush = null;
-  hideCreature();
-  setHouseLightsOut(false);
-  player.movementEnabled = true;
-  if (quiet) return;
-  if (wasPhase !== 'dark') sfx('gasp');
-  // The light is back, the hall is empty -- and someone is singing below.
-  audioDirector.startSinging();
-}
-
-function updateHallwayRush(dt) {
-  const r = hallwayRush;
-  if (!r) return;
-  if (sceneManager.activeKey !== 'upstairsHallway' && sceneManager.activeKey !== 'bedroom') {
-    endHallwayRush({ quiet: true });
-    return;
-  }
-  if (r.phase === 'reveal') return;
-  r.t += dt;
-  if (r.phase === 'dark') {
-    if (r.t >= HALLWAY_RUSH_DARK_AFTER) endHallwayRush();
-    return;
-  }
-  if (r.phase === 'stare') {
-    if (r.t < HALLWAY_RUSH_STARE) return;
-    r.phase = 'rush';
-    r.t = 0;
-    setHouseLightsOut(true);
-    // The lights dying, then its feet coming down the boards at a run.
-    sfx('power_down', { gainDb: -8 });
-    audio.footsteps({ count: 6, spacing: 0.27, pan: 0, level: 0.62 });
-  }
-  const p = creature.position;
-  const dx = camera.position.x - p.x;
-  const dz = camera.position.z - p.z;
-  const d = Math.hypot(dx, dz);
-  if (d <= HALLWAY_RUSH_VANISH || r.t > HALLWAY_RUSH_MAX) { vanishHallwayRush(); return; }
-  const step = Math.min(d - HALLWAY_RUSH_VANISH + 0.01, HALLWAY_RUSH_SPEED * dt);
-  creature.setPosition(p.x + (dx / d) * step, p.z + (dz / d) * step);
-  creature.setYaw(Math.atan2(-dx, -dz));
-  creature.setSpeed(HALLWAY_RUSH_SPEED);
 }
 
 /**
@@ -3079,6 +3002,14 @@ const backrooms = createDeferredLevel(() => createBackroomsLevel({
   onDoorOpening: (position) => audioDirector.door(position),
   onSfx: (name, opts) => sfx(name, opts)
 }));
+/**
+ * The backrooms ceiling (backroomsLevel's HALL_H). A constant here, not read
+ * off backrooms.refs: the level is built on demand, and nothing is in its refs
+ * until then.
+ */
+const BACKROOMS_CEILING = 2.35;
+// The backrooms figure stoops under the tiles rather than putting its head through them.
+okabe.setCeiling(BACKROOMS_CEILING);
 sceneManager.register('backrooms', backrooms);
 
 // ---------- render-cost trims ----------
@@ -3103,6 +3034,38 @@ const darkShadowSkipper = createDarkShadowSkipper(findShadowCastingLights(scene)
  * them apart -- exitLevel already hands the interstitial the level it came
  * from, so nothing new has to be tracked to know which crossing this is.
  */
+/**
+ * Annabelle's rooms are SAFE (user, 2026-10-23): the hunter cannot go into them
+ * or their doorways, and walking into one makes it roar. The four dressed
+ * rooms, by their maze legs, and the necks that lead into them. The central
+ * room, which is not hers, is not safe.
+ */
+const SAFE_ROOM_LEGS = Object.keys(ROOM_FLOORS);
+const SAFE_LEGS = [
+  ...SAFE_ROOM_LEGS,
+  ...DOORWAYS.filter((d) => SAFE_ROOM_LEGS.includes(`room_${d.room}`)).map((d) => d.neck)
+];
+
+/**
+ * Where the hunter starts: at least drawMonsterStart's distance from the
+ * player ON FOOT, never in a safe room. The order a crossing is drawn in is
+ * the player, then the way out, then it.
+ */
+/** Inside the safe rooms, and the tunnels through the wall into them. */
+const SAFE_RECTS = roomInteriors(SAFE_ROOM_LEGS.map((n) => n.replace('room_', '')));
+/** Inside one of the safe rooms or the doorway into it. */
+function inSafeRoom(x, z) {
+  return SAFE_RECTS.some(([x0, x1, z0, z1]) => x >= x0 && x <= x1 && z >= z0 && z <= z1);
+}
+
+function startBackroomsHunter() {
+  const at = drawMonsterStart(
+    { x: camera.position.x, z: camera.position.z },
+    { avoid: SAFE_LEGS }
+  );
+  backroomsHunter.start(at ? { at } : {});
+}
+
 const backroomsHunter = createBackroomsHunter({
   // The imported figure, not the procedural one -- see the note at okabe's
   // construction for why the backrooms is the right place for it.
@@ -3120,11 +3083,23 @@ const backroomsHunter = createBackroomsHunter({
   colliders: backrooms.colliders,
   // Annabelle's rooms are partitioned; it must only ever aim for the open half.
   roomFloors: ROOM_FLOORS,
-  // And they are safe: it cannot catch you in one of her rooms.
+  safeLegs: SAFE_LEGS,
+  safeArea: SAFE_RECTS,
+  // In you went, and it cannot follow. Once as you go in; again, if it came,
+  // when it reaches the door -- unless the first is still ringing.
+  onEnraged: ({ x, z, atDoor }) => {
+    if (atDoor && performance.now() - lastRoarAt < ROAR_AGAIN_AFTER_MS) return;
+    lastRoarAt = performance.now();
+    audioDirector.roar({ x, z });
+  },
   safeFloors: ROOM_FLOORS,
   onBreathing: (level) => audio.setBreathing(level),
   onCaught: (context) => onHunterCaught(context)
 });
+
+/** The second roar, at the door, waits at least this long after the first. */
+const ROAR_AGAIN_AFTER_MS = 4000;
+let lastRoarAt = -Infinity;
 
 /** Which level this crossing started from, or null when not crossing. */
 let backroomsFrom = null;
@@ -3333,7 +3308,9 @@ function updateBackroomsShadow(dt) {
 
   const found = pointBehindOnPath(backroomsPath, px, pz, BACKROOMS_SHADOW_LAG);
   const closeBy = found && Math.hypot(px - found.x, pz - found.z) < BACKROOMS_SHADOW_HIDE_RANGE;
-  const shouldShow = !!found && !closeBy
+  // It does not follow you into Annabelle's rooms: where your trail goes in,
+  // it is gone at the door.
+  const shouldShow = !!found && !closeBy && !inSafeRoom(found.x, found.z)
     && backroomsWalked >= BACKROOMS_SHADOW_GRACE
     && backroomsShadowClock - backroomsShadowHidAt >= BACKROOMS_SHADOW_COOLDOWN
     && pathLength(backroomsPath) >= BACKROOMS_SHADOW_MIN_PATH;
@@ -3567,16 +3544,19 @@ const TRANSITIONS = {
 const ON_ENTER = {
   /** Out of the bedroom at last: the door shuts behind, and something moves below. */
   upstairsHallway: () => {
+    // The backrooms are next, down the stairs: fetch their files now, while the
+    // hall is walked. Asset-only -- it never borrows the scene or the camera.
+    void preloadBackroomsForTape();
     script.run(async (s) => {
       // Through the door, and it swings shut behind you.
       if (!await s.wait(0.5)) return;
       s.do(() => { closeDoorwayBehind(); creak(); });
       // The bedroom goes once the door has shut, so it is not drawn for
-      // nothing. The rush has normally been and gone by now (it starts as the
-      // door opens -- see startHallwayRush); the caption waits for it if not.
+      // nothing. The blinks have normally been and gone by now (they start as
+      // the door opens -- see startHallwayBlinks); the caption waits if not.
       if (!await s.wait(0.6)) return;
       s.do(() => hideBedroomBehind());
-      while (hallwayRush) if (!await s.wait(0.1)) return;
+      while (hallwayBlinks.isRunning) if (!await s.wait(0.1)) return;
       if (!await s.wait(0.8)) return;
       await s.play(line('dialog_hallway_enter'));
     });
@@ -3591,10 +3571,13 @@ const ON_ENTER = {
    * the difference between a threat and a jump scare.
    */
   backrooms: () => {
+    // Wherever this crossing put them down, that dead end is the way they came in.
+    const [sx, sz] = backrooms.spawn;
+    backroomsBarks.ignoreNear(sx, sz);
     if (backroomsFrom !== 'hallwayBasement') return;
     script.run(async (s) => {
       if (!await s.wait(2.2)) return;
-      s.do(() => backroomsHunter.start());
+      s.do(() => startBackroomsHunter());
     });
   }
 };
@@ -3622,6 +3605,12 @@ const pickRespawnLine = linePicker([
   'dialog_backrooms_respawn_1', 'dialog_backrooms_respawn_2',
   'dialog_backrooms_respawn_3', 'dialog_backrooms_respawn_4'
 ], { order: 'sequence' });
+
+/** Seconds of coming round after a catch: the first, and every one after. */
+const CAUGHT_COME_ROUND = 3.2;
+const CAUGHT_COME_ROUND_AGAIN = 2.2;
+/** Catches this run, for which of those it gets. */
+let caughtTimes = 0;
 
 let sprintCatchLessonPlayed = false;
 let sprintCatchReminderIndex = 0;
@@ -3652,8 +3641,15 @@ function onHunterCaught({ sprintContributed = false } = {}) {
         player.cinematic = true;
         jumpScareRunning = true;
       });
-      // Its face, all at once. Ends on black -- see core/JumpScare.js.
-      await jumpScare.run({ creature: okabe, isAlive: s.alive });
+      // Its face, all at once -- one of the scares at random, never the same
+      // one twice running. Ends on black -- see core/JumpScare.js.
+      await jumpScare.run({
+        creature: okabe,
+        isAlive: s.alive,
+        kind: 'random',
+        ceiling: backrooms.refs.ceilingHeight,
+        colliders: backrooms.colliders
+      });
       jumpScareRunning = false;
       if (!s.alive()) return;
       // A beat of black and silence after the scream, before waking.
@@ -3669,16 +3665,18 @@ function onHunterCaught({ sprintContributed = false } = {}) {
         // the point, and the respawn line takes over once the eyes open.
         caughtLine = captions.play(line(pickCaughtLine()));
       });
-      if (!await s.wait(1.2)) return;
-      await fade.fadeIn(650);
+      // Coming round on the carpet where they went in, rather than a fade
+      // back up: shorter each time, since they know where they are now.
+      caughtTimes++;
+      await playCutscene('comeRound', { seconds: caughtTimes > 1 ? CAUGHT_COME_ROUND_AGAIN : CAUGHT_COME_ROUND });
       if (!s.alive()) return;
       s.do(() => {
         player.lookEnabled = true;
         player.movementEnabled = true;
         interaction.setEnabled(true);
         // Re-drawn somewhere new, so a caught player is not handed the same
-        // chase back. start() already biases the draw away from the player.
-        backroomsHunter.start();
+        // chase back -- far from them on foot, never in a safe room.
+        startBackroomsHunter();
       });
       // The caught line is spoken now, and runs longer than the fade: let the
       // player finish the sentence before they come round, or the respawn
@@ -3714,7 +3712,7 @@ function onHunterCaught({ sprintContributed = false } = {}) {
 
 /** True while the catch's jump scare owns the backrooms figure and the camera. */
 let jumpScareRunning = false;
-const jumpScare = createJumpScare({ camera, fade, postFX, audio });
+const jumpScare = createJumpScare({ camera, fade, postFX, audio, playScream: () => audioDirector.scream() });
 
 /**
  * Drops the player out of third person for a beat that has to be seen from
@@ -3740,6 +3738,18 @@ function forceFirstPerson() {
  * beat should be able to cut this one off half way with the camera taken.
  */
 const stairsScareScript = createScriptRunner({ captions });
+/** The torch as the scares handle it: brought out, dimmed and mended without touching its switch. */
+const scareTorch = {
+  isAvailable: () => flashlightFound && gameState.inventory.has('flashlight'),
+  // Into the hand and switched on, so there is a torch there to die.
+  bringOut: () => {
+    if (!flashlightFound || !gameState.inventory.has('flashlight')) return;
+    setFlashlight(true);
+  },
+  setPower: setTorchPower,
+  // It works again afterwards.
+  repair: () => applyFlashlightBeam()
+};
 const stairsScare = createStairsScare({
   camera,
   player,
@@ -3753,29 +3763,53 @@ const stairsScare = createStairsScare({
   handLight: cinematicLight,
   setHouseLightsOut,
   forceFirstPerson,
-  torch: {
-    isAvailable: () => flashlightFound && gameState.inventory.has('flashlight'),
-    // Into the hand and switched on, so there is a torch there to die.
-    bringOut: () => {
-      if (!flashlightFound || !gameState.inventory.has('flashlight')) return;
-      setFlashlight(true);
-    },
-    setPower: setTorchPower,
-    // It works again afterwards.
-    repair: () => applyFlashlightBeam()
-  },
+  torch: scareTorch,
   hallway: upstairsHallway.refs,
   playBehindShot: async (standing) => {
     const finished = await playCutscene('stairsBehind', { standing });
     hideCreature();
     return finished;
-  }
+  },
+  // The way down is next, and the maze's first frame is seconds of shader
+  // compile. Paid here, on a black screen nobody is waiting on, instead of
+  // after the fall (user, 2026-10-23: the backrooms took far too long to load).
+  whileBlack: () => warmLevelForTransition('backrooms', { showProgress: false })
+});
+
+/** The door-1 scene -- see core/HallwayBlinks.js and startHallwayBlinks(). */
+const hallwayBlinks = createHallwayBlinks({
+  camera,
+  player,
+  interaction,
+  creature,
+  showCreature: ({ x, z }) => showCreatureAt({ x, z, linger: null }),
+  hideCreature,
+  setHouseLightsOut,
+  forceFirstPerson,
+  torch: scareTorch,
+  sfx,
+  audio,
+  hallway: upstairsHallway.refs,
+  getColliders: () => player.colliders
+});
+
+/** The way down from the hallway stairs into the maze -- see core/StairsFall.js. */
+const stairsFall = createStairsFall({
+  camera,
+  player,
+  hands,
+  audio,
+  sfx,
+  fade,
+  setHouseLightsOut,
+  torch: scareTorch,
+  forceFirstPerson
 });
 
 /** Plays the stairs scare, once, when the hallway says the player has reached the top step. */
 function playStairsScare() {
   if (sceneManager.activeKey !== 'upstairsHallway') return;
-  if (transitionInFlight || cutscene.isRunning || hallwayRush || stairsScare.isRunning) return;
+  if (transitionInFlight || cutscene.isRunning || hallwayBlinks.isRunning || stairsScare.isRunning) return;
   // Before the scare starts, so whatever was being said does not carry on over it.
   script.cancel();
   captions.cancel();
@@ -3860,6 +3894,7 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   bedroomHorrorScript.cancel();
   bedroomHorrorEvents.clear();
   stairsScareScript.cancel();
+  hallwayBlinksScript.cancel();
   if (key === 'bedroom') audio.setBreathing(LEVEL_ONE_BREATHING_BASE);
   if (key === 'hallwayBasement') audio.setBreathing(LEVEL_TWO_BREATHING.base);
   player.movementEnabled = !lockMovement;
@@ -3942,14 +3977,27 @@ function abortTransition() {
  *   until the player continues past it, so its entry beat cannot start behind
  *   the page.
  */
-async function transitionTo(key, { lockMovement = false, outMs = 700, holdMs = 140, inMs = 900, interlude = null } = {}) {
+/**
+ * @param {(isAlive: () => boolean) => Promise<boolean>} [options.out] played
+ *   instead of the fade out; must end on black (the fall down the stairs).
+ * @param {() => Promise<unknown>} [options.arrive] played instead of the fade
+ *   in, once the next level is up behind the black (coming round on the floor).
+ */
+async function transitionTo(key, {
+  lockMovement = false, outMs = 700, holdMs = 140, inMs = 900, interlude = null, out = null, arrive = null
+} = {}) {
   if (transitionInFlight) return null;
   transitionInFlight = true;
   const mine = ++transitionGeneration;
   freezePlayerForTransition();
 
   try {
-    await fade.fadeOut(outMs);
+    const isCurrent = () => mine === transitionGeneration;
+    // A scene that could not play (it was already running) falls back to the fade.
+    if (!out || !await out(isCurrent)) {
+      if (!isCurrent()) return null;
+      await fade.fadeOut(outMs);
+    }
     if (mine !== transitionGeneration) return null;   // aborted mid-fade
     if (interlude) {
       await newspaperView.show(interlude);
@@ -3967,7 +4015,8 @@ async function transitionTo(key, { lockMovement = false, outMs = 700, holdMs = 1
     }
     await wait(holdMs);
     if (mine !== transitionGeneration) return null;
-    await fade.fadeIn(inMs);
+    if (arrive) await arrive();
+    else await fade.fadeIn(inMs);
     return level;
   } finally {
     // finally, not the happy path: an exception in here would otherwise leave
@@ -4001,8 +4050,23 @@ async function exitLevel(fromKey) {
   // spawn/spawnYaw are all in place by the time SceneManager reads them.
   backroomsFrom = fromKey;
   interstitial.setRoute({ from: fromKey, ...route });
-  await transitionTo(route.via, { interlude });
+  await transitionTo(route.via, { interlude, ...(CROSSING_SCENES[fromKey] ?? {}) });
 }
+
+/**
+ * Crossings that are played rather than faded, keyed like TRANSITIONS by the
+ * room being LEFT. Down the hallway stairs, the stairs keep going and then
+ * they are not there; the maze comes up with the player on its floor.
+ */
+/** Seconds of coming round after the fall: the long version, but not so long it reads as loading. */
+const FALL_COME_ROUND = 4.2;
+
+const CROSSING_SCENES = {
+  upstairsHallway: {
+    out: (isAlive) => stairsFall.run({ isAlive }),
+    arrive: () => playCutscene('comeRound', { seconds: FALL_COME_ROUND })
+  }
+};
 
 /**
  * The front page read on the way out of each room, keyed like TRANSITIONS by
@@ -4077,10 +4141,11 @@ function resetGame() {
   // Every "first time" line is a first time again, and being caught starts
   // its lines from the top.
   backroomsBarks.reset();
-  endHallwayRush({ quiet: true });
+  hallwayBlinksScript.cancel();
   resetDoorwayJoin();
   pickCaughtLine.reset();
   pickRespawnLine.reset();
+  caughtTimes = 0;
   sprintCatchLessonPlayed = false;
   sprintCatchReminderIndex = 0;
   sprintCatchNextAt = 0;
@@ -4093,7 +4158,7 @@ function resetGame() {
  * G's bedroom branch: opens the bedroom door through its own interact, the
  * planks and then the key, exactly as playing to it would. With carryThrough
  * (G) the player is carried straight into the hall; without it
- * (__game.stageHallwayReveal) they are left at the door and the reveal plays.
+ * (__game.stageHallwayReveal) they are left at the door and the blinks play.
  */
 function debugOpenBedroomDoor({ carryThrough = true } = {}) {
   // A drop caught half way would land under the grants below (take()
@@ -4134,7 +4199,7 @@ function debugOpenBedroomDoor({ carryThrough = true } = {}) {
     removeDroppedProp('bedroomKey');
     pickUpItem('bedroomKey', { animate: false });
     // Opens it -> openToHallway(), which carries the player through -- or,
-    // for stageHallwayReveal, leaves them at the door to watch the reveal.
+    // for stageHallwayReveal, leaves them at the door to watch the blinks.
     skipThroughDoor = carryThrough;
     door.onInteract();
   }
@@ -4908,7 +4973,7 @@ player.controls.addEventListener('unlock', () => {
 // Nothing here grants a capability a player does not have with the keyboard.
 if (import.meta.env.DEV) {
   window.__game = {
-    get hallwayRush() { return hallwayRush; },
+    hallwayBlinks,
     // Opens the bedroom onto the hall as the door would, without the puzzle chain.
     openToHallway,
     activateLevel,
@@ -4926,6 +4991,10 @@ if (import.meta.env.DEV) {
     // The stairs scare normally waits for the player to walk to the top step.
     playStairsScare,
     stairsScare,
+    // Every jump scare on demand: jumpScare.run({ creature: okabe, kind }).
+    jumpScare,
+    stairsFall,
+    backrooms,
     // Camera five normally needs the whole power chain and the CCTV desk.
     playCameraFiveSighting,
     get labCreatureExit() { return labCreatureExit; },
@@ -4937,16 +5006,16 @@ if (import.meta.env.DEV) {
     cutscene,
     playCutscene,
     SCENES,
-    // The reveal staged the shipping way: freed, on the door's centre line a
-    // metre back, door opened through its own interact (G's path, without
-    // being carried through). For exportStills / recordScene.
+    // The door-1 blinks staged the shipping way: freed, on the door's centre
+    // line a metre back, door opened through its own interact (G's path,
+    // without being carried through).
     stageHallwayReveal: () => {
       if (sceneManager.activeKey !== 'bedroom') activateLevel('bedroom');
       player.setLookBounds(null);
       const doorway = bedroom.refs.doorway;
       player.spawn(doorway.x, doorway.z - 1.0, Math.PI, 0);
       debugOpenBedroomDoor({ carryThrough: false });
-      return cutscene.isRunning;
+      return hallwayBlinks.isRunning;
     },
     // Stills, turnarounds and recordings for AI-video references -- see
     // core/CutsceneExport.js. Saved to Downloads, never into the repo.
@@ -5560,19 +5629,33 @@ function preloadLevel1() {
   return level1PreloadPromise;
 }
 
-/** Warms exactly one destination level while a transition already owns the screen. */
-async function warmLevelForTransition(key, { showProgress = true } = {}) {
-  if (warmedLevelKeys.has(key)) return;
-  await preloadAssetGroups([key]);
-  await sceneManager.get(key)?.prepare?.();
-  enableSinglePassForFlatDecals(sceneManager.get(key).group);
-  darkShadowSkipper.addLights(findShadowCastingLights(scene));
-  await warmUp({ keys: [key], waitForAssets: false, showProgress });
-  // And whatever creature can show up there, or its first appearance is a
-  // freeze of its own, seconds into the room.
-  if (key === 'backrooms') await warmMazeCreature();
-  else await warmHouseCreature([[key]]);
-  warmedLevelKeys.add(key);
+/** Level key -> its warm-up, while one is in flight: asked twice, it is paid once. */
+const levelWarmUps = new Map();
+
+/**
+ * Warms exactly one destination level while something already owns the
+ * screen -- a transition, or the stairs scare's beat of black, which warms the
+ * backrooms ahead of the way down (user, 2026-10-23: it took far too long).
+ */
+function warmLevelForTransition(key, { showProgress = true } = {}) {
+  if (warmedLevelKeys.has(key)) return Promise.resolve();
+  if (!levelWarmUps.has(key)) {
+    const warming = (async () => {
+      await preloadAssetGroups([key]);
+      await sceneManager.get(key)?.prepare?.();
+      enableSinglePassForFlatDecals(sceneManager.get(key).group);
+      darkShadowSkipper.addLights(findShadowCastingLights(scene));
+      await warmUp({ keys: [key], waitForAssets: false, showProgress });
+      // And whatever creature can show up there, or its first appearance is a
+      // freeze of its own, seconds into the room.
+      if (key === 'backrooms') await warmMazeCreature();
+      else await warmHouseCreature([[key]]);
+      warmedLevelKeys.add(key);
+    })().catch((err) => console.warn(`warmLevelForTransition: "${key}"`, err))
+      .finally(() => levelWarmUps.delete(key));
+    levelWarmUps.set(key, warming);
+  }
+  return levelWarmUps.get(key);
 }
 
 // The menu remains covered until every counted resource job has settled.
@@ -5657,13 +5740,12 @@ function tick() {
   const isPlaying = player.isLocked && !newspaperView.isOpen;
   // The difficulty's clock. Stopped by the same things, and by every moment
   // the player has no control: a fade between rooms, a cutscene, an ending.
-  if (isPlaying && !transitionInFlight && !cutscene.isRunning && !stairsScare.isRunning && !endingInFlight) runTimer.update(dt);
+  if (isPlaying && !transitionInFlight && !cutscene.isRunning && !stairsScare.isRunning && !hallwayBlinks.isRunning && !endingInFlight) runTimer.update(dt);
   captions.update(dt);
   // Only while it is actually on screen. The AI is not driving it in Level 2 --
   // it is placed by a script -- but it still has to breathe, or a figure
   // standing in a corner reads as a statue rather than as something watching.
   updateDoorwayJoin(dt);
-  updateHallwayRush(dt);
   updateLabCreatureExit(dt);
   if (creatureStanding) creature.update(dt);
   // A scripted appearance's linger, on the frame clock -- see showCreatureAt().
@@ -5795,6 +5877,9 @@ function tick() {
   tapeFocus.update();
   // On the same clock, so Esc holds it too -- see core/StairsScare.js.
   stairsScare.update(captions.paused ? 0 : dt);
+  // After the creature's own update, so the head it cocks is not reset under it.
+  hallwayBlinks.update(captions.paused ? 0 : dt);
+  stairsFall.update(captions.paused ? 0 : dt);
   // On real time: slow motion must not make a skip take longer.
   cutsceneSkip.update(captions.paused ? 0 : realDt);
   // Switched on the blend rather than the flag, so the swap happens once the

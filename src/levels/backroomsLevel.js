@@ -38,7 +38,8 @@ import { line } from '../dialogue/index.js';
 import doorModelUrl from '../assets/models/door.glb?url';
 import {
   CORRIDORS, ROUTE, BOX, LEGS, CROSSINGS, DOORWAYS, buildWallRuns, runCollider,
-  validateMaze, junctions, deadEnd, sideWall, legMid, spawnPoint, exitPoint, nameNoise, crossingFor
+  validateMaze, junctions, deadEnd, sideWall, legMid, spawnPoint, exitPoint, nameNoise, crossingFor,
+  MAZE, drawCrossing, EXIT_SPOTS
 } from './backroomsMaze.js';
 import { dressAnnabelleRooms } from './annabelleRooms.js';
 
@@ -321,12 +322,15 @@ export function createBackroomsLevel({
     for (const [name, r] of CORRIDOR_LIST) {
       if (x < r[0] || x > r[1] || z < r[2] || z > r[3]) continue;
       here = here ?? mapQuads[name];
-      if (gameState.corridorsSeen.has(name)) continue;
-      gameState.corridorsSeen.add(name);
-      mapQuads[name].visible = true;
+      // The way in and the way out are this crossing's own, drawn fresh each
+      // time: shown once the player has stood in them THIS crossing, never
+      // from a corridor the first crossing happened to reveal.
       const m = marks[crossing];
       if (name === m.exitLeg) m.exit.visible = true;
       if (name === m.entryLeg) m.entry.visible = true;
+      if (gameState.corridorsSeen.has(name)) continue;
+      gameState.corridorsSeen.add(name);
+      mapQuads[name].visible = true;
     }
     if (here === hereQuad) return;
     // Reuse the map's corridor-entry event, rather than adding another scan.
@@ -363,9 +367,9 @@ export function createBackroomsLevel({
       q.material = minimapFloorMat;
     }
     hereQuad = null;
-    for (const [key, m] of Object.entries(marks)) {
-      m.exit.visible = key === crossing && gameState.corridorsSeen.has(m.exitLeg);
-      m.entry.visible = key === crossing && gameState.corridorsSeen.has(m.entryLeg);
+    for (const m of Object.values(marks)) {
+      m.exit.visible = false;
+      m.entry.visible = false;
     }
   }
 
@@ -390,8 +394,7 @@ export function createBackroomsLevel({
    * along their wall's normal, so a door whose `axis` is the run's axis and
    * whose position is on its line stands in it.
    */
-  const EXIT_GAPS = Object.keys(CROSSINGS).map((key) => {
-    const door = exitPoint(key);
+  const EXIT_GAPS = EXIT_SPOTS.map((door) => {
     const along = door.axis === 'z' ? door.x : door.z;
     return {
       axis: door.axis,
@@ -1172,6 +1175,7 @@ export function createBackroomsLevel({
     group.add(glare);
 
     lamps.push({
+      mount,
       light,
       mat: tubeMat,
       // Null on the fixtures whose lens is gone; the update loop drives it
@@ -1245,6 +1249,7 @@ export function createBackroomsLevel({
   // step into it, and one over each way out. Two of each: the maze is crossed
   // twice, in and out at different places each time (CROSSINGS).
   const across = (axis) => (axis === 'z' ? 'x' : 'z');
+  const spawnLamps = {};
   for (const key of Object.keys(CROSSINGS)) {
     const at = spawnPoint(key);
     // 0.4 m on past where the player stands, so it hangs just in front of them.
@@ -1252,6 +1257,19 @@ export function createBackroomsLevel({
       along: across(at.door.axis), mode: 'dying', colour: 0xffd07a, base: 1.5, dist: 6.5, decay: 1.7,
       emissive: 0xffdca0, emissiveIntensity: 1.9, wear: 0.71
     });
+    spawnLamps[key] = lamps[lamps.length - 1];
+  }
+
+  /**
+   * Moves a lit fixture -- housing, light and glare -- to (x, z), its tubes
+   * running across `along`. Position only: the light count never changes, so
+   * no shader recompiles.
+   */
+  function moveFixture(lamp, x, z, along) {
+    lamp.mount.position.set(x, HALL_H, z);
+    lamp.mount.rotation.y = along !== 'x' ? Math.PI / 2 : 0;
+    lamp.light.position.set(x, 2.10, z);
+    lamp.glare.position.set(x, HALL_H - 0.21, z);
   }
 
   // The only bright steady light in the level sits over the exit, and it is the
@@ -1367,6 +1385,37 @@ export function createBackroomsLevel({
     );
   }
 
+  /**
+   * WALL PLUGS. Every spot a crossing can draw its exit at has its opening cut
+   * (EXIT_GAPS), because the walls are merged into a few draw calls at boot
+   * and cannot be re-cut later. Every opening not in use this crossing is
+   * filled with a piece of the same wall, collider and all.
+   */
+  const exitPlugs = EXIT_GAPS.map(({ axis, at, from, to }) => {
+    const len = to - from;
+    const mid = (from + to) / 2;
+    const plug = new THREE.Group();
+    const wall = new THREE.Mesh(wallGeo, wallMatFor(len));
+    wall.scale.set(len, EXIT_DOORWAY.height, 1);
+    wall.position.y = EXIT_DOORWAY.height / 2;
+    wall.receiveShadow = true;
+    const tide = new THREE.Mesh(tideGeo, tideMat);
+    tide.scale.set(len, 0.10, 0.02);
+    tide.position.y = 0.05;
+    plug.add(wall, tide);
+    if (axis === 'x') {
+      plug.position.set(at, 0, mid);
+      plug.rotation.y = Math.PI / 2;
+    } else {
+      plug.position.set(mid, 0, at);
+    }
+    group.add(plug);
+    const box = runCollider({ axis, at, from, to });
+    const collider = { ...box };
+    colliders.push(collider);
+    return { plug, box, collider };
+  });
+
   const exitDoors = {};
   for (const key of Object.keys(CROSSINGS)) {
     const at = exitPoint(key);
@@ -1438,15 +1487,14 @@ export function createBackroomsLevel({
       piece.rotation.set(rx, ry, 0);
       frame.add(piece);
     }
-    const toWorld = (lx, lz) => frameToWorld(door, lx, lz);
-    colliders.push(
-      worldBox(toWorld(-EXIT_PASSAGE.halfWidth - 0.1, back), toWorld(-EXIT_PASSAGE.halfWidth, deep)),
-      worldBox(toWorld(EXIT_PASSAGE.halfWidth, back), toWorld(EXIT_PASSAGE.halfWidth + 0.1, deep)),
-      worldBox(toWorld(-EXIT_PASSAGE.halfWidth, deep), toWorld(EXIT_PASSAGE.halfWidth, deep - 0.1))
-    );
-    // Across the opening while the door is latched; parked out of the way once
-    // it is not, after which the leaf itself stands in the player's way.
-    door.latchBox = worldBox(toWorld(-EXIT_DOORWAY.halfWidth, back - 0.04), toWorld(EXIT_DOORWAY.halfWidth, 0.06));
+    // The passage's walls, and across the opening while the door is latched
+    // (parked out of the way once it is not, after which the leaf itself
+    // stands in the player's way). Worked out by fitDoor(), again each time a
+    // crossing moves the door onto its drawn spot.
+    door.passageBoxes = [{}, {}, {}];
+    door.latchBox = {};
+    fitDoor(door);
+    colliders.push(...door.passageBoxes);
     door.latchCollider = { ...door.latchBox };
     colliders.push(door.latchCollider);
 
@@ -1508,6 +1556,26 @@ export function createBackroomsLevel({
     const dz = z - door.frame.position.z;
     return { x: dx * door.nz - dz * door.nx, z: dx * door.nx + dz * door.nz };
   }
+  /**
+   * The door's world-space boxes -- its passage's walls and its latch -- from
+   * where its frame now stands. Written INTO the existing objects: they are in
+   * `colliders` by reference.
+   */
+  function fitDoor(door) {
+    const back = -EXIT_FRAME_PROUD;
+    const deep = back - EXIT_PASSAGE.depth;
+    const toWorld = (lx, lz) => frameToWorld(door, lx, lz);
+    const boxes = [
+      worldBox(toWorld(-EXIT_PASSAGE.halfWidth - 0.1, back), toWorld(-EXIT_PASSAGE.halfWidth, deep)),
+      worldBox(toWorld(EXIT_PASSAGE.halfWidth, back), toWorld(EXIT_PASSAGE.halfWidth + 0.1, deep)),
+      worldBox(toWorld(-EXIT_PASSAGE.halfWidth, deep), toWorld(EXIT_PASSAGE.halfWidth, deep - 0.1))
+    ];
+    boxes.forEach((b, i) => Object.assign(door.passageBoxes[i], b));
+    Object.assign(door.latchBox, worldBox(toWorld(-EXIT_DOORWAY.halfWidth, back - 0.04), toWorld(EXIT_DOORWAY.halfWidth, 0.06)));
+  }
+  /** A box nothing can reach, for a collider that is not in use. */
+  const PARKED_BOX = { minX: -1000, maxX: -1000, minZ: -1000, maxZ: -1000 };
+
   /** The collider box with two opposite corners at `a` and `b`. */
   function worldBox(a, b) {
     return { minX: Math.min(a.x, b.x), maxX: Math.max(a.x, b.x), minZ: Math.min(a.z, b.z), maxZ: Math.max(a.z, b.z) };
@@ -1639,6 +1707,7 @@ export function createBackroomsLevel({
   // fixture above it is in one of its dead stretches.
   const revealMat = new THREE.MeshStandardMaterial({ color: 0x120e06, roughness: 0.8 });
   const sealedEntries = {};
+  const sealedGroups = {};
   for (const key of Object.keys(CROSSINGS)) {
     const at = spawnPoint(key).door;
     // Built facing +Z at the origin, as it always was, then turned onto the
@@ -1680,6 +1749,7 @@ export function createBackroomsLevel({
     entry.add(hitbox);
     interactables.push(hitbox);
     sealedEntries[key] = patch;
+    sealedGroups[key] = entry;
   }
   const sealed = sealedEntries.first;
 
@@ -1773,7 +1843,9 @@ export function createBackroomsLevel({
     web.position.set(x, y, z);
     web.rotation.set(tiltX, rotY, tiltZ);
     group.add(web);
+    return web;
   }
+  const cobwebs = {};
   // In the dead ends of the WRONG turns only. Webs mean undisturbed; their
   // absence on the route means traffic. That is the trail's whole backstory,
   // told with a texture that already exists -- and it is the one wayfinding tell
@@ -1783,7 +1855,7 @@ export function createBackroomsLevel({
     const h = LEGS[name].w / 2 - 0.35;
     const n = nameNoise(name, 23);
     const side = n < 0.5 ? -1 : 1;
-    addCobweb(
+    cobwebs[name] = addCobweb(
       e.x + e.nx * 0.45 + (e.axis === 'z' ? side * h : 0),
       HALL_H - 0.15,
       e.z + e.nz * 0.45 + (e.axis === 'x' ? side * h : 0),
@@ -1938,6 +2010,59 @@ export function createBackroomsLevel({
   const DRIP_WAIT = 1.6;     // and how long before the next one gathers
   let dripT = 0;
 
+
+  // ---------- the drawn crossing ----------
+  // Each crossing draws where the player comes round, then a way out far
+  // enough from there (backroomsMaze.drawCrossing), and the pieces that mark
+  // them -- the sealed door, its lamp, the exit door, its steady lamp, the
+  // map's two marks -- are moved onto the draw. Nothing is built or thrown
+  // away, so no light or material changes and nothing recompiles. A draw is
+  // kept until a restart, so being caught does not move the door.
+  let layouts = {};
+  /** Where the pieces of the crossing not being played are put: under the floor. */
+  const PUT_AWAY_Y = -50;
+
+  function placeCrossing(key, { spawn, exit }) {
+    for (const [k, entry] of Object.entries(sealedGroups)) {
+      if (k === key) {
+        entry.position.set(spawn.door.x, 0, spawn.door.z);
+        entry.rotation.y = Math.atan2(spawn.door.nx, spawn.door.nz);
+      } else {
+        entry.position.set(0, PUT_AWAY_Y, 0);
+      }
+    }
+    moveFixture(spawnLamps[key], spawn.x + spawn.door.nx * 0.4, spawn.z + spawn.door.nz * 0.4, across(spawn.door.axis));
+    for (const [k, door] of Object.entries(exitDoors)) {
+      if (k === key) {
+        door.frame.position.set(exit.x + exit.nx * EXIT_FRAME_PROUD, 0, exit.z + exit.nz * EXIT_FRAME_PROUD);
+        door.frame.rotation.y = Math.atan2(exit.nx, exit.nz);
+        door.nx = exit.nx;
+        door.nz = exit.nz;
+        fitDoor(door);
+      } else {
+        // Out of reach and out of sight: Interaction raycasts invisible things too.
+        door.frame.position.set(0, PUT_AWAY_Y, 0);
+        for (const b of door.passageBoxes) Object.assign(b, PARKED_BOX);
+        Object.assign(door.latchBox, PARKED_BOX);
+      }
+      door.frame.visible = k === key;
+    }
+    // The opening this crossing leaves by is open; every other one is wall.
+    EXIT_SPOTS.forEach((spot, i) => {
+      const open = spot === exit;
+      exitPlugs[i].plug.visible = !open;
+      Object.assign(exitPlugs[i].collider, open ? PARKED_BOX : exitPlugs[i].box);
+    });
+    moveFixture(exitLamps[key], exit.x + exit.nx * 1.2, exit.z + exit.nz * 1.2, across(exit.axis));
+    const m = marks[key];
+    m.exitLeg = MAZE.rooms[exit.room].leg;
+    m.entryLeg = spawn.leg;
+    m.exit.position.set(exit.x + exit.nx * 1.1, 0.02, exit.z + exit.nz * 1.1);
+    m.entry.position.set(spawn.door.x + spawn.door.nx * 0.9, 0.02, spawn.door.z + spawn.door.nz * 0.9);
+    // Webs mean nobody has been here. Somebody just has.
+    for (const [name, web] of Object.entries(cobwebs)) web.visible = name !== spawn.leg;
+  }
+
   return {
     group,
     interactables,
@@ -1960,6 +2085,10 @@ export function createBackroomsLevel({
     // door, so finding it is a choice to turn around. Per crossing, like spawn.
     spawnYaw: spawnPoint('first').yaw,
     refs: {
+      /** Floor to ceiling, metres: a figure standing here must keep its head under it. */
+      ceilingHeight: HALL_H,
+      /** This crossing's draw: { spawn, exit, exitMetres } -- see backroomsMaze.drawCrossing. */
+      get layout() { return layouts[crossing] ?? null; },
       /** The current crossing's exit door hinge (setRoute changes which). */
       get doorHinge() { return activeDoor().hinge; },
       /**
@@ -2016,9 +2145,13 @@ export function createBackroomsLevel({
       // Which crossing: by the level it came from. The first goes up the
       // drawing to Door 1 and Level 2, the second to Door 2 and Level 3.
       crossing = crossingFor(route);
-      const sp = spawnPoint(crossing);
-      this.spawn = [sp.x, sp.z];
-      this.spawnYaw = sp.yaw;
+      // Drawn once per crossing per run, never in the room the other used.
+      const other = Object.keys(CROSSINGS).find((k) => k !== crossing);
+      layouts[crossing] ??= drawCrossing({ avoidRooms: layouts[other] ? [layouts[other].exit.room] : [] });
+      const layout = layouts[crossing];
+      placeCrossing(crossing, layout);
+      this.spawn = [layout.spawn.x, layout.spawn.z];
+      this.spawnYaw = layout.spawn.yaw;
       exitLamp = exitLamps[crossing];
       for (const door of Object.values(exitDoors)) {
         door.opened = false;
@@ -2060,7 +2193,11 @@ export function createBackroomsLevel({
     get route() { return route; },
     get crossing() { return crossing; },
 
-    reset() { this.setRoute(null); },
+    /** A restart: every crossing is drawn again. */
+    reset() {
+      layouts = {};
+      this.setRoute(null);
+    },
 
     update(dt, playerPosition) {
       this._t = (this._t ?? 0) + dt;

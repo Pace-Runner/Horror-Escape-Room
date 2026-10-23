@@ -688,6 +688,251 @@ export function exitPoint(crossing = 'first') {
   return CROSSINGS[crossing].exitEnd;
 }
 
+// ---------------------------------------------------------------------------
+// Random crossings: where you come in, then where the way out is, then it
+// ---------------------------------------------------------------------------
+//
+// Each crossing used to be the same walk every time: in at one fixed sealed
+// door, out of one fixed exit. Now (user, 2026-10-23) every crossing draws, in
+// order, where the player comes round, then a way out far enough from there,
+// then where the monster starts. The geometry never changes -- the sealed door,
+// the exit door and their lamps are moved onto the drawn spots, and the maze
+// itself is exactly the drawing it always was.
+
+/** A crossing's exit is at least this far, WALKING, from where the player comes in. */
+export const MIN_EXIT_WALK = 80;
+/** And the monster starts at least this far, walking, from them. */
+export const MIN_MONSTER_WALK = 45;
+/** How far in from the sealed door the player stands, with their back to it. */
+const SPAWN_IN = 1.4;
+/** How far in front of a door counts as "at" it, for walking distances. */
+const DOOR_APPROACH = 1.0;
+
+/**
+ * Where an exit door can stand: hand-picked spots on room walls that are solid
+ * for the door's whole width, clear of every doorway, and -- in Annabelle's
+ * rooms -- on the furnished side of the partition, clear of the furniture
+ * along it (annabelleRooms.js). `nx`/`nz` face into the room, as exitEnd does.
+ */
+export const EXIT_SPOTS = [
+  // The undecorated central room: where Door 2 always stood, and across from it.
+  { room: 'C', x: 16.0, z: 22.4, nx: 1, nz: 0, axis: 'x' },
+  { room: 'C', x: 22.4, z: 22.4, nx: -1, nz: 0, axis: 'x' },
+  // Eighteen: the south wall, east of the band poster.
+  { room: 'TR', x: 53.2, z: 3.2, nx: 0, nz: -1, axis: 'z' },
+  // The baby's room: the north wall, between its doorway and the cot.
+  { room: 'BL', x: 8.4, z: 48.0, nx: 0, nz: 1, axis: 'z' },
+  // Five: the south wall, behind the tea party.
+  { room: 'L', x: -5.6, z: 17.6, nx: 0, nz: -1, axis: 'z' },
+  // Thirty: the west wall, between its doorway and the vanity.
+  { room: 'R', x: 60.8, z: 41.2, nx: 1, nz: 0, axis: 'x' }
+];
+
+/** Every leg whose rectangle contains (x, z). Two at a junction, which is fine. */
+export function legsAt(x, z, legs = LEGS) {
+  return Object.keys(legs).filter((n) => {
+    const [x0, x1, z0, z1] = legRect(legs[n]);
+    return x >= x0 - 1e-6 && x <= x1 + 1e-6 && z >= z0 - 1e-6 && z <= z1 + 1e-6;
+  });
+}
+
+/**
+ * Walking distances from one point to anywhere: Dijkstra over the junctions
+ * (the floor two adjacent legs share), straight lines inside a leg. Legs are
+ * straight corridors and open rooms, so a straight line inside one is the walk.
+ *
+ * @returns {(to: {x: number, z: number}) => number} metres, Infinity if unreachable.
+ */
+export function walkDistances(from, { legs = LEGS, adj = neighbours(legs), avoid = [] } = {}) {
+  const blocked = new Set(avoid);
+  const nodes = new Map();
+  const legNodes = {};
+  for (const a of Object.keys(adj)) {
+    if (blocked.has(a)) continue;
+    for (const b of adj[a]) {
+      if (a >= b || blocked.has(b)) continue;
+      const p = crossPoint(a, b, legs);
+      if (!p) continue;
+      const key = `${a}|${b}`;
+      nodes.set(key, { x: p.x, z: p.z, a, b });
+      (legNodes[a] ??= []).push(key);
+      (legNodes[b] ??= []).push(key);
+    }
+  }
+  const d = (p, q) => Math.hypot(p.x - q.x, p.z - q.z);
+  const start = legsAt(from.x, from.z, legs).filter((n) => !blocked.has(n));
+  const dist = new Map();
+  for (const L of start) {
+    for (const k of legNodes[L] ?? []) dist.set(k, Math.min(dist.get(k) ?? Infinity, d(from, nodes.get(k))));
+  }
+  const done = new Set();
+  for (;;) {
+    let best = null;
+    let bestD = Infinity;
+    for (const [k, v] of dist) if (!done.has(k) && v < bestD) { best = k; bestD = v; }
+    if (best === null) break;
+    done.add(best);
+    const n = nodes.get(best);
+    for (const L of [n.a, n.b]) {
+      for (const k of legNodes[L] ?? []) {
+        if (done.has(k)) continue;
+        const v = bestD + d(n, nodes.get(k));
+        if (v < (dist.get(k) ?? Infinity)) dist.set(k, v);
+      }
+    }
+  }
+  return (to) => {
+    let best = Infinity;
+    for (const L of legsAt(to.x, to.z, legs)) {
+      if (blocked.has(L)) continue;
+      if (start.includes(L)) best = Math.min(best, d(from, to));
+      for (const k of legNodes[L] ?? []) best = Math.min(best, (dist.get(k) ?? Infinity) + d(nodes.get(k), to));
+    }
+    return best;
+  };
+}
+
+/** The point just in front of an exit spot, where a player stands to open it. */
+export function exitApproach(spot) {
+  return { x: spot.x + spot.nx * DOOR_APPROACH, z: spot.z + spot.nz * DOOR_APPROACH };
+}
+
+/**
+ * Every place the player can come round: the closed end of a corridor or a way
+ * in -- a wall straight ahead of them, with nothing opening off it -- with
+ * the player SPAWN_IN in from it, their back to it. `door` is where the sealed
+ * door goes, in exitEnd's shape.
+ */
+export function buildSpawnSpots(legs = LEGS, adj = neighbours(legs)) {
+  const out = [];
+  for (const [name, L] of Object.entries(legs)) {
+    if (!['route', 'decoy', 'mouth'].includes(L.kind)) continue;
+    if (L.to - L.from < SPAWN_IN * 2) continue;
+    for (const end of [L.from, L.to]) {
+      // Open if anything joins it within a corridor's width of this end.
+      const open = adj[name].some((m) => {
+        const p = crossPoint(name, m, legs);
+        if (!p) return false;
+        return Math.abs((L.axis === 'z' ? p.z : p.x) - end) < L.w;
+      });
+      if (open) continue;
+      const n = end === L.from ? 1 : -1;
+      const door = L.axis === 'z'
+        ? { x: L.at, z: end, nx: 0, nz: n, axis: 'z' }
+        : { x: end, z: L.at, nx: n, nz: 0, axis: 'x' };
+      out.push({
+        leg: name,
+        door,
+        x: tidy(door.x + door.nx * SPAWN_IN),
+        z: tidy(door.z + door.nz * SPAWN_IN),
+        yaw: Math.atan2(-door.nx, -door.nz)
+      });
+    }
+  }
+  return out;
+}
+
+export const SPAWN_SPOTS = buildSpawnSpots();
+
+/**
+ * One crossing's draw: a spawn, then an exit at least MIN_EXIT_WALK away on
+ * foot (the farthest there is, if none is), never in a room in `avoidRooms`.
+ *
+ * @param {object} [o]
+ * @param {() => number} [o.random] - Math.random, or a seeded one for a check.
+ * @param {string[]} [o.avoidRooms] - the room the other crossing used.
+ */
+export function drawCrossing({ random = Math.random, avoidRooms = [] } = {}) {
+  const spawn = SPAWN_SPOTS[Math.floor(random() * SPAWN_SPOTS.length)];
+  const far = walkDistances(spawn);
+  const scored = EXIT_SPOTS
+    .filter((e) => !avoidRooms.includes(e.room))
+    .map((e) => ({ spot: e, metres: far(exitApproach(e)) }))
+    .filter((e) => Number.isFinite(e.metres));
+  const ok = scored.filter((e) => e.metres >= MIN_EXIT_WALK);
+  const pickFrom = ok.length ? ok : [scored.sort((a, b) => b.metres - a.metres)[0]];
+  const exit = pickFrom[Math.floor(random() * pickFrom.length)];
+  return { spawn, exit: exit.spot, exitMetres: exit.metres };
+}
+
+/**
+ * Where the monster starts: a leg at least MIN_MONSTER_WALK on foot from the
+ * player, never one in `avoid` (the safe rooms). `standIn` turns a leg into a
+ * spot, for the partitioned rooms.
+ */
+export function drawMonsterStart(player, { random = Math.random, avoid = [], standIn = legMid } = {}) {
+  const far = walkDistances(player);
+  const blocked = new Set(avoid);
+  const scored = Object.keys(LEGS)
+    .filter((n) => !blocked.has(n) && LEGS[n].kind !== 'neck')
+    .map((n) => ({ at: standIn(n), leg: n }))
+    .map((c) => ({ ...c, metres: far(c.at) }))
+    .filter((c) => Number.isFinite(c.metres));
+  const ok = scored.filter((c) => c.metres >= MIN_MONSTER_WALK);
+  const pickFrom = ok.length ? ok : [scored.sort((a, b) => b.metres - a.metres)[0]];
+  return pickFrom[Math.floor(random() * pickFrom.length)]?.at ?? null;
+}
+
+/**
+ * The floor INSIDE some rooms: each room's rectangle, and the tunnel of each
+ * doorway through the wall into it -- not the neck's whole leg, which runs on
+ * out into the corridor to make the join, so in front of the door is not in.
+ *
+ * @param {string[]} names - room names, as GRID.rooms keys them ('L', 'BL'...)
+ * @returns {number[][]} [x0, x1, z0, z1] rectangles
+ */
+export function roomInteriors(names, maze = MAZE) {
+  const out = [];
+  for (const name of names) {
+    const room = maze.rooms[name];
+    if (!room) continue;
+    out.push(legRect(maze.legs[room.leg]));
+    for (const d of maze.doorways.filter((dw) => !dw.error && dw.room === name)) {
+      const h = NECK_W / 2;
+      const [a, b] = d.tunnel;
+      out.push(d.axis === 'x' ? [a, b, d.z - h, d.z + h] : [d.x - h, d.x + h, a, b]);
+    }
+  }
+  return out;
+}
+
+/** Half a door frame and a hand either side: how much solid wall an exit needs. */
+const EXIT_HALF_WIDTH = 0.8;
+
+/**
+ * Every problem with the random crossings' spots: an exit not on its room's
+ * wall, or across a doorway, or unreachable; a spawn with no exit far enough
+ * from it. Errors, because each is a crossing that can be drawn broken.
+ */
+export function validateCrossingSpots({ exits = EXIT_SPOTS, spawns = SPAWN_SPOTS, maze = MAZE } = {}) {
+  const errors = [];
+  const doorways = maze.doorways.filter((d) => !d.error);
+  for (const e of exits) {
+    const room = maze.rooms[e.room];
+    const name = `exit spot in ${e.room} at (${e.x}, ${e.z})`;
+    if (!room?.rect) { errors.push(`${name}: no room ${e.room}`); continue; }
+    const [x0, x1, z0, z1] = room.rect;
+    // On the wall it faces away from: x on a west/east wall, z on a north/south one.
+    const onWall = e.axis === 'x'
+      ? Math.abs(e.x - (e.nx > 0 ? x0 : x1)) < 1e-6 && e.z - EXIT_HALF_WIDTH >= z0 && e.z + EXIT_HALF_WIDTH <= z1
+      : Math.abs(e.z - (e.nz > 0 ? z0 : z1)) < 1e-6 && e.x - EXIT_HALF_WIDTH >= x0 && e.x + EXIT_HALF_WIDTH <= x1;
+    if (!onWall) errors.push(`${name} is not on the room's wall with ${EXIT_HALF_WIDTH * 2} m of it to stand against`);
+    for (const d of doorways.filter((dw) => dw.room === e.room && dw.axis === e.axis)) {
+      const along = e.axis === 'x' ? Math.abs(d.z - e.z) : Math.abs(d.x - e.x);
+      const sameWall = e.axis === 'x' ? Math.abs(d.x - e.x) < 3.2 : Math.abs(d.z - e.z) < 3.2;
+      if (sameWall && along < EXIT_HALF_WIDTH + NECK_W / 2) errors.push(`${name} stands across a doorway`);
+    }
+  }
+  for (const sp of spawns) {
+    const far = walkDistances(sp);
+    const reach = exits.map((e) => far(exitApproach(e)));
+    if (!reach.some(Number.isFinite)) errors.push(`spawn in ${sp.leg} cannot reach any exit spot`);
+    else if (!reach.some((m) => m >= MIN_EXIT_WALK)) errors.push(`spawn in ${sp.leg} has no exit spot ${MIN_EXIT_WALK} m away`);
+  }
+  if (!spawns.length) errors.push('no spawn spots: no corridor has a closed end');
+  return errors;
+}
+
 /**
  * A stable 0..1 from a corridor's name: the level varies its lamps and dressing
  * without looking authored, and the same name gets the same number forever.
@@ -868,8 +1113,12 @@ export function reportMaze(maze = MAZE) {
   console.log(`room box     x ${box.minX}..${box.maxX}   z ${box.minZ}..${box.maxZ}`);
   console.log('');
 
+  const spots = validateCrossingSpots({ maze });
+  console.log(`random       ${SPAWN_SPOTS.length} spawn spots, ${EXIT_SPOTS.length} exit spots in `
+    + `${new Set(EXIT_SPOTS.map((e) => e.room)).size} rooms, exit at least ${MIN_EXIT_WALK} m walk`);
   for (const w of v.warnings) console.log(`  warn   ${w}`);
-  for (const e of v.errors) console.log(`  ERROR  ${e}`);
-  console.log(v.errors.length ? `\n${v.errors.length} error(s).` : 'ok.');
-  return v.errors.length;
+  for (const e of [...v.errors, ...spots]) console.log(`  ERROR  ${e}`);
+  const errors = v.errors.length + spots.length;
+  console.log(errors ? `\n${errors} error(s).` : 'ok.');
+  return errors;
 }

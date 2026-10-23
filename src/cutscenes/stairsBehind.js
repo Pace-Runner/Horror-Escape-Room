@@ -89,7 +89,9 @@ export function stairsBehind({ standing, stairsYaw, wallX }) {
 
   return {
     name: 'stairsBehind',
-    letterbox: true,
+    // Full screen, like the rest of the scare: bars here read as a film
+    // starting in the middle of the player's own view.
+    letterbox: false,
     /** Where main.js stands it before the scene starts: facing the back of the player's head. */
     monster: {
       x: monsterX,

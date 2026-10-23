@@ -308,6 +308,20 @@ well; the upstairs hallway replaced it there.)
   it on a loop, on a quadratic so it accelerates. It also answers the
   fallen ceiling tile: water came through here, which is why the tile
   is on the floor.
+- **Each crossing is drawn, not fixed** (user, 2026-10-23). In order: the
+  player comes round at a random dead end (`SPAWN_SPOTS`, every closed
+  corridor end in the drawing), the exit door goes on a random hand-picked
+  room wall at least 80 m away on foot (`EXIT_SPOTS`, `walkDistances`), and
+  the monster starts at least 45 m away on foot. The sealed door, the exit
+  door, their lamps and the map's marks are MOVED onto the draw rather than
+  built per draw, so no light or material is added and nothing recompiles.
+  The draw is kept if you are caught and drawn again on a restart. The two
+  crossings never use the same room.
+- **Annabelle's rooms are safe.** The hunter's graph leaves out her four
+  rooms and their doorways, and a box across each doorway that only it
+  collides with keeps it (and its line of sight) out. Walk in and it roars;
+  if it was after you it comes to the door, rears, paces for 15 s, then sniffs
+  and gives up. The first crossing's trailing shadow stops at the door too.
 - **The exit reuses `door.glb`** -- a domestic wooden house door at the
   end of a mono-yellow corridor is wrong in the right way, and it
   visually rhymes with the bedroom door the player already came

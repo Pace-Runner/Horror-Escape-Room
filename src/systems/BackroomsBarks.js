@@ -188,7 +188,7 @@ export function createBackroomsBarks({
         // In the blind part itself: inside this corridor and no other, so
         // standing in the crossing that leads to it does not count.
         const inLeg = p.x >= x0 && p.x <= x1 && p.z >= z0 && p.z <= z1 && !end.opensInto(p.x, p.z);
-        if (end.armed && inLeg && d <= DEAD_END_REACH) {
+        if (end.armed && !end.ignored && inLeg && d <= DEAD_END_REACH) {
           end.armed = false;
           // Not while it is chasing: the player has better things to say.
           if (sinceDeadEnd >= DEAD_END_SPACING && hunter.state !== 'chase') {
@@ -211,6 +211,15 @@ export function createBackroomsBarks({
     },
 
     /** A fresh run: every "first time" is a first time again. */
+    /**
+     * The crossing put the player down at a dead end -- the sealed door they
+     * came through stands in it. That end is where they came IN, not a wrong
+     * turn, so it says nothing; every other end is as it was.
+     */
+    ignoreNear(x, z, radius = 3) {
+      for (const end of deadEnds) end.ignored = Math.hypot(end.x - x, end.z - z) <= radius;
+    },
+
     reset() {
       roamed = 0;
       roamSaid = false;
@@ -223,7 +232,10 @@ export function createBackroomsBarks({
       sinceDeadEnd = Infinity;
       pending = null;
       pickDeadEnd.reset();
-      for (const end of deadEnds) end.armed = true;
+      for (const end of deadEnds) {
+        end.armed = true;
+        end.ignored = false;
+      }
     },
 
     /** DEV: the blind ends found, and the state of each beat. */
