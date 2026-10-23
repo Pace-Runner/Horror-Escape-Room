@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { brassKeyMaterial } from './keyMaterials.js';
+import { buildBrassKey, buildIronKey } from './keyModels.js';
 
 /**
  * One mesh builder per inventory item, shared by the hand and the floor.
@@ -52,9 +52,9 @@ const REST_ROTATION = {
   flashlight: FLAT,
   crowbar: FLAT,
   brassKey: FACE_DOWN,
-  // The two study keys and the bedroom key keep the attitude their own level
-  // gave them -- FLAT undoes the canonical frame's quarter turn exactly.
-  bedroomKey: FLAT,
+  // The two study keys keep the attitude their own level gave them -- FLAT
+  // undoes the canonical frame's quarter turn exactly.
+  bedroomKey: FACE_DOWN,
   doorKey: FLAT,
   gateKey: FLAT,
   paperclip: FACE_DOWN,
@@ -175,39 +175,6 @@ function buildCrowbar() {
 }
 
 /**
- * The brass safe key. Never had a mesh either: the lamp drawer's pin pad grants
- * it. Small and old-fashioned -- a round bow, a collar, two bit teeth -- in the
- * same brass the study's keys use, with the same trace of emission they carry so
- * it stays findable on a dark floor.
- *
- * Its broad face is local XY (the bow's ring and the teeth both lie in it), which
- * is why it rests FACE_DOWN rather than FLAT.
- */
-function buildBrassKey() {
-  // Rusted brass, the same as the key lying in the lamp drawer -- see keyMaterials.js.
-  const brass = brassKeyMaterial();
-  const key = new THREE.Group();
-  key.name = 'brassKey';
-
-  const bow = new THREE.Mesh(new THREE.TorusGeometry(0.0115, 0.0032, 8, 18), brass);
-  bow.position.y = -0.0085;
-  key.add(bow);
-  const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.0046, 0.0046, 0.004, 10), brass);
-  collar.position.y = 0.0045;
-  key.add(collar);
-  const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.0028, 0.0028, 0.042, 8), brass);
-  shaft.position.y = 0.0275;
-  key.add(shaft);
-  const toothA = new THREE.Mesh(new THREE.BoxGeometry(0.010, 0.006, 0.0026), brass);
-  toothA.position.set(0.0058, 0.041, 0);
-  key.add(toothA);
-  const toothB = new THREE.Mesh(new THREE.BoxGeometry(0.007, 0.0045, 0.0026), brass);
-  toothB.position.set(0.0046, 0.0325, 0);
-  key.add(toothB);
-  return key;
-}
-
-/**
  * Builders, keyed by the same ids as GameState's ITEMS. Each takes the item's
  * template (or nothing) and returns it in the canonical frame, or null when the
  * template it needs has not arrived yet.
@@ -222,11 +189,10 @@ const BUILDERS = {
   flashlight: (t) => (t ? fromTemplate(t) : null),
 
   crowbar: () => buildCrowbar(),
+  // Level 1's keys are modelled in keyModels.js, in the canonical frame already.
   brassKey: () => buildBrassKey(),
 
-  // bedroomLevel.js: shaft along X, bow at -X, bit at +X. A quarter turn about
-  // Z stands it up with the bow at the bottom, in the fist.
-  bedroomKey: (t) => (t ? fromTemplate(t, { rotation: [0, 0, Math.PI / 2], position: [0, 0.055, 0] }) : null),
+  bedroomKey: () => buildIronKey(),
 
   // studyLevel.js's desk-drawer key: the same layout as the bedroom key, smaller.
   doorKey: (t) => (t ? fromTemplate(t, { rotation: [0, 0, Math.PI / 2], position: [0, 0.045, 0] }) : null),

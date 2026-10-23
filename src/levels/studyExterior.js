@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { MAIN_ONLY } from '../core/RenderLayers.js';
+import { STUDY_WINDOWS } from './studyWindows.js';
 
 /**
  * THE OUTSIDE OF THE STUDY: the porch the front door opens onto, the gate
@@ -945,11 +946,36 @@ export function createStudyExterior({ roomW, roomD, roomH, doorX, doorwayW, door
   const wallH = SHELL_H - YARD_Y;
   for (const [w, x, z, ry] of [
     [roomW + OUT * 2, 0, -frontZ - OUT, Math.PI],
-    [roomD + OUT * 2, left, 0, -Math.PI / 2],
     [roomD + OUT * 2, right, 0, Math.PI / 2]
   ]) {
     houseParts.add(metresToTiles(new THREE.PlaneGeometry(w, wallH), w, wallH), sidingMat, {
       position: [x, (SHELL_H + YARD_Y) / 2, z], rotation: [0, ry, 0]
+    });
+  }
+
+  // The left wall, with the study's windows cut through it. The plane's local x
+  // runs along world z, so the shape is drawn in (z, height above its centre).
+  {
+    const wallMidY = (SHELL_H + YARD_Y) / 2;
+    const halfD = roomD / 2 + OUT;
+    const leftShape = new THREE.Shape();
+    leftShape.moveTo(-halfD, -wallH / 2);
+    leftShape.lineTo(halfD, -wallH / 2);
+    leftShape.lineTo(halfD, wallH / 2);
+    leftShape.lineTo(-halfD, wallH / 2);
+    leftShape.closePath();
+    const { bottom, top, halfWidth, zs } = STUDY_WINDOWS;
+    for (const zc of zs) {
+      const hole = new THREE.Path();
+      hole.moveTo(zc - halfWidth, bottom - wallMidY);
+      hole.lineTo(zc - halfWidth, top - wallMidY);
+      hole.lineTo(zc + halfWidth, top - wallMidY);
+      hole.lineTo(zc + halfWidth, bottom - wallMidY);
+      hole.closePath();
+      leftShape.holes.push(hole);
+    }
+    houseParts.add(metresToTiles(new THREE.ShapeGeometry(leftShape), 1, 1), sidingMat, {
+      position: [left, wallMidY, 0], rotation: [0, -Math.PI / 2, 0]
     });
   }
 

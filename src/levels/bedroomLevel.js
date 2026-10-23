@@ -7,7 +7,7 @@ import {
   createCobwebTexture
 } from '../world/textures.js';
 import { addBaseboard } from '../world/trim.js';
-import { steelKeyMaterial, brassKeyMaterial } from '../world/keyMaterials.js';
+import { buildBrassKey, buildIronKey } from '../world/keyModels.js';
 import { createRainGlassMaterial } from '../world/RainGlassMaterial.js';
 import { loadModel, applyTextureByMaterialName } from '../world/modelLoader.js';
 import { line, linePicker } from '../dialogue/index.js';
@@ -1975,10 +1975,19 @@ export function createBedroomLevel({
     lampDrawerLockAnchor = tableModel.getObjectByName('Level1DrawerLockAnchor');
     lampDrawerContentsAnchor = tableModel.getObjectByName('Level1DrawerContentsAnchor');
     lampDrawerKeyVisual = tableModel.getObjectByName('Level1DrawerBrassKey');
-    // Rusted brass, the same as the key in the hand once it is picked up.
-    lampDrawerKeyVisual?.traverse((child) => {
-      if (child.isMesh) child.material = brassKeyMaterial();
-    });
+    // The drawer's key is swapped for the same model the player will hold, so it
+    // does not change shape as it is picked up. Lies along Z, face down, where
+    // the table's own key lay.
+    if (lampDrawerKeyVisual) {
+      lampDrawerKeyVisual.clear();
+      const drawerKey = buildBrassKey();
+      drawerKey.rotation.x = Math.PI / 2;
+      drawerKey.position.z = -0.0135;
+      drawerKey.traverse((child) => {
+        if (child.isMesh) child.castShadow = child.receiveShadow = true;
+      });
+      lampDrawerKeyVisual.add(drawerKey);
+    }
     if (!lampDrawerVisual || !lampDrawerLockAnchor || !lampDrawerContentsAnchor || !lampDrawerKeyVisual) {
       throw new Error('Level 1 bedside table is missing a required drawer hierarchy node.');
     }
@@ -2713,20 +2722,15 @@ export function createBedroomLevel({
 
   const bedroomKey = new THREE.Group();
   // Lying in the cavity the board leaves, on its dusty bottom.
-  bedroomKey.position.set(LOOSE_BOARD_SPOT.x, 0.03 - LOOSE_BOARD_HOLE.cavity, LOOSE_BOARD_SPOT.z);
+  bedroomKey.position.set(LOOSE_BOARD_SPOT.x, 0.009 - LOOSE_BOARD_HOLE.cavity, LOOSE_BOARD_SPOT.z);
   bedroomKey.rotation.y = 0.5;
   bedroomKey.visible = false;
-  // The Level 2 pipes' photographed steel -- see world/keyMaterials.js.
-  const bedroomKeyMetal = steelKeyMaterial();
-  const bedroomKeyShaft = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.16, 8), bedroomKeyMetal);
-  bedroomKeyShaft.rotation.z = Math.PI / 2;
-  bedroomKey.add(bedroomKeyShaft);
-  const bedroomKeyBow = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.01, 8, 12), bedroomKeyMetal);
-  bedroomKeyBow.position.x = -0.08;
-  bedroomKey.add(bedroomKeyBow);
-  const bedroomKeyBit = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.012, 0.03), bedroomKeyMetal);
-  bedroomKeyBit.position.set(0.07, -0.018, 0);
-  bedroomKey.add(bedroomKeyBit);
+  // Lying flat on the cavity's floor: the model stands upright in its own frame
+  // (world/keyModels.js), so a quarter turn about X lays its long axis along Z.
+  const bedroomKeyModel = buildIronKey();
+  bedroomKeyModel.rotation.x = Math.PI / 2;
+  bedroomKeyModel.position.z = -0.02;
+  bedroomKey.add(bedroomKeyModel);
   group.add(bedroomKey);
 
   const bedroomKeyHitbox = new THREE.Mesh(

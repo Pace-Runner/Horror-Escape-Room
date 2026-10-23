@@ -28,6 +28,12 @@ import { HELD_MAGNIFICATION } from '../systems/hands/sockets.js';
 const SIDE = 'right';
 
 /**
+ * The torch lives in the LEFT hand (core/LeftTorch.js), so it is never selected
+ * into this one: picking up or scrolling to another item leaves it out and lit.
+ */
+const LEFT_HAND_ITEM = 'flashlight';
+
+/**
  * If the drop clip's hands:release never arrives (hands not loaded, tab hidden),
  * land it anyway. Longer than the whole 0.85 s clip, not just its 0.55 s
  * release: a slow frame delays the event, and a fallback that beat it would put
@@ -195,7 +201,7 @@ export const HELD_ITEM_FRAMING = {
     aim: [-0.2, 0.9, -0.38],
     roll: deg(90),
     offset: fromTorchGrip(-0.01, 0, 0),
-    scale: 1.5
+    scale: 0.95
   },
   bedroomKey: {
     pose: 'grip-cylinder',
@@ -342,7 +348,7 @@ export function createHeldItems({ hands, camera, itemMeshes, onChange = () => {}
 
   /** What the player is holding as far as the GAME is concerned, or null. */
   function heldId() {
-    return selected && owns(selected) && !suppressed(selected) ? selected : null;
+    return selected && selected !== LEFT_HAND_ITEM && owns(selected) && !suppressed(selected) ? selected : null;
   }
 
   function specFor(id) {
@@ -541,7 +547,7 @@ export function createHeldItems({ hands, camera, itemMeshes, onChange = () => {}
    * and stepping through the Set would make the highlight jump about.
    */
   function ownedInSlotOrder() {
-    return inventorySlots().filter((id) => id !== null && owns(id));
+    return inventorySlots().filter((id) => id !== null && id !== LEFT_HAND_ITEM && owns(id));
   }
 
   /**
@@ -593,7 +599,7 @@ export function createHeldItems({ hands, camera, itemMeshes, onChange = () => {}
     /** Selects an owned item, or null for an empty hand. Refused mid-drop. */
     select(id) {
       if (dropping) return false;
-      if (id !== null && !owns(id)) return false;
+      if (id !== null && (id === LEFT_HAND_ITEM || !owns(id))) return false;
       selected = id;
       notifyIfChanged();
       return true;
@@ -628,6 +634,8 @@ export function createHeldItems({ hands, camera, itemMeshes, onChange = () => {}
       // A pickup landing mid-drop finishes the drop first, so the item on its
       // way to the floor is not lost under the new one.
       if (dropping) finishDrop(dropping.token);
+      // The torch is carried in the other hand: taking it must not touch this one.
+      if (id === LEFT_HAND_ITEM) return;
       if (animate && hands.ready) {
         unequipView();
         hands.play(SIDE, 'pickup', { fade: 0.15 });

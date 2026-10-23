@@ -8,6 +8,7 @@ import { createArchivePresentation, createArchiveRecord, buildArchiveVisor, crea
 import { addStudyFootprints } from './studyFootprints.js';
 import { addStudyArchitectureTrim } from './studyArchitectureTrim.js';
 import { createStudyExterior } from './studyExterior.js';
+import { createLeftWallWithWindows } from './studyWindows.js';
 import { hingeMotion, studyLabel, dressCrestControl, createCrestIndicatorGeometry, createCrestPanelCollision, fillStudyKey, dressStudyDoor, batchStudyPuzzleDetails } from './studyPuzzlePresentation.js';
 import { loadModel } from '../world/modelLoader.js';
 import annabelleChairUrl from '../assets/models/study/annabelle_wingback_chair.glb?url';
@@ -90,7 +91,10 @@ export function createStudyLevel({
     group.add(m);
   }
   wall(ROOM_W, 0, -ROOM_D / 2, 0);
-  wall(ROOM_D, -ROOM_W / 2, 0, Math.PI / 2);
+  // The left wall has windows in it: the yard and the night sky show through.
+  group.add(createLeftWallWithWindows({
+    roomD: ROOM_D, roomH: ROOM_H, wallMat, wallGeometry, trimMat: studySurfaces.woodMaterial(0.86, 'trim')
+  }));
 
   /**
    * THE FRONT WALL HAS A DOORWAY IN IT NOW.

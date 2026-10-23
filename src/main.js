@@ -24,6 +24,7 @@ import { createUpstairsHallwayLevel } from './levels/upstairsHallwayLevel.js';
 import { createScreenFade, wait } from './core/ScreenFade.js';
 import { gameState, resetState, addItem, removeItem, ITEMS, HOTBAR_SLOTS, inventorySlots } from './core/GameState.js';
 import { createHeldItems } from './core/HeldItems.js';
+import { createLeftTorch } from './core/LeftTorch.js';
 import { createItemMeshes, ITEM_MESH_IDS } from './world/itemMeshes.js';
 import { MAIN_ONLY } from './core/RenderLayers.js';
 import { createMinimap } from './core/Minimap.js';
@@ -654,8 +655,11 @@ function setFlashlight(on) {
 function applyFlashlightBeam() {
   // `held`, not isHolding(): a torch on its way to the floor stays lit until the
   // fingers actually open.
-  const inHand = heldItems.held === 'flashlight';
-  flashlightOn = flashlightSwitchOn && flashlightFound && inHand;
+  // Carried in the left hand from the moment it is found; the right hand's item
+  // never affects it.
+  const inHand = flashlightFound && gameState.inventory.has('flashlight');
+  leftTorch.setCarried(inHand);
+  flashlightOn = flashlightSwitchOn && inHand;
   // The spill drops well below the old 2.4: it is now filling AROUND a hot
   // spot rather than being the whole beam, and leaving both at full strength
   // would just be a brighter blob.
@@ -664,13 +668,18 @@ function applyFlashlightBeam() {
   flashlightHot.intensity = 3.35 * level;
   dustMotes.setBeamOn(level > 0);
   flashlightStateEl.textContent = !flashlightFound ? 'not found'
-    : !gameState.inventory.has('flashlight') ? 'dropped'
-      : !inHand ? 'put away'
-        : flashlightOn ? 'on' : 'off';
+    : !inHand ? 'put away'
+      : flashlightOn ? 'on' : 'off';
   flashlightStateEl.classList.toggle('on', flashlightOn);
 }
 
 // ---------- inventory, and what is in the hand ----------
+/**
+ * The torch rides in the LEFT hand (core/LeftTorch.js), independent of the
+ * right-hand item: picking up or switching to another item leaves it out and lit.
+ */
+const leftTorch = createLeftTorch({ camera, itemMeshes });
+
 /**
  * One item in the hand at a time, chosen from the inventory. The system, and
  * the per-item framing table that says how each item sits in the fist, are in
@@ -683,12 +692,6 @@ const heldItems = createHeldItems({
   // The beam and the hotbar follow the hand whatever moved it: the wheel, a
   // pickup, a drop, a key used up, or the visor going on.
   onChange: ({ held, previousHeld }) => {
-    // Putting the torch away switches it off. Done HERE rather than in the
-    // wheel handler because the wheel is only one of the ways the torch leaves
-    // the hand -- a pickup puts the new item in it, a drop or a used-up key
-    // hands it to the next item -- and every one of them should leave the torch
-    // in the pocket dark, not lit again the moment it comes back out.
-    if (previousHeld === 'flashlight' && held !== 'flashlight') flashlightSwitchOn = false;
     applyFlashlightBeam();
     refreshInventoryUI();
   }
@@ -859,9 +862,6 @@ function dropHeldItem() {
     // Nowhere to put it: it stays carried rather than vanishing.
     if (!placeDroppedItem(releasedId)) return;
     removeItem(releasedId);
-    // A torch on the floor is switched off; picking it back up does not
-    // relight it behind the player's back.
-    if (releasedId === 'flashlight') setFlashlight(false);
     // V must not put on a visor that is lying on the floor.
     if (releasedId === 'visor') gameState.hasVisor = false;
     heldItems.itemRemoved(releasedId);
@@ -1840,8 +1840,7 @@ const bedroom = createDeferredLevel(() => createBedroomLevel({
   onFlashlightPicked: () => {
     thought('l1_06');
     flashlightFound = true;
-    // Into the hand first: the beam only lights from the hand, so switching it
-    // on before the torch was the held item would light nothing.
+    // Into the left hand, which leaves the right one alone.
     pickUpItem('flashlight');
     setFlashlight(true);
     // The storm goes back to a normal rhythm: the player can see for themselves
@@ -1884,10 +1883,6 @@ const bedroom = createDeferredLevel(() => createBedroomLevel({
   onBedroomKeyUsed: () => {
     sfx('deadbolt_open');
     consumeItem('bedroomKey');
-    // The door wanted the key IN the hand, which put the torch away -- and a
-    // torch put away is switched off. Through this door is the dark of the
-    // corridor, so the torch comes back out lit, as G's skip already does.
-    if (gameState.inventory.has('flashlight') && heldItems.select('flashlight')) setFlashlight(true);
   },
   onPhotoCollected: (count, id) => {
     thought('l1_09');
@@ -2048,7 +2043,6 @@ const bedroom = createDeferredLevel(() => createBedroomLevel({
     const icon = itemIconTemplates.get(id)?.querySelector('.hotbar-photo');
     if (icon) icon.src = url;
   }
-  itemMeshes.setTemplate('bedroomKey', level.refs.bedroomKey);
   initializeBedroomPresentation();
 });
 sceneManager.register('bedroom', bedroom);
@@ -3763,7 +3757,6 @@ const stairsScare = createStairsScare({
     // Into the hand and switched on, so there is a torch there to die.
     bringOut: () => {
       if (!flashlightFound || !gameState.inventory.has('flashlight')) return;
-      if (!heldItems.isHolding('flashlight')) heldItems.select('flashlight');
       setFlashlight(true);
     },
     setPower: setTorchPower,
@@ -4144,9 +4137,7 @@ function debugOpenBedroomDoor({ carryThrough = true } = {}) {
     skipThroughDoor = carryThrough;
     door.onInteract();
   }
-  // Taking the crowbar and the key out put the torch away, and a torch put
-  // away is switched off -- so it comes back out, lit, for the corridor.
-  heldItems.select('flashlight');
+  // Lit for the corridor.
   setFlashlight(true);
 }
 
@@ -4230,13 +4221,8 @@ window.addEventListener('keydown', (e) => {
   // the hand had moved on to, the torch included, until the inventory was
   // empty -- and held F strobed the torch.
   if (e.code === 'KeyF' && !e.repeat) {
-    if (heldItems.isHolding('flashlight')) {
-      setFlashlight(!flashlightSwitchOn);
-    } else if (gameState.inventory.has('flashlight') && heldItems.select('flashlight')) {
-      // F with something else in hand means "I want light": the torch comes
-      // out, already on, rather than F silently doing nothing.
-      setFlashlight(true);
-    }
+    // The torch is in the left hand whatever the right is holding.
+    if (flashlightFound && gameState.inventory.has('flashlight')) setFlashlight(!flashlightSwitchOn);
   }
   // Q lets go of what is in the hand -- see dropHeldItem() for when it refuses.
   if (e.code === 'KeyQ' && !e.repeat) dropHeldItem();
@@ -4952,7 +4938,7 @@ if (import.meta.env.DEV) {
     setFlashlight,
     // Kept under its old name for any harness that still calls it: puts the
     // torch in hand the way the F key would.
-    equipTorch: () => heldItems.select('flashlight'),
+    equipTorch: () => { applyFlashlightBeam(); return leftTorch.carried; },
     // Sprint is on a held key the harness cannot press meaningfully, and the
     // FOV/stamina are the observable results, so tests reach them here.
     get fov() { return camera.fov; },
@@ -4963,7 +4949,6 @@ if (import.meta.env.DEV) {
     forceFlashlightFound: () => {
       flashlightFound = true;
       if (!gameState.inventory.has('flashlight')) pickUpItem('flashlight', { animate: false });
-      else heldItems.select('flashlight');
       setFlashlight(true);
     },
     pickUpItem,
@@ -4973,6 +4958,7 @@ if (import.meta.env.DEV) {
     // edit a row, then heldItems.reframe() to see it -- and select()/cycle()
     // stand in for the wheel, which a headless harness cannot turn.
     heldItems,
+    leftTorch,
     itemMeshes,
     // Q is in the pointer-lock-gated listener too.
     dropHeldItem,
@@ -5725,6 +5711,7 @@ function tick() {
   // framed before the layers move it -- never drawn for a frame in the old pose.
   heldItems.update();
   hands.update(dt, elapsed, handMotion);
+  leftTorch.update(dt, handMotion, hands.root.visible);
   // The camera IS the player's position; the basement reads it to know when
   // they have walked up to the metal door.
   sceneManager.update(dt, camera.position);
