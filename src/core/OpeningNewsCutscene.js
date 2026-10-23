@@ -72,6 +72,12 @@ export function createOpeningNewsCutscene({ root }) {
   let rafId = 0;
   let isPlaying = false;
   let resolvePlayback = null;
+  // Subtitles follow ONE clock: the audio's, once it is really playing. Mixing
+  // it with the wall clock whenever the audio paused for a moment (a stalled
+  // frame, buffering) made the lines jump ahead and back, or sit on one line.
+  let audioPlaying = false;
+  let audioFailed = false;
+  audio.addEventListener('playing', () => { audioPlaying = true; });
 
   function preload() {
     if (!preloadPromise) {
@@ -188,6 +194,8 @@ export function createOpeningNewsCutscene({ root }) {
       isPlaying = true;
       preload();
       audio.currentTime = 0;
+      audioPlaying = false;
+      audioFailed = false;
       root.classList.add('is-open');
       root.setAttribute('aria-hidden', 'false');
       const startedAt = performance.now();
@@ -198,15 +206,21 @@ export function createOpeningNewsCutscene({ root }) {
 
       // Called directly from Start Game's click path, preserving the browser's
       // user gesture for the one-shot news report.
-      audio.play().catch((error) => console.warn('Opening news audio could not start:', error));
+      audio.play().catch((error) => {
+        audioFailed = true;
+        console.warn('Opening news audio could not start:', error);
+      });
 
       return new Promise((resolve) => {
         resolvePlayback = resolve;
         const tick = () => {
           const elapsed = (performance.now() - startedAt) / 1000;
-          const time = !audio.paused && audio.currentTime > 0 ? audio.currentTime : elapsed;
+          // Before the audio's first sample the subtitles wait at 0; if it
+          // never starts they run on the wall clock instead.
+          const time = audioPlaying ? audio.currentTime : audioFailed ? elapsed : 0;
           update(time, state);
-          if (audio.ended || time >= CUTSCENE_END_TIME) {
+          // The wall-clock bound is for audio that never gets going.
+          if (audio.ended || time >= CUTSCENE_END_TIME || elapsed >= CUTSCENE_END_TIME + 4) {
             finish();
             return;
           }

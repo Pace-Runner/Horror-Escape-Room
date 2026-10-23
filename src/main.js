@@ -3529,10 +3529,12 @@ const LEVEL_FOG = {
 //   via: which registered level to pass through, or null for a direct cut
 //   to:  the level on the far side of the interstitial's exit door
 const TRANSITIONS = {
-  // The stairs lead directly to Level 2. Only its exit enters the Backrooms,
-  // using the existing crossing from the basement to the Level 3 study.
+  // Straight out onto the upstairs hallway; down its stairs into the backrooms
+  // maze (the fall, then coming round on its floor), and out of its Door 1 into
+  // the basement. The maze is crossed again from Level 2, in at the other side
+  // and out of Door 2 to Level 3 -- see CROSSINGS in levels/backroomsMaze.js.
   bedroom: { to: 'upstairsHallway', via: null },
-  upstairsHallway: { to: 'hallwayBasement', via: null },
+  upstairsHallway: { to: 'hallwayBasement', via: 'backrooms' },
   hallwayBasement: { to: 'study', via: 'backrooms' },
   study: { to: null, via: null }
 };
@@ -4018,6 +4020,10 @@ async function transitionTo(key, {
     if (arrive) await arrive();
     else await fade.fadeIn(inMs);
     return level;
+  } catch (error) {
+    console.error('transitionTo: failed going to "' + key + '"', error);
+    if (mine === transitionGeneration) fade.fadeIn(inMs);
+    return null;
   } finally {
     // finally, not the happy path: an exception in here would otherwise leave
     // transitionInFlight stuck true and kill every door in the game. Guarded on
@@ -5638,6 +5644,24 @@ const levelWarmUps = new Map();
  * backrooms ahead of the way down (user, 2026-10-23: it took far too long).
  */
 function warmLevelForTransition(key, { showProgress = true } = {}) {
+  return withinLimit(warmLevelOnce(key, { showProgress }), WARM_LIMIT_MILLISECONDS);
+}
+
+/** The longest a screen already gone black waits on a room's warm-up. */
+const WARM_LIMIT_MILLISECONDS = 12000;
+
+/** Resolves when `promise` does, or after `milliseconds`: a stall must cost a hitch, never a stuck black screen. */
+function withinLimit(promise, milliseconds) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      console.warn(`a warm-up ran past ${milliseconds}ms; carrying on`);
+      resolve();
+    }, milliseconds);
+    promise.then(resolve, resolve).finally(() => clearTimeout(timer));
+  });
+}
+
+function warmLevelOnce(key, { showProgress }) {
   if (warmedLevelKeys.has(key)) return Promise.resolve();
   if (!levelWarmUps.has(key)) {
     const warming = (async () => {
@@ -5676,7 +5700,11 @@ const bootReady = Promise.all([
   }).then(async () => {
     // Asset caching alone leaves scene creation and the first real lab draw
     // on the hallway exit. Pay that existing warm-up while boot still covers it.
-    await warmLevelForTransition('hallwayBasement', { showProgress: false });
+    // Every room still ahead, one at a time behind the loading screen, so no
+    // door or staircase has anything left to compile or fetch.
+    for (const key of ['hallwayBasement', 'backrooms', 'study']) {
+      await warmLevelOnce(key, { showProgress: false });
+    }
     levelTwoBootReady = true;
     updateBootProgress();
   })
