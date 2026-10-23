@@ -5707,6 +5707,10 @@ const bootReady = Promise.all([
     }
     levelTwoBootReady = true;
     updateBootProgress();
+    // And the opening pair. Prepared under the news report, it stalled the
+    // page for up to 1.5 s at a time, holding a subtitle on screen and then
+    // skipping the next; here the report plays on an idle page.
+    await preloadLevel1();
   })
 ]);
 function updateBootProgress() {
