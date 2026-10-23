@@ -56,12 +56,16 @@ reasoning behind the scenegraph hierarchy.
   transcribed wall by wall into `GRID` in `src/levels/backroomsMaze.js`
   (6.4 m per cell), with five larger rooms; the two inside the maze have
   a door frame to come in by and another to leave by. It is crossed
-  twice: down the upstairs hallway's stairs, in at the bottom and out of
-  Door 1 at the top to Level 2 (~131 m); then from Level 2, in low on the
-  right-hand wall and out of Door 2, inside the central room, to Level 3
-  (~107 m). Nothing marks the route -- no arrows, no signage -- so it is
-  found (or lost) on sight alone. The way you came in has wallpaper
-  running straight across it. `npm run check:maze` validates the layout.
+  twice: down the upstairs hallway's stairs (a fall, and you come round on
+  the carpet), out to Level 2; then from Level 2, out to Level 3. Every
+  crossing is drawn fresh: you come round at a random dead end, the way out
+  is a door in a random room at least 80 m away on foot, and on the second
+  crossing the monster starts at least 45 m away. Nothing marks the route --
+  no arrows, no signage -- so it is found (or lost) on sight alone. The way
+  you came in has wallpaper running straight across it. Annabelle's four
+  rooms are safe: the monster cannot follow you in, and it roars when you
+  get there first. `npm run check:maze` validates the layout and every
+  spawn and exit spot.
 - **A radar-style mini-map**, top-right of the HUD: a live top-down view
   centred on the player, showing nearby geometry and a facing arrow. It
   is lit by its own private light rather than the room's actual (and

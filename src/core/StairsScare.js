@@ -137,7 +137,13 @@ export function createStairsScare({
   forceFirstPerson,
   torch,
   hallway,
-  playBehindShot
+  playBehindShot,
+  /**
+   * Work to do while the screen is black after the scare (main.js warms the
+   * backrooms here, so the way down does not stall on it). The black lasts
+   * until this resolves, however long the compile takes.
+   */
+  whileBlack = () => Promise.resolve()
 }) {
   const handGlowPosition = new THREE.Vector3();
   const handsRestPosition = new THREE.Vector3();
@@ -352,7 +358,8 @@ export function createStairsScare({
     isScareOnScreen = true;
     await jumpScare.run({ creature, isAlive });
     if (!isAlive()) return false;
-    if (!await animate(AFTER_SCARE_BLACK_SECONDS, isAlive)) return false;
+    const [stillAlive] = await Promise.all([animate(AFTER_SCARE_BLACK_SECONDS, isAlive), whileBlack()]);
+    if (!stillAlive || !isAlive()) return false;
     isScareOnScreen = false;
     return true;
   }

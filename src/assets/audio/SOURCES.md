@@ -125,6 +125,10 @@ play and how loud is `SFX` and the loop specs in `src/systems/AudioDirector.js`.
 | 145 | `sfx/cloth.m4a` | [cloth1](https://kenney.nl/assets/rpg-audio) (Kenney pack) | Kenney (kenney.nl) | CC0 (Kenney) | whole file (silence trimmed) | 0.66 s |
 | 148 | `sfx/gasp.m4a` | [Gasp.](https://freesound.org/people/bacruz666/sounds/341908/) | bacruz666 | CC0 (Freesound) | whole file (silence trimmed) | 0.94 s |
 | 149 | `monster/sniff.m4a` | [Sniffing.wav](https://freesound.org/people/spookymodem/sounds/202101/) | spookymodem | CC0 (Freesound) | whole file (silence trimmed) | 2.31 s |
+| 152 | `monster/scream_classic.m4a` | [Jumpscare 1](https://freesound.org/people/zombyKlr/sounds/712416/) | zombyKlr | CC0 (Freesound) | whole file (silence trimmed) | 2.30 s |
+| 153 | `monster/scream_distorted.m4a` | [Jumpscare Scream](https://freesound.org/people/Breviceps/sounds/587354/) | Breviceps | CC0 (Freesound) | whole file (silence trimmed) | 2.38 s |
+| 154 | `monster/scream_remake.m4a` | [JumpscareSound_Remake_Freesound.wav](https://freesound.org/people/TheTVBunny/sounds/753746/) | TheTVBunny | CC0 (Freesound) | whole file (silence trimmed) | 2.09 s |
+| 155 | `monster/roar.m4a` | [Jumpscare Sound](https://freesound.org/people/LionGrill/sounds/442334/) | LionGrill | CC0 (Freesound) | silence trimmed | 2.30 s |
 | 150 | `sfx/drip.m4a` | [Water Drop 01](https://freesound.org/people/LilMati/sounds/348022/) | LilMati | CC0 (Freesound) | whole file (silence trimmed) | 0.19 s |
 | 151 | `foley/steps_carpet.m4a` | [footstep_carpet_000-004](https://kenney.nl/assets/impact-sounds) (Kenney pack) | Kenney (kenney.nl) | CC0 (Kenney) | 5 files joined, 0.45 s apart, each to the same peak | 3.21 s |
 

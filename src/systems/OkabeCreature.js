@@ -5,6 +5,24 @@ import okabeCleanModelUrl from '../assets/models/okabe_clean.glb?url';
 
 /** Scratch for getEyePosition(), which runs every frame a lens follows the eyes. */
 const _eyeOther = new THREE.Vector3();
+const _crown = new THREE.Vector3();
+
+/**
+ * UNDER A LOW CEILING (setCeiling). The backrooms ceiling is 2.35 m and this
+ * figure's crown reaches about 2.5 m standing even at the backrooms' 90% size,
+ * so it stoops: a curl down the spine that grows while the crown is over the
+ * line and relaxes once it is clear -- a body ducking under something, not
+ * one shrunk to fit. Measured off the head bone every frame, after the gait.
+ */
+/** Head bone (base of the skull) to the crown, metres per unit of scale -- an estimate off the Hollow's 1.36x skull. */
+const CROWN_ABOVE_HEAD_BONE = 0.29;
+const CEILING_MARGIN = 0.06;
+/** How fast the stoop grows per metre over the line, per second; and the most it bends. */
+const CEILING_GAIN = 14;
+const CEILING_CURL_MAX = 0.9;
+const CEILING_RELAX = 1.2;
+/** How the stoop is shared down the spine, and the head lifted back so it still looks ahead. */
+const CEILING_SHARE = { Spine: 0.3, Chest: 0.4, Neck: 0.3, Head: -0.35 };
 
 /**
  * The imported Okabe character -- the only monster in the game, and the
@@ -77,8 +95,33 @@ const ARM_DOWN_MONSTER = 0.72;
  */
 const ARM_DOWN_SIGN = 1;
 
-/** Matches Creature.js, so the two figures dim identically. */
-const SILHOUETTE_DIM = 0.18;
+/**
+ * How far the backrooms hunting silhouette multiplies its colours down: not
+ * at all, now. It was 0.18 from the old capsule figure, and any dimming over
+ * the re-skinned monster left a flat shadow cut-out that read as a ghost
+ * (user, 2026-10-23: "more solid, not ghostly"). Its own dark paint is the
+ * darkness; lit, it is a body. setSilhouette() stays so callers need not change.
+ */
+const SILHOUETTE_DIM = 1;
+
+/**
+ * The monster's empty sockets catch light that is not there: a faint, cold
+ * glint on the eye material, so in a blackout two points are all that show
+ * where it is. The monster file only; the player's own eyes are left alone.
+ * Colour and intensity only -- every MeshStandardMaterial already carries an
+ * emissive term, so this costs no shader recompile.
+ */
+const EYE_GLINT_COLOUR = 0x9fb4d8;
+const EYE_GLINT_INTENSITY = 0.18;
+const EYE_TEXTURE = 'okarin04';
+/**
+ * The monster's specular, against the 1.6 every material exports with. At 1.6
+ * a grazing light puts a pale sheen over the whole figure -- skin, coat and
+ * all -- which washes the dark paint out to grey and is half of why it read
+ * as ghostly. Matte, it reads as something with weight. A uniform, not a
+ * define: no recompile.
+ */
+const MONSTER_SPECULAR = 0.55;
 
 /**
  * Metres per full stride. Fallback only, for the frames before the legs are
@@ -1342,6 +1385,11 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
   let gaitPhase = 0;
   let elapsed = 0;
   let silhouette = false;
+  /** 0..1 on the rig's own twitches: a jump scare drives the head itself. */
+  let twitchGain = 1;
+  /** setCeiling(): the height to stay under, or null; and how far it is stooping for it. */
+  let ceilingY = null;
+  let ceilingCurl = 0;
   let peekTarget = 0;           // -1 leans to its left, +1 to its right
   let peekNow = 0;              // what the body is actually doing, smoothed
   let visible = true;
@@ -1427,6 +1475,11 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
         }
         for (const m of (Array.isArray(o.material) ? o.material : [o.material])) {
           if (m && m.color && !baseColors.has(m)) baseColors.set(m, m.color.clone());
+          if (!clean && m?.emissive && m.name?.includes(EYE_TEXTURE)) {
+            m.emissive.setHex(EYE_GLINT_COLOUR);
+            m.emissiveIntensity = EYE_GLINT_INTENSITY;
+          }
+          if (!clean && m?.specularColor) m.specularColor.setScalar(MONSTER_SPECULAR);
         }
       }
       if (o.isBone) {
@@ -2290,6 +2343,21 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
    * TWITCH_SLOT. Fast in and slower out -- 20% of it rising, the rest letting
    * go -- because a spasm is a snap and then a release.
    */
+  /** See setCeiling(). Runs after animate(), so the curl sits on this frame's gait. */
+  function stoopUnderCeiling(dt) {
+    const head = bones && bones.get(canon('Head'));
+    if (!head) return;
+    for (const [name, share] of Object.entries(CEILING_SHARE)) {
+      const bone = bones.get(canon(name));
+      if (bone) bone.rotation.x += ceilingCurl * share;
+    }
+    group.updateMatrixWorld(true);
+    head.getWorldPosition(_crown);
+    const over = _crown.y + CROWN_ABOVE_HEAD_BONE * scale - (ceilingY - CEILING_MARGIN);
+    if (over > 0) ceilingCurl = Math.min(CEILING_CURL_MAX, ceilingCurl + over * CEILING_GAIN * dt);
+    else ceilingCurl = Math.max(0, ceilingCurl - CEILING_RELAX * dt * Math.min(1, -over * 10));
+  }
+
   function twitchAt(t) {
     tw.amt = 0;
     if (!(t > 0)) return;
@@ -2405,7 +2473,7 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
 
     // THE TWITCH, if one is happening now; each kind reads its own share.
     twitchAt(elapsed);
-    const twAmt = tw.amt * G.twitch;
+    const twAmt = tw.amt * G.twitch * twitchGain;
     const twHead = tw.kind === 0 ? twAmt * tw.side : 0;
     const twShrug = tw.kind === 1 ? twAmt : 0;
     const twHand = tw.kind === 2 ? twAmt * tw.clench : 0;
@@ -2919,6 +2987,21 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
     },
     get isSilhouette() { return silhouette; },
     /**
+     * The rig's own twitches on (true) or off. A jump scare turns them off: it
+     * twitches the head itself, and two twitch layers on one neck read as a
+     * broken rig rather than a living thing.
+     */
+    setTwitches(on) { twitchGain = on ? 1 : 0; },
+    /**
+     * Keep the crown under a ceiling `height` metres up (null for none): it
+     * stoops for it, a little more each frame it is over and less once it is
+     * clear. The backrooms set this; the house's ceilings are high enough.
+     */
+    setCeiling(height) {
+      ceilingY = Number.isFinite(height) ? height : null;
+      ceilingCurl = 0;
+    },
+    /**
      * Lean out from behind a corner and look at the player.
      *
      * -1 leans to the creature's LEFT, +1 to its right, 0 stands up straight.
@@ -2978,6 +3061,7 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
       const tau = Math.abs(peekTarget) > Math.abs(peekNow) ? PEEK_OUT_TAU : PEEK_BACK_TAU;
       peekNow += (peekTarget - peekNow) * (1 - Math.exp(-dt / tau));
       animate();
+      if (ceilingY !== null) stoopUnderCeiling(dt);
     },
     reset() {
       gaitPhase = 0;

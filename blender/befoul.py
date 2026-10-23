@@ -20,10 +20,17 @@ and the eye sockets darken because the eye BONES say where they are. Seams
 cannot show, because neighbouring texels on different islands that touch the
 same piece of body get the same answer.
 
-The model still has to read as Okabe. Nothing here moves a vertex or repaints
-a garment: the coat is still an off-white lab coat, the trousers are still
-khaki, the hair is still the same shape. It is the same man, after something
-happened to him.
+The model still has to read as Okabe -- the mirror in the study rests on it.
+Nothing here moves a vertex: the coat is still a lab coat, the hair is still
+the same shape. But it is the same man LONG after something happened to him
+(user, 2026-10-23: darker, more ominous, less like the player). The coat has
+rotted to a near-black brown-grey, the skin is ashen and mottled, the hair is
+matted dark, and the eyes are gone. The player's own copy, okabe_clean.glb,
+keeps the white coat, so the two only meet in the mirror.
+
+AND IT IS SOLID. Tears are painted as dark rents, not punched through the
+alpha: a hole in this coat used to show the corridor behind the figure, and
+that read as a ghost rather than a body.
 """
 import bpy   # noqa: F401
 import numpy as np
@@ -37,6 +44,16 @@ BLOOD = np.array([0.185, 0.013, 0.011], np.float32)
 BLOOD_OLD = np.array([0.105, 0.035, 0.022], np.float32)
 # Grime is a desaturate-and-darken toward this, not a colour laid on top.
 FILTH = np.array([0.125, 0.108, 0.082], np.float32)
+# What the cloth has rotted to: a dark brown-grey, deliberately NOT near-black.
+# Paint that dark takes no light, so the figure reads as a flat shadow -- a
+# ghost -- rather than a body (user, 2026-10-23: "more solid"). At this value
+# the torch still finds every fold, stain and seam, and that shading is what
+# gives it weight.
+ROT = np.array([0.205, 0.180, 0.150], np.float32)
+# Skin with nothing left in it: grey, a touch cold.
+ASH = np.array([0.300, 0.295, 0.305], np.float32)
+# Inside a rent: shadow, with dark cloth behind it.
+RENT = np.array([0.048, 0.036, 0.030], np.float32)
 # Vertical streaking. Dirt and dried blood run DOWN a hanging garment, so
 # every stain is roughly three times taller than it is wide.
 RUNS = (1.0, 1.0, 0.32)
@@ -395,16 +412,22 @@ def befoul(obj, rig, seed=SEED):
         report[stem] = note
 
     def torn(cut, rgb, alpha, covered):
-        """Punch the holes and darken the frayed edge around them."""
+        """Paint the rents dark and stain the frayed edge round them. Alpha is left alone."""
         cut = cut & covered
         edge = _ring(cut.reshape(shape[0], shape[1])).reshape(-1) & covered
         rgb[edge] = rgb[edge] * 0.45 + BLOOD_OLD * 0.55
-        alpha = np.where(cut, 0.0, alpha)
+        rgb[cut] = RENT
         return rgb, alpha, round(100.0 * cut.sum() / max(1, covered.sum()), 1)
+
+    def rot(rgb, flat, rng, amount):
+        """Cloth gone dark with time and wet, unevenly, in streaks."""
+        r = np.clip(amount + 0.30 * (_fbm(rng, flat, 0.18, 3, aniso=RUNS) - 0.5), 0.0, 1.0)
+        return rgb * (1.0 - r[:, None]) + ROT * r[:, None]
 
     # --- the coat: the largest pale shape, so it carries the whole read -----
     def coat(flat, rgb, alpha, covered, rng):
         low = np.clip((1.05 - flat[:, 2]) / 0.60, 0.0, 1.0)   # 0 at chest, 1 at hem
+        rgb = rot(rgb, flat, rng, 0.80)
         dirt = (np.clip(0.30 + 0.90 * _fbm(rng, flat, 0.26, 3, aniso=RUNS), 0.0, 1.0)
                 * (0.68 + 0.32 * low))
         rgb = rgb * (1.0 - dirt[:, None]) + FILTH * dirt[:, None]
@@ -414,12 +437,16 @@ def befoul(obj, rig, seed=SEED):
                       + _spatter(flat, rng, 70, 0.55, 1.55, 0.034, span=1.95) * 1.1, 0.0, 1.0)
         hue = BLOOD_OLD * (1.0 - soak[:, None]) + BLOOD * soak[:, None]
         rgb = rgb * (1.0 - wet[:, None]) + hue * wet[:, None]
-        rgb, alpha, pct = torn(_fbm(rng, flat, 0.075, 3) > (0.655 - 0.085 * low),
+        # Rips run DOWN a hanging coat, so the noise is stretched tall (RUNS),
+        # and there are fewer of them than there were holes: painted dark,
+        # a dense field of them read as camouflage rather than damage.
+        rgb, alpha, pct = torn(_fbm(rng, flat, 0.075, 3, aniso=RUNS) > (0.70 - 0.085 * low),
                                rgb, alpha, covered)
         return rgb, alpha, {'torn%': pct,
                             'bloodied%': round(100.0 * (wet[covered] > 0.15).mean(), 1)}
 
     def shirt(flat, rgb, alpha, covered, rng):
+        rgb = rot(rgb, flat, rng, 0.62)
         dirt = (0.22 + 0.78 * _fbm(rng, flat, 0.20, 3, aniso=RUNS)) * 0.85
         rgb = rgb * (1.0 - dirt[:, None]) + FILTH * dirt[:, None]
         soak = _soak(flat, rng, [chest, throat], [0.125, 0.085], [0.42, 0.26], [1.0, 1.0])
@@ -435,6 +462,7 @@ def befoul(obj, rig, seed=SEED):
 
     def trousers(flat, rgb, alpha, covered, rng):
         low = np.clip((0.75 - flat[:, 2]) / 0.70, 0.0, 1.0)
+        rgb = rot(rgb, flat, rng, 0.62)
         dirt = np.clip(0.34 + 0.80 * _fbm(rng, flat, 0.24, 3, aniso=RUNS), 0.0, 1.0) * (0.58 + 0.42 * low)
         rgb = rgb * (1.0 - dirt[:, None]) + FILTH * dirt[:, None]
         wet = np.clip(_runnels(flat, rng, [hips], [11], [0.60], 0.014)
@@ -452,6 +480,7 @@ def befoul(obj, rig, seed=SEED):
         return rgb, alpha, {'torn%': pct}
 
     def hands(flat, rgb, alpha, covered, rng):
+        rgb = rgb * 0.40 + ASH * 0.60
         wet = np.clip(_fbm(rng, flat, 0.045, 3) * 2.1 - 0.52, 0.0, 1.0)
         rgb = rgb * (1.0 - wet[:, None]) + BLOOD * wet[:, None]
         dirt = _fbm(rng, flat, 0.120, 3) * 0.55
@@ -459,10 +488,11 @@ def befoul(obj, rig, seed=SEED):
         return rgb, alpha, {'bloodied%': round(100.0 * (wet[covered] > 0.20).mean(), 1)}
 
     def hair(flat, rgb, alpha, covered, rng):
-        rgb = rgb * 0.62
+        # Matted near-black, in clumps.
+        rgb = rgb * (0.22 + 0.16 * _fbm(rng, flat, 0.04, 2)[:, None])
         wet = np.clip(_fbm(rng, flat, 0.055, 3, aniso=RUNS) * 1.9 - 1.00, 0.0, 1.0)
         rgb = rgb * (1.0 - wet[:, None]) + BLOOD_OLD * wet[:, None]
-        return rgb, alpha, {'darkened': 0.62,
+        return rgb, alpha, {'darkened': 0.3,
                             'bloodied%': round(100.0 * (wet[covered] > 0.20).mean(), 1)}
 
     def face(flat, rgb, alpha, covered, rng):
@@ -471,13 +501,17 @@ def befoul(obj, rig, seed=SEED):
         d = np.minimum(np.linalg.norm(flat - np.array(eyeL, np.float32), axis=1),
                        np.linalg.norm(flat - np.array(eyeR, np.float32), axis=1))
         socket = np.clip(1.0 - d / 0.078, 0.0, 1.0) ** 0.6
-        rgb = rgb * (1.0 - 0.90 * socket[:, None])
+        rgb = rgb * (1.0 - 0.97 * socket[:, None])
         # Drained first, gore second. Blood over a healthy complexion reads as
-        # makeup; over waxy grey skin it reads as injury.
-        rgb = rgb * 0.42 + rgb.mean(axis=1, keepdims=True) * 0.58
-        rgb *= 0.70
-        wet = np.clip(_soak(flat, rng, [mouth], [0.062], [0.34], [1.0]) * 1.3
-                      + _runnels(flat, rng, [mouth], [7], [0.30], 0.009), 0.0, 1.0)
+        # makeup; over ashen grey skin it reads as injury.
+        rgb = (rgb * 0.15 + rgb.mean(axis=1, keepdims=True) * 0.85) * 0.50 + ASH * 0.12
+        # Mottled, and veined: thin dark lines where a noise field crosses its
+        # middle value, which is what blood stopped under the skin looks like.
+        rgb = rgb * (0.85 + 0.30 * _fbm(rng, flat, 0.03, 3))[:, None]
+        vein = np.clip(1.0 - np.abs(_fbm(rng, flat, 0.016, 2) - 0.5) / 0.012, 0.0, 1.0) * 0.30
+        rgb = rgb * (1.0 - vein[:, None]) + np.array([0.05, 0.05, 0.08], np.float32) * vein[:, None]
+        wet = np.clip(_soak(flat, rng, [mouth], [0.075], [0.38], [1.0]) * 1.3
+                      + _runnels(flat, rng, [mouth], [9], [0.34], 0.009), 0.0, 1.0)
         rgb = rgb * (1.0 - wet[:, None]) + BLOOD * wet[:, None]
         dirt = _fbm(rng, flat, 0.055, 3, aniso=RUNS) * 0.45
         rgb = rgb * (1.0 - dirt[:, None]) + FILTH * dirt[:, None]
@@ -487,7 +521,7 @@ def befoul(obj, rig, seed=SEED):
     def eyes(flat, rgb, alpha, covered, rng):
         # No iris, no catchlight, no white. The cheapest monster cue there is,
         # and the only one that survives both the fog and SILHOUETTE_DIM.
-        return rgb * 0.06, alpha, {'crushed to': 0.06}
+        return rgb * 0.02, alpha, {'crushed to': 0.02}
 
     for stem, recipe in (('okarin03', coat), ('okarin05', shirt), ('okarin06', trousers),
                          ('okarin07', hands), ('okarin02', hair), ('okarin01', face),

@@ -38,13 +38,13 @@ const MODELS = join(HERE, '..', 'src', 'assets', 'models');
  *
  * They are the same mesh, skeleton, morph and UVs -- import_okabe.py writes
  * the clean one before befoul() touches the images -- so every rule applies to
- * both. The ONE difference is which textures carry a cutout: the monster's
- * coat and trousers are torn and need MASK, and the clean body has no tears,
- * so only its hair does. Asserting the monster's list against the clean file
- * would fail it for being undamaged.
+ * both, and both cut out only the hair. The monster's tears used to be holes
+ * in the alpha (MASK on the coat and trousers too); they are painted now, so
+ * the figure reads as one solid body rather than something you can see
+ * through.
  */
 const ASSETS = [
-  { file: 'okabe.glb', label: 'the monster', mustMask: ['okarin02', 'okarin03', 'okarin06'] },
+  { file: 'okabe.glb', label: 'the monster', mustMask: ['okarin02'] },
   { file: 'okabe_clean.glb', label: 'the player', mustMask: ['okarin02'] }
 ];
 

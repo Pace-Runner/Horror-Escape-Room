@@ -334,6 +334,26 @@ const GASP_EVERY = 25;
  * It has lost you, and it sniffs for you -- at most this often, and only when
  * it is near enough to be heard doing it: past that it is a sound from nowhere.
  */
+/**
+ * The roar at a safe room (BackroomsHunter's onEnraged). `recording` is the
+ * monster/ file it plays (LionGrill's CC0 "Jumpscare Sound", chosen
+ * 2026-10-23). If the build lacks it, AudioEngine.roar()
+ * is the stand-in at `level`, losing half of it by `falloffMetres` away -- it
+ * is meant to carry.
+ */
+const ROAR = {
+  recording: 'roar', peakDb: -2, y: 1.9, echoSend: 0.5,
+  panner: { model: 'HRTF', distanceModel: 'inverse', refDistance: 6, rolloff: 0.6 },
+  level: 1.3, falloffMetres: 24, panWidth: 0.8, duckDb: -9, seconds: 2.3
+};
+
+/**
+ * The jump scares' screams (user, 2026-10-23: "like Five Nights at Freddy's"):
+ * three CC0 recordings, one per scare, never the same twice running. Flat and
+ * loud -- a scream in your face has no direction.
+ */
+const SCREAMS = { cues: ['scream_classic', 'scream_distorted', 'scream_remake'], peakDb: -1 };
+
 const SNIFF_EVERY = 30;
 const SNIFF_WITHIN = 18;
 
@@ -400,6 +420,8 @@ export function createAudioDirector({
 }) {
   const v = new THREE.Vector3();
   const listenerPos = new THREE.Vector3();
+  const roarLook = new THREE.Vector3();
+  let lastScream = null;
   const listenerFwd = new THREE.Vector3();
   const tubePos = new THREE.Vector3();
 
@@ -647,7 +669,7 @@ export function createAudioDirector({
    */
   function updateSniff() {
     const state = levelKey === 'backrooms' ? hunter.state : null;
-    if ((hunterWas === 'chase' || hunterWas === 'hunt') && state === 'search' &&clock - lastSniffAt > SNIFF_EVERY && isRunning()) {
+    if ((hunterWas === 'chase' || hunterWas === 'hunt' || hunterWas === 'enraged') && state === 'search' &&clock - lastSniffAt > SNIFF_EVERY && isRunning()) {
       const p = hunter.position;
       const near = Math.hypot(p.x - listenerPos.x, p.z - listenerPos.z) <= SNIFF_WITHIN;
       if (near && director.sfx('sniff', { position: { x: p.x, y: 1.5, z: p.z } })) lastSniffAt = clock;
@@ -1183,6 +1205,49 @@ export function createAudioDirector({
         attack: STING.duckAttack, hold: length - STING.duckAttack, release: STING.duckRelease
       });
       return play(STING.cue, 'sfx', { gain: gains.sting, fadeIn: 0.002 }, { spans: true });
+    },
+
+    /**
+     * A jump scare's scream: one of SCREAMS, not the last one. Returns the
+     * emitter (stop(fade) cuts it), or null if none is decoded -- the caller
+     * then synthesises one.
+     */
+    scream() {
+      if (!audio.ctx) return null;
+      const ready = SCREAMS.cues.filter((c) => audio.cueBuffers.has(c) && c !== lastScream);
+      if (!ready.length) return null;
+      lastScream = ready[Math.floor(Math.random() * ready.length)];
+      return play(lastScream, 'sfx', { gain: dbToGain(SCREAMS.peakDb), fadeIn: 0.002 }, { spans: true });
+    },
+
+    /**
+     * The monster ROARS: the player has got into one of Annabelle's rooms and
+     * it cannot follow. Loud wherever it is -- it is meant to be heard across
+     * the maze -- and placed: HRTF from its body, through the shared echo, if
+     * the build has a monster/roar recording; otherwise the synthesised one,
+     * panned toward it and falling off only gently with distance. Ducks the bed
+     * and the breathing under it, as the catch sting does, and counts as the
+     * monster being heard, so a laugh does not land on top of it.
+     */
+    roar({ x, z }) {
+      if (!audio.ctx) return;
+      lastMonsterAt = clock;
+      audio.duck(['amb', 'breath'], ROAR.duckDb, { attack: 0.04, hold: ROAR.seconds, release: 1.2 });
+      if (audio.cueBuffers.has(ROAR.recording)) {
+        play(ROAR.recording, 'monster', {
+          gain: dbToGain(ROAR.peakDb), fadeIn: 0.01, panner: ROAR.panner, position: [x, ROAR.y, z],
+          send: audio.echoInput() ? { node: audio.echoInput(), level: ROAR.echoSend } : null
+        });
+        return;
+      }
+      const ear = getListener();
+      ear.getWorldDirection(roarLook);
+      const dx = x - listenerPos.x;
+      const dz = z - listenerPos.z;
+      const d = Math.hypot(dx, dz) || 1;
+      // The listener's right is (-forward.z, forward.x) on the floor.
+      const pan = (dx * -roarLook.z + dz * roarLook.x) / (d * Math.hypot(roarLook.x, roarLook.z) || 1);
+      audio.roar({ pan: pan * ROAR.panWidth, level: ROAR.level / (1 + d / ROAR.falloffMetres) });
     },
 
     /**

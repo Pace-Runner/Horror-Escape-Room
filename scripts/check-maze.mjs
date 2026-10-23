@@ -11,7 +11,7 @@
  * It runs in plain node because backroomsMaze.js imports nothing from three.
  * Exit code is non-zero on any fault, so it gates the build in CI.
  */
-import { GRID, DIMS, buildMaze, validateMaze, reportMaze } from '../src/levels/backroomsMaze.js';
+import { GRID, DIMS, EXIT_SPOTS, buildMaze, validateMaze, validateCrossingSpots, reportMaze } from '../src/levels/backroomsMaze.js';
 
 const errors = reportMaze();
 
@@ -94,8 +94,38 @@ for (const c of CASES) {
     console.log(`           got ${got.length ? got.slice(0, 3).map((e) => '\n             - ' + e).join('') : '(no errors at all)'}`);
   }
 }
+/** The random crossings' spots, broken one way each. */
+const SPOT_CASES = [
+  {
+    name: 'an exit spot moved across a doorway',
+    exits: (e) => [...e, { room: 'C', x: 19.2, z: 16.0, nx: 0, nz: 1, axis: 'z' }],
+    expect: /stands across a doorway/
+  },
+  {
+    name: 'an exit spot off its room\'s wall',
+    exits: (e) => [...e, { room: 'C', x: 17.0, z: 22.4, nx: 1, nz: 0, axis: 'x' }],
+    expect: /is not on the room's wall/
+  },
+  {
+    name: 'a spawn with its only exit a few steps away',
+    exits: () => [EXIT_SPOTS[0]],
+    spawns: [{ leg: 'room_C', x: 19.2, z: 22.4 }],
+    expect: /has no exit spot \d+ m away/
+  }
+];
+for (const c of SPOT_CASES) {
+  const got = validateCrossingSpots({ exits: c.exits(EXIT_SPOTS), ...(c.spawns ? { spawns: c.spawns } : {}) });
+  if (got.find((e) => c.expect.test(e))) {
+    console.log(`  caught   ${c.name}`);
+  } else {
+    broken++;
+    console.log(`  MISSED   ${c.name}`);
+    console.log(`           got ${got.length ? got.slice(0, 3).join('; ') : '(no errors at all)'}`);
+  }
+}
+
 console.log(broken
   ? `\n${broken} rule(s) the validator claims to check but does not.`
-  : `all ${CASES.length} faults are caught and named.`);
+  : `all ${CASES.length + SPOT_CASES.length} faults are caught and named.`);
 
 process.exit(errors + broken);

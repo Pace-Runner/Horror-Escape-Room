@@ -148,7 +148,9 @@ and `showPlayerBody(on)`. Scene files never import
 ### Acting
 
 Every figure (the creature, Annabelle, the backrooms figure, the player's body)
-is the same procedurally animated Okabe rig. No model has animation clips.
+is the same procedurally animated Okabe rig. The monsters load the re-skinned
+`okabe.glb` (dark, solid, empty eyes with a faint glint); the player's body loads
+`okabe_clean.glb`. No model has animation clips.
 Scenes move figures with `setPosition`, `setYaw` and `setSpeed` (speed drives
 the walk and run), and pose them with `offsetBones({ Head: [x,y,z], Chest: [...] })`.
 
@@ -217,28 +219,73 @@ not replay it, just as it never replayed the old fade.
 
 To replay it in dev: `__game.resetGame()`, then `__game.playCutscene('wakeUp')`.
 
-### hallwayReveal
+### The door-1 blinks
 
-[src/cutscenes/hallwayReveal.js](../src/cutscenes/hallwayReveal.js). It plays
-when the bedroom door opens onto the upstairs hall, with the creature standing
-at the far end. Five seconds: the player's eyes turn onto it, a slow push on a
-long lens while its head goes over, a cut to its own eyes looking back up the
-hall at the player in the doorway (its head hidden from the lens, the frame
-cocked with it), and a cut back to the player's eyes.
-Then the hallway rush runs as before, in first person. The scene replaces most
-of the rush's one-second stare (`HALLWAY_RUSH_STARE_AFTER_REVEAL`). The G
-skip-through plays the bare rush.
+[src/core/HallwayBlinks.js](../src/core/HallwayBlinks.js). The bedroom door
+opens onto a lit, empty hall, and then the lights start going. Each time they
+come back it is standing closer: at the far end, a fifth of the way down, half
+way with its head cocked over. One last blackout and the light comes back on
+an empty hall. The singing starts below and the player can move again.
 
-It only plays when the line from the player's eye to the creature passes
-through the open doorway. Opened from off to one side (the door answers from
-3 m), every shot would be of bedroom wall, so those players get the bare stare.
-In third person the scene hides the player's body for its eye-level shots and
-shows it only for the reverse.
+It is **not** a runner scene. It plays through the player's own camera, with
+their hands and torch, and has no bars and no cuts, so the framing is the
+game's own. It is built like the stairs scare: `player.cinematic`, `player.aim`
+and steps on the frame clock ([src/core/FrameClock.js](../src/core/FrameClock.js)).
+Each blackout is main.js's house blackout (`setHouseLightsOut`), and the torch
+dies with it so the beam never shows it moving. Its eyes keep a faint glint in
+the dark. If the door was opened from off to one side, the player glides onto
+the door's centre line first. The G skip-through plays the same scene from
+the hall. The beat timings are in the `BLINKS` table at the top of the file.
 
 To replay it in dev: `__game.resetGame()`, then `__game.stageHallwayReveal()`.
-That frees the player, stands them on the door's centre line and opens the
-door through its own interact, the same path as G but without carrying them
-through.
+
+### stairsBehind
+
+[src/cutscenes/stairsBehind.js](../src/cutscenes/stairsBehind.js). The one
+outside shot in the stairs scare: the monster bent over the player from behind.
+It plays full screen, with no bars (user, 2026-10-23), like the rest of that
+scare.
+
+### The fall, and comeRound
+
+[src/core/StairsFall.js](../src/core/StairsFall.js) replaces the fade down the
+hallway stairs. The view walks on along the passage, the light below dies with
+the torch, a step is not there, and the view drops and pitches over into black.
+Then the maze comes up and [src/cutscenes/comeRound.js](../src/cutscenes/comeRound.js)
+plays: the player comes round on the wet carpet under a fluorescent, eyes and
+hearing clearing (WakePass and `setMuffle`, as in `wakeUp`), and gets up facing
+into the maze. `comeRound` also replaces the fade-in after a backrooms catch,
+at 3.2 s the first time and 2.2 s after that. Hold Space skips it.
+
+`transitionTo()` takes `out` and `arrive` for this: a scene to play instead of
+the fade out (it must end on black) and one instead of the fade in.
+`CROSSING_SCENES` in main.js says which crossings use them.
+
+To replay it in dev: from the maze, `__game.playCutscene('comeRound')`.
+
+## Jump scares
+
+[src/core/JumpScare.js](../src/core/JumpScare.js) is the shared rig: the light
+under the lens, standing the figure so its FACE is where a scare wants it,
+aiming, the scream, the red tunnel and the strobes. Each scare is one file in
+[src/core/jumpScares/](../src/core/jumpScares/):
+
+| Scare | Where | What happens |
+|-------|-------|--------------|
+| `lunge` | anywhere; the stairs scare | It rushes your face from 2.6 m. |
+| `knockedDown` | anywhere | It hits you, the view falls to the floor, and it bends down over you. |
+| `ceilingDrop` | the backrooms only (needs a ceiling height) | It swings down out of the tiles, upside down, into your face. |
+| `alreadyThere` | anywhere | The light catches once and its face is already a hand from yours, perfectly still, then it snaps and screams. |
+
+`jumpScare.run({ creature, kind, ceiling, colliders })` plays one. `kind` is a
+name or `'random'`, and random never plays the same scare twice running. The
+backrooms catch passes `'random'` with the 2.35 m ceiling and the maze walls,
+so the scare turns to face open floor and keeps the head under the tiles. The
+rig spreads head cocks and twitches down the chest, neck and head, and switches
+off the rig's own twitches while a scare runs. The old version put them all on
+the head bone, which is what made the neck look broken.
+
+To see one in dev: from the maze, `__game.jumpScare.run({ creature: __game.okabe, kind: 'ceilingDrop', ceiling: 2.35 })`.
 
 ## AI video
 

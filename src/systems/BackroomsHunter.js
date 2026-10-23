@@ -1,6 +1,6 @@
 import { resolveCircle, segmentBlocked } from '../core/collision.js';
 import { WALK_SPEED, SPRINT_SPEED } from '../core/MoveSpeeds.js';
-import { LEGS, CORRIDORS, neighbours, crossPoint, legMid } from '../levels/backroomsMaze.js';
+import { LEGS, CORRIDORS, DOORWAYS, NECK_W, neighbours, crossPoint, legMid } from '../levels/backroomsMaze.js';
 
 /**
  * The thing that hunts you in the corridor.
@@ -230,6 +230,34 @@ const STALL_DIST = 0.25;
 /** To (-pi, pi]. Turning through the wrap point is the classic 350-degree spin. */
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 
+// -------------------------------------------------------------- safe rooms
+//
+// Annabelle's rooms are SAFE (user, 2026-10-23): it cannot go into them, and
+// walking into one makes it furious. It roars, comes to the doorway if it was
+// after you, rears up there and paces for a while -- then sniffs and gives up.
+// It is kept out by its OWN walls: a box across each safe doorway that only
+// it collides with (and cannot see through), and a graph with those rooms
+// taken out, so it never plans a path through one.
+
+/** Where it stands outside a safe room's doorway: this far out into the corridor. */
+const GUARD_OUTSIDE = 1.8;
+/** How long it paces outside before it gives up. */
+const GUARD_SECONDS = 15;
+/** It roars no more often than this, however often you step in and out. */
+const ROAR_COOLDOWN = 20;
+/** Within this of you as you go in, it comes to the door even if it had not found you. */
+const ENRAGE_NEAR = 22;
+/** How far either side of the doorway it paces. */
+const PACE_METRES = 1.3;
+/** How long it rears back at the doorway, and the pose (-x leans back on this rig). */
+const REAR_SECONDS = 1.6;
+const REAR_POSE = { Spine: [-0.12, 0, 0], Chest: [-0.22, 0, 0], Neck: [-0.35, 0, 0], Head: [-0.25, 0, 0] };
+/** The box across a safe doorway: this deep, and this much wider than the neck. */
+const DOOR_BLOCK_DEPTH = 0.3;
+const DOOR_BLOCK_OVERHANG = 0.3;
+/** When it gives up, it wanders somewhere at least this far from the door. */
+const GIVE_UP_DISTANCE = 15;
+
 /** Breathing gets louder as it closes. Same dial AudioEngine takes for the study. */
 const BREATH_NEAR = 3.0;
 const BREATH_FAR = 14.0;
@@ -250,8 +278,9 @@ const ADJACENT = neighbours(LEGS);
  * answer paths correctly, because the junction is on the route between them by
  * definition.
  */
-function legAt(x, z) {
+function legAt(x, z, skip = null) {
   for (const name of Object.keys(CORRIDORS)) {
+    if (skip && skip.has(name)) continue;
     const [x0, x1, z0, z1] = CORRIDORS[name];
     if (x >= x0 && x <= x1 && z >= z0 && z <= z1) return name;
   }
@@ -271,9 +300,9 @@ function legAt(x, z) {
  * exists. A hunter that walks a straight line at you for a few frames is a
  * worse hunter; a hunter that throws is a crashed game.
  */
-function pathBetween(from, to) {
-  const a = legAt(from.x, from.z);
-  const b = legAt(to.x, to.z);
+function pathBetween(from, to, adjacent = ADJACENT, skip = null) {
+  const a = legAt(from.x, from.z, skip);
+  const b = legAt(to.x, to.z, skip);
   if (!a || !b || a === b) return [to];
 
   const prev = { [a]: null };
@@ -281,7 +310,7 @@ function pathBetween(from, to) {
   while (queue.length) {
     const n = queue.shift();
     if (n === b) break;
-    for (const m of ADJACENT[n]) {
+    for (const m of adjacent[n] ?? []) {
       if (!(m in prev)) { prev[m] = n; queue.push(m); }
     }
   }
@@ -310,9 +339,53 @@ export function createBackroomsHunter({
    * where a partition has sealed the rest off (annabelleRooms' ROOM_FLOORS).
    */
   roomFloors = {},
+  /** Legs it may never enter: the safe rooms and their doorways. */
+  safeLegs = [],
+  /**
+   * Where the player is safe from it: [x0, x1, z0, z1] rectangles, the rooms
+   * and the tunnels into them (backroomsMaze.roomInteriors). Not the legs'
+   * own rectangles: a doorway's leg reaches out into the corridor.
+   */
+  safeArea = [],
+  /**
+   * The player has walked into a safe room: `{ x, z, coming }` where it is
+   * and whether it is on its way to the door; then `{ x, z, atDoor: true }`
+   * when it gets there. main.js roars.
+   */
+  onEnraged = () => {},
   onCaught = () => {},
   onBreathing = () => {}
 } = {}) {
+  const safe = new Set(safeLegs);
+  const adjacent = Object.fromEntries(Object.entries(ADJACENT)
+    .filter(([n]) => !safe.has(n))
+    .map(([n, ms]) => [n, ms.filter((m) => !safe.has(m))]));
+  const isSafeAt = (x, z) => safeArea.some(([x0, x1, z0, z1]) => x >= x0 && x <= x1 && z >= z0 && z <= z1);
+  // Each safe doorway: where it waits outside, and the box that keeps it out.
+  const safeDoors = DOORWAYS.filter((d) => safe.has(d.neck)).map((d) => {
+    const half = NECK_W / 2 + DOOR_BLOCK_OVERHANG;
+    const along = (v, n) => [Math.min(v, v - n * DOOR_BLOCK_DEPTH), Math.max(v, v - n * DOOR_BLOCK_DEPTH)];
+    const [a0, a1] = d.axis === 'x' ? along(d.x, d.nx) : along(d.z, d.nz);
+    const block = d.axis === 'x'
+      ? { minX: a0, maxX: a1, minZ: d.z - half, maxZ: d.z + half }
+      : { minX: d.x - half, maxX: d.x + half, minZ: a0, maxZ: a1 };
+    return {
+      ...d,
+      block,
+      outside: { x: d.x + d.nx * GUARD_OUTSIDE, z: d.z + d.nz * GUARD_OUTSIDE },
+      // Along the corridor, across the doorway: the line it paces.
+      across: { x: -d.nz, z: d.nx }
+    };
+  });
+  const blocks = safeDoors.map((d) => d.block);
+  /** Its walls: the level's, and the safe doorways. Rebuilt if the level's list grows. */
+  let walls = [];
+  const wallsNow = () => {
+    if (walls.length !== colliders.length + blocks.length) walls = [...colliders, ...blocks];
+    return walls;
+  };
+  const skipSafe = safe.size ? safe : null;
+
   /** 'stopped' | 'search' | 'hunt' | 'chase' */
   let state = 'stopped';
   const pos = { x: 0, z: 0 };
@@ -337,9 +410,35 @@ export function createBackroomsHunter({
   const stallFrom = { x: 0, z: 0 };
   let huntPlannedFor = null;    // the corridor the current hunt path leads to
   let huntReplanIn = 0;
+  /** Was the player in a safe room last frame. */
+  let wasPlayerSafe = false;
+  let roarCool = 0;
+  /** Its watch on a safe doorway: { door, left, arrived, rear, paceSide }, or null. */
+  let guard = null;
+
+  /** The safe doorway nearest (x, z). */
+  function nearestSafeDoor(x, z) {
+    let best = null;
+    let bestD = Infinity;
+    for (const d of safeDoors) {
+      const dd = Math.hypot(d.x - x, d.z - z);
+      if (dd < bestD) { bestD = dd; best = d; }
+    }
+    return best;
+  }
+
+  /** Somewhere to wander once it gives up: not a safe room, and well away from the door. */
+  function wanderAwayFrom(door) {
+    const names = Object.keys(LEGS).filter((n) => !safe.has(n));
+    for (let i = 0; i < 12; i++) {
+      const p = standIn(names[Math.floor(Math.random() * names.length)]);
+      if (Math.hypot(p.x - door.x, p.z - door.z) >= GIVE_UP_DISTANCE) return p;
+    }
+    return pickWanderTarget();
+  }
 
   function setPath(target) {
-    waypoints = pathBetween(pos, target);
+    waypoints = pathBetween(pos, target, adjacent, skipSafe);
   }
 
   /**
@@ -359,8 +458,8 @@ export function createBackroomsHunter({
    * most of the time one near the player (DRIFT_SHARE).
    */
   function pickWanderTarget() {
-    const here = legAt(pos.x, pos.z);
-    let names = Object.keys(LEGS).filter((n) => n !== here);
+    const here = legAt(pos.x, pos.z, skipSafe);
+    let names = Object.keys(LEGS).filter((n) => n !== here && !safe.has(n));
     if (Math.random() < DRIFT_SHARE) {
       const p = getPlayer();
       const near = names.filter((n) => {
@@ -379,7 +478,7 @@ export function createBackroomsHunter({
     // The creature's eyes, not its feet: a sightline taken from the floor
     // finds walls that are not there at head height. This maze has no height
     // variation, so the 2D test is exact rather than an approximation.
-    return !segmentBlocked(pos.x, pos.z, px, pz, colliders);
+    return !segmentBlocked(pos.x, pos.z, px, pz, wallsNow());
   }
 
   /**
@@ -408,7 +507,7 @@ export function createBackroomsHunter({
   function peekSide(px, pz) {
     const d = Math.hypot(px - pos.x, pz - pos.z);
     if (d > SIGHT_RANGE || d < 1e-6) return 0;
-    if (!segmentBlocked(pos.x, pos.z, px, pz, colliders)) return 0;
+    if (!segmentBlocked(pos.x, pos.z, px, pz, wallsNow())) return 0;
     // PERPENDICULAR TO THE LINE TO THE PLAYER, not to the creature's facing.
     // Facing was the first attempt and it never fired: the creature can be
     // pointed anywhere while it searches, so the probe went off at an angle
@@ -428,8 +527,8 @@ export function createBackroomsHunter({
       // Somewhere a body could actually lean TO. Without this the probe can
       // sit inside the wall it is supposed to be looking past, and a point
       // inside a wall has a clear line to everything on its far side.
-      if (segmentBlocked(pos.x, pos.z, ox, oz, colliders)) continue;
-      if (!segmentBlocked(ox, oz, px, pz, colliders)) {
+      if (segmentBlocked(pos.x, pos.z, ox, oz, wallsNow())) continue;
+      if (!segmentBlocked(ox, oz, px, pz, wallsNow())) {
         return (nx * s * rx + nz * s * rz) >= 0 ? 1 : -1;
       }
     }
@@ -443,8 +542,8 @@ export function createBackroomsHunter({
     if (d < 1e-6) return true;
     const nx = (-dz / d) * BODY_RADIUS;
     const nz = (dx / d) * BODY_RADIUS;
-    return !segmentBlocked(pos.x + nx, pos.z + nz, p.x + nx, p.z + nz, colliders)
-      && !segmentBlocked(pos.x - nx, pos.z - nz, p.x - nx, p.z - nz, colliders);
+    return !segmentBlocked(pos.x + nx, pos.z + nz, p.x + nx, p.z + nz, wallsNow())
+      && !segmentBlocked(pos.x - nx, pos.z - nz, p.x - nx, p.z - nz, wallsNow());
   }
 
   /**
@@ -491,7 +590,7 @@ export function createBackroomsHunter({
       const step = Math.min(speedNow * dt, d);
       pos.x -= Math.sin(yaw) * step;
       pos.z -= Math.cos(yaw) * step;
-      resolveCircle(pos, BODY_RADIUS, colliders);
+      resolveCircle(pos, BODY_RADIUS, wallsNow());
       return false;
     }
     speedNow = Math.max(0, speedNow - DECEL * dt);
@@ -508,6 +607,7 @@ export function createBackroomsHunter({
 
     setColliders(boxes) {
       colliders = boxes || [];
+      walls = [];
     },
 
     /**
@@ -533,23 +633,29 @@ export function createBackroomsHunter({
       }
     },
 
-    start({ minFromPlayer = 18 } = {}) {
+    /**
+     * @param {object} [o]
+     * @param {number} [o.minFromPlayer] - for a random draw: at least this far, as the crow flies.
+     * @param {{x: number, z: number}} [o.at] - where to start, if the caller has drawn it
+     *   (main.js draws it by WALKING distance -- see backroomsMaze.drawMonsterStart).
+     */
+    start({ minFromPlayer = 18, at = null } = {}) {
       // The one stall a fade cannot hide: the first frame the creature is
       // drawn compiles its shaders, and that lands exactly when it steps into
       // the corridor. Hold it until the loading screen says it is built.
       if (!ready) {
         startWanted = true;
-        startArgs = { minFromPlayer };
+        startArgs = { minFromPlayer, at };
         return;
       }
       const player = getPlayer();
-      const names = Object.keys(LEGS);
-      let best = null;
+      const names = Object.keys(LEGS).filter((n) => !safe.has(n));
+      let best = at;
       let bestD = -Infinity;
       // Ten draws, keep the furthest: cheaper and more predictable than
       // rejection-sampling until something passes, which can spin on a small
       // maze or a player standing in the middle of a big one.
-      for (let i = 0; i < 10; i++) {
+      for (let i = 0; !at && i < 10; i++) {
         const p = standIn(names[Math.floor(Math.random() * names.length)]);
         const d = Math.hypot(p.x - player.x, p.z - player.z);
         if (d > bestD) {
@@ -558,6 +664,8 @@ export function createBackroomsHunter({
         }
         if (d >= minFromPlayer) break;
       }
+      guard = null;
+      wasPlayerSafe = false;
       pos.x = best.x;
       pos.z = best.z;
       stallFrom.x = best.x;
@@ -588,6 +696,7 @@ export function createBackroomsHunter({
 
     stop() {
       state = 'stopped';
+      guard = null;
       waypoints = [];
       heard = null;
       speedNow = 0;
@@ -605,6 +714,8 @@ export function createBackroomsHunter({
 
     reset() {
       this.stop();
+      roarCool = 0;
+      wasPlayerSafe = false;
       pos.x = 0;
       pos.z = 0;
       cooldown = 0;
@@ -622,8 +733,29 @@ export function createBackroomsHunter({
       const dist = Math.hypot(player.x - pos.x, player.z - pos.z);
       const seen = canSee(player.x, player.z);
 
+      // --- a safe room -----------------------------------------------------
+      if (roarCool > 0) roarCool -= dt;
+      const playerSafe = isSafeAt(player.x, player.z);
+      if (playerSafe && !wasPlayerSafe) {
+        const door = nearestSafeDoor(player.x, player.z);
+        const coming = !!door && (state === 'chase' || state === 'hunt' || dist <= ENRAGE_NEAR);
+        if (roarCool <= 0) {
+          roarCool = ROAR_COOLDOWN;
+          onEnraged({ x: pos.x, z: pos.z, coming });
+        }
+        if (coming) {
+          guard = { door, left: GUARD_SECONDS, arrived: false, rear: 0, paceSide: 1 };
+          waypoints = [];
+        }
+      } else if (!playerSafe && guard) {
+        // Out again: whatever it can see and hear decides, as ever.
+        guard = null;
+        waypoints = [];
+      }
+      wasPlayerSafe = playerSafe;
+
       // --- what it knows ---------------------------------------------------
-      if (seen) {
+      if (seen && !playerSafe) {
         sawFor = SIGHT_MEMORY;
         // Where it last SAW you is where it goes when it loses you -- not
         // straight back to wandering, which is what made breaking line of
@@ -632,14 +764,16 @@ export function createBackroomsHunter({
       } else if (sawFor > 0) {
         sawFor -= dt;
       }
-      if (player.sprinting || (player.walking && dist <= HEAR_WALK)) {
+      if (!playerSafe && (player.sprinting || (player.walking && dist <= HEAR_WALK))) {
         // Noise. It does not matter whether it can see you.
         heard = { x: player.x, z: player.z };
       }
 
       // --- what it does ----------------------------------------------------
       const wasState = state;
-      if (sawFor > 0) {
+      if (guard) {
+        state = 'enraged';
+      } else if (sawFor > 0) {
         state = 'chase';
       } else if (heard) {
         state = 'hunt';
@@ -681,7 +815,46 @@ export function createBackroomsHunter({
         }
       }
 
-      if (peekFor > 0 && state === 'search') {
+      let rearWeight = 0;
+      if (state === 'enraged') {
+        const d = guard.door;
+        if (!guard.arrived) {
+          if (!waypoints.length) setPath(d.outside);
+          const arrived = advance(dt, CHASE_SPEED, TURN_RATE_CHASE);
+          if (arrived || Math.hypot(d.outside.x - pos.x, d.outside.z - pos.z) < WAYPOINT_REACHED) {
+            guard.arrived = true;
+            guard.rear = REAR_SECONDS;
+            waypoints = [];
+            onEnraged({ x: pos.x, z: pos.z, atDoor: true });
+          }
+        } else if (guard.rear > 0) {
+          // Rearing at the doorway, facing in.
+          guard.rear -= dt;
+          rearWeight = Math.sin(Math.PI * (1 - guard.rear / REAR_SECONDS));
+          yaw = Math.atan2(-(d.x - pos.x), -(d.z - pos.z));
+          speedNow = Math.max(0, speedNow - DECEL * dt);
+        } else {
+          // Pacing across the doorway, back and forth.
+          if (!waypoints.length) {
+            guard.paceSide = -guard.paceSide;
+            setPath({
+              x: d.outside.x + d.across.x * PACE_METRES * guard.paceSide,
+              z: d.outside.z + d.across.z * PACE_METRES * guard.paceSide
+            });
+          }
+          if (advance(dt, SEARCH_SPEED, TURN_RATE_SEARCH)) waypoints = [];
+        }
+        guard.left -= dt;
+        if (guard.left <= 0) {
+          // It gives up: a sniff (AudioDirector hears enraged -> search), and off.
+          heard = null;
+          sawFor = 0;
+          state = 'search';
+          waypoints = [];
+          setPath(wanderAwayFrom(d));
+          guard = null;
+        }
+      } else if (peekFor > 0 && state === 'search') {
         // Holding still and leaning. Deliberately does NOT turn to face you --
         // a body that swings round to point at you has found you, and this one
         // is still only looking.
@@ -761,12 +934,13 @@ export function createBackroomsHunter({
         // this just states the target and lets the rig carry the timing.
         if (creature.setPeek) creature.setPeek(peekDir);
         creature.update(dt);
+        if (rearWeight > 0) creature.offsetBones(REAR_POSE, rearWeight);
       }
 
       const t = 1 - Math.min(1, Math.max(0, (dist - BREATH_NEAR) / (BREATH_FAR - BREATH_NEAR)));
       onBreathing(BREATH_MIN + (BREATH_MAX - BREATH_MIN) * t);
 
-      if (dist < CONTACT_RANGE && cooldown <= 0) {
+      if (dist < CONTACT_RANGE && cooldown <= 0 && !playerSafe) {
         cooldown = CATCH_COOLDOWN;
         onCaught();
       }

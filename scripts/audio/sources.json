@@ -820,6 +820,62 @@
       "peakDb": -3,
       "kbps": 96,
       "track": 151
+    },
+    {
+      "name": "scream_classic",
+      "url": "https://cdn.freesound.org/previews/712/712416_15425176-hq.mp3",
+      "download": { "direct": true },
+      "out": "monster/scream_classic.m4a",
+      "title": "Jumpscare 1",
+      "author": "zombyKlr",
+      "licence": "CC0 (Freesound)",
+      "page": "https://freesound.org/people/zombyKlr/sounds/712416/",
+      "peakDb": -1,
+      "kbps": 128,
+      "autotrim": -50,
+      "track": 152
+    },
+    {
+      "name": "scream_distorted",
+      "url": "https://cdn.freesound.org/previews/587/587354_9159316-hq.mp3",
+      "download": { "direct": true },
+      "out": "monster/scream_distorted.m4a",
+      "title": "Jumpscare Scream",
+      "author": "Breviceps",
+      "licence": "CC0 (Freesound)",
+      "page": "https://freesound.org/people/Breviceps/sounds/587354/",
+      "peakDb": -1,
+      "kbps": 128,
+      "autotrim": -50,
+      "track": 153
+    },
+    {
+      "name": "scream_remake",
+      "url": "https://cdn.freesound.org/previews/753/753746_9026358-hq.mp3",
+      "download": { "direct": true },
+      "out": "monster/scream_remake.m4a",
+      "title": "JumpscareSound_Remake_Freesound.wav",
+      "author": "TheTVBunny",
+      "licence": "CC0 (Freesound)",
+      "page": "https://freesound.org/people/TheTVBunny/sounds/753746/",
+      "peakDb": -1,
+      "kbps": 128,
+      "autotrim": -50,
+      "track": 154
+    },
+    {
+      "name": "roar",
+      "url": "https://cdn.freesound.org/previews/442/442334_9131540-hq.mp3",
+      "download": { "direct": true },
+      "out": "monster/roar.m4a",
+      "title": "Jumpscare Sound",
+      "author": "LionGrill",
+      "licence": "CC0 (Freesound)",
+      "page": "https://freesound.org/people/LionGrill/sounds/442334/",
+      "peakDb": -1,
+      "kbps": 128,
+      "autotrim": -50,
+      "track": 155
     }
   ]
 }

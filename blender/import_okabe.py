@@ -483,13 +483,12 @@ COAT_SOURCES = ('White 裾', 'White clothes', 'In white clothes')
 # Textures whose ALPHA means something and must survive as a cutout.
 #
 # okarin02 is the hair, whose alpha has always been the shape of the cards.
-# The other two are befoul()'s doing: it punches the tears into the coat and
-# the trouser knees as holes in the alpha channel rather than by deleting
-# triangles, so the rip has a ragged per-texel edge instead of following the
-# topology, and nothing in the mesh, the skinning or the morph has to change.
-# A material left OPAQUE ignores its alpha entirely, so the tears would simply
-# not appear -- which is indistinguishable from befoul having done nothing.
-ALPHA_CLIPPED = ('okarin02', 'okarin03', 'okarin06')
+# The coat and trouser tears used to be befoul()'s doing as holes in the alpha
+# channel, clipped here. They are PAINTED now (user, 2026-10-23: the monster
+# read as ghostly, with parts of it see-through): a rent shows dark cloth and
+# shadow behind it rather than the corridor, so the figure is one solid body
+# and only the hair cards are cut out.
+ALPHA_CLIPPED = ('okarin02',)
 
 
 def force_opaque(obj, alpha_clip_images=('okarin02',)):
@@ -669,8 +668,7 @@ def main():
 
     # --- and then the monster ----------------------------------------------
     # force_opaque runs AGAIN afterwards, because befoul swaps the image
-    # datablocks out from under the alpha links it made the first time and the
-    # tears need clipping that the clean pass had no reason to set up.
+    # datablocks out from under the alpha links it made the first time.
     filth = befoul(obj, rig)
     clipped = force_opaque(obj, alpha_clip_images=ALPHA_CLIPPED)
     pack_all()

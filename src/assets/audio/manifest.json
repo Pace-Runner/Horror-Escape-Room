@@ -165,7 +165,7 @@
         "start": 0.15,
         "end": 20.15,
         "seam": {
-          "jump": 2.9e-05,
+          "jump": 0.000029,
           "medianStep": 0.002074,
           "naturalStep": 0.002245,
           "ratio": 0.01
@@ -695,6 +695,42 @@
       "peakDb": -3,
       "lufs": -28,
       "truePeakDb": -3
+    },
+    "scream_classic": {
+      "file": "monster/scream_classic.m4a",
+      "track": 152,
+      "sourceStart": 0.012,
+      "duration": 2.297,
+      "peakDb": -0.63,
+      "lufs": -7.6,
+      "truePeakDb": -0.6
+    },
+    "scream_distorted": {
+      "file": "monster/scream_distorted.m4a",
+      "track": 153,
+      "sourceStart": 0.3,
+      "duration": 2.381,
+      "peakDb": -0.88,
+      "lufs": -5.5,
+      "truePeakDb": -0.7
+    },
+    "scream_remake": {
+      "file": "monster/scream_remake.m4a",
+      "track": 154,
+      "sourceStart": 0.009,
+      "duration": 2.092,
+      "peakDb": -1.04,
+      "lufs": -13.3,
+      "truePeakDb": -0.9
+    },
+    "roar": {
+      "file": "monster/roar.m4a",
+      "track": 155,
+      "sourceStart": 0.138,
+      "duration": 2.296,
+      "peakDb": -0.91,
+      "lufs": -12.8,
+      "truePeakDb": -0.9
     }
   },
   "sampleRate": 48000,
