@@ -3,6 +3,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { createVisorGallery } from './studyVisorGallery.js';
 import { createStudyDecor } from './studyDecor.js';
 import { createStudySurfaces } from './studySurfaces.js';
+import { createAnnabelle } from './annabelleFigure.js';
 import { createClockMechanism } from './clockMechanism.js';
 import { createArchivePresentation, createArchiveRecord, buildArchiveVisor, createVisorGlassMap } from './studyArchivePresentation.js';
 import { addStudyFootprints } from './studyFootprints.js';
@@ -1553,11 +1554,11 @@ Annabelle`;
         const completed = await onLookInMirror();
         if (generation !== mirrorRevealGeneration) return;
         if (!completed) {
-          annabelle.visible = false;
+          showAnnabelle(false);
           return;
         }
         puzzle.mirrorRevealed = true;
-        annabelle.visible = true;
+        showAnnabelle(true);
         hollowOverrideKey.visible = !puzzle.hasHollowOverrideKey;
         hollowOverrideKeyHit.visible = !puzzle.hasHollowOverrideKey;
         if (!puzzle.hasHollowOverrideKey && !interactables.includes(hollowOverrideKeyHit)) {
@@ -1571,16 +1572,28 @@ Annabelle`;
   };
   group.add(mirrorGlass);
 
-  // Temporary injured Annabelle, tucked under the loft in the planned corner.
-  // Bent knees and a slumped torso communicate the pose without another rig.
-  const annabelle = new THREE.Group();
-  annabelle.name = 'Annabelle_Injured_Graybox';
+  // Annabelle, standing in the corner under the loft, past the wingback chair:
+  // a girl of about sixteen, not the thing the player has been running from.
+  // See annabelleFigure.js. Hidden until the mirror shows her.
+  const annabelleFigure = createAnnabelle();
+  const annabelle = annabelleFigure.root;
   annabelle.position.set(-4.2, 0, -4.2);
-  annabelle.rotation.y = -Math.PI / 2;
+  // Facing out of the corner, toward where the reveal's camera stands
+  // (2.4 m along x and 1.3 m along z from her; main.js, onLookInMirror).
+  annabelle.rotation.y = Math.atan2(2.4, 1.3);
   annabelle.visible = false;
   group.add(annabelle);
-  // The GLB is authored at metre scale, floor-centred, facing +Z into the study.
-  // Keep Annabelle's position and the existing collision footprint unchanged.
+  /** Solid only while she is there to bump into: parked out of reach when hidden. */
+  const ANNABELLE_BOX = { minX: -4.42, maxX: -3.98, minZ: -4.42, maxZ: -3.98, minY: 0, maxY: 1.62 };
+  const annabelleCollider = { minX: -1000, maxX: -1000, minZ: -1000, maxZ: -1000, minY: 0, maxY: 0 };
+  colliders.push(annabelleCollider);
+  function showAnnabelle(on) {
+    annabelle.visible = on;
+    Object.assign(annabelleCollider, on ? ANNABELLE_BOX
+      : { minX: -1000, maxX: -1000, minZ: -1000, maxZ: -1000, minY: 0, maxY: 0 });
+  }
+  // The chair's GLB is authored at metre scale, floor-centred, facing +Z into
+  // the study. Its position and collision footprint are unchanged.
   const concealmentChair = new THREE.Group();
   concealmentChair.name = 'Annabelle_Wingback_Chair';
   concealmentChair.position.set(-4.65, 0, -3.45);
@@ -1596,33 +1609,6 @@ Annabelle`;
     concealmentChair.add(model);
   }).catch((error) => console.warn('Annabelle chair could not load:', error));
   colliders.push({ minX: -5.225, maxX: -4.075, minZ: -3.89, maxZ: -3.025, minY: 0, maxY: 1.6 });
-  const annabelleCoatMat = new THREE.MeshStandardMaterial({ color: 0x5d5148, roughness: 1 });
-  const annabelleSkinMat = new THREE.MeshStandardMaterial({ color: 0x9d8271, roughness: 0.95 });
-  const annabelleTorso = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.48, 0.22), annabelleCoatMat);
-  annabelleTorso.position.set(0, 0.66, 0.04);
-  annabelleTorso.rotation.x = 0.35;
-  annabelle.add(annabelleTorso);
-  const annabelleHead = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), annabelleSkinMat);
-  annabelleHead.scale.set(0.85, 1.1, 0.9);
-  annabelleHead.position.set(0, 0.98, -0.09);
-  annabelleHead.rotation.z = -0.2;
-  annabelle.add(annabelleHead);
-  const limbGeometry = new THREE.CylinderGeometry(0.055, 0.06, 1, 7);
-  function addAnnabelleLimb(from, to, material) {
-    const a = new THREE.Vector3(...from);
-    const b = new THREE.Vector3(...to);
-    const limb = new THREE.Mesh(limbGeometry, material);
-    limb.position.copy(a).add(b).multiplyScalar(0.5);
-    limb.scale.y = a.distanceTo(b);
-    limb.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.sub(a).normalize());
-    annabelle.add(limb);
-  }
-  for (const side of [-1, 1]) {
-    addAnnabelleLimb([side * 0.12, 0.46, 0.06], [side * 0.2, 0.28, -0.28], annabelleCoatMat);
-    addAnnabelleLimb([side * 0.2, 0.28, -0.28], [side * 0.2, 0.07, -0.02], annabelleCoatMat);
-    addAnnabelleLimb([side * 0.2, 0.83, -0.02], [side * 0.22, 0.53, -0.13], annabelleCoatMat);
-    addAnnabelleLimb([side * 0.22, 0.53, -0.13], [side * 0.07, 0.55, -0.23], annabelleSkinMat);
-  }
 
   const hollowOverrideKey = new THREE.Group();
   hollowOverrideKey.name = 'HollowOverrideKey';
@@ -1930,8 +1916,7 @@ Annabelle`;
         distortedTrail.visible = !on;
         updateTruthRecords(on);
         updateOverrideLabels(on);
-        annabelleCoatMat.color.setHex(on ? 0x5d5148 : 0x29232b);
-        annabelleSkinMat.color.setHex(on ? 0x9d8271 : 0x4c414b);
+        annabelleFigure.setCorrectedSight(on);
       },
       visorGroup,
       visorHitbox,
@@ -1941,9 +1926,21 @@ Annabelle`;
       /** Where Annabelle stands once the letter has been read. */
       annabelleSpot: [-4.2, -4.2],
       annabelle,
+      /** Settles once her model is in, so the warm-up draws her and not an empty group. */
+      warmUpReady: annabelleFigure.ready,
+      /**
+       * Shows her for the loading screen's warm-up, which only builds shaders
+       * for what it can see: hidden until the mirror, she would otherwise build
+       * hers in the middle of the reveal. Returns the undo.
+       */
+      showForWarmUp() {
+        const was = annabelle.visible;
+        annabelle.visible = true;
+        return () => { annabelle.visible = was; };
+      },
       mirrorGlass,
       revealAnnabelle() {
-        if (puzzle.mirrorRevealInProgress || puzzle.mirrorRevealed) annabelle.visible = true;
+        if (puzzle.mirrorRevealInProgress || puzzle.mirrorRevealed) showAnnabelle(true);
       },
       hollowOverrideKey,
       overrideSockets,
@@ -2038,7 +2035,7 @@ Annabelle`;
         if (!interactables.includes(hit)) interactables.push(hit);
       }
       updateOverrideLabels(false);
-      annabelle.visible = false;
+      showAnnabelle(false);
       hollowOverrideKey.visible = false;
       hollowOverrideKeyHit.visible = false;
       gameState.inventory.delete('hollowOverrideKey');

@@ -4582,6 +4582,7 @@ const CREDIT_SECTIONS = [
     rows: [
       ['First-person hands', '"First Person hands rigged" by davidfischer, via Sketchfab. CC BY 4.0 (creativecommons.org/licenses/by/4.0). Modified: left arm removed, wrist re-aligned, re-rigged for this project.'],
       ['The creature', 'An imported character mesh, reworked in Blender into the monster and the man it was. Original source and licence to be confirmed.'],
+      ['Annabelle', '"Victorian Child - Low Poly Character Model" by _memo, via Sketchfab. CC BY 4.0 (creativecommons.org/licenses/by/4.0). Modified: reshaped to sixteen, arms lowered, hair, ribbon and a long nightgown added, recoloured and dirtied.'],
       ['Photographed surfaces', 'Concrete, steel and tile materials from ambientCG (ambientcg.com), CC0. Rust and grunge overlays from Texture Labs (texturelabs.org).'],
       ['Everything else', 'The remaining models, the textures drawn in code and the rusted keys were made for this project by the team. The Blender scripts and sources are in the blender/ folder.']
     ]
@@ -5307,6 +5308,10 @@ async function warmUp({
       // every one of them for the canvas and for twice the room's lights, so
       // none was ever used. The draw then catches what compiling cannot (the
       // driver's own per-draw work), and is quick with the shaders ready.
+      // And whatever the room keeps hidden until a reveal (the study's
+      // Annabelle), once it has loaded -- hidden, it would not be drawn here.
+      await level.refs?.warmUpReady;
+      const restoreHidden = level.refs?.showForWarmUp?.();
       const restoreViewModels = showViewModelsForWarmUp();
       darkShadowSkipper.refreshAllShadowsOnce();
       try {
@@ -5315,6 +5320,7 @@ async function warmUp({
         else postFX.render();
       } finally {
         restoreViewModels();
+        restoreHidden?.();
       }
       // The map is a separate WebGL context with programs of its own, and it
       // used to build them on its first frame in each room -- after this bar
