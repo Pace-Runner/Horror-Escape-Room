@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { createVisorGallery } from './studyVisorGallery.js';
 import { createStudyDecor } from './studyDecor.js';
+import { createCandleFlames } from '../world/CandleFlames.js';
 import { createStudySurfaces } from './studySurfaces.js';
 import { createAnnabelle } from './annabelleFigure.js';
 import { createOkabeCreature } from '../systems/OkabeCreature.js';
@@ -945,7 +946,11 @@ export function createStudyLevel({
   updateCrestShadows();
 
   const shelfMat = studySurfaces.woodMaterial(0.70);
-  const studyDecor = createStudyDecor({ woodMaterial: architectureWoodMat, brassMaterial: crestBrassMat });
+  // Every candle flame in the room is one batch; a few of them own a real
+  // flickering light. The pool is fixed here, at build time, so the boot
+  // warm-up compiles the room with exactly the lights it will ever have.
+  const studyCandles = createCandleFlames({ parent: group, capacity: 48, lightCount: 6, name: 'Study_Candle_Flames' });
+  const studyDecor = createStudyDecor({ woodMaterial: architectureWoodMat, brassMaterial: crestBrassMat, candles: studyCandles });
   const shelfAlongWallGeometry = new THREE.BoxGeometry(2.8, 2.8, 0.45);
   const shelfAcrossWallGeometry = new THREE.BoxGeometry(0.45, 2.8, 2.8);
   function addShelf(x, y, z, alongX, solid = false, dressing = null) {
@@ -1960,6 +1965,8 @@ export function createStudyLevel({
       doorState.open = true;
       setDoorSolid(false);
       onDoorOpening(frontDoor.getWorldPosition(new THREE.Vector3()));
+      // Night air through the opened front door sets the candles guttering.
+      studyCandles.gust(frontDoor.getWorldPosition(new THREE.Vector3()), { strength: 1.1, radius: 5, life: 3.2 });
       showCaption('Emergency release engaged. Walk through the front exit.');
     } else {
       interactables.push(socket.handleHit);
@@ -2083,6 +2090,8 @@ export function createStudyLevel({
     refs: {
       lamp,
       doorLamp,
+      /** world/CandleFlames.js: every flame in the room, and its light pool. */
+      candles: studyCandles,
       entryDoor,
       portraitMat,
       portraitTexPlain,
@@ -2355,6 +2364,7 @@ export function createStudyLevel({
         }
       }
       updateExterior(dt);
+      studyCandles.update(dt, { playerPosition: getPlayerPosition() });
       if(puzzle.mirrorRevealed){
         syncRevealedFigure();
         if(annabelleMonster.visible)updateStudyCreature(annabelleMonster,dt);

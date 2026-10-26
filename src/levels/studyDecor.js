@@ -3,7 +3,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { createArchivePaperMaterial } from './studyArchivePresentation.js';
 
 /** Static, non-interactive dressing. Repeated parts are instanced after placement. */
-export function createStudyDecor({ woodMaterial, brassMaterial }) {
+export function createStudyDecor({ woodMaterial, brassMaterial, candles = null }) {
   const meshes = [];
   let propCount = 0;
   const boxGeometry = new RoundedBoxGeometry(1, 1, 1, 1, 0.015);
@@ -21,8 +21,7 @@ export function createStudyDecor({ woodMaterial, brassMaterial }) {
   const green = new THREE.MeshStandardMaterial({ color: 0x29382f, roughness: 0.82 });
   const ceramic = new THREE.MeshStandardMaterial({ color: 0x716a59, roughness: 0.68 });
   const photoMaterials = new Map();
-  const flameMaterial = new THREE.MeshBasicMaterial({ color: 0xe3b36c, toneMapped: false });
-  const flameGeometry = new THREE.SphereGeometry(1, 7, 5);
+  const wick = new THREE.MeshStandardMaterial({ color: 0x17120e, roughness: 1 });
   const covers = [0x303729, 0x433126, 0x402a2d, 0x333c41, 0x6b604a]
     .map((color) => new THREE.MeshStandardMaterial({ color, roughness: 0.89 }));
 
@@ -98,13 +97,20 @@ export function createStudyDecor({ woodMaterial, brassMaterial }) {
     }
     return object;
   }
-  function candle() {
+  /** @param {{ light?: boolean|object }} [flame] passed on to CandleFlames.add() */
+  function candle(flame = {}) {
     const object = prop('Decor_Candlestick');
     cylinder(object, brassMaterial, 0.043, 0.012, [0, 0.006, 0]);
     cylinder(object, brassMaterial, 0.010, 0.14, [0, 0.08, 0]);
     cylinder(object, brassMaterial, 0.031, 0.012, [0, 0.155, 0]);
     cylinder(object, wax, 0.012, 0.11, [0, 0.215, 0]);
-    mesh(object, flameGeometry, flameMaterial, [0.004, 0.014, 0.004], [0, 0.284, 0]);
+    cylinder(object, wick, 0.0012, 0.012, [0, 0.276, 0]);
+    // The live flame stands on the wick; CandleFlames draws it.
+    const wickTip = new THREE.Object3D();
+    wickTip.name = 'Decor_Candle_Wick_Tip';
+    wickTip.position.y = 0.272;
+    object.add(wickTip);
+    candles?.add(wickTip, flame);
     return object;
   }
   function wallSconce() {
@@ -112,7 +118,7 @@ export function createStudyDecor({ woodMaterial, brassMaterial }) {
     const back = mesh(object, cylinderGeometry, brassMaterial, [0.050, 0.014, 0.090], [0, 0.10, 0]);
     back.rotation.x = Math.PI / 2;
     box(object, brassMaterial, [0.015, 0.018, 0.14], [0, 0.055, 0.070]);
-    place(object, candle(), 0, 0.060, 0.14);
+    place(object, candle({ light: true }), 0, 0.060, 0.14);
     return object;
   }
   function sideTable() {
