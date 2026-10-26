@@ -4795,9 +4795,14 @@ const DEFAULT_SETTINGS = {
   graphicsQuality: DEFAULT_GRAPHICS_QUALITY,
   showFrameRate: false
 };
-/** The brightness slider's range, percent. Matches index.html's input. */
+/**
+ * The brightness slider's range, percent. Matches index.html's input. The top
+ * is deliberately low: enough to make a room readable on a washed-out lab
+ * monitor, not enough to light the house up -- the dark is part of the game.
+ * A saved value above it is clamped down on load.
+ */
 const BRIGHTNESS_MIN_PERCENT = 70;
-const BRIGHTNESS_MAX_PERCENT = 170;
+const BRIGHTNESS_MAX_PERCENT = 130;
 
 function loadSettings() {
   try {
