@@ -4,3 +4,6 @@ dist/
 *.log
 __pycache__/
 *.blend1
+
+# Temporary browser/Codex test profiles
+.tmp-*/
