@@ -89,8 +89,16 @@ reasoning behind the scenegraph hierarchy.
   written straight from the mouse event -- see the header comment in
   `src/core/PointerLockPlayer.js` for why both matter.
 - A raycast "examine" system (`E`) already wired to every story prop.
-- Restart without reloading the page (`R`), a credits screen (`C`),
+- Restart without reloading the page (`R`), a credits screen (`K`),
   and a loading screen.
+- **Difficulty** gives every room its own clock: Easy 30 minutes,
+  Medium 15, Hard 8 (`src/core/Difficulty.js`). Run out and the run ends.
+- **Settings**, from the main menu or the pause screen: volume, mouse
+  sensitivity, captions, **brightness** (100% is the light the levels were
+  tuned to), **graphics quality** (Low / Medium / High: resolution,
+  antialiasing and the mirror's resolution, `src/core/GraphicsQuality.js`)
+  and a **frame-rate counter** (`src/core/FrameRateCounter.js`). Saved in
+  localStorage.
 - `1` / `2` / `3` jump straight to each level, and `4` drops you into
   the backrooms corridor routed off wherever you currently are -- for
   quickly showing the whole house to a mentor. They are deliberately

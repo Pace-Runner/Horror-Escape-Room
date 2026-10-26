@@ -2517,3 +2517,59 @@ body.cutscene-letterbox .cutscene-bar {
 #free-camera-status.visible {
   opacity: 1;
 }
+
+/* ---------- settings: brightness, graphics, frame rate ---------- */
+.settings-hint {
+  font-size: 0.68rem;
+  line-height: 1.5;
+  color: #55504a;
+  padding: 6px 0 2px;
+}
+
+#settings-graphics {
+  flex: 0 1 auto;
+  padding: 4px 8px;
+  background: #0d0b09;
+  border: 1px solid #3a332b;
+  color: #d8d2c4;
+  font: inherit;
+  font-size: 0.78rem;
+  accent-color: #b3271a;
+}
+
+/* The settings list grew past a short screen: scroll inside the panel. */
+#settings-panel {
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+/* ---------- frame-rate counter ---------- */
+#fps-counter {
+  position: fixed;
+  left: 24px;
+  bottom: 24px;
+  z-index: 70;
+  display: none;
+  padding: 4px 9px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: #9fc79a;
+  background: rgba(0, 0, 0, 0.55);
+  border-left: 2px solid #4d7a46;
+  pointer-events: none;
+}
+
+#fps-counter.visible {
+  display: block;
+}
+
+#fps-counter.is-warning {
+  color: #d9c071;
+  border-left-color: #8a7330;
+}
+
+#fps-counter.is-bad {
+  color: #e0796c;
+  border-left-color: #7a1f16;
+}

@@ -36,7 +36,13 @@ export const VisorShader = {
     /** 0 = fine, 1 = fully caught. */
     uCaught: { value: 0 },
     /** width / height, so the vignette is round rather than an ellipse. */
-    uAspect: { value: 1 }
+    uAspect: { value: 1 },
+    /**
+     * The settings screen's brightness, 1 = as the levels were tuned. Lives in
+     * this pass because it already runs over every pixel every frame in
+     * display space, so the player's dial costs nothing extra.
+     */
+    uBrightness: { value: 1 }
   },
 
   vertexShader: /* glsl */`
@@ -52,6 +58,7 @@ export const VisorShader = {
     uniform float uVisor;
     uniform float uCaught;
     uniform float uAspect;
+    uniform float uBrightness;
     varying vec2 vUv;
 
     const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
@@ -136,6 +143,13 @@ export const VisorShader = {
       caught *= smoothstep(1.0, 0.08, r);
       disp = mix(disp, caught, uCaught);
 
+      // --- the player's brightness ---------------------------------------
+      // A display-space gamma, the way a game's brightness slider works: black
+      // stays black and white stays white, and everything between is lifted
+      // (or lowered). Black has to stay black or a horror game's darkness
+      // turns to a grey wash; a plain multiply would clip the highlights.
+      disp = pow(disp, vec3(1.0 / uBrightness));
+
       gl_FragColor = vec4(toLinear(disp), 1.0);
     }
   `
@@ -162,6 +176,15 @@ export class VisorPass extends ShaderPass {
 
   get caught() {
     return this.uniforms.uCaught.value;
+  }
+
+  /** The settings screen's brightness: 1 as tuned, above 1 lifts the darks. */
+  set brightness(v) {
+    this.uniforms.uBrightness.value = THREE.MathUtils.clamp(v, 0.5, 2);
+  }
+
+  get brightness() {
+    return this.uniforms.uBrightness.value;
   }
 
   setSize(width, height) {

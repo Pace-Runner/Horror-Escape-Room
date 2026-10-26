@@ -66,6 +66,10 @@
 
   <div id="crosshair"></div>
 
+  <!-- Settings > Show frame rate. Outside #hud so it keeps counting in menus,
+       where a stall would otherwise go unmeasured. See src/core/FrameRateCounter.js. -->
+  <div id="fps-counter" aria-hidden="true"></div>
+
   <div id="hud">
     <div id="objective"></div>
     <!-- Time left in this room, on every difficulty. See src/core/Difficulty.js. -->
@@ -253,6 +257,7 @@
       <h1 id="menu-title"><span>DON'T</span><span>LET IT OUT</span></h1>
       <div class="menu-actions" id="menu-main-actions" role="menu">
         <button class="menu-option is-selected" id="menu-start" type="button" role="menuitem">Start Game</button>
+        <button class="menu-option" id="menu-settings" type="button" role="menuitem">Settings</button>
         <button class="menu-option" id="menu-credits" type="button" role="menuitem">Credits</button>
         <button class="menu-option" id="menu-quit" type="button" role="menuitem">Quit</button>
       </div>
@@ -354,6 +359,28 @@
         <input type="checkbox" id="settings-captions">
       </div>
       <div id="settings-captions-hint">Off by default. Most lines have no voice recording yet, so turn this on to read them. Hints (H) always show.</div>
+
+      <div class="settings-row">
+        <label for="settings-brightness">Brightness</label>
+        <input type="range" id="settings-brightness" min="70" max="170" step="5">
+        <span id="settings-brightness-value" class="settings-value">100%</span>
+      </div>
+      <div class="settings-hint">The house is meant to be dark. Raise this if you cannot make out the room at all.</div>
+
+      <div class="settings-row">
+        <label for="settings-graphics">Graphics quality</label>
+        <select id="settings-graphics">
+          <option value="low">Low</option>
+          <option value="medium">Medium</option>
+          <option value="high">High</option>
+        </select>
+      </div>
+      <div class="settings-hint">Low draws fewer pixels and turns antialiasing off. Try it if the game stutters.</div>
+
+      <div class="settings-row settings-row-toggle">
+        <label for="settings-fps">Show frame rate</label>
+        <input type="checkbox" id="settings-fps">
+      </div>
 
       <button id="settings-close">Close</button>
     </div>

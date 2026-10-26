@@ -66,6 +66,8 @@ import handsModelUrl from './assets/models/hands.glb?url';
 import { loadModel, preloadModel, preloadTexture, preloadFont, deferModelLoads, startModelLoads } from './world/modelLoader.js';
 import { LEVEL_ASSETS } from './world/levelAssetDependencies.js';
 import flashlightModelUrl from './assets/models/flashlight.glb?url';
+import { GRAPHICS_QUALITIES, DEFAULT_GRAPHICS_QUALITY, readPixelRatio } from './core/GraphicsQuality.js';
+import { createFrameRateCounter } from './core/FrameRateCounter.js';
 
 console.time('APP_BOOT');
 deferModelLoads();
@@ -125,6 +127,12 @@ const volumeValueEl = document.getElementById('settings-volume-value');
 const sensitivityInput = document.getElementById('settings-sensitivity');
 const sensitivityValueEl = document.getElementById('settings-sensitivity-value');
 const captionsCheckbox = document.getElementById('settings-captions');
+const brightnessInput = document.getElementById('settings-brightness');
+const brightnessValueEl = document.getElementById('settings-brightness-value');
+const graphicsSelect = document.getElementById('settings-graphics');
+const frameRateCheckbox = document.getElementById('settings-fps');
+const menuSettingsButton = document.getElementById('menu-settings');
+const frameRateCounter = createFrameRateCounter(document.getElementById('fps-counter'));
 
 // The black between levels. Deliberately not a `.hidden` toggle like every
 // other overlay in this file -- see core/ScreenFade.js for why that would snap
@@ -214,6 +222,13 @@ function showMenuCredits() {
   creditsCloseBtn.focus({ preventScroll: true });
 }
 
+/** Settings, opened from the launch menu rather than the pause screen. */
+function showMenuSettings() {
+  menuOverlayState = 'settings';
+  settingsScreen.classList.remove('hidden');
+  settingsCloseBtn.focus({ preventScroll: true });
+}
+
 function showQuitMessage() {
   menuOverlayState = 'quit';
   mainMenu.classList.add('hidden');
@@ -266,13 +281,15 @@ menuDifficulty.querySelectorAll('[data-difficulty]').forEach((button) => {
 menuStartButton.addEventListener('click', () => showDifficultyChoice(true));
 menuDifficultyBack.addEventListener('click', () => showDifficultyChoice(false));
 menuCreditsButton.addEventListener('click', showMenuCredits);
+menuSettingsButton.addEventListener('click', showMenuSettings);
 menuQuitButton.addEventListener('click', requestQuit);
 quitBackButton.addEventListener('click', showMainMenu);
 
 window.addEventListener('keydown', (event) => {
-  if (menuOverlayState === 'credits' || menuOverlayState === 'quit') {
+  if (menuOverlayState === 'credits' || menuOverlayState === 'quit' || menuOverlayState === 'settings') {
     if (event.code === 'Escape') {
       event.preventDefault();
+      settingsScreen.classList.add('hidden');
       showMainMenu();
     }
     return;
@@ -302,7 +319,13 @@ window.addEventListener('keydown', (event) => {
 // bought a second multisampled framebuffer and a resolve every frame for an
 // identical picture.
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+/**
+ * The graphics preset in force (core/GraphicsQuality.js). Up here, not with the
+ * rest of the settings, because the renderer and the study mirror read it
+ * before the settings block further down has run; applySettings() updates it.
+ */
+let currentGraphicsQuality = DEFAULT_GRAPHICS_QUALITY;
+renderer.setPixelRatio(readPixelRatio(currentGraphicsQuality, window.devicePixelRatio));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -4701,7 +4724,19 @@ creditsCloseBtn.addEventListener('click', () => {
 const SETTINGS_STORAGE_KEY = 'dontLetItOut.settings';
 // Captions start off: hints (H) and the front pages still show either way.
 // `difficulty` is the one last played, so the menu can offer it first.
-const DEFAULT_SETTINGS = { volume: 50, sensitivity: 100, captions: false, difficulty: DEFAULT_DIFFICULTY };
+const DEFAULT_SETTINGS = {
+  volume: 50,
+  sensitivity: 100,
+  captions: false,
+  difficulty: DEFAULT_DIFFICULTY,
+  // Percent. 100 is the light the levels were tuned to; see VisorPass's uBrightness.
+  brightness: 100,
+  graphicsQuality: DEFAULT_GRAPHICS_QUALITY,
+  showFrameRate: false
+};
+/** The brightness slider's range, percent. Matches index.html's input. */
+const BRIGHTNESS_MIN_PERCENT = 70;
+const BRIGHTNESS_MAX_PERCENT = 170;
 
 function loadSettings() {
   try {
@@ -4714,7 +4749,13 @@ function loadSettings() {
         ? Math.min(SENSITIVITY_MAX * 100, Math.max(SENSITIVITY_MIN * 100, parsed.sensitivity))
         : DEFAULT_SETTINGS.sensitivity,
       captions: typeof parsed.captions === 'boolean' ? parsed.captions : DEFAULT_SETTINGS.captions,
-      difficulty: Object.hasOwn(DIFFICULTIES, parsed.difficulty) ? parsed.difficulty : DEFAULT_SETTINGS.difficulty
+      difficulty: Object.hasOwn(DIFFICULTIES, parsed.difficulty) ? parsed.difficulty : DEFAULT_SETTINGS.difficulty,
+      brightness: Number.isFinite(parsed.brightness)
+        ? Math.min(BRIGHTNESS_MAX_PERCENT, Math.max(BRIGHTNESS_MIN_PERCENT, parsed.brightness))
+        : DEFAULT_SETTINGS.brightness,
+      graphicsQuality: Object.hasOwn(GRAPHICS_QUALITIES, parsed.graphicsQuality)
+        ? parsed.graphicsQuality : DEFAULT_SETTINGS.graphicsQuality,
+      showFrameRate: typeof parsed.showFrameRate === 'boolean' ? parsed.showFrameRate : DEFAULT_SETTINGS.showFrameRate
     };
   } catch {
     // Private browsing (Safari) throws on localStorage access rather than
@@ -4736,6 +4777,24 @@ function applySettings(settings) {
   audio.setMasterVolume(settings.volume / 100);
   player.setSensitivity(settings.sensitivity / 100);
   captions.setEnabled(settings.captions);
+  postFX.setBrightness(settings.brightness / 100);
+  applyGraphicsQuality(settings.graphicsQuality);
+  frameRateCounter.setVisible(settings.showFrameRate);
+}
+
+/**
+ * Puts a graphics preset into force, live: the drawing buffer's resolution,
+ * the scene target's MSAA and the mirror's reflection size. See
+ * core/GraphicsQuality.js for what each one buys.
+ *
+ * @param {keyof typeof GRAPHICS_QUALITIES} qualityKey
+ */
+function applyGraphicsQuality(qualityKey) {
+  currentGraphicsQuality = Object.hasOwn(GRAPHICS_QUALITIES, qualityKey) ? qualityKey : DEFAULT_GRAPHICS_QUALITY;
+  renderer.setPixelRatio(readPixelRatio(currentGraphicsQuality, window.devicePixelRatio));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  postFX.setSize(window.innerWidth, window.innerHeight);
+  postFX.setSamples(GRAPHICS_QUALITIES[currentGraphicsQuality].msaaSamples);
 }
 
 const settings = loadSettings();
@@ -4745,7 +4804,30 @@ volumeValueEl.textContent = `${settings.volume}%`;
 sensitivityInput.value = String(settings.sensitivity);
 sensitivityValueEl.textContent = `${settings.sensitivity}%`;
 captionsCheckbox.checked = settings.captions;
+brightnessInput.value = String(settings.brightness);
+brightnessValueEl.textContent = `${settings.brightness}%`;
+graphicsSelect.value = settings.graphicsQuality;
+frameRateCheckbox.checked = settings.showFrameRate;
 applySettings(settings);
+
+brightnessInput.addEventListener('input', () => {
+  settings.brightness = Number(brightnessInput.value);
+  brightnessValueEl.textContent = `${settings.brightness}%`;
+  postFX.setBrightness(settings.brightness / 100);
+  saveSettings(settings);
+});
+
+graphicsSelect.addEventListener('change', () => {
+  settings.graphicsQuality = graphicsSelect.value;
+  applyGraphicsQuality(settings.graphicsQuality);
+  saveSettings(settings);
+});
+
+frameRateCheckbox.addEventListener('change', () => {
+  settings.showFrameRate = frameRateCheckbox.checked;
+  frameRateCounter.setVisible(settings.showFrameRate);
+  saveSettings(settings);
+});
 
 volumeInput.addEventListener('input', () => {
   settings.volume = Number(volumeInput.value);
@@ -4772,7 +4854,11 @@ captionsCheckbox.addEventListener('change', () => {
 // player.unlock() itself or worry about re-triggering the 'unlock' listener's
 // pause-menu logic.
 settingsButton.addEventListener('click', () => settingsScreen.classList.remove('hidden'));
-settingsCloseBtn.addEventListener('click', () => settingsScreen.classList.add('hidden'));
+settingsCloseBtn.addEventListener('click', () => {
+  settingsScreen.classList.add('hidden');
+  // Opened from the launch menu: hand the keyboard back to it.
+  if (menuOverlayState === 'settings') showMainMenu();
+});
 
 // ---------- pointer lock flow ----------
 function showPauseScreen() {
@@ -5746,6 +5832,7 @@ const clock = new THREE.Clock();
 let elapsed = 0;
 
 function tick() {
+  frameRateCounter.recordFrame();
   const realDt = Math.min(clock.getDelta(), 0.05);
   if (!sceneManager.activeKey || openingSequenceActive) {
     requestAnimationFrame(tick);

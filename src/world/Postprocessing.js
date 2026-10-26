@@ -165,6 +165,25 @@ export function createPostFX(renderer, scene, camera) {
       wakePass.glow = glow;
     },
 
+    /** The settings screen's brightness, 1 = as tuned. See VisorPass's uBrightness. */
+    setBrightness(value) {
+      visorPass.brightness = value;
+    },
+
+    /**
+     * MSAA samples on the scene target, for the graphics setting (0 = off).
+     * Only the target the RenderPass draws into needs them -- every pass after
+     * it is a full-screen triangle with no edges to smooth. Disposing frees the
+     * old multisampled buffers; three allocates the new ones on next use.
+     */
+    setSamples(sampleCount) {
+      for (const renderTarget of [composer.renderTarget1, composer.renderTarget2]) {
+        if (renderTarget.samples === sampleCount) continue;
+        renderTarget.samples = sampleCount;
+        renderTarget.dispose();
+      }
+    },
+
     /** Snaps every dial to rest. For restart, where easing is wrong. */
     reset() {
       visorTarget = 0;
