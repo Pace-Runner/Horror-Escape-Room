@@ -1126,6 +1126,8 @@ const interaction = new Interaction(camera, promptEl, captions);
 captions.onLineStart = (line) => {
   if (line.voice && !tapePlaying) audio.playVoice(line.voice);
 };
+// Text-only lines show even with captions off -- see CaptionSequencer.isVoiced.
+captions.isVoiced = (line) => audio.hasVoice(line?.voice);
 function showCaption(text) {
   interaction.showCaption(text);
 }
