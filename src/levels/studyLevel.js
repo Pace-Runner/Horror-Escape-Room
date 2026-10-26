@@ -13,6 +13,7 @@ import { createLeftWallWithWindows } from './studyWindows.js';
 import { hingeMotion, studyLabel, dressCrestControl, createCrestIndicatorGeometry, createCrestPanelCollision, fillStudyKey, dressStudyDoor, batchStudyPuzzleDetails } from './studyPuzzlePresentation.js';
 import { loadModel } from '../world/modelLoader.js';
 import { createHauntedMirror } from '../world/HauntedMirror.js';
+import { createCrystalDecanter } from '../world/CrystalDecanter.js';
 import annabelleChairUrl from '../assets/models/study/annabelle_wingback_chair.glb?url';
 import centralDeskUrl from '../assets/models/study/central_victorian_desk.glb?url';
 import archiveCabinetUrl from '../assets/models/study/victorian_archive_cabinet.glb?url';
@@ -666,6 +667,14 @@ export function createStudyLevel({
   };
   desk.add(incidentNote);
   interactables.push(incidentNote);
+
+  // A cut-crystal decanter and its tumbler on the free right-front corner of
+  // the desk (the lamp, ink and papers sit behind and left of it -- see
+  // studyDecor.js's dressRoom). Refractive glass with its own shader, and a
+  // flat-shaded stopper: see world/CrystalDecanter.js.
+  const decanter = createCrystalDecanter();
+  decanter.root.position.set(0.74, 0.79, 0.16);
+  desk.add(decanter.root);
 
   colliders.push({
     minX: clockX - 0.18, maxX: clockX + 0.198,
@@ -1956,6 +1965,8 @@ Annabelle`;
       mirrorGlass,
       /** The glass's reflection controls: main.js sizes it and swaps the view model out of it. */
       mirror,
+      /** See world/CrystalDecanter.js: main.js films the room into it once it is lit. */
+      decanter,
       revealAnnabelle() {
         if (puzzle.mirrorRevealInProgress || puzzle.mirrorRevealed) showAnnabelle(true);
       },

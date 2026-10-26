@@ -3022,7 +3022,7 @@ const study = createDeferredLevel(() => createStudyLevel({
 });
 sceneManager.register('study', study);
 
-// ---------- the study's mirror ----------
+// ---------- the study's mirror and decanter ----------
 /**
  * The camera's drawn children: the hands (and whatever is in them), the left
  * hand's torch and the dust in its beam. Everything parented to the camera that
@@ -3070,6 +3070,19 @@ function installMirrorReflection(mirror) {
  * in screen space, so it keeps the screen's aspect; half resolution is already
  * sharper than old silvered glass, and the graphics setting can lower it.
  */
+/**
+ * The decanter's one-off cube capture (world/CrystalDecanter.js): the first
+ * frame the study is the active room, so it films the room lit as the player
+ * will see it. Runs after every light has been set for the frame.
+ */
+function captureStudyDecanterOnce() {
+  if (sceneManager.activeKey !== 'study' || !study.isPrepared || study.refs.decanter.isCaptured) return;
+  study.refs.decanter.captureEnvironment(renderer, scene, {
+    layersMask: camera.layers.mask,
+    hidden: [...readViewModelParts(), playerBody.group]
+  });
+}
+
 function updateMirrorResolution() {
   if (!study.isPrepared) return;
   const scale = GRAPHICS_QUALITIES[currentGraphicsQuality].mirrorScale;
@@ -6112,6 +6125,7 @@ function tick() {
   // After everything that sets a light's intensity this frame, so a light that
   // has just come on gets a fresh shadow in the very frame it lights.
   darkShadowSkipper.update();
+  captureStudyDecanterOnce();
   // Not under the opening report, which covers the whole screen: a room's
   // first draw blocks the page and would stall the report. The rooms are
   // warmed behind it and the loading bar instead (scheduleRoomWarmUp).
