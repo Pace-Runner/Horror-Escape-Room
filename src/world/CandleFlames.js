@@ -1,9 +1,10 @@
 import * as THREE from 'three';
+import { MAIN_ONLY } from '../core/RenderLayers.js';
 
 /**
  * Live candle flames: every flame in a room is ONE instanced draw (plus one
  * for their halos), and a small FIXED pool of real point lights flickers in
- * step with the flames that own them.
+ * step with the flames nearest the player.
  *
  * WHAT MAKES THEM LOOK ALIVE, cheapest first.
  *
@@ -28,17 +29,22 @@ import * as THREE from 'three';
  *        - gusts: gust() pushes outward from a point, e.g. a door swinging.
  *      The harder a flame is pushed, the more it flickers and the dimmer and
  *      shorter it burns -- a flame in a draught gutters.
- *   5. LIGHT. A flame can own one of a fixed pool of unshadowed PointLights.
- *      Its intensity runs off the SAME flicker value the shader draws with,
- *      and it follows the lean, so the warm pool on the wallpaper breathes
- *      with the flame you are looking at.
+ *   5. LIGHT. A small fixed pool of unshadowed PointLights goes to the
+ *      candles nearest the player that are allowed one (a wall sconce, say,
+ *      not a candle tucked on a shelf). Each light's intensity runs off the
+ *      SAME flicker value the shader draws with, and it follows the lean, so
+ *      the warm pool on the wallpaper breathes with the flame next to it. As
+ *      the player walks on, a light fades out of the candle left behind and
+ *      into the one ahead (LIGHT_FADE_SECONDS each way), with hysteresis so
+ *      two candles at nearly the same distance do not trade it back and forth.
  *
  * WHY A FIXED POOL. three.js bakes the number of lights into every lit
  * shader. Adding a light later -- when a candlestick model finishes loading,
  * say -- would recompile every material in the room mid-game, which is exactly
  * the hitch main.js's boot warm-up exists to prevent. So the pool's lights are
- * in the scene from the moment the room is built, and a flame that arrives
- * later just takes a free one. A light nothing has claimed sits at intensity 0.
+ * in the scene from the moment the room is built and are never added, removed
+ * or hidden: only their intensity changes, and a light no candle needs sits at
+ * 0. Twenty candles cost the same per pixel as three.
  *
  * The halo is a second quad per flame, fully camera-facing and additively
  * blended: the soft bloom round a candle seen in the dark, without a bloom pass.
@@ -167,6 +173,9 @@ const HALO_FRAGMENT = /* glsl */ `
 `;
 
 const DEFAULT_LIGHT = { color: 0xffa04a, intensity: 0.9, distance: 3.2, decay: 2 };
+const LIGHT_FADE_SECONDS = 0.35;
+/** A challenger must be this much nearer (in distance) to take a lit candle's light. */
+const LIGHT_HYSTERESIS = 1.15;
 
 /**
  * @param {object} options
@@ -190,6 +199,9 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
     transparent: true,
     depthWrite: false,
     side: THREE.DoubleSide,
+    // A flat quad only ever shows one face per pixel: one pass, not three's
+    // two (renderOptimizations.js -- the second pass also rebuilds the program key).
+    forceSinglePass: true,
     toneMapped: false
   });
   const flames = new THREE.InstancedMesh(flameGeometry, flameMaterial, capacity);
@@ -201,6 +213,8 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
   flames.receiveShadow = false;
   flames.renderOrder = 2;
   flames.count = 0;
+  // The eye, the mirror and the decanter's capture see them; the minimap does not.
+  flames.layers.set(MAIN_ONLY);
   parent.add(flames);
 
   const haloGeometry = new THREE.PlaneGeometry(1, 1);
@@ -221,15 +235,18 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
   halos.frustumCulled = false;
   halos.renderOrder = 3;
   halos.count = 0;
+  halos.layers.set(MAIN_ONLY);
   parent.add(halos);
 
+  /** @type {{ light: THREE.PointLight, owner: object|null, fade: number }[]} */
   const pool = [];
   for (let index = 0; index < lightCount; index++) {
     const light = new THREE.PointLight(DEFAULT_LIGHT.color, 0, DEFAULT_LIGHT.distance, DEFAULT_LIGHT.decay);
     light.name = `${name}_Light_${index}`;
     light.castShadow = false;
+    light.layers.set(MAIN_ONLY);
     parent.add(light);
-    pool.push({ light, owner: null });
+    pool.push({ light, owner: null, fade: 0 });
   }
 
   const entries = [];
@@ -245,6 +262,7 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
   let hasLastPlayer = false;
   const playerVelocity = new THREE.Vector2();
   let elapsed = 0;
+  let extinguished = false;
 
   function isShown(object) {
     for (let node = object; node; node = node.parent) {
@@ -258,7 +276,8 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
    * @param {object} [options]
    * @param {number} [options.width]   Metres, at rest.
    * @param {number} [options.height]  Metres, at rest.
-   * @param {boolean|object} [options.light]  Claim a pool light; an object overrides colour/intensity/distance/decay.
+   * @param {boolean|object} [options.light]  May this candle be given a pool light? An
+   *   object overrides { color, intensity, distance, decay } for it.
    * @param {number} [options.halo]    Halo radius in metres; 0 for none.
    * @param {number} [options.draft]   How much the ambient draft moves this flame, 0..1.
    */
@@ -271,26 +290,16 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
       anchor, width, height, halo, draft,
       seed: Math.random() * 100,
       leanX: 0, leanZ: 0, swingX: 0, swingZ: 0,
-      flicker: 1, strain: 0, gutter: 0, lit: true,
-      slot: null, lightBase: 0
+      flicker: 1, strain: 0, gutter: 0, lit: true, shown: false,
+      lightSettings: light ? { ...DEFAULT_LIGHT, ...(typeof light === 'object' ? light : {}) } : null,
+      // Refreshed every update: world position for the light ranking, and
+      // position in the parent's space for placing the light.
+      x: 0, y: 0, z: 0, localX: 0, localY: 0, localZ: 0, rank: Infinity
     };
-    if (light) {
-      const free = pool.find((slot) => !slot.owner);
-      if (free) {
-        const settings = { ...DEFAULT_LIGHT, ...(typeof light === 'object' ? light : {}) };
-        free.owner = entry;
-        free.light.color.set(settings.color);
-        free.light.distance = settings.distance;
-        free.light.decay = settings.decay;
-        entry.slot = free;
-        entry.lightBase = settings.intensity;
-      }
-    }
     entries.push(entry);
     return {
       get lit() { return entry.lit; },
-      setLit(on) { entry.lit = !!on; },
-      get light() { return entry.slot?.light ?? null; }
+      setLit(on) { entry.lit = !!on; }
     };
   }
 
@@ -304,6 +313,29 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
    */
   function gust(position, { strength = 0.9, radius = 3, life = 2.2 } = {}) {
     gusts.push({ x: position.x, y: position.y, z: position.z, strength, radius, life, age: 0 });
+  }
+
+  /** Every flame out (a blackout), or back as they were. Their lights go with them. */
+  function setExtinguished(out) {
+    extinguished = !!out;
+  }
+
+  /** A restart: no gusts in flight, every candle relit, every light released. */
+  function reset() {
+    gusts.length = 0;
+    extinguished = false;
+    hasLastPlayer = false;
+    playerVelocity.set(0, 0);
+    for (const entry of entries) {
+      entry.lit = true;
+      entry.leanX = entry.leanZ = entry.swingX = entry.swingZ = 0;
+      entry.strain = entry.gutter = 0;
+    }
+    for (const slot of pool) {
+      slot.owner = null;
+      slot.fade = 0;
+      slot.light.intensity = 0;
+    }
   }
 
   function trackPlayer(dt, playerPosition) {
@@ -322,6 +354,60 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
     }
     lastPlayer.copy(playerPosition);
     hasLastPlayer = true;
+  }
+
+  const isOwned = (entry) => pool.some((slot) => slot.owner === entry);
+
+  /**
+   * Hands the pool to the nearest candles that may have a light. A light only
+   * moves once it has faded out of its old candle, and a newcomer has to be
+   * clearly nearer (LIGHT_HYSTERESIS) to take a light from a lit candle.
+   */
+  function assignLights(step, playerPosition) {
+    if (!pool.length) return;
+    const candidates = [];
+    for (const entry of entries) {
+      entry.rank = Infinity;
+      if (!entry.lightSettings || !entry.shown) continue;
+      if (playerPosition) {
+        const dx = entry.x - playerPosition.x;
+        const dz = entry.z - playerPosition.z;
+        // A candle on another floor counts as further away than it is.
+        const dy = (entry.y - playerPosition.y) * 1.8;
+        entry.rank = dx * dx + dz * dz + dy * dy;
+      } else {
+        entry.rank = 0;
+      }
+      candidates.push(entry);
+    }
+    candidates.sort((a, b) => a.rank - b.rank);
+    const wanted = new Set(candidates.slice(0, pool.length));
+    const fadeStep = step / LIGHT_FADE_SECONDS;
+
+    for (const slot of pool) {
+      if (slot.owner && !wanted.has(slot.owner)) {
+        const challenger = candidates.find((entry) => wanted.has(entry) && !isOwned(entry));
+        const holdsOn = slot.owner.shown && challenger
+          && slot.owner.rank <= challenger.rank * LIGHT_HYSTERESIS * LIGHT_HYSTERESIS;
+        if (holdsOn || !challenger && slot.owner.shown) {
+          slot.fade = Math.min(1, slot.fade + fadeStep);
+          continue;
+        }
+        slot.fade = Math.max(0, slot.fade - fadeStep);
+        if (slot.fade > 0) continue;
+        slot.owner = null;
+      }
+      if (!slot.owner) {
+        const next = candidates.find((entry) => wanted.has(entry) && !isOwned(entry));
+        if (!next) continue;
+        slot.owner = next;
+        slot.fade = 0;
+        slot.light.color.set(next.lightSettings.color);
+        slot.light.distance = next.lightSettings.distance;
+        slot.light.decay = next.lightSettings.decay;
+      }
+      slot.fade = Math.min(1, slot.fade + fadeStep);
+    }
   }
 
   /**
@@ -345,12 +431,12 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
     let drawn = 0;
 
     for (const entry of entries) {
-      const shown = entry.lit && isShown(entry.anchor);
-      if (!shown) {
-        if (entry.slot) entry.slot.light.intensity = 0;
-        continue;
-      }
+      entry.shown = !extinguished && entry.lit && isShown(entry.anchor);
+      if (!entry.shown) continue;
       entry.anchor.getWorldPosition(worldPosition);
+      entry.x = worldPosition.x;
+      entry.y = worldPosition.y;
+      entry.z = worldPosition.z;
       const s = entry.seed;
 
       // Where the air wants the flame to lean.
@@ -414,6 +500,9 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
       entry.flicker = THREE.MathUtils.clamp(steady - gutterDip - 0.25 * entry.strain * (0.5 + 0.5 * Math.sin(elapsed * 23 + s)), 0, 1);
 
       localPosition.copy(worldPosition).applyMatrix4(parentInverse);
+      entry.localX = localPosition.x;
+      entry.localY = localPosition.y;
+      entry.localZ = localPosition.z;
       matrix.compose(localPosition, identity, scale.set(entry.width, entry.height, 1));
       flames.setMatrixAt(drawn, matrix);
       haloCentre.copy(localPosition);
@@ -426,16 +515,22 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
       flameData[drawn * 4 + 2] = entry.flicker;
       flameData[drawn * 4 + 3] = s;
       drawn++;
+    }
 
-      if (entry.slot) {
-        const light = entry.slot.light;
-        light.position.set(
-          localPosition.x + entry.leanX * entry.height * 0.5,
-          localPosition.y + entry.height * 0.45,
-          localPosition.z + entry.leanZ * entry.height * 0.5
-        );
-        light.intensity = entry.lightBase * (0.55 + 0.45 * entry.flicker) * (1 - 0.3 * entry.strain);
+    assignLights(step, playerPosition);
+    for (const slot of pool) {
+      const entry = slot.owner;
+      if (!entry || !entry.shown) {
+        slot.light.intensity = 0;
+        continue;
       }
+      slot.light.position.set(
+        entry.localX + entry.leanX * entry.height * 0.5,
+        entry.localY + entry.height * 0.45,
+        entry.localZ + entry.leanZ * entry.height * 0.5
+      );
+      slot.light.intensity = entry.lightSettings.intensity * slot.fade
+        * (0.55 + 0.45 * entry.flicker) * (1 - 0.3 * entry.strain);
     }
 
     flames.count = drawn;
@@ -459,9 +554,13 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
     add,
     gust,
     update,
+    reset,
+    setExtinguished,
     dispose,
     /** The pool, for the warm-up and for anyone tuning brightness. */
     lights: pool.map((slot) => slot.light),
+    /** Every flame's anchor (its wick tip), e.g. for a candle crackle. */
+    get anchors() { return entries.map((entry) => entry.anchor); },
     get flameCount() { return entries.length; },
     meshes: [flames, halos]
   };
