@@ -136,6 +136,32 @@ const STAMINA_REGEN_DELAY = 0.9;   // seconds after sprinting before it recovers
  */
 const STAMINA_RECOVER = 1.2;
 
+/**
+ * JUMPING, on Space: real projectile motion. Take-off sets an upward speed,
+ * gravity takes it away again every frame (semi-implicit Euler: velocity first,
+ * then position from the new velocity, which stays stable at any frame rate),
+ * and the landing is felt as a dip of the eye that springs back -- the knees
+ * taking the weight.
+ *
+ * 2.7 m/s gives v^2 / 2g = 0.37 m of rise and 0.55 s in the air: a startled
+ * hop, not a platformer's leap. The eye tops out near 2.0 m, under the lowest
+ * ceiling in the game (the backrooms' 2.35 m).
+ *
+ * WHAT IT DELIBERATELY DOES NOT CHANGE: collision. The colliders are tested
+ * against the GROUND the player stands on (groundY), not the eye, so a jump can
+ * never carry anyone over furniture, a puzzle barrier or a wall. Every room's
+ * layout and every softlock guard stays exactly as tested.
+ *
+ * It costs stamina, so it cannot be spammed to outpace the creature, and it is
+ * refused crouched (no room to spring) or winded.
+ */
+const JUMP_SPEED_IN_METRES_PER_SECOND = 2.7;
+const GRAVITY_IN_METRES_PER_SECOND_SQUARED = 9.81;
+const JUMP_STAMINA_COST_IN_SECONDS = 0.8;
+/** How far the eye dips on landing, per m/s of landing speed, and how fast it springs back. */
+const LANDING_DIP_PER_SPEED = 0.018;
+const LANDING_RECOVER_SECONDS = 0.12;
+
 // A thin wrapper around PointerLockControls that adds WASD movement with
 // simple axis-aligned box collision, so the player can walk through each
 // room without clipping through the walls and furniture that define it.
@@ -152,7 +178,7 @@ export class PointerLockPlayer {
     this.eyeHeight = eyeHeight;
     // See core/MoveSpeeds.js for why this lives there and what depends on it.
     this.speed = WALK_SPEED;
-    this.keys = { forward: false, back: false, left: false, right: false, crouch: false, sprint: false };
+    this.keys = { forward: false, back: false, left: false, right: false, crouch: false, sprint: false, jump: false };
     this.colliders = [];
     this.bodyRadius = 0.35;
     // The floor under the player, for the one level with stairs to walk down:
@@ -201,6 +227,18 @@ export class PointerLockPlayer {
     this.pushing = 0;
     /** Filled in by resolveCircle each frame: did anything pushable move? */
     this.pushContact = { pushed: false };
+    /**
+     * The jump: height of the eye above standing, its vertical speed, whether
+     * the feet are off the ground, and the landing dip. See JUMP_SPEED.
+     * main.js turns `jumpEnabled` off while the free camera has Space.
+     */
+    this.jumpEnabled = true;
+    this.jumpHeight = 0;
+    this.verticalSpeed = 0;
+    this.isAirborne = false;
+    this.landingDip = 0;
+    /** Called once per landing with the landing speed in m/s, for a footfall. */
+    this.onLand = null;
     /** Seconds of sprint left. */
     this.stamina = STAMINA_MAX;
     /** True once the bar has emptied, until STAMINA_RECOVER is back. */
@@ -276,6 +314,13 @@ export class PointerLockPlayer {
       // moved off C to K to make room.
       case 'KeyC': this.keys.crouch = isDown; break;
       case 'ShiftLeft': case 'ShiftRight': this.keys.sprint = isDown; break;
+      // Latched on a fresh press only, and only while the player can move:
+      // holding Space must not bunny-hop on every landing, and the Space that
+      // skips a cutscene must not be waiting to jump when it hands back.
+      case 'Space':
+        if (!isDown) this.keys.jump = false;
+        else if (!e.repeat && this.isLocked && this.movementEnabled && !this.cinematic && this.jumpEnabled) this.keys.jump = true;
+        break;
     }
   }
 
@@ -398,6 +443,7 @@ export class PointerLockPlayer {
    * means no half-applied mouse movement survives the jump.
    */
   spawn(x, z, yaw = 0, pitch = 0) {
+    this.#resetJump();
     this.groundY = this.#groundUnder(x, z);
     this.object.position.set(x, this.eyeHeight + this.groundY, z);
     this._yaw = yaw;
@@ -434,6 +480,7 @@ export class PointerLockPlayer {
 
   /** Kept for callers that only want to move without re-aiming. */
   teleport(x, z) {
+    this.#resetJump();
     this.groundY = this.#groundUnder(x, z);
     this.object.position.set(x, this.eyeHeight + this.groundY, z);
   }
@@ -459,6 +506,48 @@ export class PointerLockPlayer {
     if (this._staminaIdle < STAMINA_REGEN_DELAY) return;
     this.stamina = Math.min(STAMINA_MAX, this.stamina + STAMINA_REGEN * dt);
     if (this.winded && this.stamina >= STAMINA_RECOVER) this.winded = false;
+  }
+
+  /** Feet back on the floor, no jump pending: for spawns and teleports. */
+  #resetJump() {
+    this.keys.jump = false;
+    this.jumpHeight = 0;
+    this.verticalSpeed = 0;
+    this.isAirborne = false;
+    this.landingDip = 0;
+  }
+
+  /**
+   * Take-off (if asked for and allowed), gravity, and landing. Runs in both of
+   * update()'s branches, so a jump that is in the air when movement is taken
+   * away (a transition, a scripted beat) still comes down instead of hanging.
+   *
+   * @param {number} dt - seconds.
+   * @param {boolean} canTakeOff - false while movement is disabled.
+   */
+  #updateJump(dt, canTakeOff) {
+    const wantsJump = this.keys.jump;
+    this.keys.jump = false;
+    if (wantsJump && canTakeOff && !this.isAirborne && this.jumpEnabled
+      && this.crouch < 0.3 && !this.winded && this.stamina >= JUMP_STAMINA_COST_IN_SECONDS) {
+      this.isAirborne = true;
+      this.verticalSpeed = JUMP_SPEED_IN_METRES_PER_SECOND;
+      this.stamina -= JUMP_STAMINA_COST_IN_SECONDS;
+      this._staminaIdle = 0;
+    }
+    if (this.isAirborne) {
+      this.verticalSpeed -= GRAVITY_IN_METRES_PER_SECOND_SQUARED * dt;
+      this.jumpHeight += this.verticalSpeed * dt;
+      if (this.jumpHeight <= 0) {
+        const landingSpeed = -this.verticalSpeed;
+        this.jumpHeight = 0;
+        this.verticalSpeed = 0;
+        this.isAirborne = false;
+        this.landingDip = landingSpeed * LANDING_DIP_PER_SPEED;
+        this.onLand?.(landingSpeed);
+      }
+    }
+    this.landingDip *= Math.exp(-dt / LANDING_RECOVER_SECONDS);
   }
 
   /** 0..1, for the HUD bar. */
@@ -599,6 +688,7 @@ export class PointerLockPlayer {
       // punish the player for a cutscene they did not ask for.
       this.#updateStamina(dt, false);
       this.pushing = 0;
+      this.#updateJump(dt, false);
       this.#applyEyeHeight();
       return;
     }
@@ -657,8 +747,11 @@ export class PointerLockPlayer {
     // Stride grows with the sprint blend, so the step RATE rises by less than
     // the speed does. See SPRINT_STRIDE_SCALE.
     const stride = STRIDE * (1 + this.sprint * (SPRINT_STRIDE_SCALE - 1));
-    this.bobPhase = (this.bobPhase + (walked / stride) * Math.PI * 2) % (Math.PI * 2);
-    const want = walked > 1e-6 ? 1 : 0;
+    this.#updateJump(dt, true);
+    // In the air the feet are not stepping: no bob, and so no footsteps (the
+    // audio rides bobPhase). The landing makes its own sound via onLand.
+    if (!this.isAirborne) this.bobPhase = (this.bobPhase + (walked / stride) * Math.PI * 2) % (Math.PI * 2);
+    const want = walked > 1e-6 && !this.isAirborne ? 1 : 0;
     this.moving += (want - this.moving) * Math.min(1, dt / BOB_BLEND);
     this.pushing += ((this.pushContact.pushed ? 1 : 0) - this.pushing) * Math.min(1, dt / PUSH_BLEND);
 
@@ -689,6 +782,7 @@ export class PointerLockPlayer {
     const amp = BOB_AMPLITUDE * (1 + this.sprint * (SPRINT_BOB_SCALE - 1));
     const bob = this.moving * amp * Math.sin(this.bobPhase * 2);
     const idle = IDLE_AMPLITUDE * Math.sin(this._t * IDLE_RATE);
-    this.object.position.y = this.groundY + this.eyeHeight - this.crouch * CROUCH_DROP + bob + idle;
+    this.object.position.y = this.groundY + this.eyeHeight - this.crouch * CROUCH_DROP + bob + idle
+      + this.jumpHeight - this.landingDip;
   }
 }

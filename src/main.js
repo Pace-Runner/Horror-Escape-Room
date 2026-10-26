@@ -479,6 +479,11 @@ camera.layers.enable(MAIN_ONLY);
 
 // ---------- player ----------
 const player = new PointerLockPlayer(camera, renderer.domElement);
+/** A landing is a footfall: louder the harder it comes down. */
+const LANDING_THUMP_MAX_LEVEL = 0.45;
+player.onLand = (landingSpeed) => {
+  audio.thump(Math.min(LANDING_THUMP_MAX_LEVEL, 0.12 * landingSpeed));
+};
 
 // The opening restraint is a presentation beat, not a frozen cutscene: the
 // player can inspect the bedding and headboard but cannot turn toward the room.
@@ -1702,6 +1707,8 @@ function updateThirdPerson(dt) {
     : 0;
   bodyTurnRate += (rawTurnRate - bodyTurnRate) * (1 - Math.exp(-dt / TP_TURN_TAU));
   playerBody.setPosition(camera.position.x, camera.position.z);
+  // Off the floor by the jump, so third person (and the mirror) see it jump too.
+  playerBody.position.y = player.jumpHeight;
   playerBody.setYaw(bodyFacing);
   playerBody.setSpeed(bodySpeed);
   // Optional-chained: these arrive with the player gait in OkabeCreature.js,
@@ -5954,6 +5961,8 @@ function tick() {
   const dt = realDt * freeCamera.timeScale;
   elapsed += dt;
 
+  // The free camera flies up on Space; the player must not hop underneath it.
+  player.jumpEnabled = !freeCamera.isActive;
   player.update(dt);
   // Footsteps ride the player's own bob clock, so they land with the visual dip
   // and stop dead when a wall does. See AudioEngine.updateFootsteps.
