@@ -68,6 +68,7 @@ import { LEVEL_ASSETS } from './world/levelAssetDependencies.js';
 import flashlightModelUrl from './assets/models/flashlight.glb?url';
 import { GRAPHICS_QUALITIES, DEFAULT_GRAPHICS_QUALITY, readPixelRatio } from './core/GraphicsQuality.js';
 import { createFrameRateCounter } from './core/FrameRateCounter.js';
+import { createDropPhysics } from './world/DropPhysics.js';
 
 console.time('APP_BOOT');
 deferModelLoads();
@@ -1042,8 +1043,31 @@ function placeDroppedItem(id) {
   // prompt works the moment the item lands, with no setTargets() call.
   level.interactables.push(hitbox);
   droppedItems.set(id, { levelKey: sceneManager.activeKey, level, holder, hitbox });
+  // Everything above decided where it ends up; now it falls there from the hand.
+  camera.getWorldDirection(_dropRelease);
+  _dropRelease.y = 0;
+  _dropRelease.normalize().multiplyScalar(DROP_RELEASE_FORWARD_IN_METRES).add(camera.position);
+  _dropRelease.y -= DROP_RELEASE_BELOW_EYE_IN_METRES;
+  dropPhysics.drop(holder, _dropRelease);
   return true;
 }
+
+/**
+ * Where a dropped item leaves the hand: a little in front of and below the eye,
+ * about where the held item is drawn. See world/DropPhysics.js.
+ */
+const DROP_RELEASE_FORWARD_IN_METRES = 0.35;
+const DROP_RELEASE_BELOW_EYE_IN_METRES = 0.35;
+const _dropRelease = new THREE.Vector3();
+/** The loudest a landing thump gets, and the impact speed (m/s) that reaches it. */
+const DROP_THUMP_MAX_LEVEL = 0.32;
+const DROP_THUMP_FULL_SPEED_IN_METRES_PER_SECOND = 4;
+const dropPhysics = createDropPhysics({
+  onImpact: (impactSpeed) => {
+    const level = DROP_THUMP_MAX_LEVEL * Math.min(1, impactSpeed / DROP_THUMP_FULL_SPEED_IN_METRES_PER_SECOND);
+    if (level > 0.02) audio.thump(level);
+  }
+});
 
 /** Takes a dropped prop and its hitbox out of the world. Does not touch the inventory. */
 function removeDroppedProp(id) {
@@ -5974,6 +5998,7 @@ function tick() {
     backroomsBarks.update(dt);
   }
   dustMotes.update(dt, elapsed);
+  dropPhysics.update(dt);
   // Per rendered frame rather than on a fixed step: the hands are
   // presentation, and pinning them to 60 Hz on a 144 Hz display would throw
   // away smoothness the display can actually show.
