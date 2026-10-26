@@ -1,3 +1,4 @@
+import { createStudyRevealAudio } from './cutscenes/studyRevealAudio.js';
 import { createMarkThoughts } from './systems/MarkThoughts.js';
 import { createSessionTapeFocus } from './cutscenes/session14.js';
 import * as THREE from 'three';
@@ -1147,18 +1148,24 @@ const paperRustle = () => sfx('paper') || audio.paperRustle();
 // ---------- interaction / captions ----------
 // One caption authority for the whole game. Interaction forwards examine text
 // to it; story beats call captions.play([...]) and can await the result.
-const markThoughts = createMarkThoughts(audio);
-const thought = (key, options) => markThoughts.play(key, options);
 const captions = new CaptionSequencer(captionEl);
+const markThoughts = createMarkThoughts(audio, { captions,
+  canPlay: entry => !cutscene.isRunning && !tapePlaying && (!documentUI.isOpen || entry.document)
+});
+const thought = (key, options) => markThoughts.play(key, options);
 const interaction = new Interaction(camera, promptEl, captions);
 // Voice follows the caption rather than the other way round: the caption is
 // the primary channel and always exists, the clip may not. A line with no
 // `voice` key, or whose clip has not been recorded yet, is simply silent.
 captions.onLineStart = (line) => {
-  if (line.voice && !tapePlaying) audio.playVoice(line.voice);
+  if (line.markThought || line.revealManaged) return;
+  markThoughts.clear();
+  audio.stopVoice();
+  const voice = line.voice;
+  if (voice && !tapePlaying) audio.playVoice(voice);
 };
 // Text-only lines show even with captions off -- see CaptionSequencer.isVoiced.
-captions.isVoiced = (line) => audio.hasVoice(line?.voice);
+captions.isVoiced = (line) => line?.recorded || audio.hasVoice(line?.voice);
 function showCaption(text) {
   interaction.showCaption(text);
 }
@@ -1272,6 +1279,7 @@ const boneTarget = (getFigure, bone, fallbackHeight) => () => {
 };
 const cutscene = createCutsceneRunner({
   camera, player, interaction, hands, dustMotes, captions, fade,
+  onTake: () => { markThoughts.clear(); audio.stopVoice(); contextualHints.hide(); },
   targets: {
     'creature.head': boneTarget(() => creature, 'head', 1.9),
     'creature.chest': boneTarget(() => creature, 'chest', 1.4),
@@ -2160,11 +2168,12 @@ sceneManager.register('upstairsHallway', upstairsHallway);
 
 // ---------- contextual H-key hints ----------
 const contextualHints = createContextualHints();
-const HINT_LEVELS = new Set(['bedroom', 'upstairsHallway', 'hallwayBasement', 'backrooms']);
+const HINT_LEVELS = new Set(['bedroom', 'upstairsHallway', 'hallwayBasement', 'backrooms', 'study']);
 const HINT_CONTEXT_RANGE_METRES = 3.2;
 const hintPosition = new THREE.Vector3();
 
 function readHintProgress() {
+  if (sceneManager.activeKey === 'study') return study.refs.puzzle;
   if (sceneManager.activeKey === 'bedroom') {
     return { ...bedroom.refs.puzzleState, ...bedroom.refs.hintProgress, flashlightFound };
   }
@@ -2855,6 +2864,9 @@ const STUDY_LOCK_SFX = { deadbolt: 'deadbolt_open', combination: 'padlock_open',
 
 const study = createDeferredLevel(() => createStudyLevel({
   showCaption,
+  onThought: thought,
+  onVoiceProgress: () => { markThoughts.cancel('l3_hint_clock'); markThoughts.cancel('l3_hint_shadow'); },
+  canAutoThought: () => player.isLocked && !documentUI.isOpen && !cutscene.isRunning && !tapePlaying && !transitionInFlight,
   getPlayerPosition: () => camera.position,
   // Into the hotbar and the hand, as the other levels' pickups are.
   onPickUpItem: (id) => pickUpItem(id),
@@ -2897,7 +2909,7 @@ const study = createDeferredLevel(() => createStudyLevel({
     visor.take();
     pickUpItem('visor');
     objectiveEl.textContent = 'Put the visor on. [V]';
-    captions.play(line('dialog_visor_found'));
+
   },
   onTakeDoorKey: () => {
     sfx('keys_pickup');
@@ -2933,9 +2945,15 @@ const study = createDeferredLevel(() => createStudyLevel({
 
   // The study guards completion/generation; the shared runner owns input and
   // hand-back. Both cameras follow the same routed first-person eye positions.
-  onLookInMirror: () => {
+  onLookInMirror: async () => {
     if (cutscene.isRunning || !study.refs.puzzle.mirrorUnlocked) return Promise.resolve(false);
     const refs = study.refs;
+    const revealAudio=createStudyRevealAudio(audio,{cancelThoughts:()=>markThoughts.clear(),
+      position:[refs.annabelleSpot[0],.7,refs.annabelleSpot[1]]});
+    let voiceDurations;
+    try { voiceDurations=await revealAudio.prepare();await refs.cornerReady; }
+    catch(error){revealAudio.dispose();refs.cancelRevealPresentation();console.error('Study reveal audio could not load:',error);return false;}
+    const cornerCreature=refs.annabelleMonster;
     const wasVisorWorn = gameState.visorWorn;
     const root = creature.refs.root;
     const creatureScale = root.scale.clone();
@@ -2948,6 +2966,7 @@ const study = createDeferredLevel(() => createStudyLevel({
     setThirdPerson(false);
     player.clearKeys();
     const restoreCreature = () => {
+      cornerCreature.visible=false;
       creature.visible = false;
       creatureStanding = false;
       root.scale.copy(creatureScale);
@@ -2959,26 +2978,30 @@ const study = createDeferredLevel(() => createStudyLevel({
     };
     try {
       tintStrength.value = 0.45;
-      refs.installMirrorReflection(createStudyMirrorReflection({
-        glass: refs.mirrorGlass, body: playerBody, hollow: creature, getCamera: () => cutscene.camera
-      }));
       const scene = buildStudyReveal({
         start: camera.position.toArray(), startQuaternion: camera.quaternion.toArray(), annabelleSpot: refs.annabelleSpot,
-        camera, player, visor, captions, refs, creature,
+        camera, player, visor, captions, refs, creature:cornerCreature,
+        voiceDurations,playDialogue:revealAudio.playDialogue,stopDialogue:revealAudio.stopDialogue,
+        playAlert:revealAudio.playAlert,
+        setPanic:(value,descent=false)=>{
+          postFX.visorPass.uniforms.uPanic.value=value;
+          postFX.visorPass.uniforms.uDescentPanic.value=descent?1:0;
+        },
         prepareCreature: () => {
           creatureAI.stop();
           creatureStanding = false;
           creatureLinger = null;
           root.scale.copy(creatureScale);
-          creature.setTwitches(false);
-          creature.studyPresenceTime = 0;
-          creature.setYaw(Math.atan2(-(CHAIR_EYE[0] - refs.annabelleSpot[0]),
+          cornerCreature.setTwitches(false);
+          cornerCreature.studyPresenceTime = 0;
+          cornerCreature.setYaw(Math.atan2(-(CHAIR_EYE[0] - refs.annabelleSpot[0]),
             -(CHAIR_EYE[2] - refs.annabelleSpot[1])));
-          poseStudyCreature(creature, refs.annabelleSpot);
-          creature.visible = false;
+          poseStudyCreature(cornerCreature, refs.annabelleSpot);
+          cornerCreature.visible = false;
         },
         restoreCreature,
         onFinish: (completed) => {
+          revealAudio.dispose();
           tintStrength.value = previousTint;
           fade.clear();
           if (completed) objectiveEl.textContent = 'Take the Project HOLLOW access keycard from the chair.';
@@ -2993,12 +3016,18 @@ const study = createDeferredLevel(() => createStudyLevel({
       restoreCreature();
       refs.cancelRevealPresentation();
       tintStrength.value = previousTint;
+      revealAudio.dispose();
       console.error('Study reveal could not start:', error);
       return Promise.resolve(false);
     }
   }
 }), (level) => {
   installMirrorReflection(level.refs.mirror);
+  const reflection=createStudyMirrorReflection({glass:level.refs.mirrorGlass,body:playerBody,hollow:creature,
+    getCamera:()=>cutscene.isRunning?cutscene.camera:thirdPerson?thirdCam:camera,
+    getActorPose:()=>cutscene.isRunning?null:{position:camera.position,yaw:player.yaw,floorY:player.groundY+player.jumpHeight},
+    getHiddenObjects:readViewModelParts});
+  reflection.reset();level.refs.installMirrorReflection(reflection);
   itemMeshes.setTemplate('visor', level.refs.visorGroup);
   itemMeshes.setTemplate('archiveToken', level.refs.archiveToken);
   itemMeshes.setTemplate('archiveKey', level.refs.archiveKey);
@@ -3992,7 +4021,7 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   // AFTER script.cancel() above, or the beat this fires is cancelled by the
   // very activation that started it.
   ON_ENTER[key]?.();
-  const prefixes = { bedroom: 'l1', upstairsHallway: 'hallway', hallwayBasement: 'l2', backrooms: 'backrooms', study: 'backrooms' };
+  const prefixes = { bedroom: 'l1', upstairsHallway: 'hallway', hallwayBasement: 'l2', backrooms: 'backrooms', study: 'l3' };
   markThoughts.preload(prefixes[key]);
   if (key === 'hallwayBasement') {
     generatorProgressStarted = false;
@@ -4003,7 +4032,7 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
     thought('l2_20', { delay: 1, when: () => hallwayBasement.refs.powerStage === 'dead' });
   }
   if (key === 'backrooms') thought('backrooms_01');
-  if (key === 'study') { thought('backrooms_06', { delay: 0.8 }); thought('backrooms_07'); }
+
   return level;
 }
 
@@ -4310,6 +4339,11 @@ window.addEventListener('keydown', (e) => {
   if (openingSequenceActive) return;
   if (e.code === 'KeyH') { showHint(e); return; }
   if (!player.isLocked) return;
+  if (import.meta.env.DEV && (e.code === 'Digit5' || e.code === 'Digit6')) {
+    if(e.repeat||e.ctrlKey||e.metaKey||e.altKey
+      ||e.target?.closest?.('input, textarea, select, [contenteditable], [role="textbox"]'))return;
+    e.preventDefault();void window.__game.prepareStudyRevealTest(e.code === 'Digit6');return;
+  }
   // A cutscene owns the view and the hand, so nothing that acts through either
   // reaches the game until it hands back -- see KEYS_HELD_BY_CUTSCENES.
   if (cutscene.isRunning && KEYS_HELD_BY_CUTSCENES.has(e.code)) return;
@@ -4389,7 +4423,7 @@ window.addEventListener('keydown', (e) => {
       showCaption(line('dialog_visor_not_carried'));
     } else {
       sfx(result === 'on' ? 'visor_on' : 'visor_off');
-      captions.play(result === 'on' ? line('dialog_visor_first_worn') : line('dialog_visor_removed'));
+      if (sceneManager.activeKey !== 'study') captions.play(result === 'on' ? line('dialog_visor_first_worn') : line('dialog_visor_removed'));
     }
   }
   if (e.code === 'KeyR' && !e.repeat) openRestartConfirm();
@@ -5136,7 +5170,28 @@ player.controls.addEventListener('unlock', () => {
 //
 // Nothing here grants a capability a player does not have with the keyboard.
 if (import.meta.env.DEV) {
+  let studyRevealTestBusy=false;
+  async function prepareStudyRevealTest(direct=false) {
+    if(studyRevealTestBusy||endingInFlight)return;
+    studyRevealTestBusy=true;
+    try {
+      abortTransition();cutscene.cancel();player.clearKeys();startModelLoads();
+      await study.prepare();
+      study.refs.prepareRevealTest(direct); // invalidates any stale letter-close callback
+      documentUI.close();activateLevel('study');setThirdPerson(false);
+      gameState.letterRead=direct;gameState.endingChosen=null;
+      consumeItem('hollowOverrideKey');pickUpItem('visor',{animate:false});visor.set(false);visor.refresh();
+      postFX.visorPass.uniforms.uPanic.value=0;postFX.visorPass.uniforms.uDescentPanic.value=0;
+      player.crouch=0;player.setLookBounds(null);player.spawn(4.4,-5.35,0,-Math.atan2(1.13,.525));
+      player.lookEnabled=true;player.movementEnabled=true;interaction.setEnabled(true);
+      if(direct){
+        // The same guarded reveal entry point called by normal letter closure.
+        void study.refs.mirrorGlass.userData.interact.onInteract();
+      }
+    } finally { studyRevealTestBusy=false; }
+  }
   window.__game = {
+    prepareStudyRevealTest,
     hallwayBlinks,
     // Opens the bedroom onto the hall as the door would, without the puzzle chain.
     openToHallway,
@@ -6107,7 +6162,7 @@ function tick() {
     }
   }
   markThoughts.update({ blocked: transitionInFlight || caughtInFlight || tapePlaying
-    || cutscene.isRunning || jumpScareRunning || labCreatureExit?.phase === 'run' || !player.isLocked
+    || cutscene.isRunning || jumpScareRunning || labCreatureExit?.phase === 'run' || (!player.isLocked && !documentUI.isOpen)
     || (sceneManager.activeKey === 'hallwayBasement' && performance.now() < levelTwoCriticalUntil) });
 
   postFX.update(dt);

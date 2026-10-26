@@ -1,0 +1,77 @@
+<!doctype html><meta charset="utf-8"><title>Mirror stability test</title><style>body{margin:0;background:#000}canvas{display:block}#status{position:fixed;top:0;background:#111c;color:white;padding:8px;font:14px monospace;z-index:2}</style><div id="status">Loading study</div><script type="module">
+import * as T from '/node_modules/three/build/three.module.js';
+import {createStudyLevel} from '/src/levels/studyLevel.js';
+import {createOkabeCreature} from '/src/systems/OkabeCreature.js';
+import {createStudyMirrorReflection} from '/src/cutscenes/studyMirrorReflection.js';
+import {gameState} from '/src/core/GameState.js';
+const errors=[];window.addEventListener('error',e=>errors.push(e.message));
+const renderer=new T.WebGLRenderer({antialias:false,preserveDrawingBuffer:true});renderer.setSize(1280,720);renderer.setPixelRatio(1);renderer.outputColorSpace=T.SRGBColorSpace;renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;renderer.debug.onShaderError=()=>errors.push('shader error');document.body.append(renderer.domElement);
+function buildDimEnvironment(rendererRef) {
+  // 2:1 LANDSCAPE, and that ratio is not cosmetic. An equirectangular map puts
+  // longitude across the width and latitude down the height, so it must be
+  // twice as wide as it is tall. Built portrait first (16x64) and PMREM
+  // produced a degenerate 336x16 atlas that contributed literally nothing --
+  // a pure white environment at intensity 1 left a mirrored sphere at 0
+  // luminance. Measured, not guessed.
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 128;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 0, c.height);
+  g.addColorStop(0.00, '#2a2418');   // ceiling: the warm bulb bounce
+  g.addColorStop(0.45, '#14131a');   // walls: cold and dim
+  g.addColorStop(1.00, '#050505');   // floor: almost nothing comes back up
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, c.width, c.height);
+
+  const tex = new T.CanvasTexture(c);
+  tex.mapping = T.EquirectangularReflectionMapping;
+  tex.colorSpace = T.SRGBColorSpace;
+
+  const pmrem = new T.PMREMGenerator(rendererRef);
+  const env = pmrem.fromEquirectangular(tex).texture;
+  pmrem.dispose();
+  tex.dispose();
+  return env;
+}
+
+
+const scene=new T.Scene();scene.fog=new T.FogExp2(0x0c0a06,.02);scene.environment=buildDimEnvironment(renderer);scene.environmentIntensity=.5;
+const camera=new T.PerspectiveCamera(70,1280/720,.05,100);
+const level=createStudyLevel({getPlayerPosition:()=>camera.position});scene.add(level.group);
+const body=createOkabeCreature({clean:true,gait:'player'}),hollow=createOkabeCreature({restCorrection:0});for(const actor of [body,hollow]){actor.visible=false;actor.setTwitches(false);scene.add(actor.group);}
+await Promise.all([body.ready,hollow.ready,level.refs.warmUpReady,level.refs.cornerReady]);
+const mirror=createStudyMirrorReflection({glass:level.refs.mirrorGlass,body,hollow,getCamera:()=>camera});level.refs.installMirrorReflection(mirror);mirror.setCinematic(false);mirror.setEnabled(true);
+// Only normal free-view transforms are exercised: no reveal or choreography runs.
+const target=new T.Vector3(4.8,1.45,-6.372),route=[
+ ['front',[4.8,1.6,-5.28],target.toArray(),1],
+ ['look-left',[4.8,1.6,-5.28],[4.45,1.45,-6.372],2],
+ ['look-right',[4.8,1.6,-5.28],[5.15,1.45,-6.372],2],
+ ['look-up',[4.8,1.6,-5.28],[4.8,2.0,-6.372],2],
+ ['look-down',[4.8,1.6,-5.28],[4.8,.8,-6.372],2],
+ ['backward',[4.8,1.6,-1.2],target.toArray(),3],
+ ['toward',[4.8,1.6,-5.28],target.toArray(),3],
+ ['side',[2.4,1.6,-4.6],target.toArray(),3],
+ ['stair-top',[7.25,4.7,-1.88],target.toArray(),.01],
+ ['stairs-down',[7.25,1.6,2.60],target.toArray(),7],
+ ['away',[6.5,1.6,3.5],target.toArray(),2],
+ ['return',[4.8,1.6,-5.28],target.toArray(),4],
+ ['visor-toggles',[4.8,1.6,-5.28],target.toArray(),5]
+];
+let running=false,done=false,index=0,segmentT=0,from=new T.Vector3(),lookFrom=target.clone(),look=target.clone(),last=performance.now();
+const metrics={},captures=[],badMatrices=[];let count=0,captureName=null,lastStairSample=-1;
+function start(){camera.position.set(4.8,1.6,-5.28);camera.lookAt(target);from.copy(camera.position);running=true;last=performance.now();}
+function tick(now){const dt=Math.min(.1,(now-last)/1000),raw=(now-last)/1000;last=now;
+ if(running&&!done){const [name,pos,aim,duration]=route[index];segmentT+=dt;const u=Math.min(1,segmentT/duration),p=u*u*(3-2*u);camera.position.lerpVectors(from,new T.Vector3(...pos),p);look.lerpVectors(lookFrom,new T.Vector3(...aim),p);camera.lookAt(look);if(name==='visor-toggles')mirror.setCorrected(Math.floor(segmentT*2)%2===1);
+ (metrics[name]??=[]).push(raw);document.getElementById('status').textContent=name+' | '+JSON.stringify(mirror.quality)+' | errors '+errors.length;
+ if(name==='stairs-down'&&Math.floor(segmentT)!==lastStairSample){lastStairSample=Math.floor(segmentT);captureName='stairs-mid-'+lastStairSample;}
+ if(u===1){captureName=name;from.copy(camera.position);lookFrom.copy(look);segmentT=0;if(++index===route.length){done=true;running=false;}}
+ }
+ level.update(dt);if(route[Math.min(index,route.length-1)][0]==='visor-toggles')mirror.setCorrected(Math.floor(segmentT*2)%2===1);mirror.setTime(now/1000);renderer.render(scene,camera);if(captureName){captures.push({name:captureName,image:renderer.domElement.toDataURL('image/png')});captureName=null;}
+ const matrix=mirror.mirror.camera.projectionMatrix.elements;if(!matrix.every(Number.isFinite))badMatrices.push(index);
+ if(++count%30===0&&mirror.hasFrame){const a=mirror.mirror.material.uniforms.textureMatrix.value.elements;if(!a.every(Number.isFinite))badMatrices.push(index);}
+ requestAnimationFrame(tick);
+}
+camera.position.set(4.8,1.6,-5.28);camera.lookAt(target);requestAnimationFrame(tick);
+window.stability={start,camera,mirror,level,renderer,captures,errors,get done(){return done},get results(){return {errors,badMatrices,fps:Object.fromEntries(Object.entries(metrics).map(([k,v])=>[k,{fps:v.length/v.reduce((a,b)=>a+b,0),frames:v.length}])),quality:mirror.quality,target:[mirror.mirror.getRenderTarget().width,mirror.mirror.getRenderTarget().height],hasFrame:mirror.hasFrame};}};
+</script>

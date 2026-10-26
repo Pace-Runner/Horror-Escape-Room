@@ -56,6 +56,14 @@ for (const [path, url] of Object.entries(VOICE_FILES)) {
   if (!(bare in VOICE_URLS)) VOICE_URLS[bare] = url;
 }
 
+// Mark recordings share the same voice bus and request generation as dialogue.
+const MARK_VOICE_FILES=import.meta.glob('../assets/audio/Dont Let it out Mark voice/**/*.mp3',{
+  query:'?url',import:'default',eager:true
+});
+for(const [path,url] of Object.entries(MARK_VOICE_FILES)){
+  VOICE_URLS['mark/'+path.split('Dont Let it out Mark voice/')[1]]=url;
+}
+
 /**
  * The same key a dialogue file wrote, however it was written: tolerant of a
  * leading "src/assets/voice/" or "voice/", backslashes, and the extension.
@@ -68,9 +76,6 @@ function voiceUrl(key) {
 // Voice sits above the ambience: a line that has to compete with the wind for
 // intelligibility is a line the player will miss, and these carry the plot.
 const VOICE_LEVEL = 0.9;
-// Long enough not to click, short enough that cutting one line off for the
-// next is not audibly a fade.
-const VOICE_FADE = 0.12;
 
 // Loop window in seconds, MEASURED off the shipped file rather than guessed at.
 //
@@ -448,6 +453,7 @@ export class AudioEngine {
     // nothing about whether audio has been unlocked yet.
     this.voiceGain = null;
     this.voiceSource = null;
+    this.voiceGeneration = 0;
     this.voiceBuffers = new Map();
     this.voiceWarned = new Set();
 
@@ -848,88 +854,54 @@ export class AudioEngine {
    * A missing key is not an error. Text is the primary channel here; audio is
    * an enhancement that may never arrive for a given line.
    */
-  playVoice(key) {
-    if (!key || !this.ctx || !this.voiceGain) return false;
-    const url = voiceUrl(key);
-    if (!url) {
-      if (!this.voiceWarned.has(key)) {
-        this.voiceWarned.add(key);
-        console.info(`[audio] no voice clip for "${key}" -- caption only`);
-      }
-      return false;
-    }
+  preloadVoice(key) {
+    if(!key||!this.ctx)return Promise.resolve(null);
+    const url=voiceUrl(key);if(!url)return Promise.resolve(null);
+    const cached=this.voiceBuffers.get(key);if(cached)return Promise.resolve(cached);
+    const pending=fetch(url).then(res=>{if(!res.ok)throw Error(`HTTP ${res.status}`);return res.arrayBuffer();})
+      .then(bytes=>this.ctx?.decodeAudioData(bytes)).then(buffer=>{
+        if(buffer)this.voiceBuffers.set(key,buffer);return buffer;
+      }).catch(error=>{this.voiceBuffers.delete(key);console.warn(`[audio] could not load ${key}: ${error.message}`);return null;});
+    this.voiceBuffers.set(key,pending);return pending;
+  }
 
-    const cached = this.voiceBuffers.get(key);
-    if (cached instanceof AudioBuffer) {
-      this.#startVoice(cached);
-      return true;
-    }
-    // Already in flight: let the pending decode start it when it lands, rather
-    // than firing a second fetch for the same clip.
-    if (cached) return true;
-
-    const pending = fetch(url)
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.arrayBuffer();
-      })
-      .then((bytes) => this.ctx.decodeAudioData(bytes))
-      .then((buffer) => {
-        if (!this.ctx) return;
-        this.voiceBuffers.set(key, buffer);
-        this.#startVoice(buffer);
-      })
-      .catch((err) => {
-        // Dropped from the cache so a later attempt can retry rather than
-        // being stuck behind a promise that already failed.
-        this.voiceBuffers.delete(key);
-        if (!this.voiceWarned.has(key)) {
-          this.voiceWarned.add(key);
-          console.warn(`[audio] could not load voice clip "${key}": ${err.message}`);
-        }
-      });
-    this.voiceBuffers.set(key, pending);
+  playVoice(key,options={}) {
+    this.stopVoice();
+    const generation=this.voiceGeneration;
+    if(!key||!this.ctx||!this.voiceGain||!voiceUrl(key)){options.onFailed?.();return false;}
+    const start=buffer=>{
+      if(generation!==this.voiceGeneration)return;
+      if(buffer)this.#startVoice(buffer,options);else options.onFailed?.();
+    };
+    const cached=this.voiceBuffers.get(key);
+    if(cached instanceof AudioBuffer)start(cached);
+    else this.preloadVoice(key).then(start);
     return true;
   }
 
-  /** Cuts the current line. Called on restart and when a sequence is cancelled. */
+  /** Invalidates pending decodes too: interrupted lines never start later. */
   stopVoice() {
-    const src = this.voiceSource;
-    this.voiceSource = null;
-    if (!src || !this.ctx) return;
-    const now = this.ctx.currentTime;
-    const gain = src.__fade;
-    if (gain) {
-      gain.gain.cancelScheduledValues(now);
-      gain.gain.setValueAtTime(gain.gain.value, now);
-      gain.gain.linearRampToValueAtTime(0, now + VOICE_FADE);
-    }
-    src.stop(now + VOICE_FADE);
+    this.voiceGeneration=(this.voiceGeneration||0)+1;
+    const src=this.voiceSource;this.voiceSource=null;
+    if(!src)return;
+    src.__interrupted=true;
+    try{src.stop();}catch{}
+    src.disconnect();src.__fade?.disconnect();src.__onInterrupted?.();
   }
 
-  #startVoice(buffer) {
-    if (!this.ctx || !this.voiceGain) return;
-    this.stopVoice();
-    const ctx = this.ctx;
-    const src = ctx.createBufferSource();
-    src.buffer = buffer;
-
-    // Per-source fade, so cutting one line short cannot leave the bus turned
-    // down for the next -- the same reason the breathing loop has one.
-    const fade = ctx.createGain();
-    const now = ctx.currentTime;
-    fade.gain.setValueAtTime(0, now);
-    fade.gain.linearRampToValueAtTime(1, now + VOICE_FADE);
-
-    src.connect(fade).connect(this.voiceGain);
-    src.__fade = fade;
-    src.onended = () => {
-      src.disconnect();
-      fade.disconnect();
-      if (this.voiceSource === src) this.voiceSource = null;
+  #startVoice(buffer,options={}) {
+    if(!this.ctx||!this.voiceGain)return;
+    const ctx=this.ctx,src=ctx.createBufferSource(),fade=ctx.createGain();
+    src.buffer=buffer;fade.gain.setValueAtTime(0,ctx.currentTime);
+    fade.gain.linearRampToValueAtTime(1,ctx.currentTime+.05);
+    src.connect(fade).connect(this.voiceGain);src.__fade=fade;
+    src.__onInterrupted=options.onInterrupted;
+    src.onended=()=>{
+      src.disconnect();fade.disconnect();
+      if(this.voiceSource===src)this.voiceSource=null;
+      if(!src.__interrupted)options.onEnded?.();
     };
-    src.start(now);
-    this.voiceSource = src;
+    this.voiceSource=src;src.start();options.onStarted?.(buffer,src);
   }
 
   #noiseBuffer(seconds = 2) {

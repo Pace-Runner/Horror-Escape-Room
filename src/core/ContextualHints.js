@@ -4,6 +4,18 @@ const DISPLAY_MILLISECONDS = 5500;
 
 /** Reads completion from the actual puzzles, without advancing their state. */
 export function getAvailableHintKeys(level, progress = {}) {
+  if (level === 'study') {
+    if (progress.endingChoice !== 'NONE' && progress.endingChoice) return [];
+    if (progress.hasHollowOverrideKey) return ['l3_choice'];
+    if (progress.mirrorRevealed) return [];
+    if (progress.truthRecordsSolved) return ['l3_letter'];
+    if (progress.correctedTrailSolved) return ['l3_restricted'];
+    if (progress.memoryVisorCollected) return ['l3_trail', 'l3_visor'];
+    if (progress.memoryArchiveSolved) return ['l3_visor'];
+    if (progress.crestSolved) return ['l3_memory'];
+    if (progress.clockSolved) return ['l3_crest'];
+    return ['l3_clock'];
+  }
   if (level === 'upstairsHallway') return ['hallway_progress'];
   if (level === 'backrooms') return ['backrooms_progress'];
   if (level === 'bedroom') {
@@ -45,6 +57,7 @@ export function selectHintKey(level, progress, contextKeys = []) {
 export function createContextualHints() {
   const box = document.createElement('aside');
   box.id = 'contextual-hint';
+  box.className = 'game-hint';
   box.hidden = true;
   box.setAttribute('aria-live', 'polite');
   const heading = document.createElement('strong');
@@ -54,11 +67,14 @@ export function createContextualHints() {
   document.body.append(box);
   const indices = new Map();
   let timeout = null;
+  let fadeTimeout = null;
 
   function hide() {
     clearTimeout(timeout);
     timeout = null;
-    box.hidden = true;
+    clearTimeout(fadeTimeout);
+    box.classList.remove('visible');
+    fadeTimeout = setTimeout(() => { box.hidden = true; }, 200);
   }
 
   return {
@@ -69,7 +85,11 @@ export function createContextualHints() {
       indices.set(key, Math.min(index + 1, hints.length - 1));
       clearTimeout(timeout);
       text.textContent = hints[index];
+      clearTimeout(fadeTimeout);
       box.hidden = false;
+      // Flush the hidden state once so the first display also fades in.
+      void box.offsetWidth;
+      box.classList.add('visible');
       timeout = setTimeout(hide, DISPLAY_MILLISECONDS);
     },
     hide,

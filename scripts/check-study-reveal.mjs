@@ -12,7 +12,7 @@ import {clone as cloneSkeleton} from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { createCutsceneRunner } from '../src/core/Cutscene.js';
 import { createStudyMirrorReflection } from '../src/cutscenes/studyMirrorReflection.js';
 import { CaptionSequencer } from '../src/core/CaptionSequencer.js';
-import { buildStudyReveal, studyMirrorRoute, createStudyChoreography, REVEAL_DURATION, REVEAL_TIMES, CHAIR_EYE, poseStudyCreature, MIRROR_EYE } from '../src/cutscenes/studyReveal.js';
+import { buildStudyReveal, studyMirrorRoute, createStudyChoreography, REVEAL_DURATION, REVEAL_TIMES, REVEAL_DIALOGUE, CHAIR_EYE, poseStudyCreature, MIRROR_EYE } from '../src/cutscenes/studyReveal.js';
 import { ANNABELLE_FINAL_LETTER } from '../src/story/studyReveal.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
@@ -86,7 +86,7 @@ globalThis.__studyTestModel = url => {
 
 try {
   const bundle = await build({ stdin: { contents: "export {createStudyLevel} from './src/levels/studyLevel.js';export {gameState} from './src/core/GameState.js';", resolveDir: rootDir },
-    bundle: true, write: false, platform: 'node', format: 'esm', packages: 'external', plugins: [{ name: 'study-test', setup(b) {
+    bundle: true, write: false, platform: 'node', format: 'esm', packages: 'external', define:{'import.meta.env.DEV':'true'}, plugins: [{ name: 'study-test', setup(b) {
       b.onResolve({ filter: /\?url$/ }, a => ({ path: a.path, namespace: 'asset' }));
       b.onLoad({ filter: /.*/, namespace: 'asset' }, a => ({ contents: `export default ${JSON.stringify(a.path)}` }));
       b.onLoad({ filter: /[\\/]modelLoader\.js$/ }, () => ({ contents: 'export const loadModel=url=>globalThis.__studyTestModel(url);' }));
@@ -94,6 +94,36 @@ try {
     } }] });
   fs.writeFileSync(bundlePath, bundle.outputFiles[0].text);
   const { createStudyLevel, gameState } = await import(pathToFileURL(bundlePath));
+
+  // Voice hooks must follow actual interactions, never visibility/proximity.
+  {
+    const events = []; let progress = 0, allowAuto = true;
+    const voiceLevel = createStudyLevel({ onThought: (key, options) => events.push({key, options}),
+      onVoiceProgress: () => progress++, canAutoThought: () => allowAuto,
+      onPickUpItem: id => gameState.inventory.add(id) });
+    const use = label => {
+      const target = voiceLevel.interactables.find(t => t.userData.interact?.label === label);
+      assert(target, `missing interaction ${label}`); target.userData.interact.onInteract();
+    };
+    voiceLevel.update(60); assert.equal(events.length, 0, 'unengaged clock spoke automatically');
+    use('Turn hour hand (+1 hour)'); assert.equal(events[0].key, 'l3_01');
+    voiceLevel.update(54); assert(!events.some(e => e.key === 'l3_hint_clock'));
+    allowAuto = false; voiceLevel.update(30); assert(!events.some(e => e.key === 'l3_hint_clock'), 'document started hint');
+    allowAuto = true; voiceLevel.update(1); assert.equal(events.filter(e => e.key === 'l3_hint_clock').length, 1);
+    voiceLevel.update(60); assert.equal(events.filter(e => e.key === 'l3_hint_clock').length, 1);
+    const oldProgress = progress;
+    for (let i = 0; i < 3; i++) use('Turn minute hand (+5 minutes)');
+    assert(voiceLevel.refs.puzzle.clockSolved); assert(progress > oldProgress);
+    assert.equal(events.filter(e => e.key === 'l3_02').length, 1);
+    voiceLevel.update(3); const sigil = voiceLevel.interactables.find(t => t.userData.interact?.label === 'Take the Brass Sigil'); assert(sigil); sigil.userData.interact.onInteract(); sigil.userData.interact.onInteract();
+    assert.equal(events.filter(e => e.key === 'l3_03').length, 1);
+    voiceLevel.refs.puzzle.memoryVisorCollected = true;
+    voiceLevel.update(1); assert(!events.some(e => e.key === 'l3_06'), 'trail spoke from sight/update');
+    use('Examine the trail'); use('Examine the trail');
+    assert.equal(events.filter(e => e.key === 'l3_06' && e.options.replayable).length, 2);
+    console.log('PASS: Level 3 deliberate clock/trail triggers, engaged 55s one-shot hint, document suppression, solve interruption hook, single sigil pickup, replayable trail request.');
+    gameState.inventory.clear();
+  }
 
   // A real reflected camera renders the room and staged body, then restores ownership.
   const scene = new THREE.Scene(), group = new THREE.Group(), root = new THREE.Group();
@@ -105,9 +135,12 @@ try {
     setCorrection(v) { this.correction = v; }, setSpeed() {}, setCrouch() {}, update() {} };
   const eye = new THREE.PerspectiveCamera(60, 16/9, .05, 100);
   eye.position.fromArray(MIRROR_EYE); eye.lookAt(4.8, 1.45, -6.372); eye.updateMatrixWorld();
+  const originalProjection=eye.projectionMatrix.clone(),originalInverse=eye.projectionMatrixInverse.clone();
   const glass = new THREE.Mesh(new THREE.PlaneGeometry(.674,1.77),new THREE.MeshStandardMaterial());
   glass.position.set(4.8,1.08,-6.373); scene.add(glass); scene.updateMatrixWorld(true);
   const controller = createStudyMirrorReflection({ glass, body, getCamera:()=>eye });
+  root.rotation.set(0,Math.PI,0,'XYZ');root.children[0].rotation.set(0,Math.PI,0,'XYZ');
+  const savedRootRotation=root.rotation.toArray(),savedShellRotation=root.children[0].rotation.toArray();
   controller.mirror.updateMatrixWorld(true);
   const captures = [];
   const renderer = { xr: { enabled:true }, shadowMap: { autoUpdate:true },
@@ -120,15 +153,57 @@ try {
   controller.setEnabled(true);controller.mirror.onBeforeRender(renderer,scene,eye);
   controller.setCorrected(true);controller.mirror.onBeforeRender(renderer,scene,eye);
   assert.deepEqual(captures,[1,0]);assert(!body.visible);assert.equal(body.correction,1);
+  // Side/stair/pitched views must use the unchanged viewer projection and a
+  // world-plane reflected eye; invalid views keep the last matching texture.
+  const bias=new THREE.Matrix4().set(.5,0,0,.5,0,.5,0,.5,0,0,.5,.5,0,0,0,1);
+  for(const [position,target] of [
+    [[4.8,1.6,-5.28],[4.45,1.45,-6.373]],
+    [[4.8,1.6,-5.28],[4.8,2,-6.373]],
+    [[2.4,1.6,-4.6],[4.8,1.45,-6.373]],
+    [[7.25,4.7,-1.88],[4.8,1.45,-6.373]],
+    [[7.25,1.6,2.6],[4.8,1.45,-6.373]]]) {
+    eye.position.fromArray(position);eye.lookAt(...target);eye.updateMatrixWorld();
+    controller.setTime(position[1]+position[2]+20);
+    controller.setCorrected(position[0] < 4.9);
+    controller.mirror.onBeforeRender(renderer,scene,eye);
+    assert(eye.projectionMatrix.equals(originalProjection),'mirror mutated main projection');
+    assert(controller.mirror.camera.projectionMatrix.elements.every(Number.isFinite));
+    const planeZ=controller.mirror.getWorldPosition(new THREE.Vector3()).z;
+    assert(Math.abs(controller.mirror.camera.position.z-(2*planeZ-eye.position.z))<1e-6);
+    const expected=bias.clone().multiply(eye.projectionMatrix).multiply(controller.mirror.camera.matrixWorldInverse).multiply(controller.mirror.matrixWorld);
+    assert(controller.mirror.material.uniforms.textureMatrix.value.equals(expected),'unstable texture projection');
+  }
+  const frozenProjection=controller.mirror.material.uniforms.textureMatrix.value.clone(),rendersBeforeInvalid=captures.length;
+  for(const [position,target] of [[[4.8,1.6,-6.8],[4.8,1.6,-5]],[[4.8,1.6,-5.28],[5.8,1.6,-5.28]]]){
+    eye.position.fromArray(position);eye.lookAt(...target);eye.updateMatrixWorld();
+    controller.mirror.onBeforeRender(renderer,scene,eye);
+    assert(controller.mirror.material.uniforms.textureMatrix.value.equals(frozenProjection));
+    assert(controller.hasFrame&&controller.mirror.visible);
+  }
+  assert.equal(captures.length,rendersBeforeInvalid,'back/grazing view rendered an invalid projection');
+  eye.position.fromArray(MIRROR_EYE);eye.lookAt(4.8,1.45,-6.373);eye.updateMatrixWorld();
+
   assert.deepEqual(root.position.toArray(),[2,0,3]);assert.equal(renderer.target,null);
-  assert.equal(controller.mirror.getRenderTarget().width,512);assert.equal(controller.mirror.getRenderTarget().height,512);
+  assert.deepEqual(root.rotation.toArray(),savedRootRotation,'reflection corrupted a 180-degree logical heading');
+  assert.deepEqual(root.children[0].rotation.toArray(),savedShellRotation,'reflection corrupted the imported shell Euler axes');
+  assert(eye.projectionMatrix.equals(originalProjection)&&eye.projectionMatrixInverse.equals(originalInverse));
+  assert.equal(controller.mirror.getRenderTarget().width,1024);assert.equal(controller.mirror.getRenderTarget().height,2048);
+  const stableTexture=controller.mirror.getRenderTarget().texture;
+  controller.setCinematic(false);eye.position.set(4.8,1.6,0);eye.lookAt(4.8,1.45,-6.373);eye.updateMatrixWorld();
+  controller.mirror.onBeforeRender(renderer,scene,eye);
+  assert.equal(controller.quality.interval,6);assert(controller.mirror.visible&&controller.hasFrame);
+  assert.equal(controller.mirror.getRenderTarget().texture,stableTexture);
+  controller.reset();assert(controller.mirror.visible&&controller.hasFrame);
+  eye.position.fromArray(MIRROR_EYE);eye.lookAt(4.8,1.45,-6.372);eye.updateMatrixWorld();
+  controller.setCinematic(true);
   renderer.render=()=>{throw new Error('expected render failure');};
   assert.throws(()=>controller.mirror.onBeforeRender(renderer,scene,eye));
   assert(!body.visible&&renderer.xr.enabled&&renderer.shadowMap.autoUpdate);assert.equal(renderer.target,null);
+  assert(eye.projectionMatrix.equals(originalProjection)&&eye.projectionMatrixInverse.equals(originalInverse));
   controller.dispose();
 
   let fullDuration = 0;
-  for (const cancelAt of [null, 0.2, 3, 13.5, 18, 28, 31]) {
+  for (const cancelAt of [null, 0.2, 3, 13.5, 18, 28, 31, REVEAL_DURATION-2]) {
     gameState.inventory.clear(); gameState.hasVisor = true; gameState.visorWorn = true; gameState.endingChosen = false;
     const camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.05, 100);
     camera.position.set(4.4, 4.7, -5.35);
@@ -138,7 +213,7 @@ try {
     const interaction = { enabled: true, setEnabled(on) { this.enabled = on; } };
     const captions = new CaptionSequencer({ style: {}, classList: classes(), textContent: '' });
     captions.setEnabled(false); // Every essential placeholder must remain readable.
-    const spoken = []; captions.onLineStart = line => { spoken.push(line); assert(!line.voice); };
+    const spoken = []; captions.onLineStart = line => { spoken.push(line); assert(line.voice?.startsWith('mark/LEVEL 3/')); };
     const cutscene = createCutsceneRunner({ camera, player, interaction, captions });
     const creature = { visible: false, setCorrection(v) { this.correction = v; }, setSpeed() {}, update() {}, offsetBones() {} };
     let read, calls = 0, completed = 0, promise;
@@ -173,7 +248,15 @@ try {
         assert(dx * dx + dz * dz >= 0.35 ** 2 - 1e-6, `route blocker at ${x},${y},${z}`);
       }
     }
-    level.refs.puzzle.truthRecordsSolved = true; level.update(0.8);
+    const beforeClock=level.refs.puzzle.clockSolved;
+    level.refs.prepareRevealTest(true);
+    assert(level.refs.puzzle.mirrorUnlocked&&level.refs.puzzle.truthRecordsComplete);
+    assert(!level.refs.letterHit.visible&&!level.refs.puzzle.mirrorRevealInProgress);
+    level.refs.prepareRevealTest();
+    assert.equal(level.refs.puzzle.clockSolved,beforeClock);
+    assert.equal(level.refs.puzzle.endingChoice,'NONE');
+    assert(!level.refs.puzzle.mirrorUnlocked&&!level.refs.puzzle.mirrorRevealed);
+    assert(level.refs.letterHit.visible&&level.interactables.includes(level.refs.letterHit));
     level.refs.letterHit.userData.interact.onInteract(); level.refs.letterHit.userData.interact.onInteract();
     assert.equal(read.body, ANNABELLE_FINAL_LETTER);
     assert(read.body.includes('Put on the visor.\n\nLook in the mirror.'));
@@ -192,7 +275,8 @@ try {
       sawCreature ||= creature.visible; sawHuman ||= level.refs.annabelle.visible;
       sawCard ||= level.refs.hollowOverrideKey.visible;
       assert.equal(endings.length, 0);
-      assert(elapsed < 70, 'scene did not hand back');
+      assert(elapsed < REVEAL_DURATION+1, 'scene did not hand back');
+      if(elapsed<REVEAL_TIMES.annabelle+REVEAL_DIALOGUE.find(b=>b.id==='override').t-.45) assert(!level.refs.hollowOverrideKey.visible,'card appeared before the handoff');
     }
     await promise; await Promise.resolve();
     assert(player.movementEnabled && player.lookEnabled && interaction.enabled && !player.cinematic && player.isLocked);
@@ -206,7 +290,11 @@ try {
       const head=level.refs.annabelle.getObjectByName('mixamorig:Head');
       assert(head);const headBefore=head.getWorldPosition(new THREE.Vector3());level.update(.1);
       assert(head.getWorldPosition(new THREE.Vector3()).distanceTo(headBefore)>.0001,'Annabelle idle is frozen');
-      assert.equal(spoken.length, 3);
+      assert.equal(spoken.length, 2+REVEAL_DIALOGUE.length);
+      for(const on of [false,true,false,true,false,true]){gameState.visorWorn=on;level.refs.setCorrectedSight(on);level.update(.02);assert.equal(level.refs.annabelle.visible,on);assert.equal(level.refs.annabelleMonster.visible,!on);}
+      assert.equal(level.refs.puzzle.endingChoice,'NONE');
+      assert.deepEqual(spoken.slice(2).map(line=>line.text),REVEAL_DIALOGUE.map(b=>`${b.speaker}: ${b.text}`));
+      assert(REVEAL_DIALOGUE.every((b,i)=>!i||b.t>=REVEAL_DIALOGUE[i-1].t+REVEAL_DIALOGUE[i-1].hold+.49));
       assert(spoken.every(line => line.always));
       assert.deepEqual(camera.position.toArray(), CHAIR_EYE);
       const pickup = level.interactables.find(h => h.userData.interact.label === 'Take the PROJECT HOLLOW ACCESS KEYCARD');
@@ -243,9 +331,10 @@ try {
     before=now;
   }
   console.log(`Camera maxima: ${maxSpeed.toFixed(2)} m/s, ${(maxAngular*180/Math.PI).toFixed(1)} deg/s.`);
-  console.log(`PASS: ${fullDuration.toFixed(2)}s reveal; one-shot letter close; collision-clear stairs route; 512px planar room reflection transaction; exclusive creature/Annabelle swap; actual crouched-mesh height/reset; three silent captions; card pickup/endings; six cancellation points; control restoration.`);
+  console.log(`PASS: ${fullDuration.toFixed(2)}s reveal; one-shot letter close; collision-clear stairs route; 1024x2048 stable projective planar reflection; side/stair/pitch world-plane math; grazing/back-side retained frame; exclusive creature/Annabelle swap; actual crouched-mesh height/reset; timed dialogue/pauses; late card handoff/pickup/endings; seven cancellation points; control restoration.`);
   console.log('Headless geometry/state/GPU-call validation. Browser-rendered appearance and pointer-lock permission were not exercised.');
 } finally {
   fs.rmSync(bundlePath, { force: true });
   delete globalThis.__studyTestModel;
 }
+

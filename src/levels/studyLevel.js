@@ -4,6 +4,8 @@ import { createVisorGallery } from './studyVisorGallery.js';
 import { createStudyDecor } from './studyDecor.js';
 import { createStudySurfaces } from './studySurfaces.js';
 import { createAnnabelle } from './annabelleFigure.js';
+import { createOkabeCreature } from '../systems/OkabeCreature.js';
+import { poseStudyCreature, updateStudyCreature } from '../cutscenes/studyReveal.js';
 import { createClockMechanism } from './clockMechanism.js';
 import { createArchivePresentation, createArchiveRecord, buildArchiveVisor, createVisorGlassMap } from './studyArchivePresentation.js';
 import { addStudyFootprints } from './studyFootprints.js';
@@ -44,6 +46,9 @@ const LOFT_D = 5.8;
 /** Level 3 study: the archive puzzles lead to the final front exit. */
 export function createStudyLevel({
   showCaption = () => {},
+  onThought = () => {},
+  onVoiceProgress = () => {},
+  canAutoThought = () => true,
   // The front door starting to swing, with its world position. Not the later
   // press that walks through it.
   onDoorOpening = () => {},
@@ -508,6 +513,21 @@ export function createStudyLevel({
   };
   let mirrorRevealGeneration = 0;
 
+  // Voice timing is presentation-only; puzzle state remains authoritative.
+  let spokenPuzzle = null, stuckSeconds = 0;
+  const spokenHints = new Set(), evidenceRead = new Set();
+  function voiceProgress(next = null) {
+    spokenPuzzle = next; stuckSeconds = 0; onVoiceProgress();
+  }
+  function readEvidence(id) {
+    evidenceRead.add(id);
+    if (evidenceRead.size >= 3) onThought('l3_07', { priority: 50 });
+  }
+  function correctedEvidence() {
+    if (puzzle.memoryVisorCollected && gameState.visorWorn) onThought('l3_05', { priority: 50 });
+  }
+
+
   // Preserve the decorative drawer reference; its visible geometry is in the GLB.
   const drawer = new THREE.Group();
   drawer.position.set(0.651, 0.552, 0.374);
@@ -602,10 +622,14 @@ export function createStudyLevel({
     }
     onSfx('latch');
     showCaption('A hidden clock door clicks open.');
+    voiceProgress();
+    onThought('l3_02', { priority: 40 });
   }
 
   function rotateClockHand(part) {
     if (puzzle.clockSolved) return;
+    voiceProgress('clock');
+    onThought('l3_01');
     if (part === 'hour') puzzle.clockHour = (puzzle.clockHour + 1) % 12;
     else puzzle.clockMinute = (puzzle.clockMinute + 5) % 60;
     setClockHands();
@@ -655,6 +679,7 @@ export function createStudyLevel({
       const index = interactables.indexOf(archiveTokenHitbox);
       if (index >= 0) interactables.splice(index, 1);
       showCaption('Brass Sigil acquired.');
+      voiceProgress(); onThought('l3_03', { priority: 40 });
     }
   };
   clockMechanism.root.add(archiveTokenHitbox);
@@ -797,6 +822,7 @@ export function createStudyLevel({
     }
     onSfx('latch');
     showCaption('The shadows form one crest. A hidden compartment opens.');
+    voiceProgress();
   }
 
   [[1.05, 0.2], [0, 0.85], [-1.05, 0.2]].forEach(([x, y], index) => {
@@ -812,6 +838,7 @@ export function createStudyLevel({
       label: `${crestLampNames[index]} lamp`,
       onInteract: () => {
         if (!puzzle.crestSigilInserted || puzzle.crestSolved) return;
+        voiceProgress('shadow');
         puzzle.crestLampStates[index] = (puzzle.crestLampStates[index] + 1) % 3;
         updateCrestShadows();
         onSfx('metal_click');
@@ -828,6 +855,7 @@ export function createStudyLevel({
   crestHit.userData.interact = {
     label: 'Examine the brass socket',
     onInteract: () => {
+      if (!puzzle.crestSolved) voiceProgress('shadow');
       if (puzzle.crestSigilInserted) {
         showCaption(puzzle.crestSolved ? 'The archive crest is open.' : 'The sigil is installed. Three lamps can be turned.');
         return;
@@ -1003,12 +1031,14 @@ export function createStudyLevel({
   const portrait = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.7), portraitMat);
   portrait.position.set(-ROOM_W / 2 + 0.05, 1.7, 1);
   portrait.rotation.y = Math.PI / 2;
+  portrait.userData.hintKey = 'l3_visor';
   portrait.userData.interact = {
     label: 'Examine family portrait',
     onInteract: () => {
       showCaption(line(portraitMat.map === portraitTexTrue
         ? 'dialog_portrait_with_visor'
         : 'dialog_portrait_without_visor'));
+      correctedEvidence();
     }
   };
   interactables.push(portrait);
@@ -1138,6 +1168,7 @@ export function createStudyLevel({
         updateMemoryRecords();
         showCaption(`${recordCategories[index]}: ${recordOptions[index][puzzle.memoryRecordSelections[index]]}`);
         trySolveMemoryArchive();
+        voiceProgress(); readEvidence(`memory-record-${index}`);
       }
     };
     memoryContents.add(hit);
@@ -1155,7 +1186,7 @@ export function createStudyLevel({
     display.mesh.position.set([1, -1, 0][index] * 0.46, 1.72, 0.24);
     display.mesh.userData.interact = {
       label: `Read archive clue ${index + 1}`,
-      onInteract: () => showCaption(text)
+      onInteract: () => { showCaption(text); voiceProgress(); readEvidence(`memory-clue-${index}`); }
     };
     memoryArchive.add(display.mesh);
     interactables.push(display.mesh);
@@ -1216,6 +1247,7 @@ export function createStudyLevel({
   );
   visorHitbox.position.copy(visorGroup.position);
   visorHitbox.visible = false;
+  visorHitbox.userData.hintKey = 'l3_visor';
   visorHitbox.userData.interact = {
     label: 'Pick up the visor',
     onInteract: () => {
@@ -1228,7 +1260,9 @@ export function createStudyLevel({
       onTakeVisor();
       gameState.hasVisor = true;
       gameState.inventory.add('visor');
+      voiceProgress();
       showCaption('CALIBRATION VISOR ACQUIRED — Press V to toggle.');
+      onThought('l3_04', { priority: 40 });
     }
   };
   group.add(visorHitbox);
@@ -1256,6 +1290,16 @@ export function createStudyLevel({
   visorOnly.add(bloodTrail);
   addStudyFootprints({ distortedTrail, bloodTrail, visorOnly,
     stairX, stairBottomZ, stairCount, stairDepth, stairRise, loftY: LOFT_Y });
+  for (const trail of [distortedTrail, bloodTrail]) trail.traverse(mesh => {
+    if (!mesh.isMesh) return;
+    mesh.userData.hintKey = 'l3_trail';
+    mesh.userData.interact = { label: 'Examine the trail', onInteract: () => {
+      if (!puzzle.memoryVisorCollected || puzzle.mirrorRevealInProgress) return;
+      onThought('l3_06', { replayable: true, priority: 30 });
+    }};
+    interactables.push(mesh);
+  });
+
 
   // A shallow restricted archive alcove stands in front of the rear shelves;
   // no wall, shelf, or stair geometry needs to be moved to reveal it.
@@ -1383,6 +1427,7 @@ export function createStudyLevel({
           showCaption('The timeline resets.');
           return;
         }
+        voiceProgress();
         puzzle.truthRecordProgress++;
         showCaption((gameState.visorWorn ? truthCorrectedLines[index] : truthNormalLines[index]).join('\n'));
         if (puzzle.truthRecordProgress === 3) {
@@ -1399,6 +1444,8 @@ export function createStudyLevel({
           }
         }
         updateTruthRecords();
+        readEvidence(`truth-record-${index}`); correctedEvidence();
+        if (puzzle.truthRecordsSolved) voiceProgress('letter');
       }
     };
     hollowAlcove.add(hit);
@@ -1473,6 +1520,8 @@ export function createStudyLevel({
           showCaption('The marker is unreadable.');
           return;
         }
+        correctedEvidence();
+        voiceProgress();
         if (index !== puzzle.correctedTrailProgress) {
           puzzle.correctedTrailProgress = 0;
           updateTrailMarkers();
@@ -1526,6 +1575,8 @@ export function createStudyLevel({
     label: "Read Annabelle's letter",
     onInteract: () => {
       if (!puzzle.truthRecordsSolved || !letterDoorMotion.isOpen() || letterReading || puzzle.truthRecordsComplete) return;
+      voiceProgress();
+      onThought('l3_08', { priority: 50, document: true });
       letterReading = true;
       const letterGeneration = mirrorRevealGeneration;
       onReadLetter({
@@ -1603,7 +1654,7 @@ export function createStudyLevel({
           return;
         }
         puzzle.mirrorRevealed = true;
-        showAnnabelle(true);
+        syncRevealedFigure();
         hollowOverrideKey.visible = !puzzle.hasHollowOverrideKey;
         hollowOverrideKeyHit.visible = !puzzle.hasHollowOverrideKey;
         if (!puzzle.hasHollowOverrideKey && !interactables.includes(hollowOverrideKeyHit)) {
@@ -1631,6 +1682,15 @@ export function createStudyLevel({
   annabelle.rotation.y = Math.atan2(2.4, 1.3);
   annabelle.visible = false;
   group.add(annabelle);
+  // One logical person; independent skeletons prevent mirror posing from
+  // leaking into the corner. Only one representation is ever drawn.
+  const annabelleMonster=createOkabeCreature({restCorrection:0,gait:'player',scale:.90});
+  annabelleMonster.visible=false;annabelleMonster.setTwitches(false);
+  group.add(annabelleMonster.group);
+  const cornerReady=annabelleMonster.ready.then(()=>{
+    annabelleMonster.setYaw(annabelle.rotation.y-Math.PI);
+    poseStudyCreature(annabelleMonster,[annabelle.position.x,annabelle.position.z]);
+  });
   /** Solid only while she is there to bump into: parked out of reach when hidden. */
   const ANNABELLE_BOX = { minX: annabelle.position.x - 0.22, maxX: annabelle.position.x + 0.22,
     minZ: annabelle.position.z - 0.22, maxZ: annabelle.position.z + 0.22, minY: 0, maxY: 1.38 };
@@ -1641,6 +1701,14 @@ export function createStudyLevel({
     Object.assign(annabelleCollider, on ? ANNABELLE_BOX
       : { minX: -1000, maxX: -1000, minZ: -1000, maxZ: -1000, minY: 0, maxY: 0 });
   }
+  function syncRevealedFigure() {
+    if(!puzzle.mirrorRevealed)return;
+    const on=gameState.visorWorn;
+    annabelleFigure.setCrouched(true);annabelleFigure.setCorrectedSight(on);
+    showAnnabelle(on);annabelleMonster.visible=!on;
+    Object.assign(annabelleCollider,ANNABELLE_BOX);
+    mirrorPresentation?.setCorrected(on);
+  }
   // The chair's GLB is authored at metre scale, floor-centred, facing +Z into
   // the study. Leave a pocket behind it and a clear approach past the fireplace.
   const concealmentChair = new THREE.Group();
@@ -1648,6 +1716,9 @@ export function createStudyLevel({
   concealmentChair.position.set(-6.98, 0, -4.98);
   concealmentChair.scale.setScalar(1);
   concealmentChair.rotation.y = 0.52;
+  // Her open hand rests on the rear shoulder of the existing chair shell.
+  concealmentChair.updateMatrixWorld(true);
+  annabelleFigure.setBracePoint(concealmentChair.localToWorld(new THREE.Vector3(-0.39,0.92,-0.35)));
   group.add(concealmentChair);
   loadStudyModel(annabelleChairUrl).then((model) => {
     model.traverse((object) => {
@@ -1975,6 +2046,13 @@ export function createStudyLevel({
   studySurfaces.alignSurfaces(group, wallMat, ROOM_H);
   batchStudyPuzzleDetails(group);
 
+  for (const [targets, key] of [
+    [[hourHandHitbox, minuteHandHitbox], 'l3_clock'],
+    [[crestHit, ...crestLampHits, crestClue], 'l3_crest'],
+    [[archiveCabinetHit, ...memoryRecordHits], 'l3_memory'],
+    [truthRecordHits, 'l3_restricted'], [[letterHit], 'l3_letter']
+  ]) for (const target of targets) target.userData.hintKey = key;
+
   return {
     group,
     interactables,
@@ -2005,7 +2083,8 @@ export function createStudyLevel({
         distortedTrail.visible = !on;
         updateTruthRecords(on);
         updateOverrideLabels(on);
-        annabelleFigure.setCorrectedSight(puzzle.mirrorRevealed || on);
+        annabelleFigure.setCorrectedSight(on);
+        syncRevealedFigure();
       },
       visorGroup,
       visorHitbox,
@@ -2015,6 +2094,7 @@ export function createStudyLevel({
       /** Where Annabelle stands once the letter has been read. */
       annabelleSpot: [annabelle.position.x, annabelle.position.z],
       annabelle,
+      annabelleMonster,cornerReady,
       /** Settles once her model is in, so the warm-up draws her and not an empty group. */
       warmUpReady: annabelleFigure.ready,
       /**
@@ -2043,19 +2123,25 @@ export function createStudyLevel({
         mirrorPresentation?.dispose();
         mirrorPresentation = presentation;
       },
+      get mirrorPresentation() { return mirrorPresentation; },
       setMirrorRevealSight,
+      setMirrorPerformanceTime(t) { mirrorPresentation?.setTime?.(t); },
+      performAnnabelleLine(id,hold) { annabelleFigure.perform(id,hold); },
+      setAnnabelleCardGlance(weight) { annabelleFigure.setAttention(hollowOverrideKey.position,weight); },
       setMirrorRevealActive(on) {
-        mirrorPresentation?.setEnabled(on);
+        mirrorPresentation?.setEnabled(true);
+        mirrorPresentation?.setCinematic?.(on);
         if (on) mirror.mesh.visible = false;
       },
       cancelRevealPresentation() {
         if (puzzle.mirrorRevealed) return;
         showAnnabelle(false);
+        annabelleMonster.visible=false;
         hollowOverrideKey.visible = false;
         hollowOverrideKeyHit.visible = false;
         const index = interactables.indexOf(hollowOverrideKeyHit);
         if (index >= 0) interactables.splice(index, 1);
-        mirrorPresentation?.setEnabled(false);
+        mirrorPresentation?.reset?.();
       },
       setRevealAnnabelle(on) {
         if (on && (puzzle.mirrorRevealInProgress || puzzle.mirrorRevealed)) {
@@ -2077,6 +2163,38 @@ export function createStudyLevel({
       hollowOverrideKey,
       overrideSockets,
       puzzle,
+      ...(import.meta.env.DEV ? {
+        prepareRevealTest(direct=false) {
+          // Invalidate a previously opened letter before its UI is closed.
+          mirrorRevealGeneration++;letterReading=false;
+          Object.assign(puzzle,{correctedTrailSolved:true,truthRecordsSolved:true,
+            truthRecordsComplete:direct,mirrorUnlocked:direct,mirrorRevealInProgress:false,
+            mirrorRevealed:false,hasHollowOverrideKey:false,endingChoice:'NONE',endingSequenceStarted:false});
+          mirrorPresentation?.reset?.();mirror.reset();
+          annabelleFigure.reset();showAnnabelle(false);annabelleMonster.visible=false;
+          hollowOverrideKey.visible=false;hollowOverrideKeyHit.visible=false;
+          const cardIndex=interactables.indexOf(hollowOverrideKeyHit);
+          if(cardIndex>=0)interactables.splice(cardIndex,1);
+          const mirrorIndex=interactables.indexOf(mirrorGlass);
+          if(mirrorIndex>=0)interactables.splice(mirrorIndex,1);
+          mirrorGlass.userData.interact.label='Look into the mirror';
+          overrideAuthorization=null;resealTurning=false;resealTurnProgress=0;
+          resealBolts.visible=false;resealBolts.scale.x=1;
+          for(const socket of overrideSockets){
+            socket.installedKey.visible=false;socket.reader.setAuthorized(false);
+            if(socket.handle)socket.handle.pivot.rotation.z=0;
+            const i=interactables.indexOf(socket.handleHit);if(i>=0)interactables.splice(i,1);
+          }
+          doorState.open=false;doorHinge.rotation.y=0;setDoorSolid(true);
+          restrictedDoorMotion.update(1,true);letterDoorMotion.update(1,true);
+          letterPaper.visible=!direct;letterHit.visible=!direct;
+          const letterIndex=interactables.indexOf(letterHit);
+          if(direct&&letterIndex>=0)interactables.splice(letterIndex,1);
+          if(!direct&&letterIndex<0)interactables.push(letterHit);
+          if(direct)interactables.push(mirrorGlass);
+          updateTruthRecords(gameState.visorWorn);updateOverrideLabels(gameState.visorWorn);
+        }
+      } : {}),
       doorState,
       frontDoorSlabHit,
       drawer,
@@ -2094,6 +2212,7 @@ export function createStudyLevel({
      * thrown, its drawer open and its front door standing wide.
      */
     reset() {
+      spokenPuzzle = null; stuckSeconds = 0; spokenHints.clear(); evidenceRead.clear(); onVoiceProgress();
       puzzle.clockHour = 10;
       puzzle.clockMinute = 0;
       puzzle.clockSolved = false;
@@ -2156,11 +2275,11 @@ export function createStudyLevel({
       puzzle.truthRecordsComplete = false;
       puzzle.mirrorUnlocked = false;
       mirrorRevealGeneration++;
-      mirrorPresentation?.dispose();
-      mirrorPresentation = null;
+      mirrorPresentation?.reset?.();
       annabelleFigure.reset();
       puzzle.mirrorRevealInProgress = false;
       puzzle.mirrorRevealed = false;
+      annabelleMonster.visible=false;
       puzzle.hasHollowOverrideKey = false;
       puzzle.endingChoice = 'NONE';
       puzzle.endingSequenceStarted = false;
@@ -2203,12 +2322,35 @@ export function createStudyLevel({
     },
 
     update(dt) {
+      if (spokenPuzzle) {
+        const solved = spokenPuzzle === 'clock' ? puzzle.clockSolved
+          : spokenPuzzle === 'shadow' ? puzzle.crestSolved : puzzle.truthRecordsComplete;
+        if (solved) voiceProgress();
+        else if (canAutoThought()) {
+          stuckSeconds += Math.max(0, dt);
+          const limit = spokenPuzzle === 'letter' ? 60 : 55;
+          if (stuckSeconds >= limit && !spokenHints.has(spokenPuzzle)) {
+            spokenHints.add(spokenPuzzle);
+            if (spokenPuzzle === 'letter') showCaption('I need to read this.');
+            else onThought(`l3_hint_${spokenPuzzle}`, { priority: 20 });
+          }
+        }
+      }
       updateExterior(dt);
+      if(puzzle.mirrorRevealed){
+        syncRevealedFigure();
+        if(annabelleMonster.visible)updateStudyCreature(annabelleMonster,dt);
+      }
+      if(mirrorPresentation&&!puzzle.mirrorRevealInProgress){
+        mirrorPresentation.setEnabled(true);
+        mirrorPresentation.setCorrected(puzzle.mirrorRevealed&&gameState.visorWorn);
+        mirrorPresentation.setTime?.(performance.now()/1000);
+      }
       mirror.setReflective(puzzle.mirrorUnlocked);
       mirror.update(dt);
       // The cutscene owns the glass while its dedicated actors are staged.
       // Keep one planar renderer active to avoid nested mirror renders.
-      if (puzzle.mirrorRevealInProgress || mirrorPresentation?.enabled) mirror.mesh.visible = false;
+      if (puzzle.mirrorRevealInProgress || mirrorPresentation) mirror.mesh.visible = false;
       if (annabelle.visible) annabelleFigure.update(dt, getPlayerPosition());
       if (resealTurning && puzzle.endingChoice === 'NONE') {
         resealTurnProgress = Math.min(1, resealTurnProgress + Math.max(0, dt) / 1.0);

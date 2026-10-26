@@ -1,0 +1,71 @@
+<!doctype html><meta charset="utf-8"><title>Level 3 recovery review</title><link rel="stylesheet" href="/src/style.css"><style>body{margin:0;overflow:hidden}canvas{width:100vw;height:100vh;display:block}#review{position:fixed;top:8px;left:8px;z-index:200;background:#111d;color:#eee;padding:10px;font:14px monospace}button{margin:4px;padding:8px}#gallery{display:none}#caption-box{z-index:201}</style><div id="review"><span id="status">Loading real study...</span><br><button id="start" disabled>Play full reveal</button><button id="toggle">Toggle visor after reveal</button><button id="mirror">Look at mirror after reveal</button></div><div id="caption-box"></div><div id="gallery"></div><script type="module">
+import {AudioEngine} from '/src/world/AudioEngine.js';import {createStudyRevealAudio} from '/src/cutscenes/studyRevealAudio.js';import {createMarkThoughts} from '/src/systems/MarkThoughts.js';import {REVEAL_VOICE_LINES,createStudyRevealTiming} from '/src/cutscenes/studyReveal.js';
+import * as T from '/node_modules/three/build/three.module.js';
+import {createStudyLevel} from '/src/levels/studyLevel.js';import {createOkabeCreature} from '/src/systems/OkabeCreature.js';import {createStudyMirrorReflection} from '/src/cutscenes/studyMirrorReflection.js';import {buildStudyReveal,REVEAL_DURATION,REVEAL_TIMES,REVEAL_DIALOGUE,CHAIR_EYE,poseStudyCreature,studyPanic} from '/src/cutscenes/studyReveal.js';import {createCutsceneRunner} from '/src/core/Cutscene.js';import {PointerLockPlayer} from '/src/core/PointerLockPlayer.js';import {CaptionSequencer} from '/src/core/CaptionSequencer.js';import {createPostFX} from '/src/world/Postprocessing.js';import {createVisor} from '/src/core/Visor.js';import {gameState} from '/src/core/GameState.js';
+const status=document.getElementById('status'),start=document.getElementById('start'),errors=[];window.addEventListener('error',e=>errors.push(e.message));
+const renderer=new T.WebGLRenderer({antialias:false,preserveDrawingBuffer:true});renderer.setSize(1280,720);renderer.setPixelRatio(1);renderer.outputColorSpace=T.SRGBColorSpace;renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;renderer.debug.onShaderError=()=>errors.push('shader error');document.body.append(renderer.domElement);
+function buildDimEnvironment(rendererRef) {
+  // 2:1 LANDSCAPE, and that ratio is not cosmetic. An equirectangular map puts
+  // longitude across the width and latitude down the height, so it must be
+  // twice as wide as it is tall. Built portrait first (16x64) and PMREM
+  // produced a degenerate 336x16 atlas that contributed literally nothing --
+  // a pure white environment at intensity 1 left a mirrored sphere at 0
+  // luminance. Measured, not guessed.
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 128;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 0, c.height);
+  g.addColorStop(0.00, '#2a2418');   // ceiling: the warm bulb bounce
+  g.addColorStop(0.45, '#14131a');   // walls: cold and dim
+  g.addColorStop(1.00, '#050505');   // floor: almost nothing comes back up
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, c.width, c.height);
+
+  const tex = new T.CanvasTexture(c);
+  tex.mapping = T.EquirectangularReflectionMapping;
+  tex.colorSpace = T.SRGBColorSpace;
+
+  const pmrem = new T.PMREMGenerator(rendererRef);
+  const env = pmrem.fromEquirectangular(tex).texture;
+  pmrem.dispose();
+  tex.dispose();
+  return env;
+}
+
+const scene=new T.Scene();scene.fog=new T.FogExp2(0x0c0a06,.02);scene.environment=buildDimEnvironment(renderer);scene.environmentIntensity=.5;
+const camera=new T.PerspectiveCamera(70,1280/720,.05,100),player=new PointerLockPlayer(camera,renderer.domElement),captions=new CaptionSequencer(document.getElementById('caption-box')),interaction={enabled:true,setEnabled(v){this.enabled=v;}},cutscene=createCutsceneRunner({camera,player,interaction,captions}),postFX=createPostFX(renderer,scene,camera);postFX.visorPass.uniforms.uTintStrength.value=.45;
+const hollow=createOkabeCreature({restCorrection:0});hollow.visible=false;hollow.setTwitches(false);scene.add(hollow.group);const body=createOkabeCreature({clean:true,gait:'player'});body.visible=false;body.setCorrection(1);scene.add(body.group);
+let mirror,elapsed=0,completed=false,clock=0,last=performance.now(),started=false;const spoken=[],samples=[],fps={},images=[];captions.onLineStart=l=>{spoken.push({t:elapsed,text:l.text,voice:l.voice,managed:l.revealManaged});pendingCapture=!!l.revealManaged;};captions.isVoiced=l=>audio.hasVoice(l.voice)||l.recorded;
+const audio=new AudioEngine();audio.start();await audio.ctx.resume();
+const thoughts=createMarkThoughts(audio,{captions});let oldThought=null,durations,finalTiming;
+const voiceEvents=[],activeVoices=new Set();let maxVoices=0,currentLine=null,peakRms=0,minAmb=1,alertTime=null,lastMirrorActor=null,cardTime=null,pendingCapture=false;
+const originalPlay=audio.playVoice.bind(audio);audio.playVoice=(key,opts={})=>originalPlay(key,{...opts,
+ onStarted(buffer,source){activeVoices.add(source);maxVoices=Math.max(maxVoices,activeVoices.size);currentLine=key;voiceEvents.push({kind:'start',key,time:audio.ctx.currentTime,duration:buffer.duration,scene:cutscene.time});opts.onStarted?.(buffer,source);},
+ onEnded(){activeVoices.clear();voiceEvents.push({kind:'end',key,time:audio.ctx.currentTime,scene:cutscene.time});currentLine=null;opts.onEnded?.();},
+ onInterrupted(){activeVoices.clear();voiceEvents.push({kind:'interrupted',key,time:audio.ctx.currentTime});currentLine=null;opts.onInterrupted?.();}});
+const analyser=audio.ctx.createAnalyser();analyser.fftSize=512;audio.voiceGain.connect(analyser);const wave=new Float32Array(512);
+let revealAudio;
+const level=createStudyLevel({getPlayerPosition:()=>camera.position,onPickUpItem:id=>gameState.inventory.add(id),onLookInMirror:async()=>{
+revealAudio=createStudyRevealAudio(audio,{cancelThoughts:()=>thoughts.clear(),position:[level.refs.annabelleSpot[0],.7,level.refs.annabelleSpot[1]]});durations=await revealAudio.prepare();finalTiming=createStudyRevealTiming(durations);
+
+mirror=createStudyMirrorReflection({glass:level.refs.mirrorGlass,body,hollow,getCamera:()=>cutscene.isRunning?cutscene.camera:camera});level.refs.installMirrorReflection(mirror);const creature=level.refs.annabelleMonster;
+const def=buildStudyReveal({start:camera.position.toArray(),startQuaternion:camera.quaternion.toArray(),annabelleSpot:level.refs.annabelleSpot,camera,player,visor,captions,refs:level.refs,creature,voiceDurations:durations,
+playDialogue:revealAudio.playDialogue,stopDialogue:revealAudio.stopDialogue,
+playAlert:()=>{alertTime=audio.ctx.currentTime;revealAudio.playAlert();},setPanic:v=>postFX.visorPass.uniforms.uPanic.value=v,prepareCreature(){creature.setYaw(level.refs.annabelle.rotation.y-Math.PI);creature.studyPresenceTime=0;poseStudyCreature(creature,level.refs.annabelleSpot);creature.visible=false;},restoreCreature(){creature.visible=false;},onFinish(done){completed=done;revealAudio.dispose();}});return cutscene.playScene(def);
+}});scene.add(level.group);const visor=createVisor({postFX,creature:hollow,getLevel:()=>level});gameState.hasVisor=true;
+await Promise.all([body.ready,hollow.ready,level.refs.warmUpReady,level.refs.cornerReady]);await audio.ready;await Promise.all(REVEAL_VOICE_LINES.map(l=>audio.preloadVoice(l.voice)));await audio.preloadVoice('mark/LEVEL 3/l3_thought_01_clock_familiar.mp3');audio.startBreathing();audio.emit('amb',{buffer:audio.cue('rain_bed'),loop:true,gain:.08});player.setGround(level.groundAt);player.groundY=3.1;player.spawn(4.4,-5.35,0,0);level.refs.puzzle.mirrorUnlocked=true;start.disabled=false;status.textContent='Ready - '+REVEAL_DURATION.toFixed(1)+'s real-time review - 1280x720';
+start.onclick=()=>{if(started)return;started=true;elapsed=0;last=performance.now();start.disabled=true;thoughts.play('l3_01');oldThought=audio.voiceSource;void level.refs.mirrorGlass.userData.interact.onInteract();};
+document.getElementById('toggle').onclick=()=>{if(completed)visor.toggle();};document.getElementById('mirror').onclick=()=>{if(completed){camera.position.set(4.8,1.6,-5.28);camera.lookAt(4.8,1.45,-6.373);}};
+const draw=renderer.render.bind(renderer);renderer.render=(room,lens)=>{if(lens===mirror?.mirror.camera){lastMirrorActor=hollow.visible?'hollow':'human';if(Math.abs(elapsed-Math.round(elapsed))<.035){const actor=hollow.visible?hollow:body;actor.group.updateMatrixWorld(true);actor.group.traverse(n=>{if(n.isSkinnedMesh)n.computeBoundingBox();});const box=new T.Box3().setFromObject(actor.group);samples.push({t:elapsed,hollow:hollow.visible,floor:box.min.y,yaw:actor.yaw,root:actor.refs.root.position.toArray(),eye:actor.refs.head.getWorldPosition(new T.Vector3()).toArray()});}}return draw(room,lens);};
+let nextImage=0;const marks=[5,9,13,16.5,20,24,35,39,43,48,55,63,70,77,85,92];
+function tick(now){const raw=(now-last)/1000;last=now;const dt=Math.min(.10,Math.max(.001,raw));clock+=dt;if(cutscene.isRunning)elapsed+=dt;captions.update(dt);level.update(dt);body.setPosition(camera.position.x,camera.position.z);body.setYaw(player.yaw);body.update(dt);cutscene.update(dt);postFX.setCamera(cutscene.isRunning?cutscene.camera:camera);postFX.update(dt);audio.updateListener(cutscene.isRunning?cutscene.camera:camera);postFX.render();
+analyser.getFloatTimeDomainData(wave);if(currentLine)peakRms=Math.max(peakRms,Math.sqrt(wave.reduce((a,b)=>a+b*b,0)/wave.length));minAmb=Math.min(minAmb,audio.buses.amb.gain.value);
+if(level.refs.hollowOverrideKey.visible&&cardTime===null)cardTime={scene:cutscene.time,audio:audio.ctx.currentTime};
+if(pendingCapture){images.push({t:cutscene.time,caption:captions.el.textContent,image:renderer.domElement.toDataURL('image/jpeg',.85)});pendingCapture=false;}
+if(started){const phase=cutscene.isRunning?(mirror.enabled?'mirror':'dialogue'):'post';(fps[phase]??=[]).push(raw);if(nextImage<marks.length&&elapsed>=marks[nextImage]){images.push({t:elapsed,caption:captions.el.textContent,image:renderer.domElement.toDataURL('image/jpeg',.82)});nextImage++;}const summary=Object.fromEntries(Object.entries(fps).map(([k,v])=>[k,(v.length/v.reduce((a,b)=>a+b,0)).toFixed(1)]));status.textContent=(completed?'COMPLETE':'PLAYING')+' '+elapsed.toFixed(1)+' / '+REVEAL_DURATION.toFixed(1)+'s | FPS '+JSON.stringify(summary)+' | errors '+errors.length+' | visor '+gameState.visorWorn+' | human '+level.refs.annabelle.visible+' monster '+level.refs.annabelleMonster.visible;
+if(level.refs.annabelle.visible&&level.refs.annabelleMonster.visible)errors.push('duplicate figures');}
+requestAnimationFrame(tick);}
+last=performance.now();requestAnimationFrame(tick);
+window.review={audio,voiceEvents,get durations(){return durations},get timing(){return finalTiming},get audioData(){return {peakRms,minAmb,maxVoices,alertTime,cardTime,oldThoughtCancelled:!!oldThought?.__interrupted,context:audio.ctx.state}},async postTest(){const states=[];camera.position.set(4.8,1.6,-5.28);camera.lookAt(4.8,1.45,-6.373);for(const on of [false,true,false,true]){visor.set(on);level.update(.02);postFX.setCamera(camera);postFX.render();await new Promise(requestAnimationFrame);states.push({on,human:level.refs.annabelle.visible,monster:level.refs.annabelleMonster.visible,mirror:lastMirrorActor});}return states;},get completed(){return completed;},get data(){return {elapsed,errors,spoken,samples,fps:Object.fromEntries(Object.entries(fps).map(([k,v])=>[k,{fps:v.length/v.reduce((a,b)=>a+b,0),frames:v.length}])),controls:player.movementEnabled&&player.lookEnabled&&!player.cinematic,ending:level.refs.puzzle.endingChoice,card:level.refs.hollowOverrideKey.visible};},images,level,visor,cutscene,postFX,renderer};
+</script>

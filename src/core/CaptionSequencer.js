@@ -1,3 +1,5 @@
+import { setupCaptionSurface, renderCaptionText } from './CaptionPresentation.js';
+
 /**
  * The game's one caption authority.
  *
@@ -70,6 +72,7 @@ function toLine(line) {
 export class CaptionSequencer {
   constructor(el) {
     this.el = el;
+    setupCaptionSurface(el);
     this.paused = false;
     // The settings-menu captions toggle. Deliberately does not touch the
     // timing state machine below or onLineStart (which is what fires the
@@ -152,7 +155,7 @@ export class CaptionSequencer {
 
   _showAside(line) {
     this._aside = { line, phase: 'in', t: 0 };
-    this.el.textContent = line.text;
+    renderCaptionText(this.el, line);
     this.el.style.transitionDuration = `${FADE}s`;
     this.el.classList.add('visible');
   }
@@ -227,6 +230,13 @@ export class CaptionSequencer {
     this.el.style.transitionDuration = '';
     this.el.classList.remove('visible');
   }
+  cancelMarkThought() {
+    if(!this._line?.markThought)return;
+    this.cancel();this.el.style.transitionDuration='0s';this.el.textContent='';
+  }
+  extendMarkThought(seconds) {
+    if(this._line?.markThought)this._line.duration=Math.max(1,seconds);
+  }
 
   setPaused(paused) {
     this.paused = paused;
@@ -248,7 +258,7 @@ export class CaptionSequencer {
     const onScreen = this._phase === 'hold' || this._phase === 'in';
     const show = onScreen && this._shows(this._line);
     // A line that started hidden never wrote its text, so write it now.
-    if (show) this.el.textContent = this._line.text;
+    if (show) renderCaptionText(this.el, this._line);
     this.el.classList.toggle('visible', show);
   }
 
@@ -304,7 +314,7 @@ export class CaptionSequencer {
     // there (captions off) is not overwritten by the story running unseen.
     if (this._shows(line)) {
       this._aside = null;
-      this.el.textContent = line.text;
+      renderCaptionText(this.el, line);
       // Set before the class flips, so the browser uses this duration for the
       // transition it is about to start rather than the previous one.
       this.el.style.transitionDuration = `${isSequence ? SWAP_FADE : FADE}s`;

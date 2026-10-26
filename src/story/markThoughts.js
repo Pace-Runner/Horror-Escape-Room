@@ -204,5 +204,16 @@ export const MARK_THOUGHTS = {
   "backrooms_07": [
     "BACKROOMS/backrooms_thought_07_why_know_it.mp3",
     "Why do I know that?"
-  ]
+  ],
+  "l3_01": ["LEVEL 3/l3_thought_01_clock_familiar.mp3", "That clock... I've seen it before."],
+  "l3_02": ["LEVEL 3/l3_thought_02_clock_solved.mp3", "Eleven fifteen... why did I know that?"],
+  "l3_03": ["LEVEL 3/l3_thought_03_sigil.mp3", "This symbol... it belongs somewhere."],
+  "l3_04": ["LEVEL 3/l3_thought_04_visor_found.mp3", "A calibration visor... why does this feel familiar?"],
+  "l3_05": ["LEVEL 3/l3_thought_05_visor_truth.mp3", "It's not hiding things... it's correcting them."],
+  "l3_06": ["LEVEL 3/l3_thought_06_blood.mp3", "That's not dirt... that's blood."],
+  "l3_07": ["LEVEL 3/l3_thought_07_records.mp3", "The same subject keeps appearing in every record."],
+  "l3_08": ["LEVEL 3/l3_thought_08_letter.mp3", "Annabelle..."],
+  "l3_hint_clock": ["LEVEL 3/l3_hint_clock_01_session.mp3", "Session fourteen... they noted the time."],
+  "l3_hint_shadow": ["LEVEL 3/l3_hint_shadow_01.mp3", "The centre stays true... the outer two turn away."]
 };
+

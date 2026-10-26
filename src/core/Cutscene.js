@@ -102,6 +102,7 @@ export function createCutsceneRunner({
   captions = null,
   fade = null,
   targets = {},
+  onTake = null,
   onHandBack = null
 } = {}) {
   /** The lens every shot is filmed through. main.js renders through it while a scene runs. */
@@ -114,6 +115,7 @@ export function createCutsceneRunner({
 
   /** Everything a scene borrows, remembered so it can be put back exactly as it was found. */
   function take(def) {
+    onTake?.();
     const borrowed = {
       movementEnabled: player.movementEnabled,
       lookEnabled: player.lookEnabled,
@@ -426,7 +428,8 @@ export function createCutsceneRunner({
       def, ctx, start, shots, cues,
       nextCue: 0,
       time: 0,
-      duration: Math.min(t0, MAX_SCENE_SECONDS),
+      duration: Math.min(t0, Number.isFinite(def.maxSeconds)
+        ? THREE.MathUtils.clamp(def.maxSeconds, MAX_SCENE_SECONDS, 150) : MAX_SCENE_SECONDS),
       held: false,
       resolve: null
     };
@@ -526,7 +529,10 @@ export function createCutsceneRunner({
     update(dt) {
       const scene = current;
       if (!scene) return;
-      if (!scene.held) scene.time = Math.min(scene.duration, scene.time + dt);
+      if (!scene.held) {
+        const next=scene.def.advanceTime?.(scene.time,dt) ?? scene.time+dt;
+        scene.time=Math.min(scene.duration,Math.max(scene.time,Number.isFinite(next)?next:scene.time+dt));
+      }
       const t = scene.time;
       fireCues(scene, t);
       if (current !== scene) return;   // a cue cancelled it

@@ -1,129 +1,54 @@
 import { MARK_THOUGHTS } from '../story/markThoughts.js';
 
-const files = import.meta.glob('../assets/audio/Dont Let it out Mark voice/**/*.mp3', {
-  query: '?url', import: 'default', eager: true
-});
-const urls = Object.fromEntries(Object.entries(files).map(([path, url]) => [
-  path.split('Dont Let it out Mark voice/')[1], url
-]));
-
-/** Queues inner thoughts through the existing mixer and audio-context clock.
- * Replayable inspections are deduplicated while pending, but can be requested
- * again after completion. Recording playback suspends and requeues a thought.
- */
-export function createMarkThoughts(audio) {
-  const box = document.createElement('div');
-  box.id = 'mark-thought';
-  box.setAttribute('aria-live', 'polite');
-  document.body.append(box);
-  const buffers = new Map();
-  const seen = new Set();
-  let queue = [];
-  let current = null;
-  let readyAt = 0;
-  let blocked = false;
-
-  function preload(key) {
-    if (!audio.ctx || buffers.has(key)) return;
-    const [file] = MARK_THOUGHTS[key];
-    const context = audio.ctx;
-    buffers.set(key, fetch(urls[file]).then((response) => {
-      if (!response.ok) throw new Error(`HTTP ${response.status}: ${file}`);
-      return response.arrayBuffer();
-    }).then((bytes) => context.decodeAudioData(bytes)).then((buffer) => {
-      buffers.set(key, buffer);
-    }).catch((error) => {
-      buffers.delete(key);
-      const failed = queue.filter((entry) => entry.key === key);
-      queue = queue.filter((entry) => entry.key !== key);
-      for (const entry of failed) entry.onFailed?.();
-      console.warn('Mark thought could not load:', file, error);
-    }));
+export const VOICE_PRIORITY={ambient:10,hint:20,interaction:30,result:40,story:50,cutscene:60};
+const RESULTS=new Set(['l1_03','l1_04','l1_06','l1_13','l1_15','l1_16','l1_18','l1_19','l2_07','l2_08','l2_24','l3_02','l3_03','l3_04']);
+const AMBIENT=new Set(['l1_09','hallway_01','backrooms_01','backrooms_02','backrooms_03','backrooms_05']);
+/** Exactly one current/latest request. Never queue, suspend, or resume a line. */
+export function createMarkThoughts(audio,{captions=null,canPlay=()=>true}={}) {
+  const seen=new Set(),lastPlayed=new Map();let current=null,pending=null,blocked=false;
+  const allowed=entry=>!blocked&&canPlay(entry)&&entry.when()&&!captions?.isPlaying;
+  function stop(){
+    const old=current;current=null;pending=null;
+    if(old?.source&&audio.voiceSource===old.source)audio.stopVoice();
+    else if(old?.loading)audio.stopVoice();
+    captions?.cancelMarkThought?.();
   }
-
-  function stop() {
-    if (current) {
-      current.source.onended = null;
-      current.source.stop();
-      current.source.disconnect();
-      current = null;
-    }
-    box.style.transitionDelay = '0s';
-    box.classList.remove('visible');
+  function start(entry){
+    if(!allowed(entry))return;
+    current=entry;entry.loading=true;
+    const voice='mark/'+MARK_THOUGHTS[entry.key][0];
+    const text=MARK_THOUGHTS[entry.key][1];
+    captions?.say({text,markThought:true,recorded:audio.hasVoice(voice),duration:Math.max(2,text.length*.055+1)});
+    audio.playVoice(voice,{
+      onStarted(buffer,source){if(current!==entry)return;entry.source=source;entry.loading=false;
+        captions?.extendMarkThought?.(buffer.duration);},
+      onInterrupted(){if(current===entry){current=null;captions?.cancelMarkThought?.();}},
+      onEnded(){if(current===entry){current=null;captions?.cancelMarkThought?.();entry.onEnded?.();}},
+      onFailed(){if(current===entry){current=null;captions?.cancelMarkThought?.();entry.onFailed?.();}}
+    });
   }
-
   return {
-    play(key, { replayable = false, delay = 0.4, priority = false, when = () => true, onEnded, onFailed } = {}) {
-      if (!MARK_THOUGHTS[key] || current?.key === key || queue.some((entry) => entry.key === key)) return;
-      if (!replayable && seen.has(key)) return;
-      seen.add(key);
-      const entry = { key, delay, priority, when, onEnded, onFailed };
-      // Post-recording conclusions precede any thought suspended by the tape.
-      const index = priority ? queue.findIndex((pending) => !pending.priority) : -1;
-      if (index < 0) queue.push(entry);
-      else queue.splice(index, 0, entry);
-      preload(key);
+    play(key,{replayable=false,delay=0,priority,when=()=>true,onEnded,onFailed,document=false}={}){
+      if(!audio.ctx||!MARK_THOUGHTS[key]||(!replayable&&seen.has(key)))return false;
+      const now=audio.ctx?.currentTime??0;
+      if(replayable&&now-(lastPlayed.get(key)??-Infinity)<1.5)return false;
+      const rank=typeof priority==='number'?priority:priority===true?50:RESULTS.has(key)?40:AMBIENT.has(key)?10:30;
+      const entry={key,priority:rank,when,onEnded,onFailed,document,startAt:now+delay};
+      if(!allowed(entry)||(current??pending)?.priority>rank)return false;
+      stop();seen.add(key);lastPlayed.set(key,now);
+      audio.preloadVoice('mark/'+MARK_THOUGHTS[key][0]);
+      if(delay>0)pending=entry;else start(entry);
+      return true;
     },
-    preload(prefix) {
-      for (const key of Object.keys(MARK_THOUGHTS)) if (key.startsWith(prefix + '_')) preload(key);
-      return Promise.all([...buffers.entries()].filter(([key]) => key.startsWith(prefix + '_')).map(([, buffer]) => buffer));
+    preload(prefix){return Promise.all(Object.entries(MARK_THOUGHTS).filter(([k])=>k.startsWith(prefix+'_')).map(([,v])=>audio.preloadVoice('mark/'+v[0])));},
+    setBlocked(value){blocked=value;if(value)stop();},
+    update({blocked:busy=false}={}){
+      if(busy||blocked){stop();return;}
+      if(current&&!allowed(current)){stop();return;}
+      if(pending){if(!allowed(pending)){pending=null;return;}if((audio.ctx?.currentTime??0)>=pending.startAt){const entry=pending;pending=null;start(entry);}}
     },
-    setBlocked(value) {
-      blocked = value;
-      if (value && current) {
-        queue.unshift({ ...current.entry, startAt: undefined });
-        stop();
-      }
-    },
-    update({ blocked: busy = false } = {}) {
-      queue = queue.filter((entry) => entry.when());
-      if (blocked || busy || !audio.ctx || audio.ctx.state !== 'running') {
-        if (busy && current) {
-          queue.unshift({ ...current.entry, startAt: undefined });
-          stop();
-        }
-        return;
-      }
-      // Existing voiced dialogue has priority; thoughts resume afterwards.
-      if (audio.voiceSource) {
-        if (current) {
-          queue.unshift({ ...current.entry, startAt: undefined });
-          stop();
-        }
-        return;
-      }
-      if (current || !queue.length || audio.ctx.currentTime < readyAt) return;
-      const entry = queue[0];
-      preload(entry.key);
-      const buffer = buffers.get(entry.key);
-      if (!(buffer instanceof AudioBuffer)) return;
-      entry.startAt ??= audio.ctx.currentTime + entry.delay;
-      if (audio.ctx.currentTime < entry.startAt) return;
-      queue.shift();
-      const source = audio.ctx.createBufferSource();
-      source.buffer = buffer;
-      source.connect(audio.voiceGain);
-      current = { key: entry.key, source, entry };
-      source.onended = () => {
-        source.disconnect();
-        current = null;
-        box.style.transitionDelay = '0s';
-        box.classList.remove('visible');
-        readyAt = audio.ctx.currentTime + 0.2;
-        entry.onEnded?.();
-      };
-      box.textContent = MARK_THOUGHTS[entry.key][1];
-      source.start();
-      // Both start on the context clock, so pausing also holds natural gaps.
-      box.style.transitionDelay = '0s';
-      box.classList.add('visible');
-    },
-    clear({ reset = false } = {}) {
-      stop();
-      queue = [];
-      readyAt = 0;
-      blocked = false;
-      if (reset) seen.clear();
-    }
+    cancel(key){if(current?.key===key||pending?.key===key)stop();},
+    clear({reset=false}={}){stop();blocked=false;if(reset){seen.clear();lastPlayed.clear();}},
+    get currentKey(){return (current??pending)?.key??null;}
   };
 }

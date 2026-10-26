@@ -136,5 +136,13 @@ export const HINTS = {
     "Something about this corridor isn’t right.",
     "You’ve seen parts of this place before. Look for what changes.",
     "Keep following the familiar parts of the house until you find the way forward."
-  ]
+  ],
+  "l3_clock": ["The clock is waiting for a specific time.", "Something from Project HOLLOW recorded the moment the subject woke.", "Session 14 says the subject woke at 23:15. Set the clock to 11:15."],
+  "l3_crest": ["The plaque describes how the three lights should face.", "The centre light stays unchanged. Only the two outer lights move.", "Keep the centre facing forward and turn both outer lights away from the centre."],
+  "l3_memory": ["These records belong in a meaningful sequence.", "Think about the order in which an experiment would happen.", "Select SUBJECT 06 / MARK, ADAPTIVE RESTORATION, and MEMORY DEGRADATION / PERCEPTUAL DISTORTION."],
+  "l3_restricted": ["The archive itself doesn't contain the whole answer.", "Look around the room for matching markers or symbols.", "Read the restricted records in order: CONSENT -> PROCEDURE -> OUTCOME."],
+  "l3_visor": ["The visor changes more than the way the room looks.", "Compare the same objects with the visor on and off.", "Trust what is visible through the visor. It is correcting Mark's distorted perception."],
+  "l3_trail": ["There is something on the floor worth following.", "The trail becomes clearer when viewed through the visor.", "Turn the visor on and follow the corrected trail upstairs to its destination."],
+  "l3_letter": ["There is one record left that Mark has not confronted.", "Annabelle's letter explains why she stayed.", "Read Annabelle's letter. Its final instruction tells Mark exactly what to do next."],
+  "l3_choice": ["The Override Keycard can only be committed once. Check the Emergency Release and Manual Reseal controls."]
 };

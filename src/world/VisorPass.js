@@ -35,6 +35,9 @@ export const VisorShader = {
     uVisor: { value: 0 },
     /** Scoped cinematic tint control; normal gameplay retains the original grade. */
     uTintStrength: { value: 1 },
+    uPanic: { value: 0 },
+    uDescentPanic: { value: 0 },
+    uPixelSize: { value: new THREE.Vector2(1/1280,1/720) },
     /** 0 = fine, 1 = fully caught. */
     uCaught: { value: 0 },
     /** width / height, so the vignette is round rather than an ellipse. */
@@ -59,6 +62,9 @@ export const VisorShader = {
     uniform sampler2D tDiffuse;
     uniform float uVisor;
     uniform float uTintStrength;
+    uniform float uPanic;
+    uniform float uDescentPanic;
+    uniform vec2 uPixelSize;
     uniform float uCaught;
     uniform float uAspect;
     uniform float uBrightness;
@@ -108,6 +114,29 @@ export const VisorShader = {
       base.r = texture2D(tDiffuse, uv + centred * fringe).r;
       base.g = texture2D(tDiffuse, uv).g;
       base.b = texture2D(tDiffuse, uv - centred * fringe).b;
+      if(uPanic > 0.001) {
+        if(uDescentPanic > 0.5) {
+        // Nine taps only during panic. The diagonal samples make soft focus
+        // visibly distinct from the sharp image without blurring DOM subtitles.
+        vec2 d=uPixelSize*(2.4*uPanic);
+        vec3 soft=(base*2.0+texture2D(tDiffuse,uv+vec2(d.x,0.)).rgb
+          +texture2D(tDiffuse,uv-vec2(d.x,0.)).rgb
+          +texture2D(tDiffuse,uv+vec2(0.,d.y)).rgb
+          +texture2D(tDiffuse,uv-vec2(0.,d.y)).rgb
+          +texture2D(tDiffuse,uv+d).rgb+texture2D(tDiffuse,uv-d).rgb
+          +texture2D(tDiffuse,uv+vec2(d.x,-d.y)).rgb
+          +texture2D(tDiffuse,uv+vec2(-d.x,d.y)).rgb)/10.0;
+        base=mix(base,soft,smoothstep(0.0,0.6,uPanic));
+        } else {
+          // Preserve the existing, much quieter mirror-reaction treatment.
+          vec2 d=uPixelSize*(1.4*uPanic);
+          vec3 soft=(base*2.0+texture2D(tDiffuse,uv+vec2(d.x,0.)).rgb
+            +texture2D(tDiffuse,uv-vec2(d.x,0.)).rgb
+            +texture2D(tDiffuse,uv+vec2(0.,d.y)).rgb
+            +texture2D(tDiffuse,uv-vec2(0.,d.y)).rgb)/6.0;
+          base=mix(base,soft,uPanic);
+        }
+      }
 
       // Everything from here to the final encode is display-referred.
       vec3 disp = toDisplay(base);
@@ -138,6 +167,9 @@ export const VisorShader = {
       corrected *= mix(1.0, vignette, 0.75);
 
       disp = mix(disp, corrected, uVisor);
+      float panicShade=mix(0.035+0.14*smoothstep(0.30,1.2,r),
+        0.045+0.34*smoothstep(0.25,1.05,r),uDescentPanic);
+      disp*=1.0-uPanic*panicShade;
 
       // --- caught -----------------------------------------------------------
       // Independent of the visor: this can happen wearing it or not.
@@ -192,5 +224,6 @@ export class VisorPass extends ShaderPass {
 
   setSize(width, height) {
     this.uniforms.uAspect.value = height > 0 ? width / height : 1;
+    this.uniforms.uPixelSize.value.set(1/Math.max(1,width),1/Math.max(1,height));
   }
 }

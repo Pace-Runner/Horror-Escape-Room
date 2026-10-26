@@ -1515,80 +1515,96 @@ html, body {
 .hotbar-slot.key-brass.filled .hotbar-icon { color: #d8b34a; }
 .hotbar-slot.key-steel.filled .hotbar-icon { color: #b9c2cc; }
 
-/* ---------- captions (examine text) ---------- */
-#contextual-hint {
+/* ---------- shared cinematic captions / gameplay hints ---------- */
+:root {
+  --game-caption-bottom: clamp(104px, 11vh, 130px);
+  --game-caption-height: 0px;
+  --game-tape-caption-height: 0px;
+}
+.game-caption {
+  position: fixed;
+  bottom: calc(var(--game-caption-bottom) + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(62vw, 900px);
+  padding: 0;
+  color: #f3ecdf;
+  font-size: clamp(17px, 1.45vw, 22px);
+  font-weight: 500;
+  line-height: 1.42;
+  text-align: center;
+  white-space: pre-line;
+  overflow-wrap: break-word;
+  text-shadow: 0 1px 2px #000, 0 2px 6px #000, 0 0 12px #000;
+  pointer-events: none;
+  z-index: 55;
+  opacity: 0;
+  /* Visual fades are independent of the existing story timing clock. */
+  transition: opacity 150ms ease;
+  transition-duration: 150ms !important;
+}
+.game-caption--thought { font-style: italic; }
+.game-caption--dialogue { font-style: normal; }
+.game-caption__speaker {
+  display: block;
+  margin-bottom: 5px;
+  color: #c7b48b;
+  font-size: clamp(11px, .75vw, 13px);
+  font-weight: 600;
+  font-style: normal;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+}
+.game-caption--recorded .game-caption__speaker { color: #baaf98; }
+#caption-box.visible, #tape-subtitle:not(.hidden) { opacity: 1; }
+#tape-subtitle.hidden { opacity: 0; visibility: hidden; }
+/* The recording owns the same primary region while its line is displayed. */
+body:has(#tape-subtitle:not(.hidden)) #caption-box { opacity: 0; visibility: hidden; }
+.game-hint {
   position: fixed;
   left: 50%;
-  bottom: 32%;
+  bottom: calc(clamp(164px, 16vh, 190px) + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
-  width: min(600px, 85vw);
-  box-sizing: border-box;
-  padding: 12px 18px;
-  background: rgba(20, 20, 17, 0.9);
-  border: 1px solid rgba(215, 195, 147, 0.5);
-  border-radius: 5px;
-  color: #f5efdd;
+  width: min(520px, 75vw);
+  padding: 9px 14px;
+  color: #f3ecdf;
+  background: linear-gradient(90deg, transparent, rgba(8, 6, 4, .48) 15%, rgba(8, 6, 4, .48) 85%, transparent);
+  border: 0;
   text-align: center;
-  font-size: 16px;
+  font-size: clamp(15px, 1.15vw, 18px);
   line-height: 1.45;
+  text-shadow: 0 1px 4px #000, 0 0 8px #000;
   pointer-events: none;
   z-index: 56;
-}
-#contextual-hint strong { font-size: 11px; letter-spacing: 0.16em; color: #d7c393; }
-#contextual-hint p { margin: 5px 0 0; }
-
-#mark-thought {
-  position: fixed;
-  bottom: 10%;
-  left: 50%;
-  transform: translateX(-50%);
-  width: max-content;
-  max-width: 70vw;
-  padding: 9px 18px;
-  color: #fff0d6;
-  font-size: clamp(17px, 1.45vw, 24px);
-  font-style: italic;
-  line-height: 1.4;
-  text-align: center;
-  background: rgba(12, 9, 6, 0.56);
-  border-radius: 4px;
-  text-shadow: 0 2px 5px #000;
   opacity: 0;
-  transition: opacity 0.2s ease;
-  pointer-events: none;
-  z-index: 19;
+  transition: opacity 200ms ease;
 }
-#mark-thought.visible { opacity: 1; }
-
-#caption-box {
-  position: fixed;
-  bottom: 26%;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: 520px;
-  padding: 14px 20px;
-  background: rgba(8, 6, 5, 0.82);
-  border: 1px solid #3a332b;
-  color: #e8e2d4;
-  font-size: 0.85rem;
-  line-height: 1.5;
-  letter-spacing: 0.02rem;
-  text-align: center;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.4s ease;
-  z-index: 18;
+.game-hint.visible { opacity: 1; }
+.game-hint strong {
+  display: block;
+  color: #c7b48b;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: .16em;
 }
-
-#caption-box.visible {
-  opacity: 1;
+.game-hint strong::after {
+  content: '';
+  display: block;
+  width: 34px;
+  height: 1px;
+  margin: 5px auto 0;
+  background: rgba(199, 180, 139, .45);
 }
-
-/* This full-screen reveal uses the existing subtitle surface without letterboxing. */
-body.study-reveal #caption-box {
-  bottom: 7%;
-  max-width: min(720px, calc(100vw - 48px));
-  font-size: 0.98rem;
+.game-hint p { margin: 5px 0 0; }
+body:has(#caption-box.visible, #tape-subtitle:not(.hidden)) .game-hint {
+  bottom: calc(max(clamp(164px, 16vh, 190px), var(--game-caption-bottom) + max(var(--game-caption-height), var(--game-tape-caption-height)) + 18px) + env(safe-area-inset-bottom, 0px));
+}
+@media (max-width: 640px) {
+  .game-caption { width: 90vw; font-size: 17px; }
+  .game-hint { width: min(520px, 88vw); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .game-caption, .game-hint { transition: none; }
 }
 
 /* ---------- documents (letters, notes, files, transcripts) ----------
@@ -1703,42 +1719,6 @@ body.study-reveal #caption-box {
 #document-hint.visible {
   opacity: 1;
 }
-
-/* ---------- the session tape's subtitles (src/core/TapeSubtitles.js) ----------
-   While the deck plays the tape in the room. Nothing modal: a line of what is
-   said, under the caption box (26% up) and over the hotbar, so the player's
-   own thoughts still have room. */
-#tape-subtitle {
-  position: fixed;
-  left: 50%;
-  bottom: 13%;
-  transform: translateX(-50%);
-  width: min(70vw, 900px);
-  text-align: center;
-  color: #f1efe6;
-  font-size: clamp(14px, 1.5vw, 19px);
-  line-height: 1.45;
-  text-shadow: 0 0 3px #000, 0 2px 5px #000;
-  pointer-events: none;
-  z-index: 40;
-}
-
-#tape-subtitle.hidden {
-  display: none;
-}
-
-.tape-speaker {
-  margin-right: 0.55em;
-  font-size: 0.78em;
-  letter-spacing: 0.14rem;
-  opacity: 0.7;
-}
-
-.tape-sound {
-  font-style: italic;
-  opacity: 0.78;
-}
-
 
 /* Handwriting, in ink that has gone brown. */
 .document-letter {

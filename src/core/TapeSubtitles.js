@@ -1,3 +1,5 @@
+import { setupCaptionSurface, renderCaptionText } from './CaptionPresentation.js';
+
 /**
  * The session tape's subtitles, along the bottom of the screen while the deck
  * on the lab's desk plays it.
@@ -17,6 +19,7 @@
  */
 export function createTapeSubtitles({ subtitles }) {
   const box = document.getElementById('tape-subtitle');
+  setupCaptionSurface(box, { recorded: true });
   let source = null;
   /** The subtitle lines on screen, joined, so the DOM is only touched when they change. */
   let shownKey = '';
@@ -35,15 +38,7 @@ export function createTapeSubtitles({ subtitles }) {
     // able to inject markup into the page.
     box.replaceChildren(...cues.map((cue) => {
       const row = document.createElement('div');
-      if (cue.speaker) {
-        const name = document.createElement('span');
-        name.className = 'tape-speaker';
-        name.textContent = `[${cue.speaker}]`;
-        row.append(name, document.createTextNode(cue.text));
-      } else {
-        row.className = 'tape-sound';
-        row.textContent = cue.text;
-      }
+      renderCaptionText(row, cue);
       return row;
     }));
     box.classList.toggle('hidden', cues.length === 0);

@@ -1,0 +1,68 @@
+{
+  "errors": [],
+  "badMatrices": [],
+  "fps": {
+    "front": {
+      "fps": 49.000768640630525,
+      "frames": 51
+    },
+    "look-left": {
+      "fps": 62.29132406438431,
+      "frames": 125
+    },
+    "look-right": {
+      "fps": 69.29903280486592,
+      "frames": 139
+    },
+    "look-up": {
+      "fps": 75.25917065390752,
+      "frames": 151
+    },
+    "look-down": {
+      "fps": 80.96562686270615,
+      "frames": 163
+    },
+    "backward": {
+      "fps": 134.06966299610812,
+      "frames": 403
+    },
+    "toward": {
+      "fps": 133.06719893546253,
+      "frames": 400
+    },
+    "side": {
+      "fps": 121.41977978111223,
+      "frames": 365
+    },
+    "stair-top": {
+      "fps": 28.98550724637681,
+      "frames": 1
+    },
+    "stairs-down": {
+      "fps": 132.54228730118697,
+      "frames": 945
+    },
+    "away": {
+      "fps": 137.06823505956277,
+      "frames": 275
+    },
+    "return": {
+      "fps": 135.3105652087084,
+      "frames": 542
+    },
+    "visor-toggles": {
+      "fps": 79.31434051224697,
+      "frames": 397
+    }
+  },
+  "quality": {
+    "width": 1024,
+    "height": 2048,
+    "interval": 1
+  },
+  "target": [
+    1024,
+    2048
+  ],
+  "hasFrame": true
+}

@@ -1,0 +1,234 @@
+{
+  "preFar": {
+    "level": "study",
+    "revealed": false,
+    "visor": false,
+    "enabled": true,
+    "visible": true,
+    "hasFrame": true,
+    "quality": {
+      "width": 512,
+      "height": 1024,
+      "interval": 6
+    },
+    "texture": "badfd85b-ca12-4694-a90e-6e11e0dc2604",
+    "target": [
+      1024,
+      2048
+    ],
+    "position": [
+      4.8,
+      1.6034504462269896,
+      -0.8
+    ],
+    "actorVisible": [
+      false,
+      false
+    ],
+    "errors": []
+  },
+  "preClose": {
+    "level": "study",
+    "revealed": false,
+    "visor": false,
+    "enabled": true,
+    "visible": true,
+    "hasFrame": true,
+    "quality": {
+      "width": 1024,
+      "height": 2048,
+      "interval": 1
+    },
+    "texture": "badfd85b-ca12-4694-a90e-6e11e0dc2604",
+    "target": [
+      1024,
+      2048
+    ],
+    "position": [
+      4.8,
+      1.6037945792210484,
+      -5.053463499951954
+    ],
+    "actorVisible": [
+      false,
+      false
+    ],
+    "errors": []
+  },
+  "postClose": {
+    "level": "study",
+    "revealed": true,
+    "visor": true,
+    "enabled": true,
+    "visible": true,
+    "hasFrame": true,
+    "quality": {
+      "width": 1024,
+      "height": 2048,
+      "interval": 1
+    },
+    "texture": "badfd85b-ca12-4694-a90e-6e11e0dc2604",
+    "target": [
+      1024,
+      2048
+    ],
+    "position": [
+      4.8,
+      1.60158726916539,
+      -5.15
+    ],
+    "actorVisible": [
+      false,
+      false
+    ],
+    "errors": []
+  },
+  "postFar": {
+    "level": "study",
+    "revealed": true,
+    "visor": false,
+    "enabled": true,
+    "visible": true,
+    "hasFrame": true,
+    "quality": {
+      "width": 512,
+      "height": 1024,
+      "interval": 6
+    },
+    "texture": "badfd85b-ca12-4694-a90e-6e11e0dc2604",
+    "target": [
+      1024,
+      2048
+    ],
+    "position": [
+      4.8,
+      1.6027256613044416,
+      6
+    ],
+    "actorVisible": [
+      false,
+      false
+    ],
+    "errors": []
+  },
+  "returned": {
+    "level": "study",
+    "revealed": true,
+    "visor": false,
+    "enabled": true,
+    "visible": true,
+    "hasFrame": true,
+    "quality": {
+      "width": 1024,
+      "height": 2048,
+      "interval": 1
+    },
+    "texture": "badfd85b-ca12-4694-a90e-6e11e0dc2604",
+    "target": [
+      1024,
+      2048
+    ],
+    "position": [
+      4.8,
+      1.6042987830305684,
+      -5.930000000000001
+    ],
+    "actorVisible": [
+      false,
+      false
+    ],
+    "errors": []
+  },
+  "closeFPS": 27.16532945899783,
+  "farFPS": 50.41490527671886,
+  "offscreen": {
+    "level": "study",
+    "revealed": true,
+    "visor": false,
+    "enabled": true,
+    "visible": true,
+    "hasFrame": true,
+    "quality": {
+      "width": 512,
+      "height": 1024,
+      "interval": 6
+    },
+    "texture": "badfd85b-ca12-4694-a90e-6e11e0dc2604",
+    "target": [
+      1024,
+      2048
+    ],
+    "position": [
+      4.8,
+      1.6042005306778844,
+      -0.8
+    ],
+    "actorVisible": [
+      false,
+      false
+    ],
+    "errors": []
+  },
+  "backVisible": {
+    "level": "study",
+    "revealed": true,
+    "visor": false,
+    "enabled": true,
+    "visible": true,
+    "hasFrame": true,
+    "quality": {
+      "width": 512,
+      "height": 1024,
+      "interval": 6
+    },
+    "texture": "badfd85b-ca12-4694-a90e-6e11e0dc2604",
+    "target": [
+      1024,
+      2048
+    ],
+    "position": [
+      4.8,
+      1.6044808096816134,
+      -0.8
+    ],
+    "actorVisible": [
+      false,
+      false
+    ],
+    "errors": []
+  },
+  "closeStandingFPS": 37.35552937047145,
+  "farStandingFPS": 54.524536041543875,
+  "preRevealVisorOn": {
+    "level": "study",
+    "revealed": false,
+    "visor": true,
+    "enabled": true,
+    "visible": true,
+    "hasFrame": true,
+    "quality": {
+      "width": 1024,
+      "height": 2048,
+      "interval": 1
+    },
+    "texture": "badfd85b-ca12-4694-a90e-6e11e0dc2604",
+    "target": [
+      1024,
+      2048
+    ],
+    "position": [
+      4.8,
+      1.5968480683946642,
+      -5.15
+    ],
+    "actorVisible": [
+      false,
+      false
+    ],
+    "errors": []
+  },
+  "buffer": [
+    1264,
+    725
+  ]
+}

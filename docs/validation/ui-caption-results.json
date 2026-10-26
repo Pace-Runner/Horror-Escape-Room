@@ -1,0 +1,346 @@
+[
+  {
+    "width": 1280,
+    "height": 720,
+    "mode": "thought",
+    "caption": {
+      "x": 243.203125,
+      "y": 589.65625,
+      "width": 793.59375,
+      "height": 26.34375,
+      "bottom": 616,
+      "top": 589.65625
+    },
+    "hint": {
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "bottom": 0,
+      "top": 0
+    },
+    "hotbar": {
+      "x": 524,
+      "y": 644,
+      "width": 232,
+      "height": 52,
+      "bottom": 696,
+      "top": 644
+    },
+    "tape": {
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "bottom": 0,
+      "top": 0
+    },
+    "captionVisible": true,
+    "hintVisible": false,
+    "thoughtStyle": "italic",
+    "captionBackground": "rgba(0, 0, 0, 0)",
+    "captionFont": "18.56px"
+  },
+  {
+    "width": 1280,
+    "height": 720,
+    "mode": "dialogue",
+    "caption": {
+      "x": 243.203125,
+      "y": 569.046875,
+      "width": 793.59375,
+      "height": 46.953125,
+      "bottom": 616,
+      "top": 569.046875
+    },
+    "hint": {
+      "x": 380,
+      "y": 485.796875,
+      "width": 520,
+      "height": 65.25,
+      "bottom": 551.046875,
+      "top": 485.796875
+    },
+    "hotbar": {
+      "x": 524,
+      "y": 644,
+      "width": 232,
+      "height": 52,
+      "bottom": 696,
+      "top": 644
+    },
+    "tape": {
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "bottom": 0,
+      "top": 0
+    },
+    "captionVisible": true,
+    "hintVisible": true,
+    "speaker": "ANNABELLE",
+    "thoughtStyle": "normal",
+    "captionBackground": "rgba(0, 0, 0, 0)",
+    "captionFont": "18.56px"
+  },
+  {
+    "width": 1280,
+    "height": 720,
+    "mode": "cassette",
+    "caption": {
+      "x": 243.203125,
+      "y": 569.046875,
+      "width": 793.59375,
+      "height": 46.953125,
+      "bottom": 616,
+      "top": 569.046875
+    },
+    "hint": {
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "bottom": 0,
+      "top": 0
+    },
+    "hotbar": {
+      "x": 524,
+      "y": 644,
+      "width": 232,
+      "height": 52,
+      "bottom": 696,
+      "top": 644
+    },
+    "tape": {
+      "x": 243.203125,
+      "y": 542.703125,
+      "width": 793.59375,
+      "height": 73.296875,
+      "bottom": 616,
+      "top": 542.703125
+    },
+    "captionVisible": false,
+    "hintVisible": false,
+    "speaker": "ANNABELLE",
+    "tapeSpeaker": "SCIENTIST",
+    "thoughtStyle": "normal",
+    "captionBackground": "rgba(0, 0, 0, 0)",
+    "captionFont": "18.56px"
+  },
+  {
+    "width": 1280,
+    "height": 720,
+    "mode": "off",
+    "caption": {
+      "x": 243.203125,
+      "y": 569.046875,
+      "width": 793.59375,
+      "height": 46.953125,
+      "bottom": 616,
+      "top": 569.046875
+    },
+    "hint": {
+      "x": 380,
+      "y": 490.75,
+      "width": 520,
+      "height": 65.25,
+      "bottom": 556,
+      "top": 490.75
+    },
+    "hotbar": {
+      "x": 524,
+      "y": 644,
+      "width": 232,
+      "height": 52,
+      "bottom": 696,
+      "top": 644
+    },
+    "tape": {
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "bottom": 0,
+      "top": 0
+    },
+    "captionVisible": false,
+    "hintVisible": true,
+    "speaker": "ANNABELLE",
+    "thoughtStyle": "normal",
+    "captionBackground": "rgba(0, 0, 0, 0)",
+    "captionFont": "18.56px"
+  },
+  {
+    "width": 1920,
+    "height": 1080,
+    "mode": "thought",
+    "caption": {
+      "x": 510,
+      "y": 929.96875,
+      "width": 900,
+      "height": 31.234375,
+      "bottom": 961.203125,
+      "top": 929.96875
+    },
+    "hint": {
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "bottom": 0,
+      "top": 0
+    },
+    "hotbar": {
+      "x": 844,
+      "y": 1004,
+      "width": 232,
+      "height": 52,
+      "bottom": 1056,
+      "top": 1004
+    },
+    "tape": {
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "bottom": 0,
+      "top": 0
+    },
+    "captionVisible": true,
+    "hintVisible": false,
+    "thoughtStyle": "italic",
+    "captionBackground": "rgba(0, 0, 0, 0)",
+    "captionFont": "22px"
+  },
+  {
+    "width": 1920,
+    "height": 1080,
+    "mode": "dialogue",
+    "caption": {
+      "x": 510,
+      "y": 906.515625,
+      "width": 900,
+      "height": 54.6875,
+      "bottom": 961.203125,
+      "top": 906.515625
+    },
+    "hint": {
+      "x": 700,
+      "y": 792.828125,
+      "width": 520,
+      "height": 95.6875,
+      "bottom": 888.515625,
+      "top": 792.828125
+    },
+    "hotbar": {
+      "x": 844,
+      "y": 1004,
+      "width": 232,
+      "height": 52,
+      "bottom": 1056,
+      "top": 1004
+    },
+    "tape": {
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "bottom": 0,
+      "top": 0
+    },
+    "captionVisible": true,
+    "hintVisible": true,
+    "speaker": "ANNABELLE",
+    "thoughtStyle": "normal",
+    "captionBackground": "rgba(0, 0, 0, 0)",
+    "captionFont": "22px"
+  },
+  {
+    "width": 1920,
+    "height": 1080,
+    "mode": "cassette",
+    "caption": {
+      "x": 510,
+      "y": 906.515625,
+      "width": 900,
+      "height": 54.6875,
+      "bottom": 961.203125,
+      "top": 906.515625
+    },
+    "hint": {
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "bottom": 0,
+      "top": 0
+    },
+    "hotbar": {
+      "x": 844,
+      "y": 1004,
+      "width": 232,
+      "height": 52,
+      "bottom": 1056,
+      "top": 1004
+    },
+    "tape": {
+      "x": 510,
+      "y": 875.28125,
+      "width": 900,
+      "height": 85.921875,
+      "bottom": 961.203125,
+      "top": 875.28125
+    },
+    "captionVisible": false,
+    "hintVisible": false,
+    "speaker": "ANNABELLE",
+    "tapeSpeaker": "SCIENTIST",
+    "thoughtStyle": "normal",
+    "captionBackground": "rgba(0, 0, 0, 0)",
+    "captionFont": "22px"
+  },
+  {
+    "width": 1920,
+    "height": 1080,
+    "mode": "off",
+    "caption": {
+      "x": 510,
+      "y": 906.515625,
+      "width": 900,
+      "height": 54.6875,
+      "bottom": 961.203125,
+      "top": 906.515625
+    },
+    "hint": {
+      "x": 700,
+      "y": 837.609375,
+      "width": 520,
+      "height": 69.59375,
+      "bottom": 907.203125,
+      "top": 837.609375
+    },
+    "hotbar": {
+      "x": 844,
+      "y": 1004,
+      "width": 232,
+      "height": 52,
+      "bottom": 1056,
+      "top": 1004
+    },
+    "tape": {
+      "x": 0,
+      "y": 0,
+      "width": 0,
+      "height": 0,
+      "bottom": 0,
+      "top": 0
+    },
+    "captionVisible": false,
+    "hintVisible": true,
+    "speaker": "ANNABELLE",
+    "thoughtStyle": "normal",
+    "captionBackground": "rgba(0, 0, 0, 0)",
+    "captionFont": "22px"
+  }
+]
