@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Don't Let It Out</title>
+  <!-- Inline, so there is no file to 404 and no path to get wrong once the
+       game is served from a subfolder: without it the browser asks for
+       /favicon.ico at the server root and logs a 404 in the console. -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230b0908'/%3E%3Ccircle cx='16' cy='12.5' r='5' fill='%23b3271a'/%3E%3Cpath d='M13.2 15.5h5.6l1.6 10h-8.8z' fill='%23b3271a'/%3E%3C/svg%3E" />
   <link rel="stylesheet" href="./src/style.css" />
 </head>
 <body>
@@ -273,7 +277,7 @@
       <button id="settings-button">Settings</button>
       <button id="restart-button" class="hidden">Restart</button>
       <div id="start-controls">
-        WASD move &middot; SHIFT sprint &middot; C crouch &middot; mouse look &middot; E or right-click interact &middot; Scroll switch item &middot; Q drop &middot; H hint &middot; F flashlight &middot; V visor &middot; T 1st/3rd person &middot; 3/4 preview rooms &middot; G skip to exit &middot; R restart &middot; K credits
+        WASD move &middot; SHIFT sprint &middot; C crouch &middot; mouse look &middot; E or right-click interact &middot; Scroll switch item &middot; Q drop &middot; H hint &middot; F flashlight &middot; V visor &middot; T 1st/3rd person &middot; R restart &middot; K credits
         <br>ESC pauses.
       </div>
     </div>
