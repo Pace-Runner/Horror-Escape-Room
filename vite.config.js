@@ -7,5 +7,12 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     assetsInlineLimit: 0
+  },
+  // Agent worktrees and throwaway browser profiles live inside the project
+  // folder; a dev server watching them reloads the game on every write.
+  server: {
+    watch: {
+      ignored: ['**/.claude/**', '**/.tmp-*/**']
+    }
   }
 });
