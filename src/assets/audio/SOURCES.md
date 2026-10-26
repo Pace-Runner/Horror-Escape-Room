@@ -138,3 +138,5 @@ play and how loud is `SFX` and the loop specs in `src/systems/AudioDirector.js`.
 |------|--------|
 | `walking_audio.mp3`, `running_audio.mp3` | Added in d906a0b. **Source, author and licence not recorded** |
 | `trolley_roll.m4a`, `trolley_crash.m4a` | Added in 9937ee5 / 6ae89ef. **Source, author and licence not recorded** |
+| `news_intro.MP3` | The opening news report's audio. Added in fbd9a53. **Source, author and licence not recorded** |
+| `Dont Let it out Mark voice/**/*.mp3` | Mark's thoughts. Generated with **ElevenLabs** -- every file carries ElevenLabs' signed C2PA content credential. Added in 2b2ed2f |

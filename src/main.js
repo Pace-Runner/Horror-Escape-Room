@@ -4645,8 +4645,9 @@ const CREDIT_SECTIONS = [
     title: 'Built With',
     rows: [
       ['Three.js', '3D rendering library, by the three.js authors. MIT licence. threejs.org'],
-      ['PointerLockControls and the Three.js example modules', 'Three.js official examples. MIT licence.'],
+      ['PointerLockControls, GLTFLoader, EffectComposer, Reflector and the other Three.js example modules', 'Three.js official examples. MIT licence. Reflector draws the study mirror; its shader is ours.'],
       ['Vite', 'Build tool used to produce the deployed bundle. MIT licence.'],
+      ['glTF Transform and sharp', 'Used offline to compress the models and textures to WebP. MIT and Apache 2.0 licences.'],
       ['Web Audio API', 'Wind, distant footsteps, and the fallback thunder, creaks, sparks and paper are synthesised at runtime.']
     ]
   },
@@ -4662,15 +4663,17 @@ const CREDIT_SECTIONS = [
     title: 'Models and Textures',
     rows: [
       ['First-person hands', '"First Person hands rigged" by davidfischer, via Sketchfab. CC BY 4.0 (creativecommons.org/licenses/by/4.0). Modified: left arm removed, wrist re-aligned, re-rigged for this project.'],
-      ['The creature', 'An imported character mesh, reworked in Blender into the monster and the man it was. Original source and licence to be confirmed.'],
+      ['The creature and the player’s body', '"Okabe" MikuMikuDance model by mmddls (DeviantArt), of Rintaro Okabe from Steins;Gate (5pb. / Nitroplus), from an FBX conversion of it. Used under the uploader’s terms. Modified: merged materials, a monster shape key and new textures, reworked in Blender into the monster and the man it was.'],
       ['Annabelle', '"Victorian Child - Low Poly Character Model" by _memo, via Sketchfab. CC BY 4.0 (creativecommons.org/licenses/by/4.0). Modified: reshaped to sixteen, arms lowered, hair, ribbon and a long nightgown added, recoloured and dirtied.'],
       ['Photographed surfaces', 'Concrete, steel and tile materials from ambientCG (ambientcg.com), CC0. Rust and grunge overlays from Texture Labs (texturelabs.org).'],
+      ['Generated images', 'The opening news photographs, the bedroom photographs, its wallpapers, plaster and floorboards, the claw-mark decals, the bed’s tapestry duvet, the pinboard and vanity textures, the observation map and the menu background were generated with ChatGPT image generation (OpenAI) and edited for the game.'],
       ['Everything else', 'The remaining models, the textures drawn in code and the rusted keys were made for this project by the team. The Blender scripts and sources are in the blender/ folder.']
     ]
   },
   {
     title: 'Voice',
     rows: [
+      ['Mark’s thoughts', 'Mark’s spoken thoughts were generated with ElevenLabs (elevenlabs.io).'],
       ['The session tape', 'Both voices were generated with ElevenLabs.'],
       ['Spoken lines', 'Most lines are subtitled only for now. Recordings are added as they are made.']
     ]
@@ -4692,7 +4695,8 @@ const CREDIT_SECTIONS = [
       ['Door creak', '"Creepy Wooden Door Creaking Sound Effect" by Sound Around (YouTube), from freesound_community via Pixabay. Royalty-free per the upload.'],
       ['Caught sting', '"BioShock 2 | Harvesting a Little Sister" uploaded by Bond Factory (YouTube). Game audio from BioShock 2 (2K Games).'],
       ['Level 2 footsteps', '"Gmod/TF2 SFX - Metal Footsteps Sound Effect" by Autisticblood5 (YouTube). Game audio from Team Fortress 2 / Garry\'s Mod (Valve).'],
-      ['Player footsteps and the trolley', 'Source, author and licence to be confirmed.']
+      ['Player footsteps and the trolley', 'Source, author and licence to be confirmed.'],
+      ['Opening news report', 'The report’s audio. Source, author and licence to be confirmed.']
     ]
   },
   {
