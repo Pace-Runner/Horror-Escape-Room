@@ -162,6 +162,19 @@ Edge and Safari, and in Firefox on Windows and macOS via the platform
 decoders -- `.ogg` is the safer export if a Linux Firefox without system
 codecs ever has to play them.
 
+### Keeping the download small
+
+Textures ship as WebP, not PNG: `npm run compress:assets`
+(`scripts/compress-assets.mjs`) re-encodes the images inside every model in
+`src/assets/models/` and writes a `.webp` beside each PNG the code uses,
+pointing the import at it. Every image is measured against its original and
+kept only if it looks the same (see the script's header). This took the build
+from 163 MB to about 62 MB.
+
+**Run it after re-exporting any model from Blender, or regenerating a
+texture** -- an export comes out with PNGs again. CI runs
+`npm run check:assets` and fails the deploy, naming the files, if you forget.
+
 ## Deploying to the LAMP server
 
 `vite.config.js` already sets `base: './'` so a production build's

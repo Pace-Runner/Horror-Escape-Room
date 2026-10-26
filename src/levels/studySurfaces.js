@@ -1,13 +1,13 @@
 import * as THREE from 'three';
 import wallpaperUrl from '../assets/textures/study/option_a_damask_512.jpg?url';
-import floorUrl from '../assets/textures/study/weathered_dark_hardwood_floor_texture.png?url';
+import floorUrl from '../assets/textures/study/weathered_dark_hardwood_floor_texture.webp?url';
 import ceilingUrl from '../assets/textures/study/option_a_ceiling_512.jpg?url';
-import builtInWoodUrl from '../assets/textures/study/aged_dark_brown_wood_grain_texture.png?url';
-import trimWoodUrl from '../assets/textures/study/aged_espresso_wood_grain_texture.png?url';
-import featureWoodUrl from '../assets/textures/study/polished_mahogany_wood_grain_texture.png?url';
-import wallRoughnessUrl from '../assets/textures/study/wall_roughness_512.png?url';
-import floorRoughnessUrl from '../assets/textures/study/floor_roughness_512.png?url';
-import woodRoughnessUrl from '../assets/textures/study/wood_roughness_512.png?url';
+import builtInWoodUrl from '../assets/textures/study/aged_dark_brown_wood_grain_texture.webp?url';
+import trimWoodUrl from '../assets/textures/study/aged_espresso_wood_grain_texture.webp?url';
+import featureWoodUrl from '../assets/textures/study/polished_mahogany_wood_grain_texture.webp?url';
+import wallRoughnessUrl from '../assets/textures/study/wall_roughness_512.webp?url';
+import floorRoughnessUrl from '../assets/textures/study/floor_roughness_512.webp?url';
+import woodRoughnessUrl from '../assets/textures/study/wood_roughness_512.webp?url';
 
 // Option A wall/ceiling tiles are cropped from the supplied sheet at 512px; wood/floors unchanged.
 // No runtime image baking, duplicated texture loads or large source uploads.

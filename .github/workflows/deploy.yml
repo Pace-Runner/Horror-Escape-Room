@@ -39,6 +39,11 @@ jobs:
       # vertices per triangle, or every surface left doubleSided. All four of
       # those shipped before this gate existed and all four are valid glTF.
       - run: npm run check:okabe
+      # The download: every texture the game ships is meant to be WebP (see
+      # scripts/compress-assets.mjs). A model re-exported from Blender comes
+      # out with PNGs again -- several megabytes each -- and nothing else would
+      # notice. Fails with the files to run `npm run compress:assets` on.
+      - run: npm run check:assets
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

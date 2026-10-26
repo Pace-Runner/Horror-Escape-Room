@@ -1,8 +1,8 @@
 import newsAudioUrl from '../assets/audio/news_intro.MP3?url';
-import exteriorPhotoUrl from '../assets/cutscene/news_01_exterior.png?url';
-import windowPhotoUrl from '../assets/cutscene/news_02_window.png?url';
-import aftermathPhotoUrl from '../assets/cutscene/news_03_aftermath.png?url';
-import figurePhotoUrl from '../assets/cutscene/news_04_figure.png?url';
+import exteriorPhotoUrl from '../assets/cutscene/news_01_exterior.webp?url';
+import windowPhotoUrl from '../assets/cutscene/news_02_window.webp?url';
+import aftermathPhotoUrl from '../assets/cutscene/news_03_aftermath.webp?url';
+import figurePhotoUrl from '../assets/cutscene/news_04_figure.webp?url';
 
 // Opening-news image changes. Keep these separate from the playback code so
 // editorial timing can be adjusted without touching the cutscene behaviour.

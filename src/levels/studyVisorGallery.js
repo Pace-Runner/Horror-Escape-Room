@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import photoUrl from '../assets/textures/study/archive_gallery_photos.jpg?url';
-import mapArtUrl from '../assets/textures/study/project_hollow_observation_map.png?url';
+import mapArtUrl from '../assets/textures/study/project_hollow_observation_map.webp?url';
 
 // Six 256px photographs share one atlas; glyphs share a second 4x4 atlas.
 const symbols = ['triangle', 'bars', 'circle', 'diamond', 'crescent', 'eye', 'cross', 'square', 'spiral', 'chevron', 'rune'];

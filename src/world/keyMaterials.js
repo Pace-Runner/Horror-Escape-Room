@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import rustedBrassUrl from '../assets/textures/keys/brass_key_rusted.jpg?url';
-import rustedBrassRoughMetalUrl from '../assets/textures/keys/brass_key_rusted_rm.png?url';
+import rustedBrassRoughMetalUrl from '../assets/textures/keys/brass_key_rusted_rm.webp?url';
 import rustedIronUrl from '../assets/textures/keys/iron_key_rusted.jpg?url';
-import rustedIronRoughMetalUrl from '../assets/textures/keys/iron_key_rusted_rm.png?url';
+import rustedIronRoughMetalUrl from '../assets/textures/keys/iron_key_rusted_rm.webp?url';
 
 /**
  * The materials Level 1's keys are made of, shared by the key in the room and

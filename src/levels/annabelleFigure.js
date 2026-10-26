@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { loadModel } from '../world/modelLoader.js';
 import annabelleUrl from '../assets/models/study/annabelle.glb?url';
-import skirtLinenUrl from '../assets/textures/study/annabelle_skirt_linen.png?url';
+import skirtLinenUrl from '../assets/textures/study/annabelle_skirt_linen.webp?url';
 
 /**
  * ANNABELLE AT SIXTEEN, made from "Victorian Child - Low Poly Character Model"

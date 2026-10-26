@@ -5,11 +5,11 @@ import '@fontsource/old-standard-tt/latin-400.css';
 import '@fontsource/old-standard-tt/latin-400-italic.css';
 import '@fontsource/old-standard-tt/latin-700.css';
 
-import houseUrl from '../assets/textures/bedroom/haunted_victorian_mansion_sepia.png?url';
-import hallwayUrl from '../assets/textures/bedroom/level_1_1984_pic.png?url';
-import bedroomDoorUrl from '../assets/textures/bedroom/level_1_1985_pic.png?url';
-import clawMarksUrl from '../assets/textures/bedroom/level_1_1986_pic.png?url';
-import chainedBedUrl from '../assets/textures/bedroom/level_1_1987_pic.png?url';
+import houseUrl from '../assets/textures/bedroom/haunted_victorian_mansion_sepia.webp?url';
+import hallwayUrl from '../assets/textures/bedroom/level_1_1984_pic.webp?url';
+import bedroomDoorUrl from '../assets/textures/bedroom/level_1_1985_pic.webp?url';
+import clawMarksUrl from '../assets/textures/bedroom/level_1_1986_pic.webp?url';
+import chainedBedUrl from '../assets/textures/bedroom/level_1_1987_pic.webp?url';
 
 import { NEWSPAPERS } from '../story/newspapers.js';
 

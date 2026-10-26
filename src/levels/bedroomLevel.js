@@ -39,22 +39,22 @@ import level1CrumpledPaperBallUrl from '../assets/models/level1_crumpled_paper_b
 import level1RadiatorRemodelUrl from '../assets/models/level1_radiator_remodel.glb?url';
 import level1WindowFrameRemodelUrl from '../assets/models/level1_window_frame_remodel.glb?url';
 import looseFloorboardRemodelUrl from '../assets/models/level1_loose_floorboard_remodel.glb?url';
-import doorPlankAlbedoUrl from '../assets/textures/door/door_plank_albedo.png?url';
-import doorPlankRoughnessUrl from '../assets/textures/door/door_plank_roughness.png?url';
-import doorPlankNormalUrl from '../assets/textures/door/door_wood_normal_1k.png?url';
-import wallpaperBaseUrl from '../assets/textures/bedroom/distressed_victorian_damask_wallpaper.png?url';
-import clawRipUrl from '../assets/textures/bedroom/ripped_victorian_wallpaper_claw_marks.png?url';
-import bedroomFloorUrl from '../assets/textures/bedroom/weathered_dark_wooden_floorboards.png?url';
+import doorPlankAlbedoUrl from '../assets/textures/door/door_plank_albedo.webp?url';
+import doorPlankRoughnessUrl from '../assets/textures/door/door_plank_roughness.webp?url';
+import doorPlankNormalUrl from '../assets/textures/door/door_wood_normal_1k.webp?url';
+import wallpaperBaseUrl from '../assets/textures/bedroom/distressed_victorian_damask_wallpaper.webp?url';
+import clawRipUrl from '../assets/textures/bedroom/ripped_victorian_wallpaper_claw_marks.webp?url';
+import bedroomFloorUrl from '../assets/textures/bedroom/weathered_dark_wooden_floorboards.webp?url';
 // DON'T LET IT OUT, cut letter by letter from a photo of a carved wooden
 // alphabet by scripts/build_floor_message.py, with a normal map from its grooves.
-import floorMessageUrl from '../assets/textures/bedroom/floor_message.png?url';
-import floorMessageNormalUrl from '../assets/textures/bedroom/floor_message_normal.png?url';
-import bedroomCeilingUrl from '../assets/textures/bedroom/grimy_cracked_plaster_texture.png?url';
-import hauntedMansionSepiaUrl from '../assets/textures/bedroom/haunted_victorian_mansion_sepia.png?url';
-import photo1984Url from '../assets/textures/bedroom/level_1_1984_pic.png?url';
-import photo1985Url from '../assets/textures/bedroom/level_1_1985_pic.png?url';
-import photo1986Url from '../assets/textures/bedroom/level_1_1986_pic.png?url';
-import photo1987Url from '../assets/textures/bedroom/level_1_1987_pic.png?url';
+import floorMessageUrl from '../assets/textures/bedroom/floor_message.webp?url';
+import floorMessageNormalUrl from '../assets/textures/bedroom/floor_message_normal.webp?url';
+import bedroomCeilingUrl from '../assets/textures/bedroom/grimy_cracked_plaster_texture.webp?url';
+import hauntedMansionSepiaUrl from '../assets/textures/bedroom/haunted_victorian_mansion_sepia.webp?url';
+import photo1984Url from '../assets/textures/bedroom/level_1_1984_pic.webp?url';
+import photo1985Url from '../assets/textures/bedroom/level_1_1985_pic.webp?url';
+import photo1986Url from '../assets/textures/bedroom/level_1_1986_pic.webp?url';
+import photo1987Url from '../assets/textures/bedroom/level_1_1987_pic.webp?url';
 
 // One image per year, shared by pickups, board thumbnails, and the board UI.
 const PUZZLE_PHOTO_URLS = {

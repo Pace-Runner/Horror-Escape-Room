@@ -542,7 +542,7 @@ html, body {
   z-index: 0;
   background:
     linear-gradient(rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0.78)),
-    url('./assets/ui/haunted-bedroom-menu.png') center / cover no-repeat;
+    url('./assets/ui/haunted-bedroom-menu.webp') center / cover no-repeat;
   filter: blur(2px);
   transform: scale(1.025);
   transition: filter 700ms ease;
@@ -855,7 +855,7 @@ html, body {
   inset: 0;
   background:
     radial-gradient(ellipse at 50% 48%, rgba(32, 17, 7, 0.26) 0%, rgba(2, 1, 1, 0.82) 71%, rgba(0, 0, 0, 0.97) 100%),
-    url('./assets/ui/haunted-bedroom-menu.png') center / cover no-repeat;
+    url('./assets/ui/haunted-bedroom-menu.webp') center / cover no-repeat;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2042,7 +2042,7 @@ html, body {
   inset: 0;
   background:
     linear-gradient(rgba(1, 1, 1, 0.79), rgba(1, 1, 1, 0.9)),
-    url('./assets/ui/haunted-bedroom-menu.png') center / cover no-repeat;
+    url('./assets/ui/haunted-bedroom-menu.webp') center / cover no-repeat;
   display: flex;
   align-items: center;
   justify-content: center;

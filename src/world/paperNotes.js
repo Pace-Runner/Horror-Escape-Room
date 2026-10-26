@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import oldPaperUrl from '../assets/textures/notes/old_paper.jpg?url';
-import paperWear1Url from '../assets/textures/notes/paper_wear_1.png?url';
-import paperWear2Url from '../assets/textures/notes/paper_wear_2.png?url';
-import paperWear3Url from '../assets/textures/notes/paper_wear_3.png?url';
-import paperWear4Url from '../assets/textures/notes/paper_wear_4.png?url';
+import paperWear1Url from '../assets/textures/notes/paper_wear_1.webp?url';
+import paperWear2Url from '../assets/textures/notes/paper_wear_2.webp?url';
+import paperWear3Url from '../assets/textures/notes/paper_wear_3.webp?url';
+import paperWear4Url from '../assets/textures/notes/paper_wear_4.webp?url';
 import handwritingFontUrl from '../assets/fonts/Kalam-Regular.ttf?url';
 
 /**

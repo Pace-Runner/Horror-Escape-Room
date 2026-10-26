@@ -26,12 +26,12 @@ import radiatorModelUrl from '../assets/models/level1_radiator_remodel.glb?url';
 import chairModelUrl from '../assets/models/level1_chair_remodel.glb?url';
 import rugModelUrl from '../assets/models/rug/level1_victorian_rug.glb?url';
 import paperBallModelUrl from '../assets/models/level1_crumpled_paper_ball.glb?url';
-import wallpaperUrl from '../assets/textures/bedroom/distressed_victorian_damask_wallpaper.png?url';
-import floorUrl from '../assets/textures/bedroom/weathered_dark_wooden_floorboards.png?url';
-import ceilingUrl from '../assets/textures/bedroom/grimy_cracked_plaster_texture.png?url';
-import clawRipUrl from '../assets/textures/bedroom/ripped_victorian_wallpaper_claw_marks.png?url';
-import houseSepiaUrl from '../assets/textures/bedroom/haunted_victorian_mansion_sepia.png?url';
-import woodNormalUrl from '../assets/textures/door/door_wood_normal_1k.png?url';
+import wallpaperUrl from '../assets/textures/bedroom/distressed_victorian_damask_wallpaper.webp?url';
+import floorUrl from '../assets/textures/bedroom/weathered_dark_wooden_floorboards.webp?url';
+import ceilingUrl from '../assets/textures/bedroom/grimy_cracked_plaster_texture.webp?url';
+import clawRipUrl from '../assets/textures/bedroom/ripped_victorian_wallpaper_claw_marks.webp?url';
+import houseSepiaUrl from '../assets/textures/bedroom/haunted_victorian_mansion_sepia.webp?url';
+import woodNormalUrl from '../assets/textures/door/door_wood_normal_1k.webp?url';
 // The basement's own concrete, already in the build: the passage at the foot
 // of the stairs is where the house starts turning into the laboratory.
 import concreteUrl from '../assets/textures/lab/concrete030_color.jpg?url';

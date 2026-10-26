@@ -53,7 +53,7 @@ import whiteRustMetalUrl from '../assets/textures/lab/texturelabs_metal_190.jpg?
 import steelColorUrl from '../assets/textures/lab/metal055b_color.jpg?url';
 import steelNormalUrl from '../assets/textures/lab/metal055b_normal_gl.jpg?url';
 import steelRoughnessUrl from '../assets/textures/lab/metal055b_roughness.jpg?url';
-import doorScratchesUrl from '../assets/textures/lab/door_scratches.png?url';
+import doorScratchesUrl from '../assets/textures/lab/door_scratches.webp?url';
 import cardboardUrl from '../assets/textures/lab/cardboard.jpg?url';
 // The steel door at the far end: one photo of a whole riveted, rusting door,
 // made from door_height_map.png and door_normal_map.png (both cropped to the door).
@@ -61,12 +61,12 @@ import steelDoorAlbedoUrl from '../assets/textures/lab/steel_door_albedo.jpg?url
 import steelDoorNormalUrl from '../assets/textures/lab/steel_door_normal.jpg?url';
 import steelDoorRoughnessUrl from '../assets/textures/lab/steel_door_roughness.jpg?url';
 // Level 1's bedside table wood, for the lab's wooden tables: one house, one furniture.
-import tableWoodUrl from '../assets/textures/bedside/wood.png?url';
+import tableWoodUrl from '../assets/textures/bedside/wood.webp?url';
 import steelMetalnessUrl from '../assets/textures/lab/metal055b_metalness.jpg?url';
-import scuffDecalUrl from '../assets/textures/lab/texturelabs_details_136.png?url';
+import scuffDecalUrl from '../assets/textures/lab/texturelabs_details_136.webp?url';
 // The rust cut out of Texturelabs_Metal_190: its white paint made transparent,
 // so the rust alone can be laid over the generator's own paint.
-import rustOverlayUrl from '../assets/textures/lab/texturelabs_metal_190_rust_overlay.png?url';
+import rustOverlayUrl from '../assets/textures/lab/texturelabs_metal_190_rust_overlay.webp?url';
 // Green-black damp grime, cut out of the water streaks in Texturelabs_Concrete_189:
 // transparent where that concrete was pale, mossy where it was stained.
 import greenGrimeUrl from '../assets/textures/lab/lab_green_grime_overlay.png?url';
