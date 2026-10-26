@@ -61,9 +61,11 @@ export function createClockMechanism({ woodMaterial, interiorMaterial, brassMate
     parent.add(object);
     return object;
   }
-  // Recessed walls and a shallow shelf remain stationary when the door opens.
+  // Continuous cubby base meets the bottom of the lining and both side returns.
+  // It is the floor of the compartment, with no separate pedestal or reward mount.
   box(root, [0.302, 0.25, 0.012], [0, 0, -0.220], interiorMaterial);
-  box(root, [0.312, 0.015, 0.205], [0, -0.1325, -0.117], interiorMaterial);
+  const cubbyBase = box(root, [0.290, 0.012, 0.205], [0, -0.131, -0.117], interiorMaterial);
+  cubbyBase.name = 'Clock_Cubby_Base';
   for (const side of [-1, 1]) {
     box(root, [0.012, 0.25, 0.205], [side * 0.151, 0, -0.117], interiorMaterial);
   }
@@ -86,7 +88,7 @@ export function createClockMechanism({ woodMaterial, interiorMaterial, brassMate
     root.add(pin);
   }
   const sigil = createBrassSigil();
-  sigil.position.set(0, -0.121, -0.067);
+  sigil.position.set(0, -0.121, -0.105);
   sigil.rotation.x = -Math.PI / 2;
   sigil.visible = false;
   root.add(sigil);

@@ -270,6 +270,16 @@ export function createCutsceneRunner({
     const e = (EASES[def.ease] ?? EASES.inout)(u);
     const blendIn = !def.cut;
 
+    // A choreography may supply an already-eased position/quaternion pair.
+    // Other scenes retain the existing shot/path behavior unchanged.
+    if (typeof def.pose === 'function') {
+      const pose = def.pose(u);
+      out.pos.fromArray(pose.position);
+      out.quat.fromArray(pose.quaternion).normalize();
+      out.fov = pose.fov ?? from.fov;
+      return out;
+    }
+
     if (def.samples?.length) {
       const sample = sampleTake(def.samples, u * shot.seconds, {});
       out.pos.fromArray(sample.pos);

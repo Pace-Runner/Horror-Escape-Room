@@ -33,6 +33,8 @@ export const VisorShader = {
     tDiffuse: { value: null },
     /** 0 = not worn, 1 = fully on. Ramped by the caller so it eases. */
     uVisor: { value: 0 },
+    /** Scoped cinematic tint control; normal gameplay retains the original grade. */
+    uTintStrength: { value: 1 },
     /** 0 = fine, 1 = fully caught. */
     uCaught: { value: 0 },
     /** width / height, so the vignette is round rather than an ellipse. */
@@ -56,6 +58,7 @@ export const VisorShader = {
   fragmentShader: /* glsl */`
     uniform sampler2D tDiffuse;
     uniform float uVisor;
+    uniform float uTintStrength;
     uniform float uCaught;
     uniform float uAspect;
     uniform float uBrightness;
@@ -126,7 +129,7 @@ export const VisorShader = {
       // screen as cool grey rather than as the blue lenses the story describes.
       // These levels are dark enough that low saturation disappears entirely.
       vec3 lens = vec3(lum) * vec3(0.50, 0.84, 1.46);
-      corrected = mix(corrected, lens, 0.72);
+      corrected = mix(corrected, lens, 0.72 * uTintStrength);
 
       // The rim. Starts beyond the corner so the falloff never bands, and is
       // deliberately gentle: a hard vignette would push the edges back into the

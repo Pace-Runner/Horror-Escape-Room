@@ -289,8 +289,7 @@ export const HELD_ITEM_FRAMING = {
   fuse45: FUSE_FRAMING,
   // Level 3's sigil, held up by its rim like a photograph, face to the camera.
   archiveToken: { ...PHOTO_FRAMING, scale: 0.45 },
-  // Level 3's two keys are fillStudyKey's, the same washer-bow layout as the
-  // gate key, so they are held as it is.
+  // Level 3's brass key and flat access card use their canonical item frames.
   archiveKey: {
     pose: 'grip-cylinder',
     anchorPose: 'hold-torch',
@@ -299,14 +298,7 @@ export const HELD_ITEM_FRAMING = {
     offset: fromTorchGrip(-0.01, 0, 0),
     scale: 0.8
   },
-  hollowOverrideKey: {
-    pose: 'grip-cylinder',
-    anchorPose: 'hold-torch',
-    aim: [-0.25, 0.95, -0.12],
-    roll: deg(90),
-    offset: fromTorchGrip(-0.01, 0, 0),
-    scale: 0.8
-  }
+  hollowOverrideKey: { ...PHOTO_FRAMING, scale: 1 }
 };
 
 /** For an id the table has no row for: the torch's spot, pointing up. */

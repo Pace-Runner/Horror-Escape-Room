@@ -2992,6 +2992,7 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
      * broken rig rather than a living thing.
      */
     setTwitches(on) { twitchGain = on ? 1 : 0; },
+    get twitchesEnabled() { return twitchGain > 0; },
     /**
      * Keep the crown under a ceiling `height` metres up (null for none): it
      * stoops for it, a little more each frame it is over and less once it is

@@ -1584,6 +1584,13 @@ html, body {
   opacity: 1;
 }
 
+/* This full-screen reveal uses the existing subtitle surface without letterboxing. */
+body.study-reveal #caption-box {
+  bottom: 7%;
+  max-width: min(720px, calc(100vw - 48px));
+  font-size: 0.98rem;
+}
+
 /* ---------- documents (letters, notes, files, transcripts) ----------
    Paper rather than a UI panel: this is the one place in the game where the
    player stops and reads, so it wants to look like the thing being read. Three

@@ -20,6 +20,9 @@ export function createStudyDecor({ woodMaterial, brassMaterial }) {
   const linen = new THREE.MeshStandardMaterial({ color: 0x96896f, roughness: 0.97, side: THREE.DoubleSide });
   const green = new THREE.MeshStandardMaterial({ color: 0x29382f, roughness: 0.82 });
   const ceramic = new THREE.MeshStandardMaterial({ color: 0x716a59, roughness: 0.68 });
+  const photoMaterials = new Map();
+  const flameMaterial = new THREE.MeshBasicMaterial({ color: 0xe3b36c, toneMapped: false });
+  const flameGeometry = new THREE.SphereGeometry(1, 7, 5);
   const covers = [0x303729, 0x433126, 0x402a2d, 0x333c41, 0x6b604a]
     .map((color) => new THREE.MeshStandardMaterial({ color, roughness: 0.89 }));
 
@@ -96,11 +99,20 @@ export function createStudyDecor({ woodMaterial, brassMaterial }) {
     return object;
   }
   function candle() {
-    const object = prop('Decor_Unlit_Candlestick');
+    const object = prop('Decor_Candlestick');
     cylinder(object, brassMaterial, 0.043, 0.012, [0, 0.006, 0]);
     cylinder(object, brassMaterial, 0.010, 0.14, [0, 0.08, 0]);
     cylinder(object, brassMaterial, 0.031, 0.012, [0, 0.155, 0]);
     cylinder(object, wax, 0.012, 0.11, [0, 0.215, 0]);
+    mesh(object, flameGeometry, flameMaterial, [0.004, 0.014, 0.004], [0, 0.284, 0]);
+    return object;
+  }
+  function wallSconce() {
+    const object = prop('Decor_Brass_Candle_Sconce');
+    const back = mesh(object, cylinderGeometry, brassMaterial, [0.050, 0.014, 0.090], [0, 0.10, 0]);
+    back.rotation.x = Math.PI / 2;
+    box(object, brassMaterial, [0.015, 0.018, 0.14], [0, 0.055, 0.070]);
+    place(object, candle(), 0, 0.060, 0.14);
     return object;
   }
   function sideTable() {
@@ -120,8 +132,16 @@ export function createStudyDecor({ woodMaterial, brassMaterial }) {
     for (let i = 0; i < uv.count; i++) {
       uv.setXY(i, crop[0] + uv.getX(i) * (crop[2] - crop[0]), crop[1] + uv.getY(i) * (crop[3] - crop[1]));
     }
-    const material = new THREE.MeshStandardMaterial({ map: texture, color: 0xb2a58c, roughness: 0.95 });
+    if (!photoMaterials.has(texture)) photoMaterials.set(texture,
+      new THREE.MeshStandardMaterial({ map: texture, color: 0xb2a58c, roughness: 0.95 }));
+    const material = photoMaterials.get(texture);
     mesh(object, geometry, material, [1, 1, 1], [0, height / 2 + 0.0325, 0.019]);
+    for (const side of [-1, 1]) {
+      box(object, woodMaterial, [0.027, height + 0.065, 0.028], [side * (width / 2 + 0.020), height / 2 + 0.0325, 0.025]);
+      box(object, woodMaterial, [width + 0.013, 0.027, 0.028], [0, height / 2 + 0.0325 + side * (height / 2 + 0.020), 0.025]);
+      box(object, brassMaterial, [0.004, height + 0.008, 0.004], [side * (width / 2 + 0.003), height / 2 + 0.0325, 0.022]);
+      box(object, brassMaterial, [width, 0.004, 0.004], [0, height / 2 + 0.0325 + side * (height / 2 + 0.003), 0.022]);
+    }
     return object;
   }
 
@@ -130,15 +150,27 @@ export function createStudyDecor({ woodMaterial, brassMaterial }) {
     box(object, woodMaterial, [2.8, 2.8, 0.025], [0, 1.4, -0.212]);
     for (const x of [-1.35, 1.35]) box(object, woodMaterial, [0.10, 2.8, 0.45], [x, 1.4, 0]);
     for (const y of [0.15, 0.98, 1.815, 2.65]) {
-      box(object, woodMaterial, [2.70, 0.075, 0.45], [0, y, 0]);
-      box(object, woodMaterial, [2.77, 0.09, 0.04], [0, y, 0.205]);
+      // Fit between the stiles; their shared front planes used to overlap.
+      box(object, woodMaterial, [2.60, 0.075, 0.45], [0, y, 0]);
+      box(object, woodMaterial, [2.77, 0.09, 0.04], [0, y, 0.208]);
     }
-    box(object, woodMaterial, [2.8, 0.10, 0.45], [0, 2.75, 0]);
+    // Small cap overhang separates its faces from the stile tops/fronts.
+    box(object, woodMaterial, [2.8, 0.10, 0.456], [0, 2.755, 0]);
     if (index === 3) return object; // Gallery bays retain their shelves without overlapping props.
     for (let i = 0; i < 3; i++) place(object, book(index + i, false, 0.23 + i * 0.025), -0.92 + i * 0.05, 0.188, 0.035);
     for (let i = 0; i < 2; i++) place(object, book(index + i + 3, false, 0.25 + i * 0.03), 0.58 + i * 0.048, 1.853, 0.035);
     place(object, book(index + 4, true), -0.65, 2.688, 0.025, 0.08);
     place(object, archiveBox(), loft ? -0.76 : 0.58, 1.018, 0);
+    for (let i = 0; i < 4; i++) {
+      place(object, book(index + i + 2, false, 0.22 + (i % 3) * 0.027),
+        loft ? 0.20 + i * 0.045 : -0.27 + i * 0.045, 1.018, 0.018, (i - 1) * 0.018);
+    }
+    if (index % 2 === 0) {
+      const vase = prop('Decor_Small_Ceramic_Vase');
+      cylinder(vase, ceramic, 0.033, 0.075, [0, 0.0375, 0]);
+      cylinder(vase, ceramic, 0.021, 0.040, [0, 0.090, 0]);
+      place(object, vase, 0.24, 2.688, 0.015);
+    }
     if (loft) {
       place(object, bundle(), 0.74, 2.688, 0);
       place(object, book(1, true, 0.28), -0.05, 1.018, 0.025, 0.10);
@@ -150,7 +182,7 @@ export function createStudyDecor({ woodMaterial, brassMaterial }) {
     return object;
   }
 
-  function dressRoom({ group, desk, fireplace, photoTexture, loftY }) {
+  function dressRoom({ group, desk, fireplace, concealmentChair, photoTexture, loftY }) {
     // Keep the incident note's left/rear desk quadrant completely clear.
     place(desk, lamp(), 0.64, 0.79, -0.20);
     for (let i = 0; i < 3; i++) place(desk, book(i + 1, true), -0.63, 0.79 + i * 0.035, 0.21, -0.08 + i * 0.07);
@@ -160,19 +192,23 @@ export function createStudyDecor({ woodMaterial, brassMaterial }) {
     cylinder(ink, green, 0.021, 0.055, [0, 0.028, 0]);
     cylinder(ink, brassMaterial, 0.015, 0.010, [0, 0.06, 0]);
     place(desk, ink, 0.42, 0.79, 0.20);
+    const pen = cylinder(desk, brassMaterial, 0.0025, 0.13, [0.40, 0.793, 0.015]);
+    pen.rotation.z = Math.PI / 2;
 
     place(fireplace, candle(), -0.68, 1.46, 0.08);
     place(fireplace, photo(photoTexture, 0.24, 0.18), -0.04, 1.46, 0.025, -0.07);
     place(fireplace, book(2, true), 0.59, 1.46, 0.025, 0.10);
+    place(fireplace, book(4, true, 0.21, 0.026), 0.59, 1.495, 0.025, -0.035);
 
-    // Left of the chair, outside the camera-to-Annabelle reveal line and reward area.
-    const table = place(group, sideTable(), -5.57, 0, -3.40);
+    // Follow the chair's local left side, with clearance from its arm and the wall.
+    const tablePosition = concealmentChair.localToWorld(new THREE.Vector3(-0.82, 0, 0.24));
+    const table = place(group, sideTable(), tablePosition.x, 0, tablePosition.z, concealmentChair.rotation.y);
     place(table, candle(), -0.10, 0.61, -0.075);
     place(table, book(3, true, 0.20, 0.026), 0.075, 0.61, 0.035, -0.14);
+    place(table, book(1, true, 0.19, 0.023), 0.075, 0.636, 0.035, -0.075);
 
-    place(group, photo(photoTexture, 0.56, 0.42, [0.08, 0.08, 0.92, 0.92]), -7.978, 1.63, 2.65, Math.PI / 2);
-    // Clear of the stairs and entry door.
-    place(group, photo(photoTexture, 0.48, 0.60, [0.40, 0.08, 0.78, 0.95]), 7.978, 1.54, 3.15, -Math.PI / 2);
+    place(group, wallSconce(), 3.90, 1.63, -6.455);
+    place(group, wallSconce(), -6.30, 1.65, 6.455, Math.PI);
 
     // Collapse repeated static box/cylinder parts into a few shared instance batches.
     group.updateMatrixWorld(true);

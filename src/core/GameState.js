@@ -110,7 +110,7 @@ export const ITEMS = {
   // Level 3's: the sigil from the clock, the key behind the crest, the key by Annabelle.
   archiveToken: { label: 'Brass Sigil', name: 'brass sigil' },
   archiveKey: { label: 'Archive key', name: 'archive key' },
-  hollowOverrideKey: { label: 'HOLLOW override key', name: 'override key' }
+  hollowOverrideKey: { label: 'HOLLOW access keycard', name: 'access keycard' }
 };
 
 /** The slots the inventory bar always shows; it only grows past this when they are all full. */

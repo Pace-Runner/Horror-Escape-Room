@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { STUDY_RUG } from './studyHeroPresentation.js';
 
 // Small shared transfer masks: full sole, broken sole, toe-only and dragged heel.
 function transferTexture(variant) {
@@ -75,7 +76,7 @@ export function addStudyFootprints({ distortedTrail, bloodTrail, visorOnly, stai
       const selected = placements.filter(p => p.index % 2 === side &&
         (p.index % 11 === 5 ? 2 : p.index % 9 === 6 ? 3 : p.index % 5 === 3 ? 1 : 0) === variant);
       if (!selected.length) continue;
-      const mat = new THREE.MeshBasicMaterial({ color: blood ? 0x963d30 : 0x080708,
+      const mat = new THREE.MeshBasicMaterial({ color: 0xffffff,
         map: textures[variant], transparent: true, opacity: [0.98, 0.78, 0.88, 0.74][variant], toneMapped: false, depthWrite: false,
         polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
       const mesh = new THREE.InstancedMesh(geometries[side], mat, selected.length);
@@ -86,7 +87,11 @@ export function addStudyFootprints({ distortedTrail, bloodTrail, visorOnly, stai
         const size = 0.91 + jitter(p.index + 1) * 0.16;
         dummy.scale.set(size, p.stair ? size * 0.82 : size, 1);
         dummy.updateMatrix(); mesh.setMatrixAt(i, dummy.matrix);
-        mesh.setColorAt(i, new THREE.Color().setScalar(0.88 + jitter(p.index + 3) * 0.12));
+        const onRug = p.y < 0.1 && Math.abs(p.x - STUDY_RUG.x) < STUDY_RUG.width / 2 &&
+          Math.abs(p.z - STUDY_RUG.z) < STUDY_RUG.depth / 2;
+        // Dried transfer / dusty soles contrast with the dark pile; route and gating stay fixed.
+        const tint = onRug ? (blood ? 0xc27a62 : 0x9a8a6c) : (blood ? 0x963d30 : 0x080708);
+        mesh.setColorAt(i, new THREE.Color(tint).multiplyScalar(0.88 + jitter(p.index + 3) * 0.12));
       });
       mesh.computeBoundingSphere();
       parent.add(mesh);

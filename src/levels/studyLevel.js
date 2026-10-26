@@ -10,7 +10,11 @@ import { addStudyFootprints } from './studyFootprints.js';
 import { addStudyArchitectureTrim } from './studyArchitectureTrim.js';
 import { createStudyExterior } from './studyExterior.js';
 import { createLeftWallWithWindows } from './studyWindows.js';
-import { hingeMotion, studyLabel, dressCrestControl, createCrestIndicatorGeometry, createCrestPanelCollision, fillStudyKey, dressStudyDoor, batchStudyPuzzleDetails } from './studyPuzzlePresentation.js';
+import { hingeMotion, studyLabel, dressCrestControl, createCrestPanelCollision, dressStudyDoor, batchStudyPuzzleDetails } from './studyPuzzlePresentation.js';
+import { buildBrassKey } from '../world/keyModels.js';
+import { createHollowCard, createHollowReader, createPhysicalCrestTile, createResealHandle } from './studyProgressionPresentation.js';
+import { STUDY_RUG, dressStudyMirror, dressFinalStudyExit } from './studyHeroPresentation.js';
+import victorianRugUrl from '../assets/textures/rug/victorian_rug_top_game.jpg?url';
 import { loadModel } from '../world/modelLoader.js';
 import { createHauntedMirror } from '../world/HauntedMirror.js';
 import { createCrystalDecanter } from '../world/CrystalDecanter.js';
@@ -23,15 +27,13 @@ import victorianFireplaceUrl from '../assets/models/study/victorian_fireplace.gl
 import shadowCrestHousingUrl from '../assets/models/study/shadow_crest_housing.glb?url';
 import emergencyReleasePanelUrl from '../assets/models/study/emergency_release_panel.glb?url';
 import manualResealPanelUrl from '../assets/models/study/manual_reseal_panel.glb?url';
-import {
-  createFamilyPhotoTexture,
-  createRugTexture
-} from '../world/textures.js';
+import { createFamilyPhotoTexture } from '../world/textures.js';
 import { makeHandle } from '../world/trim.js';
 import { DOOR_PANEL_ROWS, getPanelSpans } from '../world/doorPanels.js';
 import { gameState } from '../core/GameState.js';
 import { createHiddenWritingTexture } from '../world/textures.js';
 import { line } from '../dialogue/index.js';
+import { ANNABELLE_FINAL_LETTER } from '../story/studyReveal.js';
 
 const ROOM_W = 16;
 const ROOM_D = 13;
@@ -351,7 +353,8 @@ export function createStudyLevel({
   // Cover the slab edge within its existing depth, with a shallow base bead and floor lip.
   addTimber(new THREE.BoxGeometry(galleryLength, 0.25, 0.12), galleryCentreX, LOFT_Y - 0.14, loftFrontZ + 0.055);
   addTimber(new RoundedBoxGeometry(galleryLength, 0.045, 0.14, 1, 0.007), galleryCentreX, LOFT_Y - 0.265, loftFrontZ + 0.05);
-  addTimber(new RoundedBoxGeometry(galleryLength, 0.04, 0.13, 1, 0.006), galleryCentreX, LOFT_Y - 0.02, loftFrontZ + 0.05);
+  // Keep the lip top 3 mm below the slab top instead of sharing its plane.
+  addTimber(new RoundedBoxGeometry(galleryLength, 0.04, 0.13, 1, 0.006), galleryCentreX, LOFT_Y - 0.023, loftFrontZ + 0.05);
   const cutoutLength = loftFrontZ - stairTopZ;
   addTimber(new THREE.BoxGeometry(0.10, 0.25, cutoutLength), loftMainRightX, LOFT_Y - 0.14, (loftFrontZ + stairTopZ) / 2);
   addTimber(new THREE.BoxGeometry(stairWidth, 0.25, 0.10), stairX, LOFT_Y - 0.14, stairTopZ - 0.025);
@@ -532,12 +535,13 @@ export function createStudyLevel({
   });
   group.add(chairGroup);
 
-  // Puzzle 1: the longcase clock faces into the study from the existing left-wall bay.
-  const clockX = -7.74;
-  const clockZ = 4.35;
+  // Right rear wall, facing -X: clear of the mirror, reseal panel and stair flight.
+  const clockX = 7.74;
+  const clockZ = -5.30; // 25 cm to the viewer's right along the same wall.
   const clock = new THREE.Group();
   clock.name = 'IncidentClock';
   clock.position.set(clockX, 0, clockZ);
+  clock.rotation.y = Math.PI;
   group.add(clock);
 
   const clockWoodMat = studySurfaces.woodMaterial(0.82, 'feature');
@@ -677,7 +681,7 @@ export function createStudyLevel({
   desk.add(decanter.root);
 
   colliders.push({
-    minX: clockX - 0.18, maxX: clockX + 0.198,
+    minX: clockX - 0.198, maxX: clockX + 0.18,
     minZ: clockZ - 0.31, maxZ: clockZ + 0.31,
     minY: 0, maxY: 2.16
   });
@@ -749,7 +753,6 @@ export function createStudyLevel({
 
   // Three disconnected strokes assemble a hollow triangular archive crest.
   const shadowMat = new THREE.MeshStandardMaterial({ color: 0x111310, metalness: 0.58, roughness: 0.48 });
-  const shadowGeometry = createCrestIndicatorGeometry();
   const shadowPieces = [];
   const shadowTargets = [
     { x: -0.145, y: 0.1, angle: -Math.PI / 6 },
@@ -757,7 +760,7 @@ export function createStudyLevel({
     { x: 0.145, y: 0.1, angle: Math.PI / 6 }
   ];
   for (let index = 0; index < 3; index++) {
-    const piece = new THREE.Mesh(shadowGeometry, shadowMat);
+    const piece = createPhysicalCrestTile(crestBrassMat, shadowMat);
     crestCover.add(piece);
     shadowPieces.push(piece);
   }
@@ -847,24 +850,27 @@ export function createStudyLevel({
 
   const crestClue = new THREE.Mesh(new RoundedBoxGeometry(0.76, 0.32, 0.05, 1, 0.012), crestBrassMat);
   const crestInscription = studyLabel(0.71, 0.275, true, true);
-  crestInscription.write(['THREE LIGHTS GUARD THE ARCHIVE.', 'THE OUTER TWO TURN FROM THE CENTRE.', 'THE HEART REMAINS TRUE.']);
+  const crestPlaqueLines = ['THREE LIGHTS GUARD THE ARCHIVE.', 'THE OUTER TWO TURN FROM THE HEART.', 'THE CENTRE REMAINS TRUE.'];
+  crestInscription.write(crestPlaqueLines);
   crestInscription.mesh.position.z = 0.027;
   crestClue.add(crestInscription.mesh);
-  crestClue.position.set(0, -0.94, 0.07);
+  crestClue.position.set(0, -0.84, 0.07);
   crestClue.userData.interact = {
     label: 'Read the crest plaque',
-    onInteract: () => showCaption('THREE LIGHTS GUARD THE ARCHIVE.\nTHE OUTER TWO TURN FROM THE CENTRE.\nTHE HEART REMAINS TRUE.')
+    onInteract: () => showCaption(crestPlaqueLines.join('\n'))
   };
   shadowCrest.add(crestClue);
   interactables.push(crestClue);
 
   const archiveKey = new THREE.Group();
-  archiveKey.position.set(0, 0, 0.08);
-  // Reuse the sigil's existing 256px aged-brass maps without another texture.
-  const archiveKeyMat = archiveToken.children[0].material.clone();
-  archiveKeyMat.metalness = 0.78;
-  archiveKeyMat.roughness = 0.6;
-  fillStudyKey(archiveKey, archiveKeyMat);
+  archiveKey.position.set(0, -0.0954, 0.075);
+  archiveKey.rotation.set(Math.PI / 2, 0, -0.18);
+  archiveKey.add(buildBrassKey());
+  // Small support inside the existing reward recess: the key rests on its top.
+  const archiveKeyTray = new THREE.Mesh(new RoundedBoxGeometry(0.20, 0.012, 0.16, 1, 0.003), crestWoodMat);
+  archiveKeyTray.name = 'Archive_Key_Reward_Tray';
+  archiveKeyTray.position.set(0, -0.108, 0.065);
+  shadowCrest.add(archiveKeyTray);
   const crestBacking = new THREE.Mesh(new THREE.CylinderGeometry(0.285, 0.285, 0.035, 32), crestWoodMat);
   crestBacking.name = 'Permanent_Crest_Wood_Backing';
   crestBacking.rotation.x = Math.PI / 2;
@@ -945,10 +951,11 @@ export function createStudyLevel({
     }
   }
   // Dressing bays leave the portrait, entry, stair approach and mirror clear.
-  [-4.8, -2].forEach((z) => addShelf(-7.75, 1.4, z, false, true, z === -2 ? { index: 0 } : null));
-  [-2.4, 0.4].forEach((x) => addShelf(x, 1.4, -6.25, true, true, x === 0.4 ? { index: 1 } : null));
-  [-4.8, -2].forEach((z) => addShelf(-7.75, LOFT_Y + 1.4, z, false, true, z === -2 ? { index: 2, loft: true } : null));
-  addShelf(7.75, LOFT_Y + 1.4, -4.8, false, true);
+  // The rear-left downstairs bay is reserved for Annabelle and her chair.
+  addShelf(-7.75, 1.4, -2, false, true, { index: 0 });
+  [-2.4, 0.4].forEach((x) => addShelf(x, 1.4, -6.25, true, true, { index: x === 0.4 ? 1 : 5 }));
+  [-4.8, -2].forEach((z) => addShelf(-7.75, LOFT_Y + 1.4, z, false, true, { index: z === -2 ? 2 : 6, loft: true }));
+  addShelf(7.75, LOFT_Y + 1.4, -4.8, false, true, { index: 4, loft: true });
   [-1.5, 1.3].forEach((x) => addShelf(x, LOFT_Y + 1.4, -6.25, true, true, { index: 3, loft: true }));
 
   // Floor-centred metre-scale fireplace, facing into the room from the same wall slot.
@@ -969,12 +976,13 @@ export function createStudyLevel({
     minY: 0, maxY: 1.46
   });
 
-  const rug = new THREE.Mesh(
-    new THREE.PlaneGeometry(3.8, 2.8),
-    new THREE.MeshStandardMaterial({ map: studySurfaces.ageRug(createRugTexture({ base: '#354032', border: '#30362b', ring: '#46503c', trim: '#8f8467', core: '#72613e' })), color: 0xc6bca8, roughness: 1 })
-  );
+  const rugMap = new THREE.TextureLoader().load(victorianRugUrl);
+  rugMap.colorSpace = THREE.SRGBColorSpace; rugMap.anisotropy = 4;
+  const rug = new THREE.Mesh(new THREE.PlaneGeometry(STUDY_RUG.width, STUDY_RUG.depth),
+    new THREE.MeshStandardMaterial({ map: rugMap, color: 0xddd1bc, roughness: 1 }));
+  rug.name = 'Study_Large_Worn_Persian_Carpet';
   rug.rotation.x = -Math.PI / 2;
-  rug.position.set(0, 0.008, 1.35);
+  rug.position.set(STUDY_RUG.x, STUDY_RUG.y, STUDY_RUG.z);
   group.add(rug);
 
   /**
@@ -1030,9 +1038,46 @@ export function createStudyLevel({
   archiveRightHinge.add(archiveRightDoor);
   memoryArchive.add(archiveRightHinge);
   const memoryDoorMotion = hingeMotion([[archiveDoorHinge, -1], [archiveRightHinge, 1]]);
-  const archiveLock = new THREE.Mesh(new RoundedBoxGeometry(0.12, 0.18, 0.04, 1, 0.008), crestBrassMat);
-  archiveLock.position.set(0.61, 0.95, 0.04);
-  archiveDoorHinge.add(archiveLock);
+  const keyholeShape = new THREE.Shape();
+  const keyholeJoin = Math.acos(0.004 / 0.009);
+  keyholeShape.moveTo(0.004, -0.025);
+  keyholeShape.lineTo(0.004, -Math.sqrt(0.009 ** 2 - 0.004 ** 2));
+  keyholeShape.absarc(0, 0, 0.009, -keyholeJoin, Math.PI + keyholeJoin, false);
+  keyholeShape.lineTo(-0.004, -0.025);
+  keyholeShape.closePath();
+  // A real opening in one thin plate, rather than a dark decal over brass.
+  // The assembly faces the cabinet interior (-Z), with 0.5 mm rear-bevel clearance.
+  const lockOutline = new THREE.Shape();
+  lockOutline.moveTo(-0.0185, -0.0375);
+  lockOutline.lineTo(0.0185, -0.0375);
+  lockOutline.quadraticCurveTo(0.0225, -0.0375, 0.0225, -0.0335);
+  lockOutline.lineTo(0.0225, 0.0335);
+  lockOutline.quadraticCurveTo(0.0225, 0.0375, 0.0185, 0.0375);
+  lockOutline.lineTo(-0.0185, 0.0375);
+  lockOutline.quadraticCurveTo(-0.0225, 0.0375, -0.0225, 0.0335);
+  lockOutline.lineTo(-0.0225, -0.0335);
+  lockOutline.quadraticCurveTo(-0.0225, -0.0375, -0.0185, -0.0375);
+  lockOutline.holes.push(new THREE.Path(keyholeShape.getPoints().reverse()));
+  const archiveLock = new THREE.Mesh(new THREE.ExtrudeGeometry(lockOutline, {
+    depth: 0.003, bevelEnabled: true, bevelThickness: 0.0002, bevelSize: 0.0002,
+    bevelSegments: 1, curveSegments: 12, steps: 1
+  }), crestBrassMat);
+  archiveLock.position.set(0.22, -0.15, -0.0232);
+  archiveLock.rotation.y = Math.PI;
+  archiveDoor.add(archiveLock);
+  const archiveKeyhole = new THREE.Group();
+  archiveKeyhole.name = 'MemoryArchive_Keyhole';
+  archiveKeyhole.position.z = -0.0005;
+  archiveLock.add(archiveKeyhole);
+  archiveKeyhole.add(new THREE.Mesh(new THREE.ShapeGeometry(keyholeShape), clockHandMat));
+  const archiveUsedKey = buildBrassKey();
+  archiveUsedKey.name = 'MemoryArchive_Used_Key_In_Lock';
+  // Keep even the inserted teeth behind the opposite (+Z) door face.
+  archiveUsedKey.position.z = 0.020;
+  archiveUsedKey.rotation.x = -Math.PI / 2;
+  archiveUsedKey.rotateY(0.65);
+  archiveUsedKey.visible = false;
+  archiveLock.add(archiveUsedKey);
   const memoryContents = new THREE.Group();
   memoryContents.visible = false;
   memoryArchive.add(memoryContents);
@@ -1127,6 +1172,7 @@ export function createStudyLevel({
       }
       onUseItem('archiveKey');
       puzzle.memoryArchiveUnlocked = true;
+      archiveUsedKey.visible = true;
       memoryContents.visible = true;
       const index = interactables.indexOf(archiveCabinetHit);
       if (index >= 0) interactables.splice(index, 1);
@@ -1257,33 +1303,7 @@ export function createStudyLevel({
     ['ADAPTIVE RESTORATION', 'SELF-AUTHORIZED', 'PROTOCOL.'],
     ['POST-PROCEDURE:', 'MEMORY DEGRADATION.', 'IDENTITY INSTABILITY.', 'PERCEPTUAL DISTORTION.']
   ];
-  const annabelleLetterBody = `Mark,
-
-If you're reading this, you've forgotten again.
-
-You knew what Project HOLLOW was.
-You helped design the containment system.
-You volunteered for the procedure because you believed it could work.
-
-It did change you.
-Just not in the way we hoped.
-
-The memory loss came first.
-Then the distortions.
-You stopped recognising the rooms.
-Then you stopped recognising me.
-
-You made me promise that if you ever forgot who you were,
-I would not let you leave.
-
-You said the containment had to hold.
-
-I stayed because I believed some part of you would remember.
-
-If you can still understand this —
-please remember me.
-
-Annabelle`;
+  const annabelleLetterBody = ANNABELLE_FINAL_LETTER;
   const truthDrawer = new THREE.Group();
   truthDrawer.position.set(0, 0.45, 0.28);
   hollowAlcove.add(truthDrawer);
@@ -1507,10 +1527,11 @@ Annabelle`;
     onInteract: () => {
       if (!puzzle.truthRecordsSolved || !letterDoorMotion.isOpen() || letterReading || puzzle.truthRecordsComplete) return;
       letterReading = true;
+      const letterGeneration = mirrorRevealGeneration;
       onReadLetter({
         body: annabelleLetterBody,
         onFinished: () => {
-          if (puzzle.truthRecordsComplete || !puzzle.truthRecordsSolved) return;
+          if (letterGeneration !== mirrorRevealGeneration || puzzle.truthRecordsComplete || !puzzle.truthRecordsSolved) return;
           letterReading = false;
           letterHit.visible = false;
           const hitIndex = interactables.indexOf(letterHit);
@@ -1519,7 +1540,9 @@ Annabelle`;
           puzzle.mirrorUnlocked = true;
           gameState.letterRead = true;
           if (!interactables.includes(mirrorGlass)) interactables.push(mirrorGlass);
-          showCaption('The mirror feels different now.');
+          // Start directly from closing the letter; the mirror target remains a retry
+          // only if a cancelled/failed scene could not finish this generation.
+          void mirrorGlass.userData.interact.onInteract();
         }
       });
     }
@@ -1542,8 +1565,8 @@ Annabelle`;
     mirrorFrame.add(model);
   }).catch((error) => console.warn('Victorian mirror could not load:', error));
   colliders.push({
-    minX: 4.33, maxX: 5.27, minZ: -6.496, maxZ: -6.35,
-    minY: 0, maxY: 2.16
+    minX: 4.33, maxX: 5.27, minZ: -6.496, maxZ: -6.28,
+    minY: 0, maxY: 2.32
   });
   const mirrorGlass = new THREE.Mesh(
     new THREE.PlaneGeometry(0.674, 1.77),
@@ -1557,6 +1580,11 @@ Annabelle`;
   mirror.mesh.position.z = 0.001;
   mirrorGlass.add(mirror.mesh);
   mirrorGlass.position.set(4.8, 1.08, mirrorFrame.position.z + 0.052);
+  let mirrorPresentation = null;
+  function setMirrorRevealSight(corrected) {
+    mirrorPresentation?.setCorrected(corrected);
+  }
+  dressStudyMirror(mirrorFrame, mirrorGlass, studySurfaces.woodMaterial(0.78, 'feature'), crestBrassMat);
   mirrorGlass.userData.interact = {
     label: 'Look into the mirror',
     onInteract: async () => {
@@ -1582,6 +1610,9 @@ Annabelle`;
           interactables.push(hollowOverrideKeyHit);
         }
         mirrorGlass.userData.interact.label = 'The reflection is still';
+      } catch (error) {
+        showAnnabelle(false);
+        console.error('Study reveal could not complete:', error);
       } finally {
         if (generation === mirrorRevealGeneration) puzzle.mirrorRevealInProgress = false;
       }
@@ -1589,19 +1620,20 @@ Annabelle`;
   };
   group.add(mirrorGlass);
 
-  // Annabelle, standing in the corner under the loft, past the wingback chair:
+  // Annabelle stays low behind the chair after corrected perception reveals her.
   // a girl of about sixteen, not the thing the player has been running from.
   // See annabelleFigure.js. Hidden until the mirror shows her.
   const annabelleFigure = createAnnabelle();
   const annabelle = annabelleFigure.root;
-  annabelle.position.set(-4.2, 0, -4.2);
+  annabelle.position.set(-7.25, 0, -5.9);
   // Facing out of the corner, toward where the reveal's camera stands
   // (2.4 m along x and 1.3 m along z from her; main.js, onLookInMirror).
   annabelle.rotation.y = Math.atan2(2.4, 1.3);
   annabelle.visible = false;
   group.add(annabelle);
   /** Solid only while she is there to bump into: parked out of reach when hidden. */
-  const ANNABELLE_BOX = { minX: -4.42, maxX: -3.98, minZ: -4.42, maxZ: -3.98, minY: 0, maxY: 1.62 };
+  const ANNABELLE_BOX = { minX: annabelle.position.x - 0.22, maxX: annabelle.position.x + 0.22,
+    minZ: annabelle.position.z - 0.22, maxZ: annabelle.position.z + 0.22, minY: 0, maxY: 1.38 };
   const annabelleCollider = { minX: -1000, maxX: -1000, minZ: -1000, maxZ: -1000, minY: 0, maxY: 0 };
   colliders.push(annabelleCollider);
   function showAnnabelle(on) {
@@ -1610,12 +1642,12 @@ Annabelle`;
       : { minX: -1000, maxX: -1000, minZ: -1000, maxZ: -1000, minY: 0, maxY: 0 });
   }
   // The chair's GLB is authored at metre scale, floor-centred, facing +Z into
-  // the study. Its position and collision footprint are unchanged.
+  // the study. Leave a pocket behind it and a clear approach past the fireplace.
   const concealmentChair = new THREE.Group();
   concealmentChair.name = 'Annabelle_Wingback_Chair';
-  concealmentChair.position.set(-4.65, 0, -3.45);
+  concealmentChair.position.set(-6.98, 0, -4.98);
   concealmentChair.scale.setScalar(1);
-  concealmentChair.rotation.y = 0;
+  concealmentChair.rotation.y = 0.52;
   group.add(concealmentChair);
   loadStudyModel(annabelleChairUrl).then((model) => {
     model.traverse((object) => {
@@ -1625,20 +1657,28 @@ Annabelle`;
     });
     concealmentChair.add(model);
   }).catch((error) => console.warn('Annabelle chair could not load:', error));
-  colliders.push({ minX: -5.225, maxX: -4.075, minZ: -3.89, maxZ: -3.025, minY: 0, maxY: 1.6 });
+  // Transform the authored footprint so no collision remains at the old position.
+  concealmentChair.updateMatrixWorld(true);
+  const chairBounds = new THREE.Box3(new THREE.Vector3(-0.575, 0, -0.459),
+    new THREE.Vector3(0.575, 1.6, 0.471)).applyMatrix4(concealmentChair.matrixWorld);
+  colliders.push({ minX: chairBounds.min.x, maxX: chairBounds.max.x,
+    minZ: chairBounds.min.z, maxZ: chairBounds.max.z, minY: 0, maxY: 1.6 });
 
-  const hollowOverrideKey = new THREE.Group();
+  const hollowOverrideKey = createHollowCard();
   hollowOverrideKey.name = 'HollowOverrideKey';
-  hollowOverrideKey.position.set(-3.55, 0.014, -3.85);
-  hollowOverrideKey.rotation.x = -Math.PI / 2;
+  // Cushion top is y=.4998: the 1.4 mm card rests just above it, face up.
+  hollowOverrideKey.position.copy(concealmentChair.localToWorld(new THREE.Vector3(0.055, 0.5006, 0.12)));
+  hollowOverrideKey.quaternion.copy(concealmentChair.quaternion);
+  hollowOverrideKey.rotateX(-Math.PI / 2);
+  hollowOverrideKey.rotateZ(0.16);
   hollowOverrideKey.visible = false;
-  fillStudyKey(hollowOverrideKey, keyMat, true);
   group.add(hollowOverrideKey);
   const hollowOverrideKeyHit = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.24, 0.48), archiveHitMat);
-  hollowOverrideKeyHit.position.set(-3.55, 0.12, -3.85);
+  hollowOverrideKeyHit.position.copy(hollowOverrideKey.position);
+  hollowOverrideKeyHit.position.y += 0.04;
   hollowOverrideKeyHit.visible = false;
   hollowOverrideKeyHit.userData.interact = {
-    label: 'Take the HOLLOW OVERRIDE KEY',
+    label: 'Take the PROJECT HOLLOW ACCESS KEYCARD',
     onInteract: () => {
       if (!puzzle.mirrorRevealed || puzzle.hasHollowOverrideKey) return;
       puzzle.hasHollowOverrideKey = true;
@@ -1648,7 +1688,7 @@ Annabelle`;
       const index = interactables.indexOf(hollowOverrideKeyHit);
       if (index >= 0) interactables.splice(index, 1);
       onSfx('keys_pickup');
-      showCaption('HOLLOW OVERRIDE KEY ACQUIRED');
+      showCaption('PROJECT HOLLOW ACCESS KEYCARD ACQUIRED');
     }
   };
   group.add(hollowOverrideKeyHit);
@@ -1751,10 +1791,13 @@ Annabelle`;
           rowCentreY,
           -0.054
         );
+        panel.userData.finalExitPanel = true;
         doorSlab.add(panel);
       }
     });
   }
+
+  dressFinalStudyExit(frontDoor, doorSlab, studySurfaces.woodMaterial(0.78, 'feature'), crestBrassMat);
 
   /**
    * The shut door's collider, held so it can be TAKEN AWAY again.
@@ -1777,9 +1820,11 @@ Annabelle`;
     if (!solid && i >= 0) colliders.splice(i, 1);
   }
 
-  // One physical key, two irreversible sockets. The state is committed before
-  // any callback, so repeated inputs cannot spend the key twice.
+  // One physical card, two irreversible readers. State commits before callbacks.
   const overrideSockets = [];
+  let overrideAuthorization = null;
+  let resealTurning = false;
+  let resealTurnProgress = 0;
   const resealBolts = new THREE.Group();
   resealBolts.visible = false;
   frontDoor.add(resealBolts);
@@ -1795,24 +1840,26 @@ Annabelle`;
   }
   function updateOverrideLabels(corrected = gameState.visorWorn) {
     overrideSockets.forEach(({ display, choice }) => {
-      // The normal labels are engraved into the GLB; retain enhanced visor text in-panel.
-      display.mesh.visible = corrected;
-      display.write(corrected
+      display.mesh.visible = true;
+      display.write(overrideAuthorization === 'RESEALED' && choice === 'RESEALED'
+        ? ['AUTHORIZED', 'TURN TO LOCK'] : corrected
         ? choice === 'RELEASE'
           ? ['OVERRIDE FUNCTION:', 'RELEASE ALL', 'CONTAINMENT LOCKS']
           : ['OVERRIDE FUNCTION:', 'PERMANENT', 'MANUAL RESEAL']
-        : choice === 'RELEASE' ? ['EMERGENCY RELEASE'] : ['CONTAINMENT RESEAL', 'MANUAL LOCKDOWN']);
+        : choice === 'RELEASE' ? ['INSERT ACCESS CARD'] : ['AUTHORIZATION REQUIRED']);
     });
   }
   function commitOverride(choice, socket) {
-    if (puzzle.endingChoice !== 'NONE' || gameState.endingChosen) return;
+    if (overrideAuthorization !== null || puzzle.endingChoice !== 'NONE' || gameState.endingChosen) return;
     if (!puzzle.mirrorRevealed || !gameState.inventory.has('hollowOverrideKey')) {
-      showCaption('A HOLLOW OVERRIDE KEY is required.');
+      showCaption('A PROJECT HOLLOW ACCESS KEYCARD is required.');
       return;
     }
-    puzzle.endingChoice = choice;
+    // Reserving the physical card disables both readers before the handle stage.
+    overrideAuthorization = choice;
     onUseItem('hollowOverrideKey');
     socket.installedKey.visible = true;
+    socket.reader.setAuthorized(true);
     for (const { hit } of overrideSockets) {
       const index = interactables.indexOf(hit);
       if (index >= 0) interactables.splice(index, 1);
@@ -1820,16 +1867,15 @@ Annabelle`;
     // The new sockets replace the old porch choices completely.
     onSfx('latch');
     if (choice === 'RELEASE') {
+      puzzle.endingChoice = choice;
       doorState.open = true;
       setDoorSolid(false);
       onDoorOpening(frontDoor.getWorldPosition(new THREE.Vector3()));
       showCaption('Emergency release engaged. Walk through the front exit.');
     } else {
-      doorState.open = false;
-      setDoorSolid(true);
-      resealBolts.visible = true;
-      resealBolts.scale.x = 0.05;
-      startCommittedEnding();
+      interactables.push(socket.handleHit);
+      updateOverrideLabels();
+      showCaption('Manual reseal authorized.');
     }
   }
   for (const [choice, x, z, rotation, modelUrl] of [
@@ -1852,29 +1898,55 @@ Annabelle`;
     const panelDepth = isReleasePanel ? 0.164 : 0.176;
     const halfWidth = isReleasePanel ? 0.22 : 0.23;
     const halfHeight = isReleasePanel ? 0.29 : 0.30;
-    const panelFrontZ = z + Math.cos(rotation) * panelDepth;
+    // Retrofit face covers the old generic lock opening, retaining the original housing.
+    const faceZ = panelDepth + 0.017;
+    const retrofit = new THREE.Mesh(new RoundedBoxGeometry(0.40, 0.30, 0.016, 1, 0.004), alcoveMat);
+    retrofit.position.set(0, 0.025, panelDepth + 0.009); socketGroup.add(retrofit);
+    const reader = createHollowReader(faceZ + 0.0005);
+    if (!isReleasePanel) { reader.root.position.x = -0.113; reader.root.position.y = -0.01; }
+    socketGroup.add(reader.root);
+    const header = studyLabel(0.34, 0.072, true, true);
+    header.write(['PROJECT HOLLOW', isReleasePanel ? 'EMERGENCY RELEASE' : 'MANUAL RESEAL']);
+    header.mesh.position.set(0, 0.220, panelDepth + 0.0025);
+    for (const y of [0.220, -0.220]) {
+      const mount = new THREE.Mesh(new RoundedBoxGeometry(0.355, 0.080, 0.028, 1, 0.003), alcoveMat);
+      mount.position.set(0, y, panelDepth - 0.012); socketGroup.add(mount);
+    }
+    socketGroup.add(header.mesh);
+    const handle = isReleasePanel ? null : createResealHandle(faceZ + 0.001);
+    if (handle) socketGroup.add(handle.root);
+    const panelFrontZ = z + Math.cos(rotation) * (panelDepth + (handle ? 0.073 : 0.046));
     colliders.push({
       minX: x - halfWidth, maxX: x + halfWidth,
       minZ: Math.min(z, panelFrontZ), maxZ: Math.max(z, panelFrontZ),
       minY: 1.35 - halfHeight, maxY: 1.35 + halfHeight
     });
-    const installedKey = hollowOverrideKey.clone();
-    installedKey.position.set(0, 0.03, isReleasePanel ? 0.147 : 0.159);
-    installedKey.rotation.set(0, 0, 0);
-    installedKey.scale.setScalar(0.75);
-    installedKey.visible = false;
-    socketGroup.add(installedKey);
-    const display = makeArchiveLabel(0.345, 0.052);
-    display.mesh.position.set(0, -0.220, isReleasePanel ? 0.132 : 0.144);
+    const installedKey = reader.installedCard;
+    const display = studyLabel(0.345, 0.052, true, true);
+    display.mesh.position.set(0, -0.220, panelDepth + 0.0025);
     socketGroup.add(display.mesh);
     const hit = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.68, 0.22), archiveHitMat);
     hit.position.z = 0.09;
-    const socket = { choice, display, hit, installedKey };
+    const handleHit = handle ? new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.29, 0.075), archiveHitMat) : null;
+    if (handleHit) {
+      handleHit.position.set(0.085, 0.025, faceZ + 0.034);
+      handleHit.userData.interact = {
+        label: 'Turn Manual Reseal handle — TURN TO LOCK',
+        onInteract: () => {
+          if (overrideAuthorization !== 'RESEALED' || resealTurning || puzzle.endingChoice !== 'NONE' || gameState.endingChosen) return;
+          resealTurning = true;
+          const index = interactables.indexOf(handleHit);
+          if (index >= 0) interactables.splice(index, 1);
+        }
+      };
+      socketGroup.add(handleHit);
+    }
+    const socket = { choice, display, hit, installedKey, reader, handle, handleHit };
     hit.userData.interact = {
       get label() {
         const action = choice === 'RELEASE' ? 'Emergency Release' : 'Manual Reseal';
         return puzzle.mirrorRevealed && gameState.inventory.has('hollowOverrideKey')
-          ? `Use Override Key — ${action}` : `Override socket — ${action}`;
+          ? `Use Access Keycard — ${action}` : `Card reader — ${action}`;
       },
       onInteract: () => commitOverride(choice, socket)
     };
@@ -1894,7 +1966,7 @@ Annabelle`;
 
   // Decorative meshes only: no interaction registrations, lights, physics or new colliders.
   group.userData.studyDecorPropCount = studyDecor.dressRoom({
-    group, desk, fireplace, photoTexture: portraitTexPlain, loftY: LOFT_Y
+    group, desk, fireplace, concealmentChair, photoTexture: portraitTexPlain, loftY: LOFT_Y
   });
   const entryFinish = new THREE.Group();
   entryFinish.rotation.y = -Math.PI / 2;
@@ -1933,7 +2005,7 @@ Annabelle`;
         distortedTrail.visible = !on;
         updateTruthRecords(on);
         updateOverrideLabels(on);
-        annabelleFigure.setCorrectedSight(on);
+        annabelleFigure.setCorrectedSight(puzzle.mirrorRevealed || on);
       },
       visorGroup,
       visorHitbox,
@@ -1941,7 +2013,7 @@ Annabelle`;
       letterHit,
       exterior,
       /** Where Annabelle stands once the letter has been read. */
-      annabelleSpot: [-4.2, -4.2],
+      annabelleSpot: [annabelle.position.x, annabelle.position.z],
       annabelle,
       /** Settles once her model is in, so the warm-up draws her and not an empty group. */
       warmUpReady: annabelleFigure.ready,
@@ -1967,6 +2039,38 @@ Annabelle`;
       mirror,
       /** See world/CrystalDecanter.js: main.js films the room into it once it is lit. */
       decanter,
+      installMirrorReflection(presentation) {
+        mirrorPresentation?.dispose();
+        mirrorPresentation = presentation;
+      },
+      setMirrorRevealSight,
+      setMirrorRevealActive(on) {
+        mirrorPresentation?.setEnabled(on);
+        if (on) mirror.mesh.visible = false;
+      },
+      cancelRevealPresentation() {
+        if (puzzle.mirrorRevealed) return;
+        showAnnabelle(false);
+        hollowOverrideKey.visible = false;
+        hollowOverrideKeyHit.visible = false;
+        const index = interactables.indexOf(hollowOverrideKeyHit);
+        if (index >= 0) interactables.splice(index, 1);
+        mirrorPresentation?.setEnabled(false);
+      },
+      setRevealAnnabelle(on) {
+        if (on && (puzzle.mirrorRevealInProgress || puzzle.mirrorRevealed)) {
+          annabelleFigure.setCrouched(true);
+          if (!annabelle.visible) annabelleFigure.beginReveal();
+          annabelleFigure.setCorrectedSight(true);
+          showAnnabelle(true);
+        } else showAnnabelle(false);
+      },
+      showRevealKeycard() {
+        if ((!puzzle.mirrorRevealInProgress && !puzzle.mirrorRevealed) || puzzle.hasHollowOverrideKey) return;
+        hollowOverrideKey.visible = true;
+        hollowOverrideKeyHit.visible = true;
+        if (!interactables.includes(hollowOverrideKeyHit)) interactables.push(hollowOverrideKeyHit);
+      },
       revealAnnabelle() {
         if (puzzle.mirrorRevealInProgress || puzzle.mirrorRevealed) showAnnabelle(true);
       },
@@ -2019,6 +2123,7 @@ Annabelle`;
       }
       updateCrestShadows();
       puzzle.memoryArchiveUnlocked = false;
+      archiveUsedKey.visible = false;
       puzzle.memoryRecordSelections.fill(0);
       puzzle.memoryArchiveSolved = false;
       puzzle.memoryVisorCollected = false;
@@ -2051,15 +2156,25 @@ Annabelle`;
       puzzle.truthRecordsComplete = false;
       puzzle.mirrorUnlocked = false;
       mirrorRevealGeneration++;
+      mirrorPresentation?.dispose();
+      mirrorPresentation = null;
+      annabelleFigure.reset();
       puzzle.mirrorRevealInProgress = false;
       puzzle.mirrorRevealed = false;
       puzzle.hasHollowOverrideKey = false;
       puzzle.endingChoice = 'NONE';
       puzzle.endingSequenceStarted = false;
+      overrideAuthorization = null;
+      resealTurning = false;
+      resealTurnProgress = 0;
       resealBolts.visible = false;
       resealBolts.scale.x = 1;
-      for (const { hit, installedKey } of overrideSockets) {
+      for (const { hit, installedKey, reader, handle, handleHit } of overrideSockets) {
         installedKey.visible = false;
+        reader.setAuthorized(false);
+        if (handle) handle.pivot.rotation.z = 0;
+        const handleIndex = interactables.indexOf(handleHit);
+        if (handleIndex >= 0) interactables.splice(handleIndex, 1);
         if (!interactables.includes(hit)) interactables.push(hit);
       }
       updateOverrideLabels(false);
@@ -2091,6 +2206,24 @@ Annabelle`;
       updateExterior(dt);
       mirror.setReflective(puzzle.mirrorUnlocked);
       mirror.update(dt);
+      // The cutscene owns the glass while its dedicated actors are staged.
+      // Keep one planar renderer active to avoid nested mirror renders.
+      if (puzzle.mirrorRevealInProgress || mirrorPresentation?.enabled) mirror.mesh.visible = false;
+      if (annabelle.visible) annabelleFigure.update(dt, getPlayerPosition());
+      if (resealTurning && puzzle.endingChoice === 'NONE') {
+        resealTurnProgress = Math.min(1, resealTurnProgress + Math.max(0, dt) / 1.0);
+        const eased = resealTurnProgress * resealTurnProgress * (3 - 2 * resealTurnProgress);
+        const socket = overrideSockets.find(s => s.choice === 'RESEALED');
+        socket.handle.pivot.rotation.z = -THREE.MathUtils.degToRad(110) * eased;
+        if (resealTurnProgress === 1) {
+          puzzle.endingChoice = 'RESEALED';
+          doorState.open = false;
+          setDoorSolid(true);
+          resealBolts.visible = true;
+          resealBolts.scale.x = 0.05;
+          startCommittedEnding();
+        }
+      }
       if (resealBolts.visible) resealBolts.scale.x += (1 - resealBolts.scale.x) * Math.min(1, dt * 5);
       if (puzzle.endingChoice === 'RELEASE' && !puzzle.endingSequenceStarted && doorHinge.rotation.y < -0.8) {
         const position = getPlayerPosition();

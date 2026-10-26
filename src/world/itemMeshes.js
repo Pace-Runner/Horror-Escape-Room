@@ -74,7 +74,7 @@ const REST_ROTATION = {
   // Level 3's: the sigil face up, like a photograph; the keys flat, like the rest.
   archiveToken: [-Math.PI / 2, 0, 0],
   archiveKey: FACE_DOWN,
-  hollowOverrideKey: FACE_DOWN
+  hollowOverrideKey: [-Math.PI / 2, 0, 0]
 };
 
 /**
@@ -232,10 +232,10 @@ const BUILDERS = {
   // clockMechanism.js's sigil: a 10.5 cm medallion facing +Z in its own XY
   // plane (the clock lays it flat). Held by its bottom edge, face to the camera.
   archiveToken: (t) => (t ? fromTemplate(t, { position: [0, 0.0525, 0] }) : null),
-  // studyPuzzlePresentation.js's fillStudyKey: shaft along Y, bow at the top.
-  // Half a turn about X puts the bow at the bottom, in the fist.
-  archiveKey: (t) => (t ? fromTemplate(t, { rotation: [Math.PI, 0, 0], position: [0, 0.027, 0] }) : null),
-  hollowOverrideKey: (t) => (t ? fromTemplate(t, { rotation: [Math.PI, 0, 0], position: [0, 0.027, 0] }) : null)
+  // The Archive Key now shares Level 1's canonical brass key geometry.
+  archiveKey: (t) => (t ? fromTemplate(t) : null),
+  // The HOLLOW card's lower edge sits in the grip, printed face toward +Z.
+  hollowOverrideKey: (t) => (t ? fromTemplate(t, { position: [0, 0.027, 0] }) : null)
 };
 
 /** Every id this module can build -- the same set the hotbar has icons for. */

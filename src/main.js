@@ -39,6 +39,8 @@ import { createCutsceneRunner } from './core/Cutscene.js';
 import { wakeUp } from './cutscenes/wakeUp.js';
 import { comeRound } from './cutscenes/comeRound.js';
 import { stairsBehind } from './cutscenes/stairsBehind.js';
+import { buildStudyReveal, poseStudyCreature, CHAIR_EYE } from './cutscenes/studyReveal.js';
+import { createStudyMirrorReflection } from './cutscenes/studyMirrorReflection.js';
 import { createCutsceneExport } from './core/CutsceneExport.js';
 import { createCutsceneSkip } from './core/CutsceneSkip.js';
 import { createNewspaper } from './core/Newspaper.js';
@@ -2902,80 +2904,21 @@ const study = createDeferredLevel(() => createStudyLevel({
     pickUpItem('doorKey');
   },
 
-  /**
-   * Mark's letter, which is where the game explains itself. It only says
-   * anything with the visor on -- the writing is not hidden from the room, it
-   * is hidden from the player, exactly like the fourth figure in the portrait.
-   */
+  // The final document closes back into the same first-person position. The
+  // level's one-shot completion hook immediately starts the controlled reveal.
   onReadLetter: ({ body, onFinished } = {}) => {
-    if (body) {
-      player.unlock();
-      documentUI.open({
-        title: "Annabelle's letter",
-        variant: 'letter',
-        body,
-        onClosed: () => {
-          onFinished?.();
-          objectiveEl.textContent = 'Look into the mirror.';
-        }
-      });
-      return;
-    }
-    if (!gameState.visorWorn) {
-      showCaption(line('dialog_letter_blank_without_visor'));
-      return;
-    }
+    if (!body || documentUI.isOpen || cutscene.isRunning) return;
+    const letterLevel = sceneManager.active;
+    player.clearKeys();
     player.unlock();
     documentUI.open({
-      title: DOCUMENTS.letter.title,
-      variant: DOCUMENTS.letter.variant,
-      body: DOCUMENTS.letter.body,
-      // Only once they have actually reached the end of it.
-      onRead: () => {
-        gameState.letterRead = true;
-        script.run(async (s) => {
-          if (!await s.wait(0.6)) return;
-          if (!await s.play(line('dialog_realisation'))) return;
-          s.do(() => {
-            /**
-             * She has been in the corner the whole time. The same rig, at
-             * correction 1 because the visor is on -- which is the entire point:
-             * the player is looking at the thing they have spent the game running
-             * from, and it is a woman.
-             */
-            const spot = study.refs.annabelleSpot;
-            creature.reset();
-            creature.setCorrection(1);
-            creature.setPosition(spot[0], spot[1]);
-            creature.setYaw(Math.atan2(-(camera.position.x - spot[0]), -(camera.position.z - spot[1])));
-            creature.setSpeed(0);
-            creature.visible = true;
-            creatureStanding = true;
-            objectiveEl.textContent = 'The figure in the corner has stood up.';
-            // She is hurt and she is not hiding any more, so the breathing that
-            // has been menace for the whole game becomes just a person breathing.
-            audio.setBreathing(0.28);
-          });
-          if (!await s.play(line('dialog_annabelle'))) return;
-          s.do(() => { objectiveEl.textContent = 'Decide.'; });
-          if (!await s.play(line('dialog_the_choice'))) return;
-          s.do(() => {
-            /**
-             * Hand off from "stands still and breathes" to the free-roam AI.
-             * She now actively tries to keep the player from the front door
-             * while staying out of reach -- see CreatureAI.js. creatureAI
-             * owns creature.update() itself from here, which is why
-             * creatureStanding (main.js's own "just breathe in place" path)
-             * has to come off, or the two would fight over the same rig every
-             * frame.
-             */
-            creatureStanding = false;
-            creatureAI.setColliders(study.colliders);
-            creatureAI.setGuardPoints([STUDY_GUARD_POINT]);
-            const spot = study.refs.annabelleSpot;
-            creatureAI.start(spot[0], spot[1]);
-          });
-        });
+      title: "Annabelle's letter",
+      variant: 'letter',
+      body,
+      onClosed: () => {
+        if (sceneManager.activeKey !== 'study' || sceneManager.active !== letterLevel
+          || !study.refs.puzzle.truthRecordsSolved) return;
+        onFinished?.();
       }
     });
   },
@@ -2988,61 +2931,71 @@ const study = createDeferredLevel(() => createStudyLevel({
     captions.play(line('dialog_pickup_gate_key'));
   },
 
-  // The study owns the once-only/letter gate; the shared runner owns input
-  // and the shot camera, leaving the player's actual position untouched.
+  // The study guards completion/generation; the shared runner owns input and
+  // hand-back. Both cameras follow the same routed first-person eye positions.
   onLookInMirror: () => {
     if (cutscene.isRunning || !study.refs.puzzle.mirrorUnlocked) return Promise.resolve(false);
+    const refs = study.refs;
     const wasVisorWorn = gameState.visorWorn;
-    const playerPosition = camera.position.clone();
-    const [annabelleX, annabelleZ] = study.refs.annabelleSpot;
-    const annabelleTarget = [annabelleX, 0.7, annabelleZ];
-    const externalCamera = [Math.min(7.1, playerPosition.x + 1.2), 1.65, playerPosition.z + 1.9];
-    const playerTarget = [playerPosition.x, 1.05, playerPosition.z];
+    const root = creature.refs.root;
+    const creatureScale = root.scale.clone();
+    const creaturePosition = root.position.clone();
+    const creatureQuaternion = root.quaternion.clone();
+    const creatureCorrection = creature.correction;
+    const creatureTwitches = creature.twitchesEnabled;
+    const tintStrength = postFX.visorPass.uniforms.uTintStrength;
+    const previousTint = tintStrength.value;
     setThirdPerson(false);
     player.clearKeys();
-    return cutscene.playScene({
-      name: 'studyMirrorReveal',
-      letterbox: true,
-      skippable: false,
-      shots: [
-        { at: 'player', lookAt: [4.8, 1.45, -6.4], fov: 48, seconds: 0.8 },
-        { cut: true, at: externalCamera, lookAt: playerTarget, fov: [52, 43], seconds: 9.5, shake: 0.06 },
-        { cut: true, at: [annabelleX + 2.4, 1.35, annabelleZ + 1.3], lookAt: annabelleTarget, fov: [48, 42], seconds: 3 },
-        { cut: true, at: 'player', lookAt: annabelleTarget, fov: camera.fov, seconds: 1 }
-      ],
-      cues: [
-        { t: 0, run: () => { captions.cancel(); fade.fadeOut(180); } },
-        { t: 0.2, run: () => { visor.set(true); fade.fadeIn(400); } },
-        { t: 0.85, run: () => captions.say({ text: 'Subject 06.', duration: 1.8 }) },
-        { t: 3, run: () => captions.say({ text: 'Mark.', duration: 1.7 }) },
-        { t: 5.2, run: () => captions.say({ text: 'You were never running from it.', duration: 2.1 }) },
-        { t: 7.8, run: () => captions.say({ text: 'You were containing it.', duration: 2 }) },
-        { t: 10.3, run: () => { study.refs.revealAnnabelle(); sfx('cloth'); } },
-        { t: 10.5, run: () => captions.say({ text: 'Annabelle.', duration: 2 }) },
-        { t: 13, run: () => fade.fadeOut(250) },
-        { t: 13.4, run: () => fade.fadeIn(500) }
-      ],
-      onFrame: (_ctx, t) => {
-        cutsceneContext.showPlayerBody(t >= 0.8 && t < 10.3);
-        // The same rig as the corridor creature is Mark's own body. Its
-        // existing correction morph supplies the altered-subject reveal.
-        if (t >= 0.8 && t < 10.3) {
-          playerBody.setCorrection(0);
-          playerBody.setYaw(player.yaw);
-          playerBody.setSpeed(0);
-          playerBody.update(0);
+    const restoreCreature = () => {
+      creature.visible = false;
+      creatureStanding = false;
+      root.scale.copy(creatureScale);
+      root.position.copy(creaturePosition);
+      root.quaternion.copy(creatureQuaternion);
+      creature.setCorrection(creatureCorrection);
+      creature.setSpeed(0);
+      creature.setTwitches(creatureTwitches);
+    };
+    try {
+      tintStrength.value = 0.45;
+      refs.installMirrorReflection(createStudyMirrorReflection({
+        glass: refs.mirrorGlass, body: playerBody, hollow: creature, getCamera: () => cutscene.camera
+      }));
+      const scene = buildStudyReveal({
+        start: camera.position.toArray(), startQuaternion: camera.quaternion.toArray(), annabelleSpot: refs.annabelleSpot,
+        camera, player, visor, captions, refs, creature,
+        prepareCreature: () => {
+          creatureAI.stop();
+          creatureStanding = false;
+          creatureLinger = null;
+          root.scale.copy(creatureScale);
+          creature.setTwitches(false);
+          creature.studyPresenceTime = 0;
+          creature.setYaw(Math.atan2(-(CHAIR_EYE[0] - refs.annabelleSpot[0]),
+            -(CHAIR_EYE[2] - refs.annabelleSpot[1])));
+          poseStudyCreature(creature, refs.annabelleSpot);
+          creature.visible = false;
+        },
+        restoreCreature,
+        onFinish: (completed) => {
+          tintStrength.value = previousTint;
+          fade.clear();
+          if (completed) objectiveEl.textContent = 'Take the Project HOLLOW access keycard from the chair.';
+          else if (sceneManager.activeKey === 'study' && refs.puzzle.mirrorRevealInProgress) {
+            visor.set(wasVisorWorn);
+            refs.cancelRevealPresentation();
+          }
         }
-      },
-      onEnd: (_ctx, completed) => {
-        playerBody.setCorrection(1);
-        cutsceneContext.showPlayerBody(false);
-        visor.set(wasVisorWorn);
-        player.clearKeys();
-        fade.clear();
-        captions.cancel();
-        if (completed) objectiveEl.textContent = 'Take the HOLLOW OVERRIDE KEY beside Annabelle.';
-      }
-    });
+      });
+      return cutscene.playScene(scene);
+    } catch (error) {
+      restoreCreature();
+      refs.cancelRevealPresentation();
+      tintStrength.value = previousTint;
+      console.error('Study reveal could not start:', error);
+      return Promise.resolve(false);
+    }
   }
 }), (level) => {
   installMirrorReflection(level.refs.mirror);
@@ -4710,7 +4663,7 @@ const CREDIT_SECTIONS = [
     rows: [
       ['First-person hands', '"First Person hands rigged" by davidfischer, via Sketchfab. CC BY 4.0 (creativecommons.org/licenses/by/4.0). Modified: left arm removed, wrist re-aligned, re-rigged for this project.'],
       ['The creature and the player’s body', '"Okabe" MikuMikuDance model by mmddls (DeviantArt), of Rintaro Okabe from Steins;Gate (5pb. / Nitroplus), from an FBX conversion of it. Used under the uploader’s terms. Modified: merged materials, a monster shape key and new textures, reworked in Blender into the monster and the man it was.'],
-      ['Annabelle', '"Victorian Child - Low Poly Character Model" by _memo, via Sketchfab. CC BY 4.0 (creativecommons.org/licenses/by/4.0). Modified: reshaped to sixteen, arms lowered, hair, ribbon and a long nightgown added, recoloured and dirtied.'],
+      ['Annabelle', '"Casual NPC Woman | Free Low-Poly 3D Model" by Stan (Stas_SayHallo), via Sketchfab. CC BY 4.0 (creativecommons.org/licenses/by/4.0). Modified: teenage proportions, bag removed, worn clothing, mud and scratches; posed on the existing Mixamo rig.'],
       ['Photographed surfaces', 'Concrete, steel and tile materials from ambientCG (ambientcg.com), CC0. Rust and grunge overlays from Texture Labs (texturelabs.org).'],
       ['Generated images', 'The opening news photographs, the bedroom photographs, its wallpapers, plaster and floorboards, the claw-mark decals, the bed’s tapestry duvet, the pinboard and vanity textures, the observation map and the menu background were generated with ChatGPT image generation (OpenAI) and edited for the game.'],
       ['Everything else', 'The remaining models, the textures drawn in code and the rusted keys were made for this project by the team. The Blender scripts and sources are in the blender/ folder.']
