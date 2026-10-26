@@ -12,6 +12,7 @@ import { createStudyExterior } from './studyExterior.js';
 import { createLeftWallWithWindows } from './studyWindows.js';
 import { hingeMotion, studyLabel, dressCrestControl, createCrestIndicatorGeometry, createCrestPanelCollision, fillStudyKey, dressStudyDoor, batchStudyPuzzleDetails } from './studyPuzzlePresentation.js';
 import { loadModel } from '../world/modelLoader.js';
+import { createHauntedMirror } from '../world/HauntedMirror.js';
 import annabelleChairUrl from '../assets/models/study/annabelle_wingback_chair.glb?url';
 import centralDeskUrl from '../assets/models/study/central_victorian_desk.glb?url';
 import archiveCabinetUrl from '../assets/models/study/victorian_archive_cabinet.glb?url';
@@ -1539,6 +1540,13 @@ Annabelle`;
     new THREE.PlaneGeometry(0.674, 1.77),
     new THREE.MeshStandardMaterial({ color: 0x9fb3c8, metalness: 1, roughness: 0.05 })
   );
+  // The real reflection, laid a millimetre in front of the dull glass above and
+  // hidden until the last cupboard's letter is read -- the moment the player is
+  // meant to look into it. See world/HauntedMirror.js. Not an interactable:
+  // the prompt stays on mirrorGlass, which the Interaction raycast still hits.
+  const mirror = createHauntedMirror({ widthInMetres: 0.674, heightInMetres: 1.77 });
+  mirror.mesh.position.z = 0.001;
+  mirrorGlass.add(mirror.mesh);
   mirrorGlass.position.set(4.8, 1.08, mirrorFrame.position.z + 0.052);
   mirrorGlass.userData.interact = {
     label: 'Look into the mirror',
@@ -1935,10 +1943,19 @@ Annabelle`;
        */
       showForWarmUp() {
         const was = annabelle.visible;
+        // The mirror's reflection layer too: hidden until the letter, it would
+        // otherwise build its shader at the very moment it comes alive.
+        const mirrorWas = mirror.mesh.visible;
         annabelle.visible = true;
-        return () => { annabelle.visible = was; };
+        mirror.mesh.visible = true;
+        return () => {
+          annabelle.visible = was;
+          mirror.mesh.visible = mirrorWas;
+        };
       },
       mirrorGlass,
+      /** The glass's reflection controls: main.js sizes it and swaps the view model out of it. */
+      mirror,
       revealAnnabelle() {
         if (puzzle.mirrorRevealInProgress || puzzle.mirrorRevealed) showAnnabelle(true);
       },
@@ -2042,6 +2059,7 @@ Annabelle`;
       const overrideIndex = interactables.indexOf(hollowOverrideKeyHit);
       if (overrideIndex >= 0) interactables.splice(overrideIndex, 1);
       mirrorGlass.userData.interact.label = 'Look into the mirror';
+      mirror.reset();
       letterDoorMotion.reset();
       letterReading = false;
       letterPaper.visible = false;
@@ -2060,6 +2078,8 @@ Annabelle`;
 
     update(dt) {
       updateExterior(dt);
+      mirror.setReflective(puzzle.mirrorUnlocked);
+      mirror.update(dt);
       if (resealBolts.visible) resealBolts.scale.x += (1 - resealBolts.scale.x) * Math.min(1, dt * 5);
       if (puzzle.endingChoice === 'RELEASE' && !puzzle.endingSequenceStarted && doorHinge.rotation.y < -0.8) {
         const position = getPlayerPosition();

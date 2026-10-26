@@ -449,6 +449,7 @@ window.addEventListener('resize', () => {
   // The composer keeps its own render targets, so resizing the renderer alone
   // leaves the whole game rendering at the old resolution and stretched.
   postFX.setSize(window.innerWidth, window.innerHeight);
+  updateMirrorResolution();
 });
 
 // ---------- post-processing ----------
@@ -3011,12 +3012,69 @@ const study = createDeferredLevel(() => createStudyLevel({
     });
   }
 }), (level) => {
+  installMirrorReflection(level.refs.mirror);
   itemMeshes.setTemplate('visor', level.refs.visorGroup);
   itemMeshes.setTemplate('archiveToken', level.refs.archiveToken);
   itemMeshes.setTemplate('archiveKey', level.refs.archiveKey);
   itemMeshes.setTemplate('hollowOverrideKey', level.refs.hollowOverrideKey);
 });
 sceneManager.register('study', study);
+
+// ---------- the study's mirror ----------
+/**
+ * The camera's drawn children: the hands (and whatever is in them), the left
+ * hand's torch and the dust in its beam. Everything parented to the camera that
+ * is not a light. Hidden from the mirror, which films the room from somewhere
+ * other than the player's eye, where they would hang in mid-air.
+ */
+function readViewModelParts() {
+  return [hands.root, leftTorch.group, dustMotes.points];
+}
+
+const viewModelVisibilityBeforeReflection = [];
+let bodyVisibleBeforeReflection = false;
+
+/**
+ * Around every reflection the mirror draws: the view model out, the player's
+ * body in. The body is hidden in first person because the eye is inside its
+ * head, but the mirror's camera stands in front of it, so there it is exactly
+ * what should be seen -- the man, as he looks ("Your reflection looks like
+ * you"), and during the reveal, with its correction morph off, the thing he
+ * is. updateThirdPerson() poses it every frame whether or not it is drawn, so
+ * it is already standing where the player is, walking as they walk.
+ *
+ * @param {ReturnType<import('./world/HauntedMirror.js').createHauntedMirror>} mirror
+ */
+function installMirrorReflection(mirror) {
+  mirror.setReflectionHooks({
+    beforeReflection: () => {
+      readViewModelParts().forEach((part, index) => {
+        viewModelVisibilityBeforeReflection[index] = part.visible;
+        part.visible = false;
+      });
+      bodyVisibleBeforeReflection = playerBody.visible;
+      playerBody.visible = true;
+    },
+    afterReflection: () => {
+      readViewModelParts().forEach((part, index) => { part.visible = viewModelVisibilityBeforeReflection[index]; });
+      playerBody.visible = bodyVisibleBeforeReflection;
+    }
+  });
+  updateMirrorResolution();
+}
+
+/**
+ * The mirror's render target, as a share of the drawing buffer. It is sampled
+ * in screen space, so it keeps the screen's aspect; half resolution is already
+ * sharper than old silvered glass, and the graphics setting can lower it.
+ */
+function updateMirrorResolution() {
+  if (!study.isPrepared) return;
+  const scale = GRAPHICS_QUALITIES[currentGraphicsQuality].mirrorScale;
+  const bufferSize = renderer.getDrawingBufferSize(new THREE.Vector2());
+  study.refs.mirror.setSize(bufferSize.x * scale, bufferSize.y * scale);
+}
+
 
 // Not a "level 4": ONE interstitial instance, re-armed per crossing by
 // setRoute(). It hands its route back through onExit rather than reading a
@@ -4795,6 +4853,7 @@ function applyGraphicsQuality(qualityKey) {
   renderer.setSize(window.innerWidth, window.innerHeight);
   postFX.setSize(window.innerWidth, window.innerHeight);
   postFX.setSamples(GRAPHICS_QUALITIES[currentGraphicsQuality].msaaSamples);
+  updateMirrorResolution();
 }
 
 const settings = loadSettings();

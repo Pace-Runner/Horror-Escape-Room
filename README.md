@@ -43,7 +43,11 @@ reasoning behind the scenegraph hierarchy.
   family portrait, the one uncracked mirror, the three-lock front
   door). The three-lock sequence (keyed deadbolt, combination pin-pad,
   and a containment lock gated on the visor), the visor mechanic, and
-  the branching ending (release or contain) are all implemented.
+  the branching ending (release or contain) are all implemented. The
+  mirror is a real-time planar reflection (`src/world/HauntedMirror.js`,
+  three's `Reflector` with our own shader) that only comes alive once the
+  last cupboard's letter has been read: it fades in, swims, then settles,
+  and shows the player's own body standing in the room.
 - **The bedroom and the upstairs hallway are one space**: the hallway is
   built onto the bedroom's door, so when it opens there is no fade or load
   -- you walk through, the door shuts behind you, and the thing is already
