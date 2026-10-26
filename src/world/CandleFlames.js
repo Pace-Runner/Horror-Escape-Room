@@ -215,6 +215,10 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
   flames.count = 0;
   // The eye, the mirror and the decanter's capture see them; the minimap does not.
   flames.layers.set(MAIN_ONLY);
+  // Belt and braces for frustumCulled: if anything switches culling back on,
+  // three would size the batch from its instances once -- possibly while it
+  // is still empty -- and cull it for good. A room-sized sphere never culls.
+  flames.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
   parent.add(flames);
 
   const haloGeometry = new THREE.PlaneGeometry(1, 1);
@@ -236,6 +240,7 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
   halos.renderOrder = 3;
   halos.count = 0;
   halos.layers.set(MAIN_ONLY);
+  halos.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
   parent.add(halos);
 
   /** @type {{ light: THREE.PointLight, owner: object|null, fade: number }[]} */

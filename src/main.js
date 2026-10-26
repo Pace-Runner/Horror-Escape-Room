@@ -5498,9 +5498,12 @@ async function warmUp({
     if (level.spawn) camera.position.set(level.spawn[0], 1.6, level.spawn[1]);
     // Later transitions retain their existing fade-owned draw. The opening
     // uses compile-only preparation plus tiny unlit asset-upload probes.
+    // Each mesh's own setting comes back afterwards: a mesh that is never
+    // culled (an instanced batch placed in its shader) must not be switched to
+    // culled by its first warm-up.
     const unculled = [];
     level.group.traverse((o) => {
-      if (o.isMesh || o.isSkinnedMesh) { unculled.push(o); o.frustumCulled = false; }
+      if (o.isMesh || o.isSkinnedMesh) { unculled.push([o, o.frustumCulled]); o.frustumCulled = false; }
     });
     try {
       // frustumCulled off for exactly this pass: a wall behind the camera is
@@ -5539,7 +5542,7 @@ async function warmUp({
     } catch (err) {
       console.warn(`warmUp: could not warm "${key}"`, err);
     }
-    for (const o of unculled) o.frustumCulled = true;
+    for (const [o, was] of unculled) o.frustumCulled = was;
     level.group.visible = false;
     await advance('entering the house...');
   }
