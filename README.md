@@ -95,6 +95,14 @@ reasoning behind the scenegraph hierarchy.
 - A raycast "examine" system (`E`) already wired to every story prop.
 - Restart without reloading the page (`R`), a credits screen (`K`),
   and a loading screen.
+- **Jumping** (Space) under gravity, and **dropped items fall** and bounce
+  onto a safe resting spot (`src/world/DropPhysics.js`).
+- A **crystal decanter** on the study desk: refractive glass with a
+  flat-shaded stopper (`src/world/CrystalDecanter.js`).
+- **Text-only lines always show**: the Captions setting is subtitles for
+  recorded lines; a line with no recording appears regardless.
+- **Demo guide**: `docs/RUBRIC.md` maps every rubric category to what to
+  show and where the code is.
 - **Difficulty** gives every room its own clock: Easy 30 minutes,
   Medium 15, Hard 8 (`src/core/Difficulty.js`). Run out and the run ends.
 - **Settings**, from the main menu or the pause screen: volume, mouse
