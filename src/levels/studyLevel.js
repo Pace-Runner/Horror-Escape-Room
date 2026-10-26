@@ -890,25 +890,43 @@ export function createStudyLevel({
   shadowCrest.add(crestClue);
   interactables.push(crestClue);
 
+  // The key hangs bow-up from a brass hook on the compartment's back board.
+  // Rotating PI about Z puts the bow on top, its hole (key-local y -0.0215)
+  // exactly on the hook's pin at local y 0.07, broad face to the room. It used
+  // to lie on a wooden tray that stuck out through the closed cover.
   const archiveKey = new THREE.Group();
-  archiveKey.position.set(0, -0.0954, 0.075);
-  archiveKey.rotation.set(Math.PI / 2, 0, -0.18);
+  archiveKey.position.set(0, 0.0485, -0.004);
+  archiveKey.rotation.set(0, 0, Math.PI);
   archiveKey.add(buildBrassKey());
-  // Small support inside the existing reward recess: the key rests on its top.
-  const archiveKeyTray = new THREE.Mesh(new RoundedBoxGeometry(0.20, 0.012, 0.16, 1, 0.003), crestWoodMat);
-  archiveKeyTray.name = 'Archive_Key_Reward_Tray';
-  archiveKeyTray.position.set(0, -0.108, 0.065);
-  shadowCrest.add(archiveKeyTray);
   const crestBacking = new THREE.Mesh(new THREE.CylinderGeometry(0.285, 0.285, 0.035, 32), crestWoodMat);
   crestBacking.name = 'Permanent_Crest_Wood_Backing';
   crestBacking.rotation.x = Math.PI / 2;
   // Behind the closed door, independent of the reward's visibility and state.
-  crestBacking.position.set(0, -0.025, -0.005);
+  // Set back into the housing's recess to leave the hook and key room in
+  // front of it: everything stays behind the closed cover (its back at 0.01375).
+  crestBacking.position.set(0, -0.025, -0.03);
   shadowCrest.add(crestBacking);
+  // A sibling of the key, never its child: the held key is a clone of
+  // archiveKey, and the hook must stay on the wall when it is taken.
+  const archiveKeyHook = new THREE.Group();
+  archiveKeyHook.name = 'Archive_Key_Hook';
+  archiveKeyHook.userData.studyStaticDetails = true;
+  archiveKeyHook.position.set(0, 0.07, 0);
+  const hookRosette = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.003, 16), crestBrassMat);
+  hookRosette.rotation.x = Math.PI / 2;
+  hookRosette.position.z = -0.011;
+  const hookPin = new THREE.Mesh(new THREE.CylinderGeometry(0.0028, 0.0028, 0.018, 8), crestBrassMat);
+  hookPin.rotation.x = Math.PI / 2;
+  hookPin.position.z = -0.0005;
+  // The upturned end that stops the bow sliding off.
+  const hookTip = new THREE.Mesh(new THREE.CylinderGeometry(0.0028, 0.0028, 0.010, 8), crestBrassMat);
+  hookTip.position.set(0, 0.004, 0.0085);
+  archiveKeyHook.add(hookRosette, hookPin, hookTip);
+  shadowCrest.add(archiveKeyHook);
   archiveKey.visible = false;
   shadowCrest.add(archiveKey);
-  const archiveKeyHit = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.5, 0.09), crestHitMat);
-  archiveKeyHit.position.copy(archiveKey.position);
+  const archiveKeyHit = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.34, 0.08), crestHitMat);
+  archiveKeyHit.position.set(0, 0.035, 0.02);
   archiveKeyHit.visible = false;
   archiveKeyHit.userData.interact = {
     label: 'Take the Archive Key',
