@@ -1,8 +1,8 @@
 /**
  * Difficulty, and the clock it sets.
  *
- * The three difficulties differ only in time: Easy has no limit, Medium and
- * Hard give EACH ROOM its own countdown. Walking into the next room starts its
+ * The three difficulties differ only in time: each gives EACH ROOM its own
+ * countdown, Easy a generous one, so every difficulty can be lost. Walking into the next room starts its
  * clock again from full; running out in any room ends the run (main.js's
  * playOutOfTime()). The corridors between rooms are not timed -- the clock is
  * hidden there and picks up fresh in the next room.
@@ -12,9 +12,14 @@
  * fade between rooms or a cutscene, the time is not theirs to lose.
  */
 
-/** Change the minutes here to retune a difficulty. `secondsPerRoom: null` is no limit. */
+/**
+ * Change the minutes here to retune a difficulty. `secondsPerRoom: null` would
+ * be no limit -- the clock code still supports it. Easy used to be that, and
+ * it left the default run with no way to fail (the rubric asks "can the player
+ * succeed AND fail?"), so it is now twice Medium: still unhurried.
+ */
 export const DIFFICULTIES = {
-  easy: { label: 'Easy', detail: 'No time limit', secondsPerRoom: null },
+  easy: { label: 'Easy', detail: '30 minutes per room', secondsPerRoom: 30 * 60 },
   medium: { label: 'Medium', detail: '15 minutes per room', secondsPerRoom: 15 * 60 },
   hard: { label: 'Hard', detail: '8 minutes per room', secondsPerRoom: 8 * 60 }
 };

@@ -68,7 +68,7 @@
 
   <div id="hud">
     <div id="objective"></div>
-    <!-- Time left on Medium and Hard. Hidden on Easy. See src/core/Difficulty.js. -->
+    <!-- Time left in this room, on every difficulty. See src/core/Difficulty.js. -->
     <div id="run-timer" aria-label="Time left"><span class="run-timer-label">Time left</span><span class="run-timer-value">0:00</span></div>
     <div id="interact-prompt"></div>
     <div id="flashlight-status">FLASHLIGHT: <span id="flashlight-state">not found</span></div>
@@ -260,9 +260,9 @@
            the run; see src/core/Difficulty.js for the time each one gives. -->
       <div class="menu-actions hidden" id="menu-difficulty" role="menu" aria-label="Choose difficulty">
         <div class="menu-heading">Choose difficulty</div>
-        <button class="menu-option menu-difficulty-option" type="button" role="menuitem" data-difficulty="easy">Easy<span class="menu-option-detail">No time limit</span></button>
-        <button class="menu-option menu-difficulty-option" type="button" role="menuitem" data-difficulty="medium">Medium<span class="menu-option-detail">45 minutes</span></button>
-        <button class="menu-option menu-difficulty-option" type="button" role="menuitem" data-difficulty="hard">Hard<span class="menu-option-detail">25 minutes</span></button>
+        <button class="menu-option menu-difficulty-option" type="button" role="menuitem" data-difficulty="easy">Easy<span class="menu-option-detail">30 minutes per room</span></button>
+        <button class="menu-option menu-difficulty-option" type="button" role="menuitem" data-difficulty="medium">Medium<span class="menu-option-detail">15 minutes per room</span></button>
+        <button class="menu-option menu-difficulty-option" type="button" role="menuitem" data-difficulty="hard">Hard<span class="menu-option-detail">8 minutes per room</span></button>
         <button class="menu-option menu-back" id="menu-difficulty-back" type="button" role="menuitem">Back</button>
       </div>
     </div>
