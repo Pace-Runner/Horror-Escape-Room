@@ -8,18 +8,18 @@ const voice = file => 'mark/LEVEL 3/' + file + '.mp3';
 export const REVEAL_VOICE_LINES = Object.freeze([
   ['descent','MARK','The mirror... I need to see for myself.','l3_mark_reveal_01_descent',3.500408,.6,[]],
   ['memory','MARK',"Why can't I remember any of this?",'l3_mark_reveal_02_memory_panic',3.030204,.6,[]],
-  ['mirror-no','MARK','No... What did I do?','l3_mark_reveal_03_mirror_reaction',4.780408,.75,[['mirror-no',1.25],['what',2.1]]],
-  ['please','ANNABELLE',"Mark... please. It's me.",'l3_annabelle_reveal_01_recognition',3.84,.45,[['please',2.2],['me',1.9]]],
-  ['no','MARK','No. I saw you. You were following me.','l3_mark_reveal_04_accusation',4.310204,.4,[['no',1.35],['saw',1.9],['following',2.6]]],
-  ['tried','ANNABELLE','I tried to stop you. You told me to. You made me promise.','l3_annabelle_reveal_02_promise',5.746939,.85,[['tried',2.5],['told',2.2],['promise',2.4]]],
-  ['remember','MARK',"I don't remember.",'l3_mark_reveal_05_dont_remember',2.716735,.65,[['remember',2.3]]],
-  ['know','ANNABELLE',"I know. Your eyes are lying to you. That's why you made the visor.",'l3_annabelle_reveal_03_truth',6.4,2.25,[['know',1.8],['eyes',2.9],['visor',3]]],
-  ['override','ANNABELLE',"There's one override left... You decide.",'l3_annabelle_reveal_04_override',3.668458,1.35,[['override',2.7],['decide',1.9]]]
+  ['mirror-no','MARK','No... What did I do?','l3_mark_reveal_03_mirror_reaction',4.780408,.70,[['mirror-no',1.25],['what',2.1]]],
+  ['please','ANNABELLE',"Mark... please. It's me.",'l3_annabelle_reveal_01_recognition',3.84,.25,[['please',2.2],['me',1.9]]],
+  ['no','MARK','No. I saw you. You were following me.','l3_mark_reveal_04_accusation',4.310204,.25,[['no',1.35],['saw',1.9],['following',2.6]]],
+  ['tried','ANNABELLE','I tried to stop you. You told me to. You made me promise.','l3_annabelle_reveal_02_promise',5.746939,.50,[['tried',2.5],['told',2.2],['promise',2.4]]],
+  ['remember','MARK',"I don't remember.",'l3_mark_reveal_05_dont_remember',2.716735,.40,[['remember',2.3]]],
+  ['know','ANNABELLE',"I know. Your eyes are lying to you. That's why you made the visor.",'l3_annabelle_reveal_03_truth',6.4,2.0,[['know',1.8],['eyes',2.9],['visor',3]]],
+  ['override','ANNABELLE',"There's one override left... You decide.",'l3_annabelle_reveal_04_override',3.668458,1.0,[['override',2.7],['decide',1.9]]]
 ].map(([id,speaker,text,file,hold,gap,reactions])=>Object.freeze({id,speaker,text,voice:voice(file),hold,gap,reactions})));
 
 export function createStudyRevealTiming(voiceDurations = {}) {
   const lines=REVEAL_VOICE_LINES.map(line=>({...line,hold:voiceDurations[line.voice] ?? line.hold}));
-  let dialogueTime=.45;
+  let dialogueTime=.60;
   const dialogue=lines.slice(3).map(line=>{
     const beat={...line,t:dialogueTime};dialogueTime+=line.hold+line.gap;return beat;
   });
@@ -27,9 +27,9 @@ export function createStudyRevealTiming(voiceDurations = {}) {
   const memoryAt=Math.max(7.5,descentAt+lines[0].hold+lines[0].gap);
   const walkSeconds=Math.max(13,memoryAt+lines[1].hold+lines[1].gap);
   const segments=[
-    ['process',1],['walk',walkSeconds],['settle',1.4],['human',2.1],['mirrorVisor',.9],['hollow',3],
-    ['recoil',.12+lines[2].hold+lines[2].gap+.325],['turn',2.9],
-    ['cornerWalk',4.5],['chairSettle',1],['creature',1.9],['chairVisor',.9],['annabelle',dialogueTime]
+    ['process',1],['walk',walkSeconds],['settle',1.4],['human',.4],['mirrorVisor',1.2],['hollow',1.28],
+    ['recoil',.12+lines[2].hold+lines[2].gap+.30],['turn',2.25],
+    ['cornerWalk',4.5],['chairSettle',.20],['creature',1.0],['chairVisor',1.2],['annabelle',dialogueTime]
   ];
   const times={};let duration=0;
   for(const [name,length] of segments){times[name]=duration;duration+=length;}
@@ -229,15 +229,8 @@ export function poseStudyCreature(creature, spot) {
   const offset=creature.studyPositionOffset||[0,0];
   creature.setPosition(spot[0]+offset[0], spot[1]+offset[1]); creature.setCorrection(0); creature.setSpeed(0);
   creature.refs.root.scale.setScalar(creature.studyUniformScale||.9);
-  creature.setCrouch?.(0);creature.update(1);
-  const shell=creature.refs.root.children[0];
-  if(shell) shell.position.y-=creature.studyFloorOffset||0;
-  creature.refs.root.position.y=0;
-  updateStudyCreature(creature,0);
-  creature.group.updateMatrixWorld(true);
-  creature.group.traverse(mesh=>{if(mesh.isSkinnedMesh)mesh.computeBoundingBox();});
-  const box=new THREE.Box3().setFromObject(creature.group);
-  if(!box.isEmpty()&&shell){creature.studyFloorOffset=-box.min.y/creature.refs.root.scale.y;shell.position.y+=creature.studyFloorOffset;}
+  creature.setCrouch?.(0);creature.update(1);updateStudyCreature(creature,0);
+  // Grounding is recomputed from the posed sole vertices, never a cached shell offset.
 }
 /** Fit the two existing bodies in world metres, without folding or axis scaling. */
 export function alignStudyCreature(creature,spot,anchors) {
@@ -250,7 +243,7 @@ export function alignStudyCreature(creature,spot,anchors) {
   creature.studyUniformScale=creature.refs.root.scale.x*ratio;
   poseStudyCreature(creature,spot);
   const fitted=creature.refs.head.getWorldPosition(new THREE.Vector3());
-  creature.studyPositionOffset=[anchors.head.x-fitted.x,anchors.head.z-fitted.z];
+  creature.studyPositionOffset=[(anchors.head.x-fitted.x)*.5,(anchors.head.z-fitted.z)*.5];
   poseStudyCreature(creature,spot);
 }
 
@@ -291,16 +284,39 @@ function poseStudyArms(creature) {
 
 export function updateStudyCreature(creature,dt) {
   if(creature.correction!==0)creature.setCorrection(0);
-  creature.update(Math.max(0,dt)*0.65);
   const t=creature.studyPresenceTime=(creature.studyPresenceTime||0)+Math.max(0,dt);
-  const breath=Math.sin(t*1.85),shift=Math.sin(t*.41)*.008;
-  creature.offsetBones({Hips:[0,0,shift],Spine:[.01+breath*.005,0,-.015],
+  // Sample a quiet upright stance, without chase gait knee compression/sway.
+  if(creature.sampleReflectionPose)creature.sampleReflectionPose({speed:creature.studyWalkSpeed||0,phase:creature.studyWalkPhase||0,time:t});
+  else creature.update(Math.max(0,dt)*0.65);
+  const breath=Math.sin(t*1.85);
+  creature.offsetBones({Spine:[.01+breath*.005,0,-.015],
     Chest:[.01+breath*.008,0,.025],
     'Left shoulder':[.015,0,.055+breath*.005],
     'Right shoulder':[-.01,0,-.025-breath*.005],
     Head:[.065+Math.sin(t*.65)*.006,Math.sin(t*.55)*.008,.015]});
+  // Ground this dedicated chair actor from the posed shoes. Root setters reset Y;
+  // a cached offset on an imported child cannot guarantee contact after sampling.
+  const root=creature.refs?.root;
+  if(root){
+    root.position.y=0;creature.group.updateMatrixWorld(true);
+    if(!creature.studySoles){
+      creature.studySoles=[];
+      creature.group.traverse(mesh=>{
+        if(!mesh.isSkinnedMesh)return;
+        const p=mesh.geometry.attributes.position;
+        for(let i=0;i<p.count;i++)if(p.getY(i)<.18)creature.studySoles.push({mesh,index:i});
+      });
+    }
+    if(creature.studyGroundTime===t&&creature.studyGroundScale===root.scale.y&&creature.studyGroundPhase===(creature.studyWalkPhase||0)){
+      root.position.y=creature.studyGroundY;creature.group.updateMatrixWorld(true);poseStudyArms(creature);return;
+    }
+    const point=new THREE.Vector3();let min=Infinity;
+    for(const {mesh,index} of creature.studySoles){mesh.getVertexPosition(index,point).applyMatrix4(mesh.matrixWorld);min=Math.min(min,point.y);}
+    if(Number.isFinite(min))root.position.y=-min;
+    creature.studyGroundPhase=creature.studyWalkPhase||0;creature.studyGroundTime=t;creature.studyGroundScale=root.scale.y;creature.studyGroundY=root.position.y;
+    creature.group.updateMatrixWorld(true);
+  }
   poseStudyArms(creature);
-
 }
 
 export function buildStudyReveal({ start, startQuaternion = [0,0,0,1], annabelleSpot, camera, player, visor, captions, refs,
@@ -326,14 +342,15 @@ export function buildStudyReveal({ start, startQuaternion = [0,0,0,1], annabelle
   };
   cue(0, () => {
     document.body.classList.add('study-reveal'); stopDialogue(); captions.cancel();
-    startSound(); prepareCreature(); setVisor(false); refs.setRevealAnnabelle(false);
+    setVisor(false);refs.initializeRevealVisor?.();refs.setRevealVisorHeld?.(true);
+    startSound(); prepareCreature(); refs.setRevealAnnabelle(false);
     // Reflect whenever the glass enters view, including the approach, without a
     // last-frame switch from opaque glass to a populated mirror.
     refs.setMirrorRevealSight(false); refs.setMirrorRevealActive(true);
   });
   cue(REVEAL_TIMES.settle, () => refs.setMirrorRevealActive(true));
-  cue(REVEAL_TIMES.mirrorVisor, () => setVisor(true));
-  cue(REVEAL_TIMES.mirrorVisor + seconds.mirrorVisor * 0.5, () => { refs.setMirrorRevealSight(true);playPerception(); });
+  cue(REVEAL_TIMES.mirrorVisor,()=>refs.animateRevealVisor?.(true,{start:REVEAL_TIMES.mirrorVisor,duration:1.2,cinematic:true}));
+  cue(REVEAL_TIMES.hollow,()=>{setVisor(true);refs.setMirrorRevealSight(true);playPerception();});
   const spoken=[{...timing.lines[0],at:REVEAL_TIMES.walk+timing.descentAt},
     {...timing.lines[1],at:REVEAL_TIMES.walk+timing.memoryAt},
     {...timing.lines[2],at:REVEAL_TIMES.recoil+.12},
@@ -344,15 +361,20 @@ export function buildStudyReveal({ start, startQuaternion = [0,0,0,1], annabelle
       cue(reaction.t,()=>refs.performAnnabelleLine?.(reaction.id,reaction.hold));
     if(!playDialogue)cue(beat.at+beat.hold,()=>captions.cancel());
   }
-  cue(REVEAL_TIMES.turn-.325,playAlert);
+  cue(REVEAL_TIMES.turn-.4,()=>refs.animateRevealVisor?.(false,{start:REVEAL_TIMES.turn-.4,duration:1.1,contact:.4,cinematic:true}));
+  cue(REVEAL_TIMES.turn-.30,playAlert);
   cue(REVEAL_TIMES.turn, () => {
     refs.setRevealChairActive?.(true);setVisor(false);
     creature.setCorrection(0); creature.studyPresenceTime=0; creature.visible = true;playMonsterReveal();
   });
   cue(REVEAL_TIMES.cornerWalk, () => refs.setMirrorRevealActive(false));
-  cue(REVEAL_TIMES.chairVisor, () => {setVisor(true);creature.visible=false;refs.setRevealAnnabelle(true);});
+  cue(REVEAL_TIMES.chairVisor,()=>refs.animateRevealVisor?.(true,{start:REVEAL_TIMES.chairVisor,duration:1.2,cinematic:true}));
+  cue(REVEAL_TIMES.annabelle,()=>{setVisor(true);creature.visible=false;refs.setRevealAnnabelle(true);});
   const cardTime=REVEAL_TIMES.annabelle+dialogueBeat('override').t;
-  cue(cardTime-.001,()=>{if(refs.placeRevealKeycard)refs.placeRevealKeycard();else refs.showRevealKeycard();});
+  const cardBeat=dialogueBeat('override');
+  cue(cardTime-.001,()=>refs.prepareRevealKeycard?.({start:cardTime,audioAt:cardTime,duration:cardBeat.hold,
+    decideAt:timing.reactions.find(beat=>beat.id==='decide').t-cardBeat.t}));
+  cue(cardTime,()=>{if(refs.offerRevealKeycard)refs.offerRevealKeycard();else refs.showRevealKeycard();});
   return {
     name: 'studyMirrorReveal', maxSeconds:150, letterbox: false, skippable: false,
     // Audio completion gates progression; elapsed frame time cannot cut off a line.
@@ -380,11 +402,10 @@ export function buildStudyReveal({ start, startQuaternion = [0,0,0,1], annabelle
       const upper = t >= REVEAL_TIMES.walk && t < REVEAL_TIMES.settle;
       player.groundY = upper ? Math.max(0, camera.position.y - 1.6) : t < REVEAL_TIMES.walk ? Math.max(0,start[1]-1.6) : 0;
       updateSound({t,dt,timing,position:pose.position});
-      refs.setMirrorPerformanceTime?.(t);
+      refs.setMirrorPerformanceTime?.(t,pose.position);
+      refs.updateRevealKeycard?.(t);
       setPanic(studyPanic(t,timing),t>=REVEAL_TIMES.walk&&t<REVEAL_TIMES.human);
-      // A deliberate glance motivates the card's appearance on the cushion.
-      const glance= smooth((t-(cardTime-1.25))/0.7)*(1-smooth((t-(cardTime+0.7))/1.0));
-      refs.setAnnabelleCardGlance?.(glance);
+      // The final offer stays directed toward Mark.
       // The visor changes apparent identity, not the staged creature's proportions.
       if (creature.visible || (t >= REVEAL_TIMES.settle && t < REVEAL_TIMES.turn)) {
         updateStudyCreature(creature,dt);
@@ -401,6 +422,7 @@ export function buildStudyReveal({ start, startQuaternion = [0,0,0,1], annabelle
         setVisor(true); refs.setRevealAnnabelle(true); refs.showRevealKeycard();
         player.groundY = 0; camera.position.fromArray(CHAIR_EYE);
       } else refs.setRevealAnnabelle(false);
+      refs.finishRevealVisor?.();
       captions.cancel(); onFinish(completed);
     }
   };

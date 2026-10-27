@@ -1,9 +1,11 @@
 import * as THREE from 'three';
+import { createStudyActorPresentation } from './studyActorPresentation.js';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 
 /** Portrait reveal target, reduced after the cutscene and gated by proximity. */
 export function createStudyMirrorReflection({ glass, body, hollow = body, getCamera,
-  getActorPose=()=>null,getHiddenObjects=()=>[] }) {
+  getActorPose=()=>null,getHiddenObjects=()=>[],visorTemplate=null,getViewCamera=null,buildHeldItem }) {
+  const presentation=createStudyActorPresentation({visorTemplate,buildHeldItem});
   const shader = {
     ...Reflector.ReflectorShader,
     vertexShader: Reflector.ReflectorShader.vertexShader
@@ -104,7 +106,7 @@ export function createStudyMirrorReflection({ glass, body, hollow = body, getCam
     const previousTarget = renderer.getRenderTarget();
     const previousXr = renderer.xr.enabled;
     const previousShadow = renderer.shadowMap.autoUpdate;
-    const hidden=getHiddenObjects().map(object=>({object,visible:object.visible}));
+    const hidden=[...getHiddenObjects(),...presentation.hiddenObjects].map(object=>({object,visible:object.visible}));
     try {
       hidden.forEach(({object})=>{object.visible=false;});
       actors.forEach(figure=>{figure.visible=false;});
@@ -121,7 +123,8 @@ export function createStudyMirrorReflection({ glass, body, hollow = body, getCam
       // A pure intended heading, shared by both identities. Never leave the
       // X/Z half-turns produced by XYZ quaternion -> Euler decomposition.
       actorRoot.rotation.set(0,pose?.yaw??rotation.y,0,'YXZ');
-      actor.setSpeed(0); actor.setCrouch(0); actor.update(0);
+      if(actor.sampleReflectionPose)presentation.apply(actor,corrected);
+      else {actor.setSpeed(0); actor.setCrouch(0); actor.update(0);}
       if(shell&&localYaw.get(actor))shell.rotateY(localYaw.get(actor));
       if (corrected) {
         const breath=Math.sin(performanceTime*1.35);
@@ -134,8 +137,10 @@ export function createStudyMirrorReflection({ glass, body, hollow = body, getCam
       if (shell) {
         if (!floorOffsets.has(actor)) {
           actor.group.updateMatrixWorld(true);
-          actor.group.traverse(mesh=>{if(mesh.isSkinnedMesh)mesh.computeBoundingBox();});
-          const box=new THREE.Box3().setFromObject(actor.group);
+          // Inventory props must never influence the actor's sole/floor fit.
+          const box=new THREE.Box3();
+          actor.group.traverse(mesh=>{if(mesh.isSkinnedMesh){mesh.computeBoundingBox();box.union(mesh.boundingBox.clone().applyMatrix4(mesh.matrixWorld));}});
+          if(box.isEmpty())box.setFromObject(actor.group);
           floorOffsets.set(actor,box.isEmpty()?0:actorRoot.position.y-box.min.y);
         }
         shell.position.y+=floorOffsets.get(actor);
@@ -153,6 +158,7 @@ export function createStudyMirrorReflection({ glass, body, hollow = body, getCam
       renderer.xr.enabled = previousXr;
       renderer.shadowMap.autoUpdate = previousShadow;
       mirror.camera.layers.mask = layers;
+      presentation.hideAttachedProps();
       if (shell) { shell.position.copy(shellPosition);shell.rotation.copy(shellRotation); }
       for (const snapshot of snapshots) {
         const {figure,correction,position,rotation,scale,visible}=snapshot;
@@ -167,8 +173,19 @@ export function createStudyMirrorReflection({ glass, body, hollow = body, getCam
   return {
     mirror,
     setEnabled(on) { if(enabled!==!!on)forceRefresh=true;enabled = !!on; mirror.visible = enabled; },
-    setCorrected(on) { if(corrected!==!!on)forceRefresh=true;corrected = !!on; },
-    setTime(seconds) { performanceTime=seconds; },
+    setCorrected(on) { if(corrected!==!!on)forceRefresh=true;corrected = !!on;presentation.syncWorn(corrected); },
+    setTime(seconds,movementPosition=null) {
+      performanceTime=seconds;
+      const pose=getActorPose();if(pose?.hasVisor!==undefined)presentation.setHeld(pose.hasVisor);
+      if(pose?.cinematic===false)presentation.setInventoryItem(pose.heldItem,pose.leftHeldItem);
+      else presentation.setCinematicItems();
+      presentation.update(seconds,movementPosition??getCamera()?.position??pose?.position,getViewCamera?.()??getCamera());
+    },
+    initializeVisorInHand(){presentation.initializeInHand();},
+    setVisorHeld(on){presentation.setHeld(on);},
+    animateVisor(on,options){presentation.setVisor(on,options);},
+    finishVisor(){presentation.finishVisor(corrected);},
+    get actorPresentation(){return presentation;},
     setCinematic(on) {
       if(cinematic===!!on)return;
       cinematic=!!on;forceRefresh=true;
@@ -176,7 +193,7 @@ export function createStudyMirrorReflection({ glass, body, hollow = body, getCam
     get enabled() { return enabled; },
     get quality() { return quality; },
     get hasFrame() { return hasFrame; },
-    reset() { corrected=false;cinematic=false;enabled=true;mirror.visible=true;forceRefresh=true; },
-    dispose() { enabled = false; mirror.removeFromParent(); mirror.dispose(); }
+    reset() { presentation.reset();corrected=false;cinematic=false;enabled=true;mirror.visible=true;forceRefresh=true; },
+    dispose() { presentation.dispose();enabled = false; mirror.removeFromParent(); mirror.dispose(); }
   };
 }

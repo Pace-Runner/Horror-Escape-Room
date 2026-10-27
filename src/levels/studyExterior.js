@@ -844,7 +844,7 @@ export function createStudyExterior({ roomW, roomD, roomH, doorX, doorwayW, door
   }
   const potGroup = new THREE.Group();
   potGroup.position.set(1.12, 0, -0.95);
-  potGroup.add(...potParts.build({ castShadow: true }));
+  potGroup.add(...potParts.build({ castShadow: false }));
   porch.add(potGroup);
 
   // ---------- the gate ----------
@@ -899,18 +899,14 @@ export function createStudyExterior({ roomW, roomD, roomH, doorX, doorwayW, door
    * the player leaving. An obstacle the player cannot see is not an obstacle,
    * it is a wall they walk into.
    *
-   * Two sources, because one warm bulb makes the porch read as another room.
-   * The lamp over the door is the house; the cold fill from beyond the gate is
-   * the night, and having them disagree in colour is what says "outside".
+   * The warm door lamp contrasts with the shared cold moon below. The porch
+   * needs no separate cold point light or six-face point-shadow pass.
    */
   const porchLight = new THREE.PointLight(0xffd8a0, 1.15, 7, 2);
   porchLight.position.copy(LAMP);
-  porchLight.castShadow = true;
-  porchLight.shadow.mapSize.set(512, 512);
+  porchLight.name='Study_Porch_Lamp';porchLight.castShadow=false;
   porch.add(porchLight);
-  const nightFill = new THREE.PointLight(0x8fa6c8, 0.55, 9, 1.6);
-  nightFill.position.set(0, 2.0, PORCH_D / 2 + 1.6);
-  porch.add(nightFill);
+  // The same moon lights the yard and all three windows; no second night fill.
 
   // ---------- the house ----------
   const exterior = new THREE.Group();
@@ -1212,10 +1208,16 @@ export function createStudyExterior({ roomW, roomD, roomH, doorX, doorwayW, door
   // A cold wash over the whole outside, so the house has a night to sit in
   // rather than a black void. Hemisphere rather than ambient: the ground reads
   // darker than the sky, which is most of what says "outdoors".
-  const sky = new THREE.HemisphereLight(0x2a3550, 0x07090c, 0.55);
-  exterior.add(sky);
-  const moon = new THREE.DirectionalLight(0x93a8cc, 0.35);
-  moon.position.set(-14, 20, -18);
+  const sky = new THREE.HemisphereLight(0x36404d, 0x08090b, 0.18);
+  sky.name='Study_Night_Sky_Fill';exterior.add(sky);
+  const moon = new THREE.DirectionalLight(0xa9b9cb, .55);
+  moon.name='Study_Window_Night';moon.position.set(-14,8,5.3);
+  moon.target.position.set(0,1.2,.8);exterior.add(moon.target);
+  // A single static 512px map replaces the porch point light's six cube faces.
+  moon.castShadow=true;moon.shadow.mapSize.set(512,512);
+  Object.assign(moon.shadow.camera,{left:-10,right:10,top:9,bottom:-9,near:1,far:38});
+  moon.shadow.camera.updateProjectionMatrix();moon.shadow.bias=-.0003;moon.shadow.normalBias=.025;
+  moon.shadow.radius=1.5;moon.shadow.autoUpdate=false;moon.shadow.needsUpdate=true;
   exterior.add(moon);
 
   // The sky itself: low and ahead of the porch is where the player looks.

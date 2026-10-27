@@ -10,11 +10,12 @@ import { build } from 'esbuild';
 import * as THREE from 'three';
 import {clone as cloneSkeleton} from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { createCutsceneRunner } from '../src/core/Cutscene.js';
+import { createStudyActorPresentation } from '../src/cutscenes/studyActorPresentation.js';
 import { createStudyMirrorReflection } from '../src/cutscenes/studyMirrorReflection.js';
 import { CaptionSequencer } from '../src/core/CaptionSequencer.js';
 import { Interaction } from '../src/core/Interaction.js';
 import { resolveCircle } from '../src/core/collision.js';
-import { buildStudyReveal, studyMirrorRoute, createStudyChoreography, REVEAL_DURATION, REVEAL_TIMES, REVEAL_DIALOGUE, CHAIR_EYE, poseStudyCreature, MIRROR_EYE } from '../src/cutscenes/studyReveal.js';
+import { buildStudyReveal, createStudyRevealTiming, studyMirrorRoute, createStudyChoreography, REVEAL_DURATION, REVEAL_TIMES, REVEAL_DIALOGUE, CHAIR_EYE, poseStudyCreature, MIRROR_EYE } from '../src/cutscenes/studyReveal.js';
 import { ANNABELLE_FINAL_LETTER } from '../src/story/studyReveal.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
@@ -60,7 +61,7 @@ function annabelleGeometry(file = 'annabelle.glb') {
     }
     return new THREE.BufferAttribute(new Type(packed.buffer), size, !!a.normalized);
   }
-  const joints=new Set(gltf.skins.flatMap(s=>s.joints));
+  const joints=new Set((gltf.skins||[]).flatMap(s=>s.joints));
   const nodes = gltf.nodes.map((node,index) => {
     const group = joints.has(index)?new THREE.Bone():new THREE.Group();group.name=node.name||'';
     if (node.matrix) group.applyMatrix4(new THREE.Matrix4().fromArray(node.matrix));
@@ -94,17 +95,17 @@ function annabelleGeometry(file = 'annabelle.glb') {
   gltf.nodes.forEach((node,i)=>{if(node.skin===undefined)return;const skin=gltf.skins[node.skin];const inv=attribute(skin.inverseBindMatrices).array;const skeleton=new THREE.Skeleton(skin.joints.map(j=>nodes[j]),skin.joints.map((j,k)=>new THREE.Matrix4().fromArray(inv,k*16)));nodes[i].traverse(mesh=>{if(mesh.isSkinnedMesh)mesh.bind(skeleton,new THREE.Matrix4());});});
   return scene;
 }
-const source = annabelleGeometry(),monsterSource=annabelleGeometry('okabe.glb');
+const source = annabelleGeometry(),monsterSource=annabelleGeometry('okabe.glb'),cleanSource=annabelleGeometry('okabe_clean.glb'),chairSource=annabelleGeometry('study/annabelle_wingback_chair.glb');
 globalThis.__studyTestModel = url => {
-  const model=url.includes('/models/annabelle.glb')?source:url.includes('/models/okabe.glb')?monsterSource:null;
+  const model=url.includes('annabelle_wingback_chair.glb')?chairSource:url.includes('/models/annabelle.glb')?source:url.includes('/models/okabe.glb')?monsterSource:url.includes('/models/okabe_clean.glb')?cleanSource:null;
   if(!model)return new Promise(()=>{});
   const copy = cloneSkeleton(model);
-  copy.traverse(n => { if (n.isMesh) n.material = n.material.clone(); });
+  copy.traverse(n => {if(n.isMesh){n.material=n.material.clone();n.geometry=n.geometry.clone();}});
   return Promise.resolve(copy);
 };
 
 try {
-  const bundle = await build({ stdin: { contents: "export {createStudyLevel} from './src/levels/studyLevel.js';export {gameState} from './src/core/GameState.js';export {createAnnabelle} from './src/levels/annabelleFigure.js';export {createAudioDirector,STUDY_BED_GAIN_DB} from './src/systems/AudioDirector.js';", resolveDir: rootDir },
+  const bundle = await build({ stdin: { contents: "export {createStudyLevel} from './src/levels/studyLevel.js';export {gameState} from './src/core/GameState.js';export {createAnnabelle} from './src/levels/annabelleFigure.js';export {createOkabeCreature} from './src/systems/OkabeCreature.js';export {createAudioDirector,STUDY_BED_GAIN_DB} from './src/systems/AudioDirector.js';", resolveDir: rootDir },
     bundle: true, write: false, platform: 'node', format: 'esm', packages: 'external', define:{'import.meta.env.DEV':'true'}, plugins: [{ name: 'study-test', setup(b) {
       b.onResolve({ filter: /\?url$/ }, a => ({ path: a.path, namespace: 'asset' }));
       b.onLoad({ filter: /.*/, namespace: 'asset' }, a => ({ contents: `export default ${JSON.stringify(a.path)}` }));
@@ -113,7 +114,7 @@ try {
       b.onLoad({ filter: /dialogue[\\/]index\.js$/ }, () => ({ contents: 'export const line=k=>k;' }));
     } }] });
   fs.writeFileSync(bundlePath, bundle.outputFiles[0].text);
-  const { createStudyLevel, gameState, createAnnabelle,createAudioDirector,STUDY_BED_GAIN_DB } = await import(pathToFileURL(bundlePath));
+  const { createStudyLevel, gameState, createAnnabelle,createOkabeCreature,createAudioDirector,STUDY_BED_GAIN_DB } = await import(pathToFileURL(bundlePath));
 
   const bedCalls=[];
   const bedAudio={ctx:{state:'running'},cue:name=>({duration:300,name}),emit(bus,options){
@@ -144,6 +145,13 @@ try {
     assert(change>.025,`emotion accent missing: ${id}`);
   }
   console.log('PASS: all 14 emotional sentence accents visibly move the existing rig over its continuous idle.');
+  actor.reset();actor.setCrouched(true);actor.perform('please',2);actor.update(.5);
+  assert.equal(actor.emotionalState,'frightened');actor.perform('tried',2);
+  for(let i=0;i<10;i++)actor.update(.1);
+  assert.equal(actor.emotionalState,'hurt');actor.perform('know',2);actor.update(.1);assert.equal(actor.emotionalState,'hurt');
+  const guard=actor.root.getObjectByName('mixamorig:LeftHand').getWorldPosition(new THREE.Vector3());
+  assert(guard.y<1.15,'guarding hand still reaches face');
+
 
   // Cabinet presentation must follow locks, hinges and reset without leaking
   // records or hardware through the closed doors.
@@ -379,10 +387,162 @@ try {
         fullDuration = scene.shots.reduce((sum, shot) => sum + shot.seconds, 0);
         promise = cutscene.playScene(scene); return promise;
       } });
-    await level.refs.warmUpReady;await level.refs.cornerReady;
+    await level.refs.warmUpReady;await level.refs.cornerReady;await level.refs.chairReady;
+    if(cancelAt===null){
+      const human=createOkabeCreature({clean:true,restCorrection:1,gait:'player'});
+      const hollow=createOkabeCreature({restCorrection:0,gait:'player'});
+      await Promise.all([human.ready,hollow.ready]);
+      for(const figure of [human,hollow]){
+        assert(['Hips','Spine','Chest','Head','Left leg','Right leg','Left knee','Right knee','Left ankle','Right ankle',
+          'Left shoulder','Right shoulder','Left arm','Right arm','Left elbow','Right elbow','Left wrist','Right wrist']
+          .every(name=>figure.getRigBone(name)), 'missing reflection rig joint');
+        let minThigh=Infinity,maxThigh=-Infinity,minArm=Infinity,maxArm=-Infinity,minHip=Infinity,maxHip=-Infinity;
+        for(let frame=0;frame<120;frame++){
+          figure.sampleReflectionPose({speed:2,phase:frame/120*Math.PI*2});figure.group.updateMatrixWorld(true);
+          const leg=figure.getRigBone('Left knee').getWorldPosition(new THREE.Vector3()).sub(figure.getRigBone('Left leg').getWorldPosition(new THREE.Vector3()));
+          const arm=figure.getRigBone('Left elbow').getWorldPosition(new THREE.Vector3()).sub(figure.getRigBone('Left arm').getWorldPosition(new THREE.Vector3()));
+          const thigh=Math.atan2(leg.z,-leg.y)*180/Math.PI, swing=Math.atan2(arm.z,-arm.y)*180/Math.PI;
+          minThigh=Math.min(minThigh,thigh);maxThigh=Math.max(maxThigh,thigh);minArm=Math.min(minArm,swing);maxArm=Math.max(maxArm,swing);
+          const y=figure.refs.hips.getWorldPosition(new THREE.Vector3()).y;minHip=Math.min(minHip,y);maxHip=Math.max(maxHip,y);
+        }
+        assert(Math.max(Math.abs(minThigh),Math.abs(maxThigh))<26,'reflection thighs over-swing');
+        assert(Math.max(Math.abs(minArm),Math.abs(maxArm))<16,'reflection arms over-swing');
+        assert(maxHip-minHip<.021,'reflection hip bob too large');
+        console.log(`Reflection gait: thigh ${minThigh.toFixed(1)}..${maxThigh.toFixed(1)}deg; arm ${minArm.toFixed(1)}..${maxArm.toFixed(1)}deg; hip bob ${((maxHip-minHip)*100).toFixed(1)}cm.`);
+        figure.sampleReflectionPose({visorLift:1});figure.group.updateMatrixWorld(true);
+        const face=figure.getEyePosition(new THREE.Vector3()),hand=figure.refs.hands.r.getWorldPosition(new THREE.Vector3());
+        assert(hand.distanceTo(face.clone().add(new THREE.Vector3(.08,0,-.015)))<.06,'hand misses visor temple');
+        figure.setSpeed(0);figure.update(0);const idle=figure.getRigBone('Left leg').quaternion.clone();
+        figure.sampleReflectionPose({speed:2,phase:1});figure.update(0);
+        assert(idle.angleTo(figure.getRigBone('Left leg').quaternion)<.00001,'visual sample altered owning actor locomotion');
+      }
+      const itemBuilds=[];
+      const visual=createStudyActorPresentation({visorTemplate:level.refs.visorGroup,buildHeldItem:id=>{itemBuilds.push(id);const prop=new THREE.Group();prop.add(new THREE.Mesh(new THREE.BoxGeometry(.08,.05,.01),new THREE.MeshStandardMaterial()));return prop;}});visual.setHeld(true);
+      const p=new THREE.Vector3(0,1.6,0);visual.update(0,p);
+      for(let i=1;i<=120;i++){p.z-=2/60;visual.update(i/60,p);}
+      assert(visual.motion.speed>1.9);
+      const legPose=[];
+      for(const [figure,corrected] of [[human,false],[hollow,true]]){
+        visual.apply(figure,corrected);legPose.push(figure.getRigBone('Left leg').quaternion.clone());
+        const first=figure.getRigBone('Left leg').quaternion.clone();
+        figure.sampleReflectionPose({speed:2,phase:visual.motion.phase+Math.PI/2});
+        assert(first.angleTo(figure.getRigBone('Left leg').quaternion)>.04,'walking reflection is frozen');
+      }
+      const phase=visual.motion.phase;visual.syncWorn(true);assert.equal(visual.motion.phase,phase,'swap reset gait');
+      for(let i=121;i<=180;i++)visual.update(i/60,p);
+      assert(visual.motion.speed<.001,'idle did not return');
+      const viewCamera=new THREE.PerspectiveCamera(),viewScene=new THREE.Scene();viewScene.add(viewCamera);
+      visual.setVisor(true,{start:3,duration:1.2,cinematic:true});
+      visual.update(3,p,viewCamera);visual.apply(human,false);
+      const humanAttachment=visual.attachments.find(r=>r.head===human.refs.head);
+      const handStart=humanAttachment.prop.getWorldPosition(new THREE.Vector3());
+      for(const [actor,corrected] of [[human,false],[hollow,true]]){
+        visual.apply(actor,corrected);const r=visual.attachments.find(r=>r.head===actor.refs.head);
+        const wrist=r.hand.getWorldPosition(new THREE.Vector3()),elbow=actor.getRigBone('Right elbow').getWorldPosition(new THREE.Vector3());
+        const forward=wrist.clone().sub(elbow).normalize();let cuffClearance=Infinity;
+        r.prop.updateMatrixWorld(true);r.prop.traverse(mesh=>{if(!mesh.isMesh)return;mesh.geometry.computeBoundingBox();const b=mesh.geometry.boundingBox;
+          for(const x of [b.min.x,b.max.x])for(const y of [b.min.y,b.max.y])for(const z of [b.min.z,b.max.z]){
+            const p=new THREE.Vector3(x,y,z).applyMatrix4(mesh.matrixWorld);cuffClearance=Math.min(cuffClearance,p.sub(wrist).dot(forward));
+          }});
+        assert(cuffClearance>.02,'visor temple intersects wrist/cuff plane');
+      }
+
+      assert.equal(visual.attachments.find(r=>r.head===human.refs.head).prop.userData.attachment,'hand');
+      visual.update(3.6,p,viewCamera);visual.apply(human,false);
+      assert(visual.motion.blend>.4&&visual.motion.blend<.6);
+      assert(visual.hiddenObjects[0].visible&&visual.hiddenObjects[0].parent===viewCamera,'first-person visor not in visible scene');
+      assert.equal(humanAttachment.prop.children[0].geometry,level.refs.visorGroup.children[0].geometry,'visor geometry was rebuilt');
+      assert(humanAttachment.prop.getWorldPosition(new THREE.Vector3()).y>handStart.y+.15,'visor failed to rise with hand');
+      visual.update(4.2,p,viewCamera);visual.apply(human,false);
+      const humanFace=visual.attachments.find(r=>r.head===human.refs.head);
+      assert.equal(humanFace.prop.parent,humanFace.face);
+      assert(humanFace.prop.visible);
+      visual.apply(hollow,true);
+      assert.equal(visual.attachments.find(r=>r.head===hollow.refs.head).prop.userData.attachment,'face');
+      assert(visual.attachments.find(r=>r.head===hollow.refs.head).prop.visible);
+      visual.update(4.199,p);visual.apply(human,false);const beforeAttach=humanFace.prop.getWorldPosition(new THREE.Vector3());
+      visual.update(4.201,p);visual.apply(human,false);assert(beforeAttach.distanceTo(humanFace.prop.getWorldPosition(new THREE.Vector3()))<.015,'visor teleported at face attach');
+      visual.setVisor(false,{start:4.3,duration:1.1,contact:.4,cinematic:true});
+      visual.update(4.7,p);visual.apply(human,false);
+      visual.update(5.4,p);visual.apply(human,false);
+      assert.equal(visual.attachments.find(r=>r.head===human.refs.head).prop.userData.attachment,'hand');
+      visual.setVisor(true,{start:5.5,duration:1.2,cinematic:true});visual.update(6.7,p);visual.apply(hollow,true);
+      assert.equal(visual.attachments.find(r=>r.head===hollow.refs.head).prop.userData.attachment,'face');
+      visual.finishVisor(true);assert(!visual.hiddenObjects[0].visible,'handling prop leaked past cutscene');
+      visual.syncWorn(false);visual.update(7.02,p);visual.apply(human,false);
+      assert.equal(visual.attachments.find(r=>r.head===human.refs.head).prop.userData.attachment,'hand');
+      visual.syncWorn(true);visual.update(7.34,p);visual.apply(hollow,true);
+      assert.equal(visual.attachments.find(r=>r.head===hollow.refs.head).prop.userData.attachment,'face');
+      visual.finishVisor(false);visual.setInventoryItem('hollowOverrideKey','flashlight');visual.apply(human,false);
+      const equipped=visual.attachments.find(r=>r.head===human.refs.head);
+      assert(!equipped.prop.visible,'owned visor leaked into hand while holding card');
+      assert(equipped.items.get('hollowOverrideKey').visible,'selected card missing from reflection');
+      assert(equipped.items.get('left:flashlight').visible,'carried left flashlight missing');
+      visual.setInventoryItem(null);visual.apply(human,false);
+      assert(!equipped.prop.visible&&!equipped.items.get('hollowOverrideKey').visible,'empty reflected hand shows an item');
+      visual.setInventoryItem('archiveKey');visual.apply(human,false);
+      assert(equipped.items.get('archiveKey').visible&&!equipped.items.get('hollowOverrideKey').visible);
+      visual.setInventoryItem('hollowOverrideKey');visual.apply(human,false);
+      assert.equal(itemBuilds.filter(id=>id==='hollowOverrideKey').length,1,'item rebuilt each toggle');
+      visual.finishVisor(true);visual.apply(hollow,true);
+      const hollowEquipped=visual.attachments.find(r=>r.head===hollow.refs.head);
+      assert(hollowEquipped.prop.visible&&hollowEquipped.prop.userData.attachment==='face');
+      assert(hollowEquipped.items.get('hollowOverrideKey').visible,'worn goggles hid held card');
+      visual.initializeInHand();visual.apply(human,false);
+      assert.equal(visual.motion.blend,0,'canonical reset left an active removal');
+      for(const r of visual.attachments){assert.equal(r.prop.parent,r.grip);assert.equal(r.prop.userData.attachment,'hand');assert(r.prop.visible);}
+      visual.dispose();
+      const gaitScene=new THREE.Scene(),gaitGlass=new THREE.Mesh(new THREE.PlaneGeometry(.674,1.77),new THREE.MeshStandardMaterial());
+      gaitGlass.position.set(4.8,1.08,-6.373);gaitScene.add(gaitGlass,human.group,hollow.group);
+      const gaitCamera=new THREE.PerspectiveCamera(60,16/9,.05,100);
+      const gaitMirror=createStudyMirrorReflection({glass:gaitGlass,body:human,hollow,getCamera:()=>gaitCamera,
+        getActorPose:()=>({position:new THREE.Vector3(4.8,1.6,-5.2),cinematic:true,hasVisor:true}),visorTemplate:level.refs.visorGroup});
+      gaitMirror.setEnabled(true);gaitMirror.setCinematic(true);gaitMirror.setCorrected(true);
+      const legSamples=[];const gaitRenderer={...renderer,target:null,render(){legSamples.push(hollow.getRigBone('Left leg').quaternion.clone());}};
+      for(let frame=0;frame<60;frame++){
+        gaitCamera.position.set(4.5+frame*.008,1.6,-5-frame*.004);gaitCamera.lookAt(4.8,1.45,-6.373);gaitCamera.updateMatrixWorld(true);
+        gaitScene.updateMatrixWorld(true);gaitMirror.setTime(frame/60,gaitCamera.position);
+        gaitMirror.mirror.onBeforeRender(gaitRenderer,gaitScene,gaitCamera);
+      }
+      assert(legSamples.length>30,'cinematic mirror did not render walking rig');
+      assert(gaitMirror.actorPresentation.motion.speed>.4,'cutscene camera motion did not drive gait');
+      assert(legSamples.some(q=>q.angleTo(legSamples[0])>.025),'Hollow legs frozen in cinematic reflection');
+      gaitMirror.dispose();
+
+      console.log('PASS: both full reflection rigs walk; shared phase survives swap; idle blends back; existing visor hand/face attachments and repeated put-on/take-off.');
+      const lights=[];level.group.traverse(object=>{if(object.isLight)lights.push(object);});
+      assert.equal(lights.length,9,'study light budget grew');
+      const shadows=lights.filter(light=>light.castShadow);
+      assert.equal(shadows.length,1,'study must have only one shadow source');
+      const night=lights.find(light=>light.name==='Study_Window_Night');
+      assert(night?.isDirectionalLight&&night.intensity===.55);
+      assert.equal(shadows[0],night);assert.equal(night.shadow.mapSize.x,512);
+      assert.equal(night.shadow.autoUpdate,false,'night shadow refreshes every frame');
+      assert.equal(level.refs.ambient.intensity,.85);
+      assert(level.refs.ambient.intensity<3.5*.5,'preview ambient remains');
+      assert.equal(level.refs.lamp.intensity,2.4);assert.equal(level.refs.lamp.distance,3);
+      assert.equal(level.refs.candles.lights.length,2);
+      assert(level.refs.candles.lights.every(light=>!light.castShadow));
+      const ceiling=level.group.getObjectByName('Study_Shadowed_Plaster');
+      assert(ceiling.material.color.r<.5&&ceiling.receiveShadow);
+      assert(level.group.getObjectByName('StudyLeftWall').children.some(mesh=>mesh.castShadow));
+      const fire=level.refs.fire;
+      assert.equal(fire.light.distance,5.5);assert(!fire.light.castShadow);
+      const drawCount=fire.group.children.length;
+      for(let i=0;i<600;i++){
+        fire.update(.05);assert(fire.light.intensity>=6.5*.935&&fire.light.intensity<=6.5*1.065);
+      }
+      assert.equal(fire.group.children.length,drawCount,'fire allocated new particles');
+      for(const eye of [new THREE.Vector3(4.8,1.6,-5.28),new THREE.Vector3(4.4,4.7,-5.35)]){
+        for(let frame=0;frame<60;frame++)level.refs.candles.update(.05,{playerPosition:eye});
+        assert(level.refs.candles.lights.some(light=>light.intensity>.2),'nearby candle pools remain dark');
+        assert(level.refs.candles.lights.every(light=>light.intensity<1.5),'candle pool washes out room');
+      }
+      console.log('PASS: study lighting budget 9 lights (including existing map wash) / 1 static 512px shadow; ambient .85; night .55; desk 2.4 at 3m; 2 candle pools; fire 6.5 +/-6.5%; unchanged fire geometry.');
+    }
     assert(!level.refs.annabelle.visible);
     const standingHeight = new THREE.Box3().setFromObject(level.refs.annabelle).getSize(new THREE.Vector3()).y;
-    assert(Math.abs(standingHeight - 1.55) < 0.01);
+    assert(Math.abs(standingHeight - 1.705) < 0.01);
     // Sample the whole authored upper-floor/stair route against real study colliders.
     const route = studyMirrorRoute(camera.position.toArray());
     for (let i = 0; i <= 500; i++) {
@@ -412,24 +572,70 @@ try {
     assert(!player.movementEnabled && !player.lookEnabled && !interaction.enabled);
     assert.equal(level.refs.puzzle.endingChoice, 'NONE');
     let elapsed = 0, sawCreature = false, sawHuman = false, sawCard = false;
-    const cardPositions=[];
+    const cardPositions=[],personPositions=[],walkLegs=[];const personStart=level.refs.annabelle.position.clone();
     while (cutscene.isRunning) {
       const dt = Math.min(0.05, cancelAt === null ? 0.05 : Math.max(0, cancelAt - elapsed));
       if (cancelAt !== null && dt === 0) { cutscene.cancel(); break; }
       elapsed += dt; captions.update(dt); level.update(dt); cutscene.update(dt);
       assert.equal(mirrorIdentity,gameState.visorWorn,'stale cutscene mirror identity');
+      if(elapsed<REVEAL_TIMES.hollow){assert.equal(gameState.visorWorn,false,'pre-letter ON state leaked into reveal');assert.equal(mirrorIdentity,false);}
       if(elapsed>=REVEAL_TIMES.turn&&cutscene.isRunning){
         assert.equal(level.refs.annabelle.visible,gameState.visorWorn,'stale chair identity');
         assert.equal(level.refs.annabelleMonster.visible,!gameState.visorWorn);
       }
-      if(level.refs.hollowOverrideKey.visible)cardPositions.push({t:elapsed,p:level.refs.hollowOverrideKey.position.clone()});
+      if(level.refs.annabelle.visible){
+        const a=level.refs.annabelle;
+        const l=a.getObjectByName('mixamorig:LeftHand').getWorldPosition(new THREE.Vector3());
+        const r=a.getObjectByName('mixamorig:RightHand').getWorldPosition(new THREE.Vector3());
+        assert(l.distanceTo(r)>.18,'Annabelle hands cross during dialogue');
+      }
+      const decideTime=REVEAL_TIMES.annabelle+createStudyRevealTiming().reactions.find(b=>b.id==='decide').t;
+      if(Math.abs(elapsed-decideTime)<.026){
+        const root=level.refs.annabelle,desired=Math.atan2(CHAIR_EYE[0]-root.position.x,CHAIR_EYE[2]-root.position.z);
+        assert(Math.abs(root.rotation.y-desired)<.02,'Annabelle must face Mark for You decide');
+        assert.equal(level.refs.hollowOverrideKey.parent,level.refs.annabelle.getObjectByName('mixamorig:RightHand'),'card must remain offered in hand at You decide');
+      }
+      if(cancelAt===null&&elapsed>=REVEAL_TIMES.turn){
+        const chair=level.group.getObjectByName('Annabelle_Wingback_Chair');chair.updateMatrixWorld(true);
+        const a=level.refs.annabelle,m=level.refs.annabelleMonster;
+        const joints=a.visible?[
+          ['mixamorig:Hips','mixamorig:Spine2'],['mixamorig:RightArm','mixamorig:RightForeArm'],
+          ['mixamorig:RightForeArm','mixamorig:RightHand'],['mixamorig:LeftArm','mixamorig:LeftForeArm'],
+          ['mixamorig:LeftForeArm','mixamorig:LeftHand'],['mixamorig:LeftUpLeg','mixamorig:LeftLeg'],
+          ['mixamorig:RightUpLeg','mixamorig:RightLeg']
+        ].map(pair=>pair.map(name=>a.getObjectByName(name))):[
+          ['Hips','Chest'],['Right arm','Right elbow'],['Right elbow','Right wrist'],
+          ['Left arm','Left elbow'],['Left elbow','Left wrist'],['Left leg','Left knee'],['Right leg','Right knee']
+        ].map(pair=>pair.map(name=>m.getRigBone(name)));
+        for(const [from,to] of joints){
+          const p=from.getWorldPosition(new THREE.Vector3()),d=to.getWorldPosition(new THREE.Vector3()).sub(p);
+          const ray=new THREE.Raycaster(p,d.clone().normalize(),.012,d.length()-.012);
+          assert.equal(ray.intersectObject(chair,true).length,0,`${a.visible?'Annabelle':'monster'} ${from.name} crosses chair at ${elapsed.toFixed(2)}s`);
+        }
+      }
+      const card=level.refs.hollowOverrideKey;
+      personPositions.push(level.refs.annabelle.position.clone());
+      if(level.refs.annabelleMonster.studyWalkSpeed>.1)walkLegs.push({human:level.refs.annabelle.getObjectByName('mixamorig:LeftUpLeg').quaternion.clone(),monster:level.refs.annabelleMonster.getRigBone('Left leg').quaternion.clone()});
+      if(card.visible){
+        const previous=cardPositions.at(-1);
+        cardPositions.push({t:elapsed,p:card.getWorldPosition(new THREE.Vector3()),held:card.parent?.isBone});
+        if(cancelAt===null&&card.parent?.isBone){
+          const chair=level.group.getObjectByName('Annabelle_Wingback_Chair');chair.updateMatrixWorld(true);
+          const wrist=level.refs.annabelle.getObjectByName('mixamorig:RightHand').getWorldPosition(new THREE.Vector3());
+          const elbow=level.refs.annabelle.getObjectByName('mixamorig:RightForeArm').getWorldPosition(new THREE.Vector3());
+          const delta=wrist.clone().sub(elbow),ray=new THREE.Raycaster(elbow,delta.clone().normalize(),.01,delta.length());
+          const hits=ray.intersectObject(chair,true);
+          assert.equal(hits.length,0,`offering forearm crosses chair at ${elapsed.toFixed(2)}s`);
+          if(previous){const d=card.getWorldPosition(new THREE.Vector3()).sub(previous.p);if(d.length()>.0001){const r=new THREE.Raycaster(previous.p,d.clone().normalize(),.001,d.length());assert.equal(r.intersectObject(chair,true).length,0,`carried card crosses chair at ${elapsed.toFixed(2)}s`);}}
+        }
+      }
       assert(!document.body.classList.contains('cutscene-letterbox'));
       assert(!(creature.visible && level.refs.annabelle.visible));
       sawCreature ||= creature.visible; sawHuman ||= level.refs.annabelle.visible;
       sawCard ||= level.refs.hollowOverrideKey.visible;
       assert.equal(endings.length, 0);
       assert(elapsed < REVEAL_DURATION+1, 'scene did not hand back');
-      if(elapsed<REVEAL_TIMES.annabelle+REVEAL_DIALOGUE.find(b=>b.id==='override').t-.45) assert(!level.refs.hollowOverrideKey.visible,'card appeared before the handoff');
+      if(elapsed<REVEAL_TIMES.annabelle+REVEAL_DIALOGUE.find(b=>b.id==='override').t-.01) assert(!level.refs.hollowOverrideKey.visible,'card appeared before the handoff');
     }
     await promise; await Promise.resolve();
     assert(player.movementEnabled && player.lookEnabled && interaction.enabled && !player.cinematic && player.isLocked);
@@ -446,39 +652,93 @@ try {
       const monster=level.refs.annabelleMonster;
       const scale=monster.refs.root.scale;assert.equal(scale.x,scale.y);assert.equal(scale.y,scale.z);
       assert(monster.crouch<.001,'corner monster still crouches');
-      assert.deepEqual(level.refs.annabelle.scale.toArray(),[1,1,1]);
+      let restrainedMorph=false;monster.group.traverse(m=>{if(m.morphTargetInfluences?.some(v=>Math.abs(v-.2)<.001))restrainedMorph=true;});
+      assert(restrainedMorph,'chair monster still uses extreme full deformation');
+      for(const side of ['Left','Right']){
+        const upper=monster.getRigBone(side+' leg').getWorldPosition(new THREE.Vector3());
+        const knee=monster.getRigBone(side+' knee').getWorldPosition(new THREE.Vector3());
+        const ankle=monster.getRigBone(side+' ankle').getWorldPosition(new THREE.Vector3());
+        assert(knee.clone().sub(upper).angleTo(ankle.sub(knee))<.4,'monster knees excessively bent');
+      }
+      assert.deepEqual(level.refs.annabelle.scale.toArray(),[1.1,1.1,1.1]);
       const humanHead=head.getWorldPosition(new THREE.Vector3());
       const monsterHead=monster.refs.head.getWorldPosition(new THREE.Vector3());
       const torso=monster.refs.chest.getWorldPosition(new THREE.Vector3()).sub(monster.refs.hips.getWorldPosition(new THREE.Vector3()));
       assert(Math.atan2(Math.hypot(torso.x,torso.z),torso.y)<Math.PI/7,'monster torso folded forward');
       const humanHand=level.refs.annabelle.getObjectByName('mixamorig:RightHand').getWorldPosition(new THREE.Vector3());
       const monsterHand=monster.refs.hands.r.getWorldPosition(new THREE.Vector3());
-      console.log(`Injured alignment: head separation ${humanHead.distanceTo(monsterHead).toFixed(3)}m; shared chair brace ${humanHand.distanceTo(monsterHand).toFixed(3)}m.`);
+      console.log(`Injured alignment: head separation ${humanHead.distanceTo(monsterHead).toFixed(3)}m; corresponding offering hand ${humanHand.distanceTo(monsterHand).toFixed(3)}m.`);
       assert(humanHead.distanceTo(monsterHead)<.10,'perception head alignment');
-      assert(humanHand.distanceTo(monsterHand)<.10,'shared chair brace alignment');
+      assert(humanHand.distanceTo(monsterHand)<.04,'corresponding offering hand alignment');
       const humanTorso=level.refs.annabelle.getObjectByName('mixamorig:Spine2').getWorldPosition(new THREE.Vector3());
       const monsterTorso=monster.refs.chest.getWorldPosition(new THREE.Vector3());
+      monster.group.updateMatrixWorld(true);monster.group.traverse(m=>{if(m.isSkinnedMesh)m.computeBoundingBox();});
       const monsterBounds=new THREE.Box3().setFromObject(monster.group);
       console.log(`Fitted uniform scale ${scale.x.toFixed(3)}; torso separation ${humanTorso.distanceTo(monsterTorso).toFixed(3)}m; monster height ${monsterBounds.getSize(new THREE.Vector3()).y.toFixed(3)}m.`);
-      assert(monsterBounds.getSize(new THREE.Vector3()).y>1.4,'monster is undersized');
+      assert(monsterBounds.getSize(new THREE.Vector3()).y>1.64,'monster is undersized');
+      assert(Math.abs(monsterBounds.min.y)<.003,'actual monster mesh is below/above floor');
       assert(humanTorso.distanceTo(monsterTorso)<.10,'perception torso alignment');
       assert(cardPositions.length>15);
       const first=cardPositions[0],last=cardPositions.at(-1);
-      assert(first.p.distanceTo(last.p)>.08,'card popped directly onto cushion');
-      console.log(`Keycard hand-to-cushion placement: ${first.p.distanceTo(last.p).toFixed(3)}m over 0.7s.`);
-      assert(first.p.distanceTo(last.p)<.65,'card travels too far');
-      assert(cardPositions.some(v=>v.t>first.t+.25&&v.t<first.t+.65&&v.p.distanceTo(first.p)>.02&&v.p.distanceTo(last.p)>.01),'missing card slide');
+      const chair=level.group.getObjectByName('Annabelle_Wingback_Chair');chair.updateMatrixWorld(true);
+      assert(chair.worldToLocal(personStart.clone()).z<-.65,'Annabelle must begin behind chair');
+      assert(chair.worldToLocal(level.refs.annabelle.position.clone()).z<-.65,'offer moved Annabelle in front of chair');
+      assert(level.refs.hollowOverrideKey.children.every(m=>m.material.side===THREE.DoubleSide),'card back can disappear');
+      assert.equal(level.refs.hollowOverrideKey.parent,level.refs.annabelle.getObjectByName('mixamorig:RightHand'),'offered card detached from hand');
+      assert(cardPositions.every(p=>p.held),'card ever left a hand');
+      assert(first.p.distanceTo(last.p)>.10,'missing visible extension of offered card');
+      const shift=level.refs.annabelle.position.distanceTo(personStart);
+      assert(shift>.65&&shift<.90,'Annabelle must walk out from corner to the former standing spot');
+      assert(walkLegs.length>10&&walkLegs.some(p=>p.human.angleTo(walkLegs[0].human)>.03)&&walkLegs.some(p=>p.monster.angleTo(walkLegs[0].monster)>.03),'walk-out slides without active legs');
+      const personFinal=level.refs.annabelle.position.clone();
+      const leftHand=level.refs.annabelle.getObjectByName('mixamorig:LeftHand').getWorldPosition(new THREE.Vector3());
+      assert(leftHand.distanceTo(humanHand)>.20,'hands intersect');
+      assert(last.p.distanceTo(humanHand)<.15,'offered card floats away from hand');
+      const offeredPickup=level.interactables.find(h=>h.userData.interact.label==='Take the PROJECT HOLLOW ACCESS KEYCARD');
+      assert(offeredPickup&&offeredPickup.position.distanceTo(last.p)<.08,'pickup hotspot is not at offered card');
+      assert(last.p.y>.85&&last.p.y<1.3,'card should be held at a readable offering height');
+      const indexGrip=level.refs.annabelle.getObjectByName('mixamorig:RightHandIndex3').getWorldPosition(new THREE.Vector3());
+      const thumbGrip=level.refs.annabelle.getObjectByName('mixamorig:RightHandThumb4').getWorldPosition(new THREE.Vector3());
+      assert(indexGrip.distanceTo(thumbGrip)<.035,'thumb does not pinch card corner');
+      const cardCorner=level.refs.hollowOverrideKey.localToWorld(new THREE.Vector3(-.035/1.12,-.022/1.12,0));
+      assert(indexGrip.distanceTo(cardCorner)<.012,'card corner floats away from index grip');
+      console.log(`Offered card height ${last.p.y.toFixed(3)}m; forward shift ${shift.toFixed(3)}m; hand separation ${leftHand.distanceTo(humanHand).toFixed(3)}m.`);
+      // Authored chair UVs survive the reveal material setup without wood reprojection.
+      const chairMeshes=[];chair.traverse(m=>{if(m.isMesh)chairMeshes.push(m);});
+      const original=[];chairSource.traverse(m=>{if(m.isMesh)original.push(m);});
+      assert.equal(chairMeshes.length,2,'chair duplicated');
+      chairMeshes.forEach((m,i)=>{
+        assert.deepEqual(Array.from(m.geometry.attributes.uv.array),Array.from(original[i].geometry.attributes.uv.array));
+        assert.equal(m.material.side,THREE.FrontSide);assert(m.material.depthWrite&&m.material.depthTest&&!m.material.transparent);
+      });
       assert.equal(spoken.length, 3+REVEAL_DIALOGUE.length);
       for(const on of [false,true,false,true,false,true]){gameState.visorWorn=on;level.refs.setCorrectedSight(on);assert.equal(mirrorIdentity,on);assert.equal(level.refs.annabelle.visible,on);assert.equal(level.refs.annabelleMonster.visible,!on);level.update(.02);assert.equal(level.refs.annabelle.visible,on);assert.equal(level.refs.annabelleMonster.visible,!on);
-        assert(head.getWorldPosition(new THREE.Vector3()).distanceTo(monster.refs.head.getWorldPosition(new THREE.Vector3()))<.10,'post-swap head alignment drifted');}
+        assert(level.refs.annabelle.position.distanceTo(personFinal)<.001,'Annabelle reset after handoff');
+        assert(level.refs.annabelleMonster.refs.root.position.clone().setY(0).distanceTo(personFinal)<.12,'monster jumped back behind chair');
+        assert(head.getWorldPosition(new THREE.Vector3()).distanceTo(monster.refs.head.getWorldPosition(new THREE.Vector3()))<.10,'post-swap head alignment drifted');
+        monster.group.updateMatrixWorld(true);let floor=Infinity;const feet=[Infinity,Infinity];
+        for(const {mesh,index} of monster.studySoles){const p=mesh.getVertexPosition(index,new THREE.Vector3()).applyMatrix4(mesh.matrixWorld);floor=Math.min(floor,p.y);const side=mesh.geometry.attributes.position.getX(index)>0?0:1;feet[side]=Math.min(feet[side],p.y);}
+        assert(Math.abs(floor)<.003,'monster soles sink or float after visor toggle');assert(feet.every(y=>Math.abs(y)<.012),'one monster foot floats');
+        assert(level.refs.hollowOverrideKey.visible,'offered card vanished on toggle');
+        assert(level.refs.hollowOverrideKey.getWorldPosition(new THREE.Vector3()).distanceTo(offeredPickup.position)<.08,'handoff prompt drifted after toggle');}
       assert.equal(level.refs.puzzle.endingChoice,'NONE');
       assert.deepEqual(spoken.slice(3).map(line=>line.text),REVEAL_DIALOGUE.map(b=>`${b.speaker}: ${b.text}`));
       assert(REVEAL_DIALOGUE.every((b,i)=>!i||b.t>=REVEAL_DIALOGUE[i-1].t+REVEAL_DIALOGUE[i-1].hold+REVEAL_DIALOGUE[i-1].gap-.001));
       assert(spoken.every(line => line.always));
       assert.deepEqual(camera.position.toArray(), CHAIR_EYE);
       const pickup = level.interactables.find(h => h.userData.interact.label === 'Take the PROJECT HOLLOW ACCESS KEYCARD');
+      const prompt={style:{},textContent:''},handoffCamera=camera.clone();
+      handoffCamera.lookAt(pickup.position);handoffCamera.updateMatrixWorld(true);level.group.updateMatrixWorld(true);
+      const beforeWindow=globalThis.window;globalThis.window={addEventListener(){}};
+      const handoffInteraction=new Interaction(handoffCamera,prompt,{say(){}});globalThis.window=beforeWindow;
+      handoffInteraction.setTargets([pickup]);handoffInteraction.update();assert.equal(handoffInteraction.current,pickup,'offered card cannot be targeted from reveal end');
+
       pickup.userData.interact.onInteract(); pickup.userData.interact.onInteract();
       assert.equal(picked.filter(id => id === 'hollowOverrideKey').length, 1);
+      for(const on of [false,true]){gameState.visorWorn=on;level.refs.setCorrectedSight(on);level.update(.02);assert(!level.refs.hollowOverrideKey.visible&&!level.interactables.includes(pickup),'taken card reappeared');}
+      const heldHeight=level.refs.annabelle.getObjectByName('mixamorig:RightHand').getWorldPosition(new THREE.Vector3()).y;
+      for(let i=0;i<7;i++)level.update(.1);
+      assert(level.refs.annabelle.getObjectByName('mixamorig:RightHand').getWorldPosition(new THREE.Vector3()).y<heldHeight-.05,'empty hand failed to lower after pickup');
       const reseal = level.refs.overrideSockets.find(s => s.choice === 'RESEALED');
       const release = level.refs.overrideSockets.find(s => s.choice === 'RELEASE');
       reseal.hit.userData.interact.onInteract(); release.hit.userData.interact.onInteract();
@@ -494,7 +754,7 @@ try {
     }
     level.reset(); read.onFinished();
     assert.equal(calls, 1); assert(!level.refs.puzzle.mirrorRevealed);
-    assert(Math.abs(new THREE.Box3().setFromObject(level.refs.annabelle).getSize(new THREE.Vector3()).y - 1.55) < 0.01);
+    assert(Math.abs(new THREE.Box3().setFromObject(level.refs.annabelle).getSize(new THREE.Vector3()).y - 1.705) < 0.01);
   }
   // Bound frame-to-frame camera velocity and quaternion changes at 120 Hz.
   const initialQuaternion = new THREE.Quaternion().toArray();
@@ -510,7 +770,7 @@ try {
     before=now;
   }
   console.log(`Camera maxima: ${maxSpeed.toFixed(2)} m/s, ${(maxAngular*180/Math.PI).toFixed(1)} deg/s.`);
-  console.log(`PASS: ${fullDuration.toFixed(2)}s reveal; one-shot letter close; collision-clear stairs route; 1024x2048 stable projective planar reflection; side/stair/pitch world-plane math; grazing/back-side retained frame; exclusive creature/Annabelle swap; uniform fitted monster scale; natural Annabelle scale; upright injured torso; shared chair brace/head alignment; actual mesh height/reset; timed dialogue/pauses; late card handoff/pickup/endings; seven cancellation points; control restoration.`);
+  console.log(`PASS: ${fullDuration.toFixed(2)}s reveal; one-shot letter close; collision-clear stairs route; 1024x2048 stable projective planar reflection; side/stair/pitch world-plane math; grazing/back-side retained frame; exclusive creature/Annabelle swap; uniform fitted monster scale; natural Annabelle scale; upright injured torso; corresponding offering hand/head alignment; actual mesh height/reset; timed dialogue/pauses; held-out card handoff/pickup/endings; seven cancellation points; control restoration.`);
   console.log('Headless geometry/state/GPU-call validation. Browser-rendered appearance and pointer-lock permission were not exercised.');
 } finally {
   fs.rmSync(bundlePath, { force: true });

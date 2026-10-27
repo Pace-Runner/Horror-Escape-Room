@@ -299,8 +299,8 @@ export function createHearthFire() {
 
   // The fire's light: in front of the slips, so it reaches the hearth, the
   // mantel front and the room. Made now; only its intensity ever changes.
-  const BASE_INTENSITY = 4.5;
-  const light = new THREE.PointLight(0xff8a3d, BASE_INTENSITY, 5, 2);
+  const BASE_INTENSITY = 6.5;
+  const light = new THREE.PointLight(0xffc38a, BASE_INTENSITY, 5.5, 2);
   light.name = 'Hearth_Fire_Light';
   light.position.set(0, 0.42, 0.28);
   light.castShadow = false;
@@ -317,8 +317,8 @@ export function createHearthFire() {
         + 0.04 * Math.sin(time * 29.1 + 0.4);
       uniforms.uTime.value = time;
       uniforms.uIntensity.value = flicker;
-      light.intensity = BASE_INTENSITY * flicker;
-      light.position.x = 0.03 * Math.sin(time * 3.1);
+      light.intensity = BASE_INTENSITY * (1+.04*Math.sin(time*.85)+.025*Math.sin(time*1.43+.7));
+
       logMaterial.emissiveIntensity = 0.75 + 0.45 * flicker;
       backGlow.material.uniforms.uIntensity.value = backGlow.strength * flicker;
       hearthGlow.material.uniforms.uIntensity.value = hearthGlow.strength * flicker;

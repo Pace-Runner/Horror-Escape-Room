@@ -2560,3 +2560,14 @@ body.cutscene-letterbox .cutscene-bar {
   color: #e0796c;
   border-left-color: #7a1f16;
 }
+
+/* Same quiet keyboard-control language as the waking-animation skip prompt. */
+#document-narration {
+  position: absolute; bottom: 24px; right: 28px;
+  color: rgba(216, 210, 196, .78); font-size: .72rem;
+  letter-spacing: .08rem; text-transform: uppercase; pointer-events: none;
+}
+#document-narration kbd {
+  font-family: inherit; padding: 1px 6px;
+  border: 1px solid rgba(216, 210, 196, .45); border-radius: 3px; margin-right: 6px;
+}

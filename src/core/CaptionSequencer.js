@@ -114,6 +114,15 @@ export class CaptionSequencer {
     return this._sequence;
   }
 
+  get isVoiceSequence() {
+    return this._sequence && (this.isVoiced(this._line) || this._queue.some(line=>this.isVoiced(line)));
+  }
+
+  _preservesThought(line) {
+    return this._line?.markThought && !line.markThought && !line.revealManaged
+      && !line.always && !this.isVoiced(line);
+  }
+
   get isVisible() {
     return this._phase !== 'idle';
   }
@@ -141,6 +150,7 @@ export class CaptionSequencer {
     }
     const line = typeof text === 'string' ? { text } : { ...text };
     if (duration != null) line.duration = duration;
+    if (this._preservesThought(line)) return false;
     if (this._sequence) {
       // With captions off a VOICED story line is invisible, so a hint the
       // player asked for has nothing to wait for. It is drawn on top while the
@@ -190,7 +200,7 @@ export class CaptionSequencer {
    */
   play(lines, { interrupt = true } = {}) {
     const list = (Array.isArray(lines) ? lines : [lines]).map(toLine).filter((l) => l.text);
-    if (!list.length) return Promise.resolve(true);
+    if (!list.length || list.every(line=>this._preservesThought(line))) return Promise.resolve(true);
     if (this._sequence && !interrupt) return Promise.resolve(false);
 
     this._settle(false);

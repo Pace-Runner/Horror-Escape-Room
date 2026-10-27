@@ -6,7 +6,7 @@ const AMBIENT=new Set(['l1_09','hallway_01','backrooms_01','backrooms_02','backr
 /** Exactly one current/latest request. Never queue, suspend, or resume a line. */
 export function createMarkThoughts(audio,{captions=null,canPlay=()=>true}={}) {
   const seen=new Set(),lastPlayed=new Map();let current=null,pending=null,blocked=false;
-  const allowed=entry=>!blocked&&canPlay(entry)&&entry.when()&&!captions?.isPlaying;
+  const allowed=entry=>!blocked&&canPlay(entry)&&entry.when()&&!(captions?.isVoiceSequence ?? captions?.isPlaying);
   function stop(){
     const old=current;current=null;pending=null;
     if(old?.source&&audio.voiceSource===old.source)audio.stopVoice();
@@ -15,6 +15,7 @@ export function createMarkThoughts(audio,{captions=null,canPlay=()=>true}={}) {
   }
   function start(entry){
     if(!allowed(entry))return;
+    if(captions?.isPlaying&&!captions.isVoiceSequence)captions.cancel();
     current=entry;entry.loading=true;
     const voice='mark/'+MARK_THOUGHTS[entry.key][0];
     const text=MARK_THOUGHTS[entry.key][1];
@@ -28,12 +29,12 @@ export function createMarkThoughts(audio,{captions=null,canPlay=()=>true}={}) {
     });
   }
   return {
-    play(key,{replayable=false,delay=0,priority,when=()=>true,onEnded,onFailed,document=false}={}){
+    play(key,{replayable=false,delay=0,priority,when=()=>true,onEnded,onFailed,document=false,cutscene=null}={}){
       if(!audio.ctx||!MARK_THOUGHTS[key]||(!replayable&&seen.has(key)))return false;
       const now=audio.ctx?.currentTime??0;
       if(replayable&&now-(lastPlayed.get(key)??-Infinity)<1.5)return false;
       const rank=typeof priority==='number'?priority:priority===true?50:RESULTS.has(key)?40:AMBIENT.has(key)?10:30;
-      const entry={key,priority:rank,when,onEnded,onFailed,document,startAt:now+delay};
+      const entry={key,priority:rank,when,onEnded,onFailed,document,cutscene,startAt:now+delay};
       if(!allowed(entry)||(current??pending)?.priority>rank)return false;
       stop();seen.add(key);lastPlayed.set(key,now);
       audio.preloadVoice('mark/'+MARK_THOUGHTS[key][0]);

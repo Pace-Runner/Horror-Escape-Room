@@ -192,9 +192,10 @@ const LIGHT_HYSTERESIS = 1.15;
  * @param {THREE.Object3D} options.parent  Where the flame batches and lights live (the level group).
  * @param {number} [options.capacity]      Most flames this room will ever hold.
  * @param {number} [options.lightCount]    Real lights in the pool. Fixed for the room's life.
+ * @param {{full:number,off:number,handoverSeconds?:number}} [options.lightDistanceFade] Light-only distance easing; flames stay visible.
  * @param {string} [options.name]
  */
-export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name = 'Candle_Flames' }) {
+export function createCandleFlames({ parent, capacity = 32, lightCount = 0, steadyLight = false, lightDistanceFade = null, name = 'Candle_Flames' }) {
   const uniforms = { uTime: { value: 0 } };
   const flameGeometry = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
   const flameData = new Float32Array(capacity * 4);
@@ -446,7 +447,7 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
     }
     candidates.sort((a, b) => a.rank - b.rank);
     const wanted = new Set(candidates.slice(0, pool.length));
-    const fadeStep = step / LIGHT_FADE_SECONDS;
+    const fadeStep = step / (lightDistanceFade?.handoverSeconds ?? LIGHT_FADE_SECONDS);
 
     for (const slot of pool) {
       if (slot.owner && !wanted.has(slot.owner)) {
@@ -603,6 +604,7 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
     }
 
     assignLights(step, playerPosition);
+    const sharedLight=1+.035*Math.sin(elapsed*.83)+.02*Math.sin(elapsed*1.39);
     for (const slot of pool) {
       const entry = slot.owner;
       if (!entry || !entry.shown) {
@@ -621,8 +623,12 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
         lightPoint.y,
         lightPoint.z + entry.leanZ * entry.height * 0.5
       );
-      slot.light.intensity = entry.lightSettings.intensity * slot.fade
-        * (0.55 + 0.45 * entry.flicker) * (1 - 0.3 * entry.strain);
+      // Flame/halo visibility never depends on this light-only distance envelope.
+      const distance=playerPosition?Math.hypot(entry.x-playerPosition.x,entry.y-playerPosition.y,entry.z-playerPosition.z):0;
+      const distanceGain=lightDistanceFade?1-THREE.MathUtils.smoothstep(distance,lightDistanceFade.full,lightDistanceFade.off):1;
+      const handoverGain=lightDistanceFade?THREE.MathUtils.smoothstep(slot.fade,0,1):slot.fade;
+      slot.light.intensity = entry.lightSettings.intensity * handoverGain * distanceGain
+        * (steadyLight?sharedLight:(0.55 + 0.45 * entry.flicker) * (1 - 0.3 * entry.strain));
     }
 
     flames.count = drawn;

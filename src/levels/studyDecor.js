@@ -253,12 +253,9 @@ export function createStudyDecor({ woodMaterial, brassMaterial, candles = null }
      * and a real flame beside them would read as a fourth lamp.
      *
      * The last number is the sconce's light, for when the room's light pool
-     * hands it one. Each was set from the light the wall there already gets
-     * (the study's temporary ambient and fills): intensity = 2 x (that light /
-     * the room's typical 4.2), so every pool reads the same against its own
-     * wall -- about double the wall's brightness 45 cm from the flame, fading
-     * to nothing by a metre and a half. Brighter by the rear fill and the loft
-     * fill, dimmer in the room's darker corners.
+     * hands it one. Ground-floor pools use half these reference values;
+     * loft pools use 32%, leaving dark gaps and keeping the torch useful.
+     * All sconces share desaturated amber and a short 2.6m reach.
      */
     const back = -6.5 + SCONCE_WALL_OFFSET, front = 6.5 - SCONCE_WALL_OFFSET;
     const left = -8 + SCONCE_WALL_OFFSET, right = 8 - SCONCE_WALL_OFFSET;
@@ -288,7 +285,7 @@ export function createStudyDecor({ woodMaterial, brassMaterial, candles = null }
       // Loft, right wall, where the stair arrives.
       [right, loft, -2.65, -Math.PI / 2, 2.0]  // past the loft bookcase (ends -3.345), 0.8 m from the stair head
     ]) {
-      place(group, wallSconce({ intensity }), x, y, z, yaw);
+      place(group, wallSconce({color:0xffd0a0,intensity:intensity*(y>loftY?.32:.5),distance:2.6}), x, y, z, yaw);
     }
 
     // Collapse repeated static box/cylinder parts into a few shared instance batches.

@@ -393,9 +393,9 @@ export function wakeUp({ bedX, bedZ, duvetTop, cuff, windowAt, bulbAt, ahead, ba
       { t: 4.4, run: (ctx) => ctx.audio.setMuffle(0.3, 1.2) },
       { t: T_FOCUSED, run: (ctx) => { ctx.audio.setMuffle(0, 2.5); ctx.setBreathing(0.3); } },
       // Silence through the eyes opening; react as the head starts exploring.
-      { t: T_FOCUSED, run: () => onThought('l1_01', { delay: 0 }) },
+      { t: T_FOCUSED, run: () => onThought('l1_01', { delay: 0, cutscene: 'wakeUp' }) },
       { t: T_LINE[1], run: (ctx) => sayLines(ctx, 1) },
-      { t: T_LINE[1], run: () => onThought('l1_02', { delay: 0 }) },
+      { t: T_LINE[1], run: () => onThought('l1_02', { delay: 0, cutscene: 'wakeUp' }) },
       // The chain holds: metal, and the breath catches.
       {
         t: T_TUG + 0.06,

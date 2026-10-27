@@ -48,15 +48,15 @@ const player={movementEnabled:true,lookEnabled:true,cinematic:false,groundY:3.1,
 const interaction={enabled:true,setEnabled(on){this.enabled=on;}};
 const captions=new CaptionSequencer({style:{},classList:classes(),textContent:''});
 const subtitleEvents=[];captions.onLineStart=line=>subtitleEvents.push({line,time:audio.now});
-const acting=[],cards=[],sight=[];let completed=false,human=false,scene;
-const refs={setRevealAnnabelle:on=>{human=on;},setMirrorRevealSight(){},setMirrorRevealActive(){},performAnnabelleLine:(id,hold)=>acting.push({id,hold,time:audio.now}),showRevealKeycard:()=>cards.push(audio.now)};
+const acting=[],cards=[],sight=[],visorActions=[];let completed=false,human=false,scene;
+const refs={setRevealAnnabelle:on=>{human=on;},setMirrorRevealSight(){},setMirrorRevealActive(){},animateRevealVisor:(on,options)=>visorActions.push({on,...options}),performAnnabelleLine:(id,hold)=>acting.push({id,hold,time:audio.now}),showRevealKeycard:()=>cards.push(audio.now)};
 const creature={visible:false,correction:0,setCorrection(v){this.correction=v;},update(){},offsetBones(){}};
 const runner=createCutsceneRunner({camera,player,interaction,captions});
 scene=buildStudyReveal({start:camera.position.toArray(),startQuaternion:camera.quaternion.toArray(),annabelleSpot:[-7.25,-5.9],camera,player,captions,refs,creature,
  visor:{set:on=>sight.push({on,time:audio.now})},voiceDurations:durations,playDialogue:adapter.playDialogue,stopDialogue:adapter.stopDialogue,playAlert:adapter.playAlert,startSound:adapter.startSound,updateSound:adapter.updateSound,playPerception:adapter.playPerception,playMonsterReveal:adapter.playMonsterReveal,
  prepareCreature(){},restoreCreature(){creature.visible=false;},onFinish:done=>{completed=done;}});
 const promise=runner.playScene(scene);assert(!player.movementEnabled&&!interaction.enabled);
-let checkedDelayedCaption=false;
+let checkedDelayedCaption=false,lastLivePose=null;
 while(runner.isRunning){
  audio.tick(.01);captions.update(.01);runner.update(.01);
  const live=audio.current;
@@ -65,11 +65,26 @@ while(runner.isRunning){
  if(!live)assert(!captions.isVisible,'subtitle survived audio end');
  assert(!(human&&creature.visible),'simultaneous perception models');
  assert(audio.now<timing.duration+3,'reveal stalled');
+ if(runner.isRunning)lastLivePose={p:camera.position.clone(),q:camera.quaternion.clone()};
 }
 assert(await promise);assert(completed&&human&&checkedDelayedCaption);
+assert(lastLivePose.p.distanceTo(camera.position)<.01&&lastLivePose.q.angleTo(camera.quaternion)<.01,'camera snaps during control handback');
+assert(Math.abs(timing.seconds.settle+timing.seconds.human-1.8)<1e-8);
+assert(Math.abs(timing.times.mirrorVisor-timing.times.settle-1.8)<1e-8);
+
+
+assert.deepEqual(visorActions.map(action=>[action.on,action.duration]),[[true,1.2],[false,1.1],[true,1.2]]);
+assert.equal(sight[1].time>=visorActions[0].start+1.2,true,'visor enabled before face attachment');
 assert(player.movementEnabled&&player.lookEnabled&&interaction.enabled&&!player.cinematic);
 assert.deepEqual(audio.events.filter(e=>e.type==='start').map(e=>e.key),REVEAL_VOICE_LINES.map(e=>e.voice));
 const starts=audio.events.filter(e=>e.type==='start'),ends=audio.events.filter(e=>e.type==='end');assert.equal(ends.length,9);
+assert(Math.abs(starts[2].time-sight[1].time-1.4)<.025,'Hollow registration hold');
+assert.equal(timing.seconds.turn,2.25);
+assert(Math.abs(timing.times.chairVisor-timing.times.chairSettle-1.2)<1e-8,'monster registration interval');
+assert(Math.abs(starts[3].time-sight[3].time-.60)<.025,'Annabelle recognition delay');
+assert(Math.abs(timing.times.hollow-timing.times.mirrorVisor-1.2)<1e-8);
+assert(Math.abs(timing.times.annabelle-timing.times.chairVisor-1.2)<1e-8);
+
 for(let i=1;i<9;i++){const pause=starts[i].time-ends[i-1].time;assert(pause>=REVEAL_VOICE_LINES[i-1].gap-.025,`short pause ${i}: ${pause}`);}
 assert.deepEqual(subtitleEvents.map(e=>e.line.text),REVEAL_VOICE_LINES.map(e=>`${e.speaker}: ${e.text}`));
 assert.deepEqual(acting.map(e=>e.id),REVEAL_VOICE_LINES.flatMap(e=>e.reactions.map(([id])=>id)));
@@ -80,13 +95,13 @@ for(let i=0;i<REVEAL_VOICE_LINES.length;i++)for(const [id] of REVEAL_VOICE_LINES
 }
 const chair=audio.effects.find(e=>e.bus==='sfx'&&e.options.buffer.key==='wood_creak');
 assert(chair);assert.deepEqual(chair.options.position,[-7.25,.7,-5.9]);
-assert(chair.time-ends[2].time>=.72&&chair.time-ends[2].time<=.78);
-assert(sight[2].time-chair.time>=.3&&sight[2].time-chair.time<=.35);
+assert(chair.time-ends[2].time>=.68&&chair.time-ends[2].time<=.72);
+assert(sight[2].time-chair.time>=.28&&sight[2].time-chair.time<=.32);
 assert(audio.effects.some(e=>e.options.buffer.key==='visor_on'&&e.options.gain===.07));
 assert(audio.effects.some(e=>e.options.buffer.key==='cloth'&&e.time===chair.time));
 assert(audio.effects.some(e=>e.bus==='amb'&&e.options.gain===.08));
 for(let i=4;i<9;i++){
- const expected=[.45,.4,.85,.65,2.25][i-4];
+ const expected=[.25,.25,.50,.40,2.0][i-4];
  assert(Math.abs(starts[i].time-ends[i-1].time-expected)<.025,`wrong conversation gap ${i}`);
 }
 const revealOff=audio.effects.find(e=>e.options.buffer.key==='visor_off');
@@ -101,11 +116,11 @@ assert(audio.steps.some(s=>s.impact===1.22&&!s.silent),'missing stair impacts');
 assert(audio.steps.every(s=>s.moving>0||s.silent),'stationary footstep');
 assert(audio.rates.includes(1.22)&&audio.rates.includes(1.02));
 assert(Math.max(...audio.breaths)>.20&&Math.min(...audio.breaths)<.075);
-assert(cards[0]-ends[7].time>=2.22&&cards[0]-ends[7].time<=2.28,'missing pre-card silence');
-assert(cards[0]<=starts[8].time);assert(audio.now-ends[8].time>=1.32&&audio.now-ends[8].time<=1.38,'final hold too short');
+assert(cards[0]-ends[7].time>=1.98&&cards[0]-ends[7].time<=2.02,'missing pre-card silence');
+assert(cards[0]<=starts[8].time);assert(audio.now-ends[8].time>=.98&&audio.now-ends[8].time<=1.02,'final hold too short');
 assert(audio.ducks.some(d=>d.db===-2.5)&&audio.ducks.at(-1).db===0);
 adapter.dispose();assert.equal(audio.breaths.at(-1),.035);assert.equal(audio.rates.at(-1),1);assert(audio.steps.at(-1).silent);
 // Cancellation invalidates callbacks and clears speech without resuming it.
 let staleCompleted=false;adapter.playDialogue(timing.lines[0],()=>staleCompleted=true);adapter.dispose();audio.tick(5);assert(!staleCompleted&&!audio.current);
 const invalid=fakeAudio();invalid.buffers.set(REVEAL_VOICE_LINES[2].voice,{duration:NaN});await assert.rejects(createStudyRevealAudio(invalid).prepare(),/invalid reveal audio/);
-console.log('PASS: all 9 grouped assets/order; runtime buffer durations; delayed audio gates timeline and captions; non-overlap; grouped subtitles/sentence reactions; chair-side cue; 2.25s pre-card silence; final 1.35s hold; 25% ambience duck/restore; shared breathing/steps; raised creak/cloth/breathing; immediate visor-off/gasp/54Hz swell; cancellation; control hand-back. No browser launched.');
+console.log('PASS: all 9 grouped assets/order; runtime buffer durations; delayed audio gates timeline and captions; non-overlap; grouped subtitles/sentence reactions; chair-side cue; 2.0s processing silence; final 1.0s hold; 25% ambience duck/restore; shared breathing/steps; raised creak/cloth/breathing; immediate visor-off/gasp/54Hz swell; cancellation; control hand-back. No browser launched.');

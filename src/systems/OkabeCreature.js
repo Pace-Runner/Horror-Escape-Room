@@ -1348,13 +1348,15 @@ const LIMP_MAN = 0.3;
  * falls back to the monster, loudly.
  */
 /**
+ * @param personProportions  chair reveal only: retain adult segment lengths and
+ *   a restrained 20% of the monster morph. Mirror/chase actors keep their own shape.
  * @param scale  the whole figure, uniformly. The monster wears 1.15 (main.js).
  *   Applied to `root`, so the IK and every boot check still run in the rig's
  *   own unscaled space; the only thing that has to know is the gait clock,
  *   because a bigger body covers scale x the ground per stride -- see
  *   worldStride().
  */
-export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 'monster', scale = 1 } = {}) {
+export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 'monster', scale = 1, personProportions = false } = {}) {
   if (!GAITS[gait]) {
     console.error(`OkabeCreature: unknown gait "${gait}", using "monster".`);
     gait = 'monster';
@@ -1380,9 +1382,11 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
   let headVisible = true;
   let baseColors = null;        // material -> original colour, for silhouette
 
+  let preservePersonProportions=personProportions;
   let correction = restCorrection;  // 1 = the man, 0 = the monster
   let speed = 0;
   let gaitPhase = 0;
+  let reflectionSample=false;
   let elapsed = 0;
   let silhouette = false;
   /** 0..1 on the rig's own twitches: a jump scare drives the head itself. */
@@ -1601,6 +1605,9 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
     if (!morphMeshes.length || !bones) return;
     const savedCorrection = correction;
     const savedLift = hipLift;
+    // Unbake the authored monster key using its authored bone lengths, even
+    // when this one actor will subsequently use restrained human proportions.
+    const savedProportions=preservePersonProportions;preservePersonProportions=false;
     const m = new THREE.Matrix4();
     const sample = () => {
       root.updateMatrixWorld(true);
@@ -1630,7 +1637,7 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
     applyCorrection();
     const monster = sample();
     hipLift = savedLift;
-    correction = savedCorrection;
+    correction = savedCorrection;preservePersonProportions=savedProportions;
     // ONLY IF THE KEY REALLY CARRIES IT. The right fix is in the import
     // script, and once that lands this must not subtract the offset from a
     // key that no longer has it. The tell is the shoe: STRETCH.ankle is 1,
@@ -1711,7 +1718,7 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
   function applyCorrection() {
     const wrong = 1 - correction;
     for (const { mesh, idx } of morphMeshes) {
-      if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[idx] = wrong;
+      if (mesh.morphTargetInfluences) mesh.morphTargetInfluences[idx] = wrong * (preservePersonProportions ? .2 : 1);
     }
     if (!bones) return;
     for (const [name, bone] of bones) {
@@ -1736,12 +1743,12 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
       //
       // It survived every check I had because the gait is written in
       // QUATERNIONS and those were all correct; nothing was reading positions.
-      const stretch = STRETCH[k] ?? 1;
+      const stretch = preservePersonProportions ? 1 : STRETCH[k] ?? 1;
       const s = 1 + (stretch - 1) * wrong;
       bone.position.copy(rest).multiplyScalar(s);
       // The hips carry the lift, not a scale -- they have no parent bone to
       // lengthen, and the legs below them grew downward.
-      if (name === canon('Hips')) bone.position.y = rest.y + hipLift * wrong;
+      if (name === canon('Hips')) bone.position.y = rest.y + hipLift * wrong * (preservePersonProportions ? 0 : 1);
       if (!Number.isFinite(bone.position.x)) {
         console.error('OkabeCreature: non-finite position on bone "' + name
           + '" (parent kind "' + k + '"). The chain below it will be garbage.');
@@ -2441,6 +2448,11 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
     const running = THREE.MathUtils.smoothstep(speed, prof.runFrom, prof.runTo);
     const fade = strideFade();
     resolveGait(prof, walking, running, fade);
+    if(reflectionSample){
+      G.armSwing=Math.min(G.armSwing,.22);G.bob=Math.min(G.bob,.009);
+      G.lift=Math.min(G.lift,.025);G.hipDrop=Math.min(G.hipDrop,.012);
+      G.srot=Math.min(G.srot,.035);G.lean=Math.min(G.lean,.06);G.hunch=Math.min(G.hunch,.03);
+    }
     const wrong = 1 - correction;
     const limp = prof.limp;
 
@@ -2452,7 +2464,7 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
     const duty = G.duty;
     const lift = G.lift;
     const phase = gaitPhase / TAU;
-    const stride = strideNow();
+    const stride = strideNow()*(reflectionSample?.55:1);
     const limpAmt = limpShare();
 
     // THE FOOTFALLS (see MONSTER LAYERS): cycles since each heel strike --
@@ -2561,7 +2573,7 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
       const absorb = G.impact * hitHips;
       if (rest) {
         hips.position.set(rest.x + sway,
-          rest.y + hipLift * wrong + bob + breath - hipDrop - absorb, rest.z);
+          rest.y + hipLift * wrong * (preservePersonProportions ? 0 : 1) + bob + breath - hipDrop - absorb, rest.z);
       }
     }
 
@@ -2946,6 +2958,30 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
     // Math.max(0, NaN) and clamp(NaN) are both NaN, and one NaN here is NaN
     // on every bone by the next frame.
     setSpeed(v) { speed = Number.isFinite(v) ? Math.max(0, v) : 0; },
+    /** A visual-only sample of the existing gait; never advances the owning actor's clock. */
+    sampleReflectionPose({speed:visualSpeed=0,phase=0,time=0,visorLift=0}={}) {
+      const saved={speed,gaitPhase,gaitName,crouchNow,turnNow,peekNow,twitchGain,elapsed,breathPhase,reflectionSample};
+      try {
+        reflectionSample=true;
+        speed=Math.min(2.1,Math.max(0,visualSpeed));gaitPhase=phase;gaitName='player';
+        crouchNow=turnNow=peekNow=0;twitchGain=0;elapsed=time;breathPhase=time*1.6;
+        animate();
+        if(visorLift>0&&bones){
+          const arm=bones.get('right arm'),elbow=bones.get('right elbow');
+          if(arm&&elbow){
+            const upper=arm.quaternion.clone(),lower=elbow.quaternion.clone();
+            const pose=correction>.5?[-1.9,2,1.1]:[-1.9,2.15,1.1];
+            pose3('right arm',pose[0],0,pose[2]);bendElbow('right elbow',pose[1],true);
+            arm.quaternion.slerpQuaternions(upper,arm.quaternion.clone(),visorLift);
+            elbow.quaternion.slerpQuaternions(lower,elbow.quaternion.clone(),visorLift);
+          }
+        }
+      } finally {
+        ({speed,gaitPhase,gaitName,crouchNow,turnNow,peekNow,twitchGain,elapsed,breathPhase,reflectionSample}=saved);
+      }
+    },
+    getRigBone(name) {return bones?.get(canon(name))||null;},
+
     /**
      * 0 standing, 1 crouched. Set it and leave it: the body eases between the
      * two itself, so a raw key state still animates down and up.

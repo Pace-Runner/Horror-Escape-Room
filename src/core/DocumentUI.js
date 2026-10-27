@@ -32,6 +32,9 @@ export function createDocumentUI({ onClose = () => {} } = {}) {
   const hintEl = document.getElementById('document-hint');
   const closeButton = document.getElementById('document-close');
   const imageEl = document.getElementById('document-image');
+  const narrationPrompt=document.getElementById('document-narration');
+  let narrationSession=null;
+  function stopNarration(){narrationSession?.stop();if(narrationPrompt)narrationPrompt.hidden=true;}
   // A picture changes the panel's height once it arrives, so the read check
   // runs again then.
   imageEl.addEventListener('load', () => requestAnimationFrame(checkRead));
@@ -91,6 +94,15 @@ export function createDocumentUI({ onClose = () => {} } = {}) {
     close();
   });
 
+  // Capture before gameplay/skip listeners. Space never closes this letter.
+  const narrationKey=e=>{
+    if(!open||!narrationSession||e.code!=='Space')return;
+    e.preventDefault();e.stopImmediatePropagation();
+    if(e.type==='keydown'&&!e.repeat)stopNarration();
+  };
+  window.addEventListener('keydown',narrationKey,true);
+  window.addEventListener('keyup',narrationKey,true);
+
   window.addEventListener('keydown', (e) => {
     if (!open) return;
     if (e.code === 'Escape' || e.code === 'KeyE') {
@@ -119,7 +131,8 @@ export function createDocumentUI({ onClose = () => {} } = {}) {
    * @param image    optional picture URL, shown above the title
    * @param onRead   called once, when the bottom of the document is reached
    */
-  function open_({ title = '', body = '', variant = 'note', image = null, onRead, onClosed } = {}) {
+  function open_({ title = '', body = '', variant = 'note', image = null, onRead, onClosed, narration = null } = {}) {
+    stopNarration();narrationSession=narration;
     const paragraphs = Array.isArray(body) ? body : String(body).split(/\n{2,}/);
 
     imageEl.hidden = !image;
@@ -147,19 +160,21 @@ export function createDocumentUI({ onClose = () => {} } = {}) {
     isRightPressSinceOpen = false;
     open = true;
     view.classList.remove('hidden');
+    narrationSession?.start(playing=>{if(narrationPrompt)narrationPrompt.hidden=!playing;});
     // After layout, so scrollHeight is real: a short document has no scrollbar
     // and counts as read the moment it is on screen.
     requestAnimationFrame(checkRead);
   }
 
-  function close() {
+  function close({complete=true}={}) {
     if (!open) return;
+    stopNarration();narrationSession=null;
     open = false;
     view.classList.add('hidden');
     onReadCallback = null;
     const closedCallback = onClosedCallback;
     onClosedCallback = null;
-    closedCallback?.();
+    if(complete)closedCallback?.();
     onClose();
   }
 

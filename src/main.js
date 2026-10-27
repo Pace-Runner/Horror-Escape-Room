@@ -32,6 +32,7 @@ import { MAIN_ONLY } from './core/RenderLayers.js';
 import { createMinimap } from './core/Minimap.js';
 import { CaptionSequencer } from './core/CaptionSequencer.js';
 import { createDocumentUI } from './core/DocumentUI.js';
+import { createLetterNarration } from './core/LetterNarration.js';
 import { createTapeSubtitles } from './core/TapeSubtitles.js';
 import { createPostFX } from './world/Postprocessing.js';
 import { createContextualHints, getAvailableHintKeys, selectHintKey } from './core/ContextualHints.js';
@@ -1149,8 +1150,9 @@ const paperRustle = () => sfx('paper') || audio.paperRustle();
 // One caption authority for the whole game. Interaction forwards examine text
 // to it; story beats call captions.play([...]) and can await the result.
 const captions = new CaptionSequencer(captionEl);
+let annabelleLetterNarration=null;
 const markThoughts = createMarkThoughts(audio, { captions,
-  canPlay: entry => !cutscene.isRunning && !tapePlaying && (!documentUI.isOpen || entry.document)
+  canPlay: entry => !annabelleLetterNarration?.ownsVoice && (!cutscene.isRunning || entry.cutscene === cutscene.name) && !tapePlaying && (!documentUI.isOpen || entry.document)
 });
 const thought = (key, options) => markThoughts.play(key, options);
 const interaction = new Interaction(camera, promptEl, captions);
@@ -1159,10 +1161,12 @@ const interaction = new Interaction(camera, promptEl, captions);
 // `voice` key, or whose clip has not been recorded yet, is simply silent.
 captions.onLineStart = (line) => {
   if (line.markThought || line.revealManaged) return;
+  const voice = line.voice;
+  // Unrecorded examine/pickup captions must not stop a recorded Mark thought.
+  if (!audio.hasVoice(voice)) return;
   markThoughts.clear();
   audio.stopVoice();
-  const voice = line.voice;
-  if (voice && !tapePlaying) audio.playVoice(voice);
+  if (!tapePlaying) audio.playVoice(voice);
 };
 // Text-only lines show even with captions off -- see CaptionSequencer.isVoiced.
 captions.isVoiced = (line) => line?.recorded || audio.hasVoice(line?.voice);
@@ -1207,6 +1211,8 @@ const pinPadUI = createPinPadUI({
 const documentUI = createDocumentUI({
   onClose: () => player.lock()
 });
+annabelleLetterNarration=createLetterNarration({audio,cancelThoughts:()=>markThoughts.clear(),
+  clearCaptions:()=>captions.cancel(),isValid:()=>documentUI.isOpen&&sceneManager.activeKey==='study'});
 
 /**
  * The session tape's subtitles, while the deck on the lab's desk plays it --
@@ -2924,6 +2930,7 @@ const study = createDeferredLevel(() => createStudyLevel({
 
   // The final document closes back into the same first-person position. The
   // level's one-shot completion hook immediately starts the controlled reveal.
+  onResetLetter:()=>{annabelleLetterNarration.stop();documentUI.close({complete:false});},
   onReadLetter: ({ body, onFinished } = {}) => {
     if (!body || documentUI.isOpen || cutscene.isRunning) return;
     const letterLevel = sceneManager.active;
@@ -2931,6 +2938,7 @@ const study = createDeferredLevel(() => createStudyLevel({
     player.unlock();
     documentUI.open({
       title: "Annabelle's letter",
+      narration:annabelleLetterNarration,
       variant: 'letter',
       body,
       onClosed: () => {
@@ -2954,13 +2962,14 @@ const study = createDeferredLevel(() => createStudyLevel({
   onLookInMirror: async () => {
     if (cutscene.isRunning || !study.refs.puzzle.mirrorUnlocked) return Promise.resolve(false);
     const refs = study.refs;
+    const wasVisorWorn=gameState.visorWorn;
+    visor.set(false);refs.syncRevealVisor?.();refs.initializeRevealVisor?.();
     const revealAudio=createStudyRevealAudio(audio,{cancelThoughts:()=>markThoughts.clear(),
       position:[refs.annabelleSpot[0],.7,refs.annabelleSpot[1]]});
     let voiceDurations;
     try { voiceDurations=await revealAudio.prepare();await refs.cornerReady; }
-    catch(error){revealAudio.dispose();refs.cancelRevealPresentation();console.error('Study reveal audio could not load:',error);return false;}
+    catch(error){revealAudio.dispose();refs.cancelRevealPresentation();visor.set(wasVisorWorn);console.error('Study reveal audio could not load:',error);return false;}
     const cornerCreature=refs.annabelleMonster;
-    const wasVisorWorn = gameState.visorWorn;
     const root = creature.refs.root;
     const creatureScale = root.scale.clone();
     const creaturePosition = root.position.clone();
@@ -3010,7 +3019,7 @@ const study = createDeferredLevel(() => createStudyLevel({
           revealAudio.dispose();
           tintStrength.value = previousTint;
           fade.clear();
-          if (completed) objectiveEl.textContent = 'Take the Project HOLLOW access keycard from the chair.';
+          if (completed) objectiveEl.textContent = "Take the Project HOLLOW access keycard from Annabelle's hand.";
           else if (sceneManager.activeKey === 'study' && refs.puzzle.mirrorRevealInProgress) {
             visor.set(wasVisorWorn);
             refs.cancelRevealPresentation();
@@ -3031,7 +3040,10 @@ const study = createDeferredLevel(() => createStudyLevel({
   installMirrorReflection(level.refs.mirror);
   const reflection=createStudyMirrorReflection({glass:level.refs.mirrorGlass,body:playerBody,hollow:creature,
     getCamera:()=>cutscene.isRunning?cutscene.camera:thirdPerson?thirdCam:camera,
-    getActorPose:()=>cutscene.isRunning?null:{position:camera.position,yaw:player.yaw,floorY:player.groundY+player.jumpHeight},
+    getActorPose:()=>({position:(cutscene.isRunning?cutscene.camera:camera).position,yaw:cutscene.isRunning?undefined:player.yaw,
+      cinematic:cutscene.isRunning,heldItem:heldItems.held,leftHeldItem:leftTorch.carried?'flashlight':null,
+      floorY:player.groundY+(cutscene.isRunning?0:player.jumpHeight),hasVisor:gameState.hasVisor}),
+    visorTemplate:level.refs.visorGroup,getViewCamera:()=>camera,buildHeldItem:id=>itemMeshes.build(id,'held'),
     getHiddenObjects:readViewModelParts});
   reflection.reset();level.refs.installMirrorReflection(reflection);
   itemMeshes.setTemplate('visor', level.refs.visorGroup);
@@ -3640,7 +3652,7 @@ const LEVEL_FOG = {
   // stairs are a shape in the dark from the bedroom door rather than nothing.
   upstairsHallway: new THREE.FogExp2(0x05070a, 0.05),
   hallwayBasement: new THREE.FogExp2(0x0a0c0a, 0.03),
-  study: new THREE.FogExp2(0x0c0a06, 0.02),
+  study: new THREE.FogExp2(0x10151b, 0.012),
   // A murky olive-brown rather than near-black: distant geometry fades into a
   // dim yellow haze instead of into nothing, which is what makes the corridor
   // read as receding forever rather than ending in a dark wall. At 0.075 the
@@ -3946,6 +3958,7 @@ function playStairsScare() {
 }
 
 function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
+  annabelleLetterNarration?.stop();
   startModelLoads();
   // A prior restrained bedroom view must never clamp the spawn orientation of
   // another level during SceneManager.activate()'s player.spawn() call.
@@ -3989,7 +4002,7 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   // Cancelling the captions has to take the voice with it, or the line that
   // was mid-sentence keeps talking over the freshly reset room.
   audio.stopVoice();
-  documentUI.close();
+  documentUI.close({complete:false});
   silenceTape();
   // Snapped rather than eased: a restart should not show the visor fading off.
   postFX.reset();
@@ -4361,6 +4374,24 @@ window.addEventListener('keydown', (e) => {
   // A cutscene owns the view and the hand, so nothing that acts through either
   // reaches the game until it hands back -- see KEYS_HELD_BY_CUTSCENES.
   if (cutscene.isRunning && KEYS_HELD_BY_CUTSCENES.has(e.code)) return;
+  // Instant level previews remain available in demo and production builds.
+  const levelShortcut = /^(?:Digit|Numpad)([1-4])$/.exec(e.code)?.[1]
+    ?? (e.code === 'KeyL' ? '2' : null);
+  if (levelShortcut) {
+    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey
+      || pinPadUI.isOpen || photoBoardUI.isOpen || documentUI.isOpen
+      || e.target?.closest?.('input, textarea, select, [contenteditable], [role="textbox"]')) return;
+    e.preventDefault();
+    abortTransition();
+    if (levelShortcut === '4') {
+      const route = TRANSITIONS[sceneManager.activeKey] ?? { to: 'hallwayBasement' };
+      backrooms.setRoute({ from: sceneManager.activeKey, ...route });
+      activateLevel('backrooms');
+    } else {
+      activateLevel({ '1': 'bedroom', '2': 'hallwayBasement', '3': 'study' }[levelShortcut]);
+    }
+    return;
+  }
   if (e.code === 'KeyG') {
     // Debug: skip the whole Level 1 puzzle chain and take the REAL exit.
     //
@@ -4969,7 +5000,21 @@ function showPauseScreen() {
 
 let openingSequenceActive = false;
 
+/** Remove the last warm-up room from the visible canvas before any menu fades. */
+function clearStartupFrame() {
+  const target=renderer.getRenderTarget();
+  const colour=renderer.getClearColor(new THREE.Color()).clone();
+  const alpha=renderer.getClearAlpha();
+  try {
+    renderer.setRenderTarget(null);renderer.setClearColor(0x000000,1);
+    renderer.clear(true,true,true);
+  } finally {
+    renderer.setClearColor(colour,alpha);renderer.setRenderTarget(target);
+  }
+}
+
 function beginGame() {
+  clearStartupFrame();
   // A fresh run by definition, so it starts from fresh story state. Without
   // this the only thing that ever cleared endingChosen was resetGame(), and a
   // first play that somehow followed an ending would carry it in.
@@ -5170,7 +5215,7 @@ if (import.meta.env.DEV) {
       abortTransition();cutscene.cancel();player.clearKeys();startModelLoads();
       await study.prepare();
       study.refs.prepareRevealTest(direct); // invalidates any stale letter-close callback
-      documentUI.close();activateLevel('study');setThirdPerson(false);
+      documentUI.close({complete:false});activateLevel('study');setThirdPerson(false);
       gameState.letterRead=direct;gameState.endingChosen=null;
       consumeItem('hollowOverrideKey');pickUpItem('visor',{animate:false});visor.set(false);visor.refresh();
       postFX.visorPass.uniforms.uPanic.value=0;postFX.visorPass.uniforms.uDescentPanic.value=0;
@@ -5935,6 +5980,7 @@ function updateBootProgress() {
     bootHints[bootHintIndex]);
 }
 bootReady.then(() => {
+  clearStartupFrame();
   setLoadProgress(1);
   showMainMenu();
   loadingScreen.classList.add('is-done');
@@ -5989,6 +6035,7 @@ function tick() {
   // The difficulty's clock. Stopped by the same things, and by every moment
   // the player has no control: a fade between rooms, a cutscene, an ending.
   if (isPlaying && !transitionInFlight && !cutscene.isRunning && !stairsScare.isRunning && !hallwayBlinks.isRunning && !endingInFlight) runTimer.update(dt);
+  annabelleLetterNarration?.update();
   captions.update(dt);
   // Only while it is actually on screen. The AI is not driving it in Level 2 --
   // it is placed by a script -- but it still has to breathe, or a figure
@@ -6164,7 +6211,7 @@ function tick() {
     }
   }
   markThoughts.update({ blocked: transitionInFlight || caughtInFlight || tapePlaying
-    || cutscene.isRunning || jumpScareRunning || labCreatureExit?.phase === 'run' || (!player.isLocked && !documentUI.isOpen)
+    || (cutscene.isRunning && cutscene.name !== 'wakeUp') || jumpScareRunning || labCreatureExit?.phase === 'run' || (!player.isLocked && !documentUI.isOpen)
     || (sceneManager.activeKey === 'hallwayBasement' && performance.now() < levelTwoCriticalUntil) });
 
   postFX.update(dt);
