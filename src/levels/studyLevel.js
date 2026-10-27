@@ -29,11 +29,9 @@ import victorianFireplaceUrl from '../assets/models/study/victorian_fireplace.gl
 import shadowCrestHousingUrl from '../assets/models/study/shadow_crest_housing.glb?url';
 import emergencyReleasePanelUrl from '../assets/models/study/emergency_release_panel.glb?url';
 import manualResealPanelUrl from '../assets/models/study/manual_reseal_panel.glb?url';
-import { createFamilyPhotoTexture } from '../world/textures.js';
 import { makeHandle } from '../world/trim.js';
 import { DOOR_PANEL_ROWS, getPanelSpans } from '../world/doorPanels.js';
 import { gameState } from '../core/GameState.js';
-import { createHiddenWritingTexture } from '../world/textures.js';
 import { line } from '../dialogue/index.js';
 import { ANNABELLE_FINAL_LETTER } from '../story/studyReveal.js';
 
@@ -93,7 +91,7 @@ export function createStudyLevel({
   );
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.y = ROOM_H;
-  ceiling.geometry.attributes.uv.array.forEach((value, i, array) => { array[i] = value * (i % 2 ? ROOM_D : ROOM_W) / 6; });
+  // Default 0..1 UVs cover the room with one continuous plaster image.
   group.add(ceiling);
 
   const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, color: 0xe1dbc9, roughness: 1, metalness: 0, emissive: 0, envMapIntensity: 0.1, vertexColors: true });
@@ -978,7 +976,7 @@ export function createStudyLevel({
       });
     }
   }
-  // Dressing bays leave the portrait, entry, stair approach and mirror clear.
+  // Dressing bays leave the entry, stair approach and mirror clear.
   // The rear-left downstairs bay is reserved for Annabelle and her chair.
   addShelf(-7.75, 1.4, -2, false, true, { index: 0 });
   [-2.4, 0.4].forEach((x) => addShelf(x, 1.4, -6.25, true, true, { index: x === 0.4 ? 1 : 5 }));
@@ -1012,37 +1010,6 @@ export function createStudyLevel({
   rug.rotation.x = -Math.PI / 2;
   rug.position.set(STUDY_RUG.x, STUDY_RUG.y, STUDY_RUG.z);
   group.add(rug);
-
-  /**
-   * The portrait, in two states.
-   *
-   * Uncorrected it is the same three people the bedroom's photographs show.
-   * Through the visor there are four, and the fourth is scratched out -- which
-   * is the storyline's reveal: "the same family picture seen in the first room,
-   * this time with a 4th person, scratched out with marker."
-   *
-   * Both textures are built up front and swapped, rather than one being redrawn,
-   * so putting the visor on and taking it off is instant and can be done as many
-   * times as the player likes without repainting a canvas.
-   */
-  const portraitTexPlain = createFamilyPhotoTexture();
-  const portraitTexTrue = createFamilyPhotoTexture({ figures: 4, scratchedFourth: true });
-  const portraitMat = new THREE.MeshStandardMaterial({ map: portraitTexPlain, color: 0xc0b6a4, roughness: 0.96 });
-  const portrait = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.7), portraitMat);
-  portrait.position.set(-ROOM_W / 2 + 0.05, 1.7, 1);
-  portrait.rotation.y = Math.PI / 2;
-  portrait.userData.hintKey = 'l3_visor';
-  portrait.userData.interact = {
-    label: 'Examine family portrait',
-    onInteract: () => {
-      showCaption(line(portraitMat.map === portraitTexTrue
-        ? 'dialog_portrait_with_visor'
-        : 'dialog_portrait_without_visor'));
-      correctedEvidence();
-    }
-  };
-  interactables.push(portrait);
-  group.add(portrait);
 
   // Puzzle 3: loft records station, facing the open approach from the stairs.
   const memoryArchive = new THREE.Group();
@@ -1544,16 +1511,6 @@ export function createStudyLevel({
   });
   setGallerySight(!!gameState.visorWorn);
 
-  // Writing on the walls, in the same hand as everything else Mark wrote.
-  const wallInkMat = new THREE.MeshBasicMaterial({
-    map: createHiddenWritingTexture(["DON'T LET IT OUT"]),
-    transparent: true,
-    depthWrite: false
-  });
-  const wallInk = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.55), wallInkMat);
-  wallInk.position.set(-1.0, 1.85, -ROOM_D / 2 + 0.06);
-  visorOnly.add(wallInk);
-
   // Correspondence is mounted inside the fixed compartment. The existing
   // document callback still owns reading completion and mirror progression.
   const letterSheet = createArchiveRecord(0.40, 0.20, 10, { fontSize: 34, fontStyle: 'italic', folded: true });
@@ -2037,7 +1994,7 @@ export function createStudyLevel({
 
   // Decorative meshes only: no interaction registrations, lights, physics or new colliders.
   group.userData.studyDecorPropCount = studyDecor.dressRoom({
-    group, desk, fireplace, concealmentChair, photoTexture: portraitTexPlain, loftY: LOFT_Y
+    group, desk, fireplace, concealmentChair, loftY: LOFT_Y
   });
   const entryFinish = new THREE.Group();
   entryFinish.rotation.y = -Math.PI / 2;
@@ -2066,16 +2023,7 @@ export function createStudyLevel({
       lamp,
       doorLamp,
       entryDoor,
-      portraitMat,
-      portraitTexPlain,
-      portraitTexTrue,
-      /**
-       * What the visor does to this room. Unit 15 will grow this; today it is
-       * the portrait, which is the one reveal already built.
-       */
       setCorrectedSight(on) {
-        portraitMat.map = on ? portraitTexTrue : portraitTexPlain;
-        portraitMat.needsUpdate = true;
         // One group, one flag. Everything the broken eye cannot resolve is a
         // child of it, so the room cannot correct halfway.
         visorOnly.visible = on;
@@ -2259,8 +2207,6 @@ export function createStudyLevel({
       doorState.open = false;
       doorHinge.rotation.y = 0;
       setDoorSolid(true);
-      portraitMat.map = portraitTexPlain;
-      portraitMat.needsUpdate = true;
 
       visorOnly.visible = false;
       distortedTrail.visible = true;
