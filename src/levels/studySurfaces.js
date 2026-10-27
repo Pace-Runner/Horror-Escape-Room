@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import wallpaperUrl from '../assets/textures/study/option_a_damask_512.jpg?url';
 import floorUrl from '../assets/textures/study/weathered_dark_hardwood_floor_texture.webp?url';
-import ceilingUrl from '../assets/textures/study/continuous_ceiling_plaster.png?url';
+import ceilingUrl from '../assets/textures/study/continuous_ceiling_plaster.webp?url';
 import builtInWoodUrl from '../assets/textures/study/aged_dark_brown_wood_grain_texture.webp?url';
 import trimWoodUrl from '../assets/textures/study/aged_espresso_wood_grain_texture.webp?url';
 import featureWoodUrl from '../assets/textures/study/polished_mahogany_wood_grain_texture.webp?url';
