@@ -5,6 +5,7 @@ import { createStudyDecor } from './studyDecor.js';
 import { createCandleFlames } from '../world/CandleFlames.js';
 import { createHearthFire } from '../world/HearthFire.js';
 import { createStudyFireplaceDressing } from './studyFireplace.js';
+import { createBalustradeBuilder, railGeometry, RAIL_PROFILES } from './studyBalustrade.js';
 import { createStudySurfaces } from './studySurfaces.js';
 import { createAnnabelle } from './annabelleFigure.js';
 import { createOkabeCreature } from '../systems/OkabeCreature.js';
@@ -240,21 +241,12 @@ export function createStudyLevel({
   const balconyMat = studySurfaces.woodMaterial(0.82);
   // Compact straight-grained architectural walnut stays independent of furniture UVs.
   const architectureWoodMat = studySurfaces.woodMaterial(0.96);
-  const handrailWoodMat = studySurfaces.woodMaterial(0.78, 'trim');
+  const handrailWoodMat = studySurfaces.woodMaterial(0.66, 'trim');
   const treadWoodMat = studySurfaces.woodMaterial(1.02, 'trim');
   const stairWoodMat = studySurfaces.woodMaterial(0.92, 'trim');
-  const newelShaftGeometry = new RoundedBoxGeometry(0.13, 1.08, 0.13, 1, 0.006);
-  const newelFootGeometry = new RoundedBoxGeometry(0.18, 0.13, 0.18, 1, 0.006);
-  const newelCapGeometry = new RoundedBoxGeometry(0.19, 0.055, 0.19, 1, 0.008);
-  const newelFinialGeometry = new THREE.SphereGeometry(0.055, 8, 6);
-  const balusterGeometry = new THREE.LatheGeometry([
-    [0.022, 0], [0.022, 0.08], [0.015, 0.13], [0.017, 0.36],
-    [0.023, 0.43], [0.016, 0.51], [0.014, 0.70], [0.022, 0.77], [0.022, 0.84]
-  ].map(([radius, height]) => new THREE.Vector2(radius, height)), 8);
-  const architectureMatrix = new THREE.Matrix4();
-  const architectureRotation = new THREE.Quaternion();
-  const architecturePosition = new THREE.Vector3();
-  const architectureScale = new THREE.Vector3();
+  // The balustrade (studyBalustrade.js): turned newels and balusters and
+  // moulded rails, in a darker espresso than the trim.
+  const balustrade = createBalustradeBuilder(group, handrailWoodMat);
   function addTimber(geometry, x, y, z, material = architectureWoodMat) {
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.set(x, y, z);
@@ -262,70 +254,12 @@ export function createStudyLevel({
     group.add(mesh);
     return mesh;
   }
-  function addNewel(x, floorY, z) {
-    addTimber(newelShaftGeometry, x, floorY + 0.54, z, handrailWoodMat);
-    addTimber(newelFootGeometry, x, floorY + 0.065, z, handrailWoodMat);
-    addTimber(newelCapGeometry, x, floorY + 1.095, z, handrailWoodMat);
-    addTimber(newelFinialGeometry, x, floorY + 1.165, z, handrailWoodMat);
-  }
-  function addTimberRail(from, to, width = 0.085, depth = 0.075) {
-    const a = new THREE.Vector3(...from);
-    const b = new THREE.Vector3(...to);
-    const mesh = addTimber(new RoundedBoxGeometry(width, a.distanceTo(b), depth, 1, 0.008), 0, 0, 0, handrailWoodMat);
-    mesh.position.copy(a).add(b).multiplyScalar(0.5);
-    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.sub(a).normalize());
-    return mesh;
-  }
-  function addBalusters(placements) {
-    const mesh = new THREE.InstancedMesh(balusterGeometry, handrailWoodMat, placements.length);
-    placements.forEach(([x, bottom, z, height], index) => {
-      architecturePosition.set(x, bottom, z);
-      architectureScale.set(1, height / 0.84, 1);
-      architectureMatrix.compose(architecturePosition, architectureRotation, architectureScale);
-      mesh.setMatrixAt(index, architectureMatrix);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    mesh.receiveShadow = true;
-    group.add(mesh);
-  }
   const loftWidth = ROOM_W;
   const loftFrontZ = -ROOM_D / 2 + LOFT_D;
   const loft = new THREE.Mesh(new THREE.BoxGeometry(loftWidth, 0.28, LOFT_D), balconyMat);
   loft.position.set(0, LOFT_Y - 0.14, -ROOM_D / 2 + LOFT_D / 2);
   loft.receiveShadow = true;
   group.add(loft);
-
-  function addRailing(length, x, z, alongX) {
-    const railHeight = 1.05;
-    const at = (offset, height) => [x + (alongX ? offset : 0), height, z + (alongX ? 0 : offset)];
-    addTimberRail(at(-length / 2, LOFT_Y + railHeight), at(length / 2 - 0.195, LOFT_Y + railHeight));
-    addTimberRail(at(-length / 2, LOFT_Y + 0.13), at(length / 2 - 0.19, LOFT_Y + 0.13), 0.065, 0.055);
-    const postSpan = length - 0.20;
-    const bays = Math.ceil(postSpan / 2.4);
-    for (let index = 0; index <= bays; index++) {
-      const [postX, , postZ] = at(-postSpan / 2 + postSpan * index / bays, LOFT_Y);
-      addNewel(postX, LOFT_Y, postZ);
-    }
-    const balusters = [];
-    const count = Math.ceil((length - 0.26) / 0.15);
-    for (let index = 0; index <= count; index++) {
-      const offset = -(length - 0.26) / 2 + (length - 0.26) * index / count;
-      // Let the thicker structural posts occupy their own bays.
-      if (Array.from({ length: bays + 1 }, (_, i) => -postSpan / 2 + postSpan * i / bays)
-        .some((post) => Math.abs(offset - post) < 0.11)) continue;
-      const [bx, , bz] = at(offset, LOFT_Y);
-      balusters.push([bx, LOFT_Y + 0.165, bz, 0.84]);
-    }
-    addBalusters(balusters);
-    colliders.push({
-      minX: x - (alongX ? length / 2 : 0.04),
-      maxX: x + (alongX ? length / 2 : 0.04),
-      minZ: z - (alongX ? 0.04 : length / 2),
-      maxZ: z + (alongX ? 0.04 : length / 2),
-      minY: LOFT_Y - 0.1,
-      maxY: LOFT_Y + railHeight + 0.04
-    });
-  }
 
   const stairBottomZ = 2.6;
   const stairWidth = 1.5;
@@ -352,29 +286,71 @@ export function createStudyLevel({
     width: ROOM_W, depth: ROOM_D, height: ROOM_H, loftY: LOFT_Y,
     loftFrontZ, stairTopZ, entryZ: ENTRY_DOOR_Z, entryWidth: ENTRY_DOOR_W, exitWidth: DOORWAY_W
   });
-  // A single front rail stops before the stair opening.
-  // Finish flush against the left bookcase face, rather than running through it.
-  // Its existing solid collider overlaps this rail's endpoint, leaving no safety gap.
+  // The gallery balustrade runs from the left bookcase to the corner newel
+  // over the stair head; its collider is the old one, unchanged.
   const loftRailStartX = -loftWidth / 2 + 0.475;
-  // The final newel sits on the stair-return axis (posts inset 0.10m from rail ends).
   const loftRailEndX = stairX - stairHalfWidth + 0.15;
-  addRailing(loftRailEndX - loftRailStartX, (loftRailEndX + loftRailStartX) / 2, loftFrontZ, true);
-  const galleryLength = loftRailEndX + loftWidth / 2;
-  const galleryCentreX = (loftRailEndX - loftWidth / 2) / 2;
-  // Cover the slab edge within its existing depth, with a shallow base bead and floor lip.
-  addTimber(new THREE.BoxGeometry(galleryLength, 0.25, 0.12), galleryCentreX, LOFT_Y - 0.14, loftFrontZ + 0.055);
-  addTimber(new RoundedBoxGeometry(galleryLength, 0.045, 0.14, 1, 0.007), galleryCentreX, LOFT_Y - 0.265, loftFrontZ + 0.05);
-  // Keep the lip top 3 mm below the slab top instead of sharing its plane.
-  addTimber(new RoundedBoxGeometry(galleryLength, 0.04, 0.13, 1, 0.006), galleryCentreX, LOFT_Y - 0.023, loftFrontZ + 0.05);
+  colliders.push({
+    minX: loftRailStartX, maxX: loftRailEndX, minZ: loftFrontZ - 0.04, maxZ: loftFrontZ + 0.04,
+    minY: LOFT_Y - 0.1, maxY: LOFT_Y + 1.09
+  });
+  const stairRailX = stairX - stairHalfWidth + 0.05;
+  const RAIL_CROWN = LOFT_Y + 1.025;
+  const BOTTOM_RAIL_Y = LOFT_Y + 0.105;
+  const GALLERY_BALUSTER = { height: 0.834, footY: LOFT_Y + 0.137 };
+  const DIE_HALF = 0.0825;
+  {
+    // Seven newels, evenly spaced; the first clears the bookcase stile by
+    // 7.5 mm at its cap, the last is the corner newel on the stair line.
+    const firstX = -7.415;
+    const spacing = (stairRailX - firstX) / 6;
+    const galleryNewels = Array.from({ length: 7 }, (_, index) => firstX + spacing * index);
+    galleryNewels.forEach((x, index) => balustrade.newel(x, LOFT_Y, loftFrontZ,
+      // The corner newel overhangs the stairwell: its block drops below the
+      // loft edge to take the stair's string and capping.
+      index === 6 ? { dropFrom: 2.12 } : {}));
+    const length = stairRailX - firstX;
+    balustrade.rail(railGeometry(RAIL_PROFILES.HANDRAIL, length).rotateY(Math.PI / 2).translate(firstX, RAIL_CROWN, loftFrontZ));
+    balustrade.rail(railGeometry(RAIL_PROFILES.BOTTOM_RAIL, length).rotateY(Math.PI / 2).translate(firstX, BOTTOM_RAIL_Y, loftFrontZ));
+    const feet = [];
+    for (let index = 0; index < 6; index++) {
+      const from = galleryNewels[index] + DIE_HALF;
+      const gap = (galleryNewels[index + 1] - DIE_HALF - from) / 18;
+      for (let k = 1; k <= 17; k++) feet.push([from + gap * k, GALLERY_BALUSTER.footY, loftFrontZ]);
+    }
+    // The return along the stair head, from the landing newel to the corner newel.
+    balustrade.newel(stairRailX, LOFT_Y, stairTopZ);
+    const returnLength = loftFrontZ - stairTopZ;
+    balustrade.rail(railGeometry(RAIL_PROFILES.HANDRAIL, returnLength).translate(stairRailX, RAIL_CROWN, stairTopZ));
+    balustrade.rail(railGeometry(RAIL_PROFILES.BOTTOM_RAIL, returnLength).translate(stairRailX, BOTTOM_RAIL_Y, stairTopZ));
+    const returnFrom = stairTopZ + DIE_HALF;
+    const returnGap = (loftFrontZ - DIE_HALF - returnFrom) / 9;
+    for (let k = 1; k <= 8; k++) feet.push([stairRailX, GALLERY_BALUSTER.footY, returnFrom + returnGap * k]);
+    balustrade.balusters(GALLERY_BALUSTER.height, feet);
+  }
+  // The slab edge's fascia, base bead and floor lip, ending staggered inside
+  // the corner newel (6.48 / 6.49 / 6.50) so no two end faces share a plane.
+  // The lip stands 7.5 mm proud of the fascia: they used to share its front.
+  for (const [endX, height, depth, y, z, rounded] of [
+    [6.48, 0.25, 0.12, LOFT_Y - 0.14, loftFrontZ + 0.055, false],
+    [6.49, 0.045, 0.14, LOFT_Y - 0.265, loftFrontZ + 0.05, true],
+    // Keep the lip top 3 mm below the slab top instead of sharing its plane.
+    [6.50, 0.04, 0.145, LOFT_Y - 0.023, loftFrontZ + 0.05, true]
+  ]) {
+    const length = endX + loftWidth / 2;
+    addTimber(rounded ? new RoundedBoxGeometry(length, height, depth, 1, 0.006) : new THREE.BoxGeometry(length, height, depth),
+      (endX - loftWidth / 2) / 2, y, z);
+  }
   const cutoutLength = loftFrontZ - stairTopZ;
-  addTimber(new THREE.BoxGeometry(0.10, 0.25, cutoutLength), loftMainRightX, LOFT_Y - 0.14, (loftFrontZ + stairTopZ) / 2);
+  // Wide enough to hide the closed string's flat top under the landing.
+  addTimber(new THREE.BoxGeometry(0.175, 0.25, cutoutLength), 6.5375, LOFT_Y - 0.14, (loftFrontZ + stairTopZ) / 2);
   addTimber(new THREE.BoxGeometry(stairWidth, 0.25, 0.10), stairX, LOFT_Y - 0.14, stairTopZ - 0.025);
 
   // Stair sides remain solid while groundAt() supplies the walkable rise.
   // The loft rail above has vertical bounds so the ground floor stays open.
   const railingThickness = 0.12;
   colliders.push(
-    { minX: stairX - stairHalfWidth - railingThickness, maxX: stairX - stairHalfWidth + railingThickness, minZ: stairTopZ, maxZ: stairBottomZ },
+    { minX: stairX - stairHalfWidth - railingThickness, maxX: stairX - stairHalfWidth + railingThickness, minZ: stairTopZ, maxZ: stairBottomZ + 0.09 },
     { minX: stairX + stairHalfWidth - railingThickness, maxX: stairX + stairHalfWidth + railingThickness, minZ: stairTopZ, maxZ: stairBottomZ }
   );
 
@@ -395,62 +371,62 @@ export function createStudyLevel({
     group.add(tread);
     addTimber(riserGeometry, stairX, stepHeight - stairRise / 2, stairBottomZ - stairDepth * index + 0.012, stairWoodMat);
   }
+  // The wall side keeps its skirt board.
   const stringerLength = Math.hypot(stairRun, LOFT_Y);
-  const stringerAngle = Math.atan2(LOFT_Y, stairRun);
-  const stringerGeometry = new THREE.BoxGeometry(0.12, 0.25, stringerLength);
-  const wallSkirtGeometry = new THREE.BoxGeometry(0.035, 0.28, stringerLength);
-  for (const side of [-1, 1]) {
-    const wallSide = side === 1;
-    const stringer = addTimber(wallSide ? wallSkirtGeometry : stringerGeometry,
-      wallSide ? ROOM_W / 2 - 0.018 : stairX - stairHalfWidth + 0.05,
-      LOFT_Y / 2 + 0.025, (stairBottomZ + stairTopZ) / 2, stairWoodMat);
-    stringer.rotation.x = stringerAngle;
-  }
-  const stairRailX = stairX - stairHalfWidth + 0.05;
-  addNewel(stairRailX, 0, stairBottomZ);
-  addNewel(stairRailX, LOFT_Y, stairTopZ);
-  const stairHandrail = addTimberRail([stairRailX, 0.98, stairBottomZ], [stairRailX, LOFT_Y + 1.02, stairTopZ]);
-  // Cut the diagonal rail vertically at the landing post face, not through its centre.
-  stairHandrail.updateMatrix();
-  const railInverse = stairHandrail.matrix.clone().invert();
-  const railPositions = stairHandrail.geometry.attributes.position;
-  const railPoint = new THREE.Vector3(), postFaceZ = stairTopZ + 0.065;
-  for (let i = 0; i < railPositions.count; i++) {
-    railPoint.fromBufferAttribute(railPositions, i).applyMatrix4(stairHandrail.matrix);
-    if (railPoint.z < postFaceZ) {
-      railPoint.y -= (postFaceZ - railPoint.z) * (LOFT_Y + 0.04) / stairRun;
-      railPoint.z = postFaceZ;
-      railPoint.applyMatrix4(railInverse); railPositions.setXYZ(i, railPoint.x, railPoint.y, railPoint.z);
+  const wallSkirt = addTimber(new THREE.BoxGeometry(0.035, 0.28, stringerLength),
+    ROOM_W / 2 - 0.018, LOFT_Y / 2 + 0.025, (stairBottomZ + stairTopZ) / 2, stairWoodMat);
+  wallSkirt.rotation.x = Math.atan2(LOFT_Y, stairRun);
+  {
+    // The open side: a CLOSED STRING parallel to the treads' nosings, deep
+    // enough to bury every tread end and riser (the old stringer was 9.6 cm
+    // too low, so the steps saw-toothed through it), with a capping on top
+    // for the balusters to stand in. The stair balustrade ends at the corner
+    // newel: from there to the landing the loft's return balustrade alone
+    // guards the top treads, instead of both standing in one plane.
+    const pitch = LOFT_Y / stairRun;
+    const nosingY = (z) => stairRise + 0.0555 + pitch * (stairBottomZ + 0.035 - z);
+    const stringTop = (z) => nosingY(z) + 0.045;
+    const stringBottom = (z) => stringTop(z) - 0.36;
+    const footZ = stairBottomZ - 0.07;
+    const cornerZ = loftFrontZ;
+    const flatY = 2.86;
+    const shape = new THREE.Shape();
+    shape.moveTo(footZ, stringBottom(footZ));
+    shape.lineTo(footZ, stringTop(footZ));
+    shape.lineTo(cornerZ, stringTop(cornerZ));
+    shape.lineTo(cornerZ, flatY);
+    shape.lineTo(footZ - (flatY - stringBottom(footZ)) / pitch, flatY);
+    shape.closePath();
+    const string = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: 0.12, bevelEnabled: false })
+      .rotateY(-Math.PI / 2).translate(stairRailX + 0.06, 0, 0), stairWoodMat);
+    string.name = 'Study_Stair_Closed_String';
+    string.receiveShadow = true;
+    group.add(string);
+
+    balustrade.newel(stairRailX, 0, stairBottomZ, { blockHeight: 0.45, shaftScale: 1.0588 });
+    const runStart = stairBottomZ - 0.06;
+    const runLength = runStart - (cornerZ + 0.0725);
+    balustrade.rail(railGeometry(RAIL_PROFILES.HANDRAIL, runLength, { pitch, yScale: Math.hypot(1, pitch) })
+      .rotateY(Math.PI).translate(stairRailX, nosingY(runStart) + 0.80, runStart));
+    balustrade.rail(railGeometry(RAIL_PROFILES.CAPPING, runLength, { pitch })
+      .rotateY(Math.PI).translate(stairRailX, stringTop(runStart) - 0.004, runStart));
+    const feet = [];
+    for (let index = 0; index < stairCount; index++) {
+      for (const fraction of [0.25, 0.75]) {
+        const z = stairBottomZ - stairDepth * (index + fraction);
+        if (z < cornerZ + 0.13 || z > stairBottomZ - 0.13) continue;
+        feet.push([stairRailX, nosingY(z) + 0.064, z]);
+      }
     }
+    balustrade.balusters(0.6704, feet);
   }
-  railPositions.needsUpdate = true; stairHandrail.geometry.computeVertexNormals();
-  stairHandrail.geometry.computeBoundingBox(); stairHandrail.geometry.computeBoundingSphere();
-  const stairBalusters = [];
-  for (let index = 0; index < stairCount; index++) {
-    for (const fraction of [0.25, 0.75]) {
-      const progress = (index + fraction) / stairCount;
-      // The last baluster previously overlapped the landing newel shaft.
-      if (stairRun * (1 - progress) < 0.11) continue;
-      const bottom = stairRise * (index + 1) + 0.0555;
-      const top = LOFT_Y * progress + 0.94 + 0.04 * progress;
-      stairBalusters.push([stairRailX, bottom, stairBottomZ - stairRun * progress, top - bottom]);
-    }
-  }
-  addBalusters(stairBalusters);
   // Return the gallery handrail to the stair head, leaving the full landing opening clear.
   colliders.push({
     minX: stairRailX - 0.06, maxX: stairRailX + 0.06,
     minZ: stairTopZ, maxZ: loftFrontZ,
     minY: LOFT_Y - 0.1, maxY: LOFT_Y + 1.09
   });
-  addTimberRail([stairRailX, LOFT_Y + 1.02, stairTopZ + 0.065], [stairRailX, LOFT_Y + 1.02, loftFrontZ - 0.065]);
-  addTimberRail([stairRailX, LOFT_Y + 0.13, stairTopZ + 0.09], [stairRailX, LOFT_Y + 0.13, loftFrontZ - 0.09], 0.065, 0.055);
-  const returnBalusters = [];
-  const returnCount = Math.ceil(cutoutLength / 0.15);
-  for (let index = 1; index < returnCount; index++) {
-    returnBalusters.push([stairRailX, LOFT_Y + 0.165, stairTopZ + cutoutLength * index / returnCount, 0.84]);
-  }
-  addBalusters(returnBalusters);
+  balustrade.finish();
   /** Resolve stacked floors using feet height, never just their shared X/Z. */
   function groundAt(x, z, currentGroundY = null) {
     const isOnStair = x >= stairX - stairHalfWidth && x <= stairX + stairHalfWidth
