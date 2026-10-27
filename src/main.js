@@ -4347,33 +4347,10 @@ window.addEventListener('keydown', (e) => {
   // A cutscene owns the view and the hand, so nothing that acts through either
   // reaches the game until it hands back -- see KEYS_HELD_BY_CUTSCENES.
   if (cutscene.isRunning && KEYS_HELD_BY_CUTSCENES.has(e.code)) return;
-  // Deliberately INSTANT, not faded: these are a mentor-demo tool and 1.7s of
-  // black per press is friction. But each one aborts first, or a jump taken
-  // mid-fade lands behind an overlay that will never lift.
-  // Preview shortcuts remain available in production/demo builds too.
-  const levelShortcut = /^(?:Digit|Numpad)([1-4])$/.exec(e.code)?.[1]
-    ?? (e.code === 'KeyL' ? '2' : null);
-  if (levelShortcut) {
-    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey
-      || pinPadUI.isOpen || photoBoardUI.isOpen || documentUI.isOpen
-      || e.target?.closest?.('input, textarea, select, [contenteditable], [role="textbox"]')) return;
-    e.preventDefault();
-    abortTransition();
-    if (levelShortcut === '4') {
-      // Keep the corridor's exit routed from the room being left.
-      const route = TRANSITIONS[sceneManager.activeKey] ?? { to: 'hallwayBasement' };
-      backrooms.setRoute({ from: sceneManager.activeKey, ...route });
-      activateLevel('backrooms');
-    } else {
-      activateLevel({ '1': 'bedroom', '2': 'hallwayBasement', '3': 'study' }[levelShortcut]);
-    }
-    return;
-  }
   if (e.code === 'KeyG') {
     // Debug: skip the whole Level 1 puzzle chain and take the REAL exit.
     //
-    // Different from Digit4, which teleports into the corridor instantly:
-    // this drives the actual door -> hinge swing -> fade -> corridor path, so
+    // This drives the actual door -> hinge swing -> fade -> corridor path, so
     // it is the one that tests the transition rather than the destination.
     //
     // Works by handing the player the door's own crowbar and key and calling
