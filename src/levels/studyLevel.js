@@ -1829,7 +1829,8 @@ export function createStudyLevel({
   /** 5 mm clear of the floor, so the leaf's underside never lies in the floor's plane. */
   const LEAF_BOTTOM = 0.005;
   const exitWood = trimMat;
-  const panelWood = studySurfaces.woodMaterial(1.02, 'trim');
+  // The old panels' own lighter wood: they are the keypad code and must stand out.
+  const panelWood = studySurfaces.woodMaterial(0.95);
   const doorSlab = new THREE.Mesh(new THREE.BoxGeometry(SLAB_W, SLAB_H, SLAB_T), exitWood);
   doorSlab.name = 'Final_Exit_Leaf';
 
