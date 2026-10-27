@@ -13,6 +13,11 @@ npm run dev
 
 Open the local URL Vite prints (usually http://localhost:5173/).
 
+While playing, press **1** for the bedroom, **2** for the basement lab,
+**3** for the study, or **4** for the backrooms. The number pad works too;
+**L** also opens the basement lab. These shortcuts pause while a puzzle
+input or document is open.
+
 ## What's here right now
 
 The house is fully navigable in first person and the story's puzzle

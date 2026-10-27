@@ -4351,22 +4351,23 @@ window.addEventListener('keydown', (e) => {
   // black per press is friction. But each one aborts first, or a jump taken
   // mid-fade lands behind an overlay that will never lift.
   // Preview shortcuts remain available in production/demo builds too.
-  if (e.code === 'KeyL' || e.code === 'Digit2' || e.code === 'Numpad2') {
+  const levelShortcut = /^(?:Digit|Numpad)([1-4])$/.exec(e.code)?.[1]
+    ?? (e.code === 'KeyL' ? '2' : null);
+  if (levelShortcut) {
     if (e.repeat || e.ctrlKey || e.metaKey || e.altKey
+      || pinPadUI.isOpen || photoBoardUI.isOpen || documentUI.isOpen
       || e.target?.closest?.('input, textarea, select, [contenteditable], [role="textbox"]')) return;
     e.preventDefault();
     abortTransition();
-    activateLevel('hallwayBasement');
+    if (levelShortcut === '4') {
+      // Keep the corridor's exit routed from the room being left.
+      const route = TRANSITIONS[sceneManager.activeKey] ?? { to: 'hallwayBasement' };
+      backrooms.setRoute({ from: sceneManager.activeKey, ...route });
+      activateLevel('backrooms');
+    } else {
+      activateLevel({ '1': 'bedroom', '2': 'hallwayBasement', '3': 'study' }[levelShortcut]);
+    }
     return;
-  }
-  if (e.code === 'Digit3') { abortTransition(); activateLevel('study'); }
-  if (e.code === 'Digit4') {
-    // Routed off the CURRENT level, so the debug key exercises the same table
-    // the real exits do. Falls back when jumped to from inside the corridor.
-    const route = TRANSITIONS[sceneManager.activeKey] ?? { to: 'hallwayBasement' };
-    abortTransition();
-    backrooms.setRoute({ from: sceneManager.activeKey, ...route });
-    activateLevel('backrooms');
   }
   if (e.code === 'KeyG') {
     // Debug: skip the whole Level 1 puzzle chain and take the REAL exit.
