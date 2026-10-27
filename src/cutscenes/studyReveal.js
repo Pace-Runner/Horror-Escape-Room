@@ -6,39 +6,44 @@ export const CHAIR_EYE = [-4.8, 1.6, -4.5];
 // One authoritative conversation; holds come from decoded buffers in production.
 const voice = file => 'mark/LEVEL 3/' + file + '.mp3';
 export const REVEAL_VOICE_LINES = Object.freeze([
-  ['mirror-no','MARK','No...','l3_mark_reveal_01_no',1.25,1.4],
-  ['what','MARK','What did I do?','l3_mark_reveal_02_what_did_i_do',2.1,1.5],
-  ['please','ANNABELLE','Mark... please.','l3_annabelle_reveal_01_mark_please',2.2,1.0],
-  ['me','ANNABELLE',"It's me.",'l3_annabelle_reveal_02_its_me',1.9,1.15],
-  ['no','MARK','No.','l3_mark_reveal_03_no',1.35,.7],
-  ['saw','MARK','I saw you.','l3_mark_reveal_04_i_saw_you',1.9,.65],
-  ['following','MARK','You were following me.','l3_mark_reveal_05_following_me',2.6,1.0],
-  ['tried','ANNABELLE','I tried to stop you.','l3_annabelle_reveal_03_tried_to_stop_you',2.5,.7],
-  ['told','ANNABELLE','You told me to.','l3_annabelle_reveal_04_you_told_me_to',2.2,.9],
-  ['promise','ANNABELLE','You made me promise.','l3_annabelle_reveal_05_made_me_promise',2.4,1.5],
-  ['remember','MARK',"I don't remember.",'l3_mark_reveal_06_dont_remember',2.3,1.15],
-  ['know','ANNABELLE','I know.','l3_annabelle_reveal_06_i_know',1.8,1.5],
-  ['eyes','ANNABELLE','Your eyes are lying to you.','l3_annabelle_reveal_07_eyes_are_lying',2.9,.7],
-  ['visor','ANNABELLE',"That's why you made the visor.",'l3_annabelle_reveal_08_made_the_visor',3.0,2.75],
-  ['override','ANNABELLE',"There's one override left.",'l3_annabelle_reveal_09_one_override',2.7,1.35],
-  ['decide','ANNABELLE','You... decide.','l3_annabelle_reveal_10_you_decide',1.9,1.8]
-].map(([id,speaker,text,file,hold,gap])=>Object.freeze({id,speaker,text,voice:voice(file),hold,gap})));
+  ['descent','MARK','The mirror... I need to see for myself.','l3_mark_reveal_01_descent',3.500408,.6,[]],
+  ['memory','MARK',"Why can't I remember any of this?",'l3_mark_reveal_02_memory_panic',3.030204,.6,[]],
+  ['mirror-no','MARK','No... What did I do?','l3_mark_reveal_03_mirror_reaction',4.780408,.75,[['mirror-no',1.25],['what',2.1]]],
+  ['please','ANNABELLE',"Mark... please. It's me.",'l3_annabelle_reveal_01_recognition',3.84,.45,[['please',2.2],['me',1.9]]],
+  ['no','MARK','No. I saw you. You were following me.','l3_mark_reveal_04_accusation',4.310204,.4,[['no',1.35],['saw',1.9],['following',2.6]]],
+  ['tried','ANNABELLE','I tried to stop you. You told me to. You made me promise.','l3_annabelle_reveal_02_promise',5.746939,.85,[['tried',2.5],['told',2.2],['promise',2.4]]],
+  ['remember','MARK',"I don't remember.",'l3_mark_reveal_05_dont_remember',2.716735,.65,[['remember',2.3]]],
+  ['know','ANNABELLE',"I know. Your eyes are lying to you. That's why you made the visor.",'l3_annabelle_reveal_03_truth',6.4,2.25,[['know',1.8],['eyes',2.9],['visor',3]]],
+  ['override','ANNABELLE',"There's one override left... You decide.",'l3_annabelle_reveal_04_override',3.668458,1.35,[['override',2.7],['decide',1.9]]]
+].map(([id,speaker,text,file,hold,gap,reactions])=>Object.freeze({id,speaker,text,voice:voice(file),hold,gap,reactions})));
 
 export function createStudyRevealTiming(voiceDurations = {}) {
   const lines=REVEAL_VOICE_LINES.map(line=>({...line,hold:voiceDurations[line.voice] ?? line.hold}));
   let dialogueTime=.45;
-  const dialogue=lines.slice(2).map(line=>{
+  const dialogue=lines.slice(3).map(line=>{
     const beat={...line,t:dialogueTime};dialogueTime+=line.hold+line.gap;return beat;
   });
-  const whatAt=.12+lines[0].hold+lines[0].gap;
+  const descentAt=2.5;
+  const memoryAt=Math.max(7.5,descentAt+lines[0].hold+lines[0].gap);
+  const walkSeconds=Math.max(13,memoryAt+lines[1].hold+lines[1].gap);
   const segments=[
-    ['process',1],['walk',13],['settle',1.4],['human',2.1],['mirrorVisor',.9],['hollow',3],
-    ['recoil',whatAt+lines[1].hold+lines[1].gap+.55],['turn',2.9],
+    ['process',1],['walk',walkSeconds],['settle',1.4],['human',2.1],['mirrorVisor',.9],['hollow',3],
+    ['recoil',.12+lines[2].hold+lines[2].gap+.325],['turn',2.9],
     ['cornerWalk',4.5],['chairSettle',1],['creature',1.9],['chairVisor',.9],['annabelle',dialogueTime]
   ];
   const times={};let duration=0;
   for(const [name,length] of segments){times[name]=duration;duration+=length;}
-  return {lines,dialogue,segments,times,seconds:Object.fromEntries(segments),duration,whatAt};
+  // Keep the existing sentence reactions inside each continuous recording.
+  const reactionBeats=beat=>{
+    const weight=beat.reactions.reduce((sum,[,length])=>sum+length,0);
+    let offset=0;
+    return beat.reactions.map(([id,length])=>{
+      const hold=beat.hold*length/weight;
+      const reaction={id,t:beat.t+offset,hold};offset+=hold;return reaction;
+    });
+  };
+  const reactions=dialogue.flatMap(reactionBeats);
+  return {lines,dialogue,reactions,reactionBeats,segments,times,seconds:Object.fromEntries(segments),duration,descentAt,memoryAt};
 }
 const DEFAULT_REVEAL_TIMING=createStudyRevealTiming();
 export const REVEAL_DIALOGUE=Object.freeze(DEFAULT_REVEAL_TIMING.dialogue);
@@ -113,7 +118,7 @@ export function studyMirrorRoute(start) {
 /** Continuous first-person path and quaternion choreography; no per-shot lookAt snaps. */
 export function createStudyChoreography(start, startQuaternion, annabelleSpot, startFov = 70, timing = DEFAULT_REVEAL_TIMING) {
   const {times:REVEAL_TIMES,seconds,duration:REVEAL_DURATION,dialogue}=timing;
-  const dialogueBeat=id=>dialogue.find(beat=>beat.id===id);
+  const dialogueBeat=id=>timing.reactions.find(beat=>beat.id===id);
   const route = studyMirrorRoute(start);
   const initial = new THREE.Quaternion().fromArray(startQuaternion);
   const chairTarget = new THREE.Vector3(annabelleSpot[0], 0.77, annabelleSpot[1]);
@@ -221,9 +226,10 @@ export function createStudyChoreography(start, startQuaternion, annabelleSpot, s
 
 /** Adult-sized, uniformly scaled withdrawn pose; never shrink-to-fit the chair. */
 export function poseStudyCreature(creature, spot) {
-  creature.setPosition(spot[0], spot[1]); creature.setCorrection(0); creature.setSpeed(0);
-  creature.refs.root.scale.setScalar(0.90);
-  creature.setCrouch?.(1);creature.update(1);
+  const offset=creature.studyPositionOffset||[0,0];
+  creature.setPosition(spot[0]+offset[0], spot[1]+offset[1]); creature.setCorrection(0); creature.setSpeed(0);
+  creature.refs.root.scale.setScalar(creature.studyUniformScale||.9);
+  creature.setCrouch?.(0);creature.update(1);
   const shell=creature.refs.root.children[0];
   if(shell) shell.position.y-=creature.studyFloorOffset||0;
   creature.refs.root.position.y=0;
@@ -231,34 +237,86 @@ export function poseStudyCreature(creature, spot) {
   creature.group.updateMatrixWorld(true);
   creature.group.traverse(mesh=>{if(mesh.isSkinnedMesh)mesh.computeBoundingBox();});
   const box=new THREE.Box3().setFromObject(creature.group);
-  if(!box.isEmpty()&&shell){creature.studyFloorOffset=-box.min.y/.90;shell.position.y+=creature.studyFloorOffset;}
+  if(!box.isEmpty()&&shell){creature.studyFloorOffset=-box.min.y/creature.refs.root.scale.y;shell.position.y+=creature.studyFloorOffset;}
 }
+/** Fit the two existing bodies in world metres, without folding or axis scaling. */
+export function alignStudyCreature(creature,spot,anchors) {
+  poseStudyCreature(creature,spot);
+  if(!anchors.head||!anchors.torso||!creature.refs.head||!creature.refs.chest)return;
+  const head=creature.refs.head.getWorldPosition(new THREE.Vector3());
+  const torso=creature.refs.chest.getWorldPosition(new THREE.Vector3());
+  // Least-squares fit of both vertical anchors keeps the head and ribcage close.
+  const ratio=(anchors.head.y*head.y+anchors.torso.y*torso.y)/(head.y*head.y+torso.y*torso.y);
+  creature.studyUniformScale=creature.refs.root.scale.x*ratio;
+  poseStudyCreature(creature,spot);
+  const fitted=creature.refs.head.getWorldPosition(new THREE.Vector3());
+  creature.studyPositionOffset=[anchors.head.x-fitted.x,anchors.head.z-fitted.z];
+  poseStudyCreature(creature,spot);
+}
+
+function poseStudyArms(creature) {
+  if(!creature.studyArmBones){
+    const bones=new Map();
+    creature.group?.traverse(b=>{if(b.isBone)bones.set(b.name.toLowerCase(),b);});
+    creature.studyArmBones=bones;
+  }
+  const bones=creature.studyArmBones, root=creature.refs?.root;
+  if(!root)return;
+  const aim=(bone,child,target)=>{
+    root.updateMatrixWorld(true);
+    const from=child.getWorldPosition(new THREE.Vector3()).sub(bone.getWorldPosition(new THREE.Vector3())).normalize();
+    const to=target.clone().sub(bone.getWorldPosition(new THREE.Vector3())).normalize();
+    const world=bone.getWorldQuaternion(new THREE.Quaternion()).premultiply(new THREE.Quaternion().setFromUnitVectors(from,to));
+    bone.quaternion.copy(bone.parent.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(world));
+  };
+  for(const side of ['left','right']){
+    const arm=bones.get(side+' arm'),elbow=bones.get(side+' elbow'),hand=bones.get(side+' wrist');
+    if(!arm||!elbow||!hand)continue;
+    root.updateMatrixWorld(true);
+    const shoulder=arm.getWorldPosition(new THREE.Vector3());
+    // The imported Hollow faces -Z; Annabelle faces +Z.
+    const target=side==='right'&&creature.studyBracePoint?creature.studyBracePoint.clone():
+      root.localToWorld(new THREE.Vector3(.13,1.12,-.23));
+    const a=shoulder.distanceTo(elbow.getWorldPosition(new THREE.Vector3()));
+    const b=elbow.getWorldPosition(new THREE.Vector3()).distanceTo(hand.getWorldPosition(new THREE.Vector3()));
+    const direction=target.clone().sub(shoulder),length=THREE.MathUtils.clamp(direction.length(),Math.abs(a-b)+.01,(a+b)*.98);
+    direction.normalize();
+    const pole=new THREE.Vector3(side==='left'?.35:-.35,-1,0).applyQuaternion(root.quaternion);
+    pole.addScaledVector(direction,-pole.dot(direction)).normalize();
+    const along=(a*a+length*length-b*b)/(2*length);
+    const bend=shoulder.clone().addScaledVector(direction,along).addScaledVector(pole,Math.sqrt(Math.max(0,a*a-along*along)));
+    aim(arm,elbow,bend);aim(elbow,hand,shoulder.clone().addScaledVector(direction,length));
+  }
+}
+
 export function updateStudyCreature(creature,dt) {
   if(creature.correction!==0)creature.setCorrection(0);
   creature.update(Math.max(0,dt)*0.65);
   const t=creature.studyPresenceTime=(creature.studyPresenceTime||0)+Math.max(0,dt);
-  const shift=THREE.MathUtils.smoothstep(t,8,9.4)*THREE.MathUtils.smoothstep(11.4-t,0,1.2);
-  creature.offsetBones({Hips:[0,0,shift*0.012],Spine:[0.24+Math.sin(t*1.35)*0.006,0,-shift*0.012],
-    Chest:[0.13+Math.sin(t*1.35)*0.009,0,0.065+Math.sin(t*.8)*.006],
-    'Left shoulder':[0.015,0,0.015+Math.sin(t*1.35)*.004],
-    'Right shoulder':[-0.01,0,-0.01-Math.sin(t*1.35)*.003],
-    'Left elbow':[.18,0,.015],'Right elbow':[.22,0,-.015],
-    Head:[-0.10+Math.sin(t*.65)*.008,Math.sin(t*.55)*.010,Math.sin(t*1.1)*.003]});
+  const breath=Math.sin(t*1.85),shift=Math.sin(t*.41)*.008;
+  creature.offsetBones({Hips:[0,0,shift],Spine:[.01+breath*.005,0,-.015],
+    Chest:[.01+breath*.008,0,.025],
+    'Left shoulder':[.015,0,.055+breath*.005],
+    'Right shoulder':[-.01,0,-.025-breath*.005],
+    Head:[.065+Math.sin(t*.65)*.006,Math.sin(t*.55)*.008,.015]});
+  poseStudyArms(creature);
+
 }
 
 export function buildStudyReveal({ start, startQuaternion = [0,0,0,1], annabelleSpot, camera, player, visor, captions, refs,
   creature, prepareCreature, restoreCreature, onFinish, setPanic=()=>{},
-  voiceDurations={}, playDialogue=null, stopDialogue=()=>{}, playAlert=()=>{} }) {
+  voiceDurations={}, playDialogue=null, stopDialogue=()=>{}, playAlert=()=>{}, startSound=()=>{}, updateSound=()=>{}, playPerception=()=>{}, playMonsterReveal=()=>{} }) {
   const timing=createStudyRevealTiming(voiceDurations);
   const {times:REVEAL_TIMES,seconds,duration:REVEAL_DURATION,dialogue:REVEAL_DIALOGUE}=timing;
   const dialogueBeat=id=>REVEAL_DIALOGUE.find(beat=>beat.id===id);
-  let activeVoice=null,finished=false;
+  let activeVoice=null,finished=false,lifeTime=0;
   const sample = createStudyChoreography(start, startQuaternion, annabelleSpot, camera.fov,timing);
   const cues = [], cue = (t, run) => cues.push({ t, run });
+  const setVisor=on=>{visor.set(on);refs.syncRevealVisor?.();};
   const speak = (beat,at) => {
     const current={end:at+beat.hold,ended:false};activeVoice=current;
     captions.say({text:`${beat.speaker}: ${beat.text}`,voice:beat.voice,recorded:!!playDialogue,
-      revealManaged:true,duration:beat.hold,always:!playDialogue});
+      revealManaged:true,manualEnd:!!playDialogue,duration:beat.hold,always:!playDialogue});
     const ended=()=>{
       if(finished||activeVoice!==current)return;
       current.ended=true;captions.cancel();
@@ -268,32 +326,33 @@ export function buildStudyReveal({ start, startQuaternion = [0,0,0,1], annabelle
   };
   cue(0, () => {
     document.body.classList.add('study-reveal'); stopDialogue(); captions.cancel();
-    prepareCreature(); visor.set(false); refs.setRevealAnnabelle(false);
+    startSound(); prepareCreature(); setVisor(false); refs.setRevealAnnabelle(false);
     // Reflect whenever the glass enters view, including the approach, without a
     // last-frame switch from opaque glass to a populated mirror.
     refs.setMirrorRevealSight(false); refs.setMirrorRevealActive(true);
   });
   cue(REVEAL_TIMES.settle, () => refs.setMirrorRevealActive(true));
-  cue(REVEAL_TIMES.mirrorVisor, () => visor.set(true));
-  cue(REVEAL_TIMES.mirrorVisor + seconds.mirrorVisor * 0.5, () => refs.setMirrorRevealSight(true));
-  const spoken=[{...timing.lines[0],at:REVEAL_TIMES.recoil+.12},
-    {...timing.lines[1],at:REVEAL_TIMES.recoil+timing.whatAt},
+  cue(REVEAL_TIMES.mirrorVisor, () => setVisor(true));
+  cue(REVEAL_TIMES.mirrorVisor + seconds.mirrorVisor * 0.5, () => { refs.setMirrorRevealSight(true);playPerception(); });
+  const spoken=[{...timing.lines[0],at:REVEAL_TIMES.walk+timing.descentAt},
+    {...timing.lines[1],at:REVEAL_TIMES.walk+timing.memoryAt},
+    {...timing.lines[2],at:REVEAL_TIMES.recoil+.12},
     ...REVEAL_DIALOGUE.map(beat=>({...beat,at:REVEAL_TIMES.annabelle+beat.t}))];
   for(const beat of spoken){
-    cue(beat.at,()=>{refs.performAnnabelleLine?.(beat.id,beat.hold);speak(beat,beat.at);});
+    cue(beat.at,()=>speak(beat,beat.at));
+    for(const reaction of timing.reactionBeats({...beat,t:beat.at}))
+      cue(reaction.t,()=>refs.performAnnabelleLine?.(reaction.id,reaction.hold));
     if(!playDialogue)cue(beat.at+beat.hold,()=>captions.cancel());
   }
-  cue(REVEAL_TIMES.turn-.55,playAlert);
+  cue(REVEAL_TIMES.turn-.325,playAlert);
   cue(REVEAL_TIMES.turn, () => {
-    visor.set(false); creature.setCorrection(0); creature.studyPresenceTime=0; creature.visible = true;
+    refs.setRevealChairActive?.(true);setVisor(false);
+    creature.setCorrection(0); creature.studyPresenceTime=0; creature.visible = true;playMonsterReveal();
   });
   cue(REVEAL_TIMES.cornerWalk, () => refs.setMirrorRevealActive(false));
-  cue(REVEAL_TIMES.chairVisor, () => visor.set(true));
-  cue(REVEAL_TIMES.chairVisor + seconds.chairVisor * 0.5, () => {
-    creature.visible = false; refs.setRevealAnnabelle(true);
-  });
+  cue(REVEAL_TIMES.chairVisor, () => {setVisor(true);creature.visible=false;refs.setRevealAnnabelle(true);});
   const cardTime=REVEAL_TIMES.annabelle+dialogueBeat('override').t;
-  cue(cardTime-.001,()=>refs.showRevealKeycard());
+  cue(cardTime-.001,()=>{if(refs.placeRevealKeycard)refs.placeRevealKeycard();else refs.showRevealKeycard();});
   return {
     name: 'studyMirrorReveal', maxSeconds:150, letterbox: false, skippable: false,
     // Audio completion gates progression; elapsed frame time cannot cut off a line.
@@ -308,9 +367,19 @@ export function buildStudyReveal({ start, startQuaternion = [0,0,0,1], annabelle
     shots: [{ pose: u => sample(u * REVEAL_DURATION), seconds: REVEAL_DURATION }], cues,
     onFrame(_ctx, t, dt) {
       const pose = sample(t);
+      lifeTime+=dt;
+      if(t>=REVEAL_TIMES.annabelle){
+        const gain=smooth((t-REVEAL_TIMES.annabelle)/.6);
+        pose.position[1]+=Math.sin(lifeTime*1.8)*.0035*gain;
+        const q=new THREE.Quaternion().fromArray(pose.quaternion);
+        q.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(
+          Math.sin(lifeTime*1.7)*.002*gain,Math.sin(lifeTime*.73)*.0025*gain,0)));
+        pose.quaternion=q.toArray();
+      }
       camera.position.fromArray(pose.position); camera.quaternion.fromArray(pose.quaternion);
       const upper = t >= REVEAL_TIMES.walk && t < REVEAL_TIMES.settle;
       player.groundY = upper ? Math.max(0, camera.position.y - 1.6) : t < REVEAL_TIMES.walk ? Math.max(0,start[1]-1.6) : 0;
+      updateSound({t,dt,timing,position:pose.position});
       refs.setMirrorPerformanceTime?.(t);
       setPanic(studyPanic(t,timing),t>=REVEAL_TIMES.walk&&t<REVEAL_TIMES.human);
       // A deliberate glance motivates the card's appearance on the cushion.
@@ -329,7 +398,7 @@ export function buildStudyReveal({ start, startQuaternion = [0,0,0,1], annabelle
       refs.setAnnabelleCardGlance?.(0);
       player.clearKeys(); player.crouch = 0; player.sprint = 0;
       if (completed) {
-        visor.set(true); refs.setRevealAnnabelle(true); refs.showRevealKeycard();
+        setVisor(true); refs.setRevealAnnabelle(true); refs.showRevealKeycard();
         player.groundY = 0; camera.position.fromArray(CHAIR_EYE);
       } else refs.setRevealAnnabelle(false);
       captions.cancel(); onFinish(completed);

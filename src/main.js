@@ -2982,7 +2982,7 @@ const study = createDeferredLevel(() => createStudyLevel({
         start: camera.position.toArray(), startQuaternion: camera.quaternion.toArray(), annabelleSpot: refs.annabelleSpot,
         camera, player, visor, captions, refs, creature:cornerCreature,
         voiceDurations,playDialogue:revealAudio.playDialogue,stopDialogue:revealAudio.stopDialogue,
-        playAlert:revealAudio.playAlert,
+        playAlert:revealAudio.playAlert,startSound:revealAudio.startSound,updateSound:revealAudio.updateSound,playPerception:revealAudio.playPerception,playMonsterReveal:revealAudio.playMonsterReveal,
         setPanic:(value,descent=false)=>{
           postFX.visorPass.uniforms.uPanic.value=value;
           postFX.visorPass.uniforms.uDescentPanic.value=descent?1:0;
@@ -5979,7 +5979,7 @@ function tick() {
   player.update(dt);
   // Footsteps ride the player's own bob clock, so they land with the visual dip
   // and stop dead when a wall does. See AudioEngine.updateFootsteps.
-  audio.updateFootsteps(player.bobPhase, {
+  if(!player.cinematic) audio.updateFootsteps(player.bobPhase, {
     moving: player.moving,
     sprint: player.sprint,
     crouch: player.crouch

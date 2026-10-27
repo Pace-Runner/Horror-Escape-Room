@@ -5,7 +5,7 @@ import { createStudyDecor } from './studyDecor.js';
 import { createStudySurfaces } from './studySurfaces.js';
 import { createAnnabelle } from './annabelleFigure.js';
 import { createOkabeCreature } from '../systems/OkabeCreature.js';
-import { poseStudyCreature, updateStudyCreature } from '../cutscenes/studyReveal.js';
+import { poseStudyCreature, alignStudyCreature, updateStudyCreature } from '../cutscenes/studyReveal.js';
 import { createClockMechanism } from './clockMechanism.js';
 import { createArchivePresentation, createArchiveRecord, buildArchiveVisor, createVisorGlassMap } from './studyArchivePresentation.js';
 import { addStudyFootprints } from './studyFootprints.js';
@@ -1632,8 +1632,8 @@ export function createStudyLevel({
   mirrorGlass.add(mirror.mesh);
   mirrorGlass.position.set(4.8, 1.08, mirrorFrame.position.z + 0.052);
   let mirrorPresentation = null;
-  function setMirrorRevealSight(corrected) {
-    mirrorPresentation?.setCorrected(corrected);
+  function setMirrorRevealSight() {
+    mirrorPresentation?.setCorrected(gameState.visorWorn);
   }
   dressStudyMirror(mirrorFrame, mirrorGlass, studySurfaces.woodMaterial(0.78, 'feature'), crestBrassMat);
   mirrorGlass.userData.interact = {
@@ -1684,12 +1684,14 @@ export function createStudyLevel({
   group.add(annabelle);
   // One logical person; independent skeletons prevent mirror posing from
   // leaking into the corner. Only one representation is ever drawn.
-  const annabelleMonster=createOkabeCreature({restCorrection:0,gait:'player',scale:.90});
+  const annabelleMonster=createOkabeCreature({restCorrection:0,gait:'player',scale:.9});
   annabelleMonster.visible=false;annabelleMonster.setTwitches(false);
   group.add(annabelleMonster.group);
-  const cornerReady=annabelleMonster.ready.then(()=>{
+  const cornerReady=Promise.all([annabelleMonster.ready,annabelleFigure.ready]).then(()=>{
     annabelleMonster.setYaw(annabelle.rotation.y-Math.PI);
-    poseStudyCreature(annabelleMonster,[annabelle.position.x,annabelle.position.z]);
+    annabelleFigure.setCrouched(true);
+    alignStudyCreature(annabelleMonster,[annabelle.position.x,annabelle.position.z],annabelleFigure.getPoseAnchors());
+    annabelleFigure.setCrouched(false);
   });
   /** Solid only while she is there to bump into: parked out of reach when hidden. */
   const ANNABELLE_BOX = { minX: annabelle.position.x - 0.22, maxX: annabelle.position.x + 0.22,
@@ -1701,10 +1703,13 @@ export function createStudyLevel({
     Object.assign(annabelleCollider, on ? ANNABELLE_BOX
       : { minX: -1000, maxX: -1000, minZ: -1000, maxZ: -1000, minY: 0, maxY: 0 });
   }
+  let revealChairActive=false;
   function syncRevealedFigure() {
-    if(!puzzle.mirrorRevealed)return;
+    mirrorPresentation?.setCorrected(gameState.visorWorn);
+    if(!puzzle.mirrorRevealed&&!revealChairActive)return;
     const on=gameState.visorWorn;
     annabelleFigure.setCrouched(true);annabelleFigure.setCorrectedSight(on);
+    if(on&&!annabelle.visible)annabelleFigure.beginReveal();
     showAnnabelle(on);annabelleMonster.visible=!on;
     Object.assign(annabelleCollider,ANNABELLE_BOX);
     mirrorPresentation?.setCorrected(on);
@@ -1718,7 +1723,9 @@ export function createStudyLevel({
   concealmentChair.rotation.y = 0.52;
   // Her open hand rests on the rear shoulder of the existing chair shell.
   concealmentChair.updateMatrixWorld(true);
-  annabelleFigure.setBracePoint(concealmentChair.localToWorld(new THREE.Vector3(-0.39,0.92,-0.35)));
+  const injuredBracePoint=concealmentChair.localToWorld(new THREE.Vector3(-0.10,1.10,-0.45));
+  annabelleFigure.setBracePoint(injuredBracePoint);
+  annabelleMonster.studyBracePoint=injuredBracePoint;
   group.add(concealmentChair);
   loadStudyModel(annabelleChairUrl).then((model) => {
     model.traverse((object) => {
@@ -1738,14 +1745,19 @@ export function createStudyLevel({
   const hollowOverrideKey = createHollowCard();
   hollowOverrideKey.name = 'HollowOverrideKey';
   // Cushion top is y=.4998: the 1.4 mm card rests just above it, face up.
-  hollowOverrideKey.position.copy(concealmentChair.localToWorld(new THREE.Vector3(0.055, 0.5006, 0.12)));
+  hollowOverrideKey.position.copy(concealmentChair.localToWorld(new THREE.Vector3(-0.05, 0.5006, -0.25)));
   hollowOverrideKey.quaternion.copy(concealmentChair.quaternion);
   hollowOverrideKey.rotateX(-Math.PI / 2);
   hollowOverrideKey.rotateZ(0.16);
+  const cardCushionPosition=hollowOverrideKey.position.clone(),cardCushionQuaternion=hollowOverrideKey.quaternion.clone();
+  const cardStowedPosition=cardCushionPosition.clone().add(new THREE.Vector3(-.10,.20,-.20));
+  const cardPlacementFrom=cardStowedPosition.clone();
+  let cardPlacementStarted=false,cardPlacementAge=0;
+  hollowOverrideKey.position.copy(cardStowedPosition);
   hollowOverrideKey.visible = false;
   group.add(hollowOverrideKey);
   const hollowOverrideKeyHit = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.24, 0.48), archiveHitMat);
-  hollowOverrideKeyHit.position.copy(hollowOverrideKey.position);
+  hollowOverrideKeyHit.position.copy(cardCushionPosition);
   hollowOverrideKeyHit.position.y += 0.04;
   hollowOverrideKeyHit.visible = false;
   hollowOverrideKeyHit.userData.interact = {
@@ -2125,9 +2137,14 @@ export function createStudyLevel({
       },
       get mirrorPresentation() { return mirrorPresentation; },
       setMirrorRevealSight,
+      syncRevealVisor:syncRevealedFigure,
+      setRevealChairActive(on) {revealChairActive=on;syncRevealedFigure();},
       setMirrorPerformanceTime(t) { mirrorPresentation?.setTime?.(t); },
       performAnnabelleLine(id,hold) { annabelleFigure.perform(id,hold); },
-      setAnnabelleCardGlance(weight) { annabelleFigure.setAttention(hollowOverrideKey.position,weight); },
+      setAnnabelleCardGlance(weight) {
+        annabelleFigure.setAttention(cardCushionPosition,weight);
+        annabelleFigure.setCardPlacement(cardStowedPosition,weight);
+      },
       setMirrorRevealActive(on) {
         mirrorPresentation?.setEnabled(true);
         mirrorPresentation?.setCinematic?.(on);
@@ -2137,6 +2154,8 @@ export function createStudyLevel({
         if (puzzle.mirrorRevealed) return;
         showAnnabelle(false);
         annabelleMonster.visible=false;
+        revealChairActive=false;cardPlacementStarted=false;cardPlacementAge=0;
+        hollowOverrideKey.position.copy(cardStowedPosition);
         hollowOverrideKey.visible = false;
         hollowOverrideKeyHit.visible = false;
         const index = interactables.indexOf(hollowOverrideKeyHit);
@@ -2144,15 +2163,21 @@ export function createStudyLevel({
         mirrorPresentation?.reset?.();
       },
       setRevealAnnabelle(on) {
-        if (on && (puzzle.mirrorRevealInProgress || puzzle.mirrorRevealed)) {
-          annabelleFigure.setCrouched(true);
-          if (!annabelle.visible) annabelleFigure.beginReveal();
-          annabelleFigure.setCorrectedSight(true);
-          showAnnabelle(true);
-        } else showAnnabelle(false);
+        revealChairActive=on;
+        if(on)syncRevealedFigure();else showAnnabelle(false);
+      },
+      placeRevealKeycard() {
+        if(cardPlacementStarted||puzzle.hasHollowOverrideKey)return true;
+        cardPlacementStarted=true;cardPlacementAge=0;
+        const hand=annabelleFigure.getHandPosition();
+        cardPlacementFrom.copy(hand||cardStowedPosition);cardPlacementFrom.y-=.025;
+        hollowOverrideKey.position.copy(cardPlacementFrom);hollowOverrideKey.visible=true;
+        return true;
       },
       showRevealKeycard() {
         if ((!puzzle.mirrorRevealInProgress && !puzzle.mirrorRevealed) || puzzle.hasHollowOverrideKey) return;
+        cardPlacementStarted=true;cardPlacementAge=.7;
+        hollowOverrideKey.position.copy(cardCushionPosition);hollowOverrideKey.quaternion.copy(cardCushionQuaternion);
         hollowOverrideKey.visible = true;
         hollowOverrideKeyHit.visible = true;
         if (!interactables.includes(hollowOverrideKeyHit)) interactables.push(hollowOverrideKeyHit);
@@ -2172,6 +2197,8 @@ export function createStudyLevel({
             mirrorRevealed:false,hasHollowOverrideKey:false,endingChoice:'NONE',endingSequenceStarted:false});
           mirrorPresentation?.reset?.();mirror.reset();
           annabelleFigure.reset();showAnnabelle(false);annabelleMonster.visible=false;
+          revealChairActive=false;cardPlacementStarted=false;cardPlacementAge=0;
+          hollowOverrideKey.position.copy(cardStowedPosition);
           hollowOverrideKey.visible=false;hollowOverrideKeyHit.visible=false;
           const cardIndex=interactables.indexOf(hollowOverrideKeyHit);
           if(cardIndex>=0)interactables.splice(cardIndex,1);
@@ -2298,6 +2325,8 @@ export function createStudyLevel({
       }
       updateOverrideLabels(false);
       showAnnabelle(false);
+      revealChairActive=false;cardPlacementStarted=false;cardPlacementAge=0;
+      hollowOverrideKey.position.copy(cardStowedPosition);
       hollowOverrideKey.visible = false;
       hollowOverrideKeyHit.visible = false;
       gameState.inventory.delete('hollowOverrideKey');
@@ -2334,6 +2363,18 @@ export function createStudyLevel({
             if (spokenPuzzle === 'letter') showCaption('I need to read this.');
             else onThought(`l3_hint_${spokenPuzzle}`, { priority: 20 });
           }
+        }
+      }
+      if(cardPlacementStarted&&cardPlacementAge<.7){
+        cardPlacementAge=Math.min(.7,cardPlacementAge+Math.max(0,dt));
+        const u=cardPlacementAge/.7,e=u*u*(3-2*u);
+        hollowOverrideKey.position.copy(cardPlacementFrom).lerp(cardCushionPosition,e);
+        hollowOverrideKey.position.y+=Math.sin(Math.PI*u)*.012;
+        hollowOverrideKey.quaternion.copy(cardCushionQuaternion);
+        hollowOverrideKey.rotateZ(Math.sin(Math.PI*u)*.045);
+        if(u===1){
+          hollowOverrideKeyHit.visible=true;
+          if(!interactables.includes(hollowOverrideKeyHit))interactables.push(hollowOverrideKeyHit);
         }
       }
       updateExterior(dt);

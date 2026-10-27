@@ -35,19 +35,27 @@ globalThis.document = { body: { classList: classes(), appendChild() {} },
 THREE.TextureLoader.prototype.load = () => new THREE.Texture({ width: 512, height: 512 });
 
 // Read only the GLB's geometry and node matrices: no texture/image decoder or GPU.
-function annabelleGeometry() {
-  const bytes = fs.readFileSync(path.join(rootDir, 'src/assets/models/annabelle.glb'));
+function annabelleGeometry(file = 'annabelle.glb') {
+  const bytes = fs.readFileSync(path.join(rootDir, 'src/assets/models',file));
   const jsonLength = bytes.readUInt32LE(12), bin = 20 + jsonLength + 8;
   const gltf = JSON.parse(bytes.toString('utf8', 20, 20 + jsonLength));
   const types = { 5120: Int8Array, 5121: Uint8Array, 5122: Int16Array, 5123: Uint16Array, 5125: Uint32Array, 5126: Float32Array };
   const widths = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT4: 16 };
+  const bcopy=(start,length)=>Uint8Array.from(bytes.subarray(start,start+length)).buffer;
   function attribute(index) {
     const a = gltf.accessors[index], view = gltf.bufferViews[a.bufferView];
     const Type = types[a.componentType], size = widths[a.type], step = size * Type.BYTES_PER_ELEMENT;
-    const start = bin + (view.byteOffset || 0) + (a.byteOffset || 0);
+    const start = bin + (view?.byteOffset || 0) + (a.byteOffset || 0);
     const packed = new Uint8Array(a.count * step);
-    for (let i = 0; i < a.count; i++) packed.set(bytes.subarray(start + i * (view.byteStride || step),
+    if(view) for (let i = 0; i < a.count; i++) packed.set(bytes.subarray(start + i * (view.byteStride || step),
       start + i * (view.byteStride || step) + step), i * step);
+    if(a.sparse){
+      const sp=a.sparse,IndexType=types[sp.indices.componentType];
+      const iv=gltf.bufferViews[sp.indices.bufferView],vv=gltf.bufferViews[sp.values.bufferView];
+      const indices=new IndexType(bcopy(bin+(iv.byteOffset||0)+(sp.indices.byteOffset||0),sp.count*IndexType.BYTES_PER_ELEMENT));
+      const values=bin+(vv.byteOffset||0)+(sp.values.byteOffset||0);
+      for(let i=0;i<sp.count;i++)packed.set(bytes.subarray(values+i*step,values+(i+1)*step),indices[i]*step);
+    }
     return new THREE.BufferAttribute(new Type(packed.buffer), size, !!a.normalized);
   }
   const joints=new Set(gltf.skins.flatMap(s=>s.joints));
@@ -65,7 +73,15 @@ function annabelleGeometry() {
         if (primitive.attributes[semantic] !== undefined) geometry.setAttribute(name, attribute(primitive.attributes[semantic]));
       }
       if (primitive.indices !== undefined) geometry.setIndex(attribute(primitive.indices));
-      group.add(node.skin!==undefined?new THREE.SkinnedMesh(geometry,new THREE.MeshStandardMaterial()):new THREE.Mesh(geometry,new THREE.MeshStandardMaterial()));
+      if(primitive.targets){
+        geometry.morphTargetsRelative=true;
+        geometry.morphAttributes.position=primitive.targets.map((target,i)=>{
+          const value=attribute(target.POSITION);value.name=gltf.meshes[node.mesh].extras?.targetNames?.[i]||String(i);return value;
+        });
+      }
+      const material=new THREE.MeshStandardMaterial();material.name=gltf.materials?.[primitive.material]?.name||'';
+      const mesh=node.skin!==undefined?new THREE.SkinnedMesh(geometry,material):new THREE.Mesh(geometry,material);
+      mesh.name=gltf.meshes[node.mesh].name||'';group.add(mesh);
     }
     return group;
   });
@@ -76,24 +92,56 @@ function annabelleGeometry() {
   gltf.nodes.forEach((node,i)=>{if(node.skin===undefined)return;const skin=gltf.skins[node.skin];const inv=attribute(skin.inverseBindMatrices).array;const skeleton=new THREE.Skeleton(skin.joints.map(j=>nodes[j]),skin.joints.map((j,k)=>new THREE.Matrix4().fromArray(inv,k*16)));nodes[i].traverse(mesh=>{if(mesh.isSkinnedMesh)mesh.bind(skeleton,new THREE.Matrix4());});});
   return scene;
 }
-const source = annabelleGeometry();
+const source = annabelleGeometry(),monsterSource=annabelleGeometry('okabe.glb');
 globalThis.__studyTestModel = url => {
-  if (!url.includes('/models/annabelle.glb')) return new Promise(() => {});
-  const copy = cloneSkeleton(source);
+  const model=url.includes('/models/annabelle.glb')?source:url.includes('/models/okabe.glb')?monsterSource:null;
+  if(!model)return new Promise(()=>{});
+  const copy = cloneSkeleton(model);
   copy.traverse(n => { if (n.isMesh) n.material = n.material.clone(); });
   return Promise.resolve(copy);
 };
 
 try {
-  const bundle = await build({ stdin: { contents: "export {createStudyLevel} from './src/levels/studyLevel.js';export {gameState} from './src/core/GameState.js';", resolveDir: rootDir },
+  const bundle = await build({ stdin: { contents: "export {createStudyLevel} from './src/levels/studyLevel.js';export {gameState} from './src/core/GameState.js';export {createAnnabelle} from './src/levels/annabelleFigure.js';export {createAudioDirector,STUDY_BED_GAIN_DB} from './src/systems/AudioDirector.js';", resolveDir: rootDir },
     bundle: true, write: false, platform: 'node', format: 'esm', packages: 'external', define:{'import.meta.env.DEV':'true'}, plugins: [{ name: 'study-test', setup(b) {
       b.onResolve({ filter: /\?url$/ }, a => ({ path: a.path, namespace: 'asset' }));
       b.onLoad({ filter: /.*/, namespace: 'asset' }, a => ({ contents: `export default ${JSON.stringify(a.path)}` }));
       b.onLoad({ filter: /[\\/]modelLoader\.js$/ }, () => ({ contents: 'export const loadModel=url=>globalThis.__studyTestModel(url);' }));
+      b.onLoad({filter:/world[\\/]audio[\\/]assets\.js$/},()=>({contents:`export const cueInfo=name=>(${JSON.stringify(JSON.parse(fs.readFileSync(path.join(rootDir,'src/assets/audio/manifest.json'),'utf8')).assets)})[name];`}));
       b.onLoad({ filter: /dialogue[\\/]index\.js$/ }, () => ({ contents: 'export const line=k=>k;' }));
     } }] });
   fs.writeFileSync(bundlePath, bundle.outputFiles[0].text);
-  const { createStudyLevel, gameState } = await import(pathToFileURL(bundlePath));
+  const { createStudyLevel, gameState, createAnnabelle,createAudioDirector,STUDY_BED_GAIN_DB } = await import(pathToFileURL(bundlePath));
+
+  const bedCalls=[];
+  const bedAudio={ctx:{state:'running'},cue:name=>({duration:300,name}),emit(bus,options){
+    const emitter={alive:true,stopping:false,setGain(gain){bedCalls.push({gain});},stop(){this.stopping=true;}};
+    if(options.buffer.name==='rain_bed')bedCalls.push({gain:options.gain,options});return emitter;
+  }};
+  const bedDirector=createAudioDirector({audio:bedAudio,THREE,player:{},hunter:{state:'stopped'},
+    captions:{},getLevel:()=>({key:'study'}),getListener:()=>null,isBusy:()=>true,isHuntingCrossing:()=>false});
+  bedDirector.onLevelActivated('bedroom');const baseBed=bedCalls.at(-1).gain;
+  bedDirector.onLevelActivated('study');
+  assert.equal(STUDY_BED_GAIN_DB,5);assert(Math.abs(bedCalls.at(-1).gain/baseBed-10**(.25))<1e-8);
+  assert(bedCalls[0].options.loop&&bedCalls[0].options.loopEnd>bedCalls[0].options.loopStart);
+  console.log('PASS: existing shared rain loop receives +5dB in study, with its measured loop window.');
+
+  // Every sentence accent must visibly affect the existing rig, above the idle.
+  const actor=createAnnabelle(),idleActor=createAnnabelle();
+  await Promise.all([actor.ready,idleActor.ready]);
+  for(const id of ['please','me','no','saw','following','tried','told','promise','remember','know','eyes','visor','override','decide']){
+    for(const figure of [actor,idleActor]){figure.reset();figure.setCrouched(true);}
+    actor.perform(id,2);
+    let change=0;
+    for(let frame=0;frame<7;frame++){actor.update(.1);idleActor.update(.1);
+    for(const name of ['Head','Spine1','Spine2','LeftShoulder','LeftForeArm']){
+      const a=actor.root.getObjectByName('mixamorig:'+name),b=idleActor.root.getObjectByName('mixamorig:'+name);
+      change=Math.max(change,a.quaternion.angleTo(b.quaternion));
+    }
+    }
+    assert(change>.025,`emotion accent missing: ${id}`);
+  }
+  console.log('PASS: all 14 emotional sentence accents visibly move the existing rig over its continuous idle.');
 
   // Voice hooks must follow actual interactions, never visibility/proximity.
   {
@@ -216,14 +264,14 @@ try {
     const spoken = []; captions.onLineStart = line => { spoken.push(line); assert(line.voice?.startsWith('mark/LEVEL 3/')); };
     const cutscene = createCutsceneRunner({ camera, player, interaction, captions });
     const creature = { visible: false, setCorrection(v) { this.correction = v; }, setSpeed() {}, update() {}, offsetBones() {} };
-    let read, calls = 0, completed = 0, promise;
+    let read, calls = 0, completed = 0, promise,mirrorIdentity;
     const picked = [], used = [], endings = [];
     const level = createStudyLevel({ onReadLetter: request => { assert(!read); read = request; },
       onPickUpItem: id => { picked.push(id); gameState.inventory.add(id); },
       onUseItem: id => { used.push(id); gameState.inventory.delete(id); }, onChooseEnding: value => endings.push(value),
       onLookInMirror: () => {
         calls++;
-        level.refs.installMirrorReflection({ setCorrected(){}, setEnabled(){}, dispose(){} });
+        level.refs.installMirrorReflection({ setCorrected(on){mirrorIdentity=on;}, setEnabled(){}, dispose(){} });
         const visor = { set(on) { gameState.visorWorn = on; level.refs.setCorrectedSight(on); creature.setCorrection(on ? 1 : 0); } };
         const scene = buildStudyReveal({ start: camera.position.toArray(), startQuaternion: camera.quaternion.toArray(), annabelleSpot: level.refs.annabelleSpot,
           camera, player, visor, captions, refs: level.refs, creature, prepareCreature() { creature.visible = false; },
@@ -233,7 +281,7 @@ try {
         fullDuration = scene.shots.reduce((sum, shot) => sum + shot.seconds, 0);
         promise = cutscene.playScene(scene); return promise;
       } });
-    await level.refs.warmUpReady;
+    await level.refs.warmUpReady;await level.refs.cornerReady;
     assert(!level.refs.annabelle.visible);
     const standingHeight = new THREE.Box3().setFromObject(level.refs.annabelle).getSize(new THREE.Vector3()).y;
     assert(Math.abs(standingHeight - 1.55) < 0.01);
@@ -266,10 +314,17 @@ try {
     assert(!player.movementEnabled && !player.lookEnabled && !interaction.enabled);
     assert.equal(level.refs.puzzle.endingChoice, 'NONE');
     let elapsed = 0, sawCreature = false, sawHuman = false, sawCard = false;
+    const cardPositions=[];
     while (cutscene.isRunning) {
       const dt = Math.min(0.05, cancelAt === null ? 0.05 : Math.max(0, cancelAt - elapsed));
       if (cancelAt !== null && dt === 0) { cutscene.cancel(); break; }
       elapsed += dt; captions.update(dt); level.update(dt); cutscene.update(dt);
+      assert.equal(mirrorIdentity,gameState.visorWorn,'stale cutscene mirror identity');
+      if(elapsed>=REVEAL_TIMES.turn&&cutscene.isRunning){
+        assert.equal(level.refs.annabelle.visible,gameState.visorWorn,'stale chair identity');
+        assert.equal(level.refs.annabelleMonster.visible,!gameState.visorWorn);
+      }
+      if(level.refs.hollowOverrideKey.visible)cardPositions.push({t:elapsed,p:level.refs.hollowOverrideKey.position.clone()});
       assert(!document.body.classList.contains('cutscene-letterbox'));
       assert(!(creature.visible && level.refs.annabelle.visible));
       sawCreature ||= creature.visible; sawHuman ||= level.refs.annabelle.visible;
@@ -286,15 +341,41 @@ try {
       assert(sawCreature && sawHuman && sawCard); assert.equal(completed, 1);
       assert(level.refs.puzzle.mirrorRevealed && level.refs.annabelle.visible && gameState.visorWorn);
       const humanBounds = new THREE.Box3().setFromObject(level.refs.annabelle);
-      assert(humanBounds.min.y > -0.001 && humanBounds.max.y < 1.50);
+      assert(humanBounds.min.y > -0.001 && humanBounds.max.y < 1.9);
       const head=level.refs.annabelle.getObjectByName('mixamorig:Head');
       assert(head);const headBefore=head.getWorldPosition(new THREE.Vector3());level.update(.1);
       assert(head.getWorldPosition(new THREE.Vector3()).distanceTo(headBefore)>.0001,'Annabelle idle is frozen');
-      assert.equal(spoken.length, 2+REVEAL_DIALOGUE.length);
-      for(const on of [false,true,false,true,false,true]){gameState.visorWorn=on;level.refs.setCorrectedSight(on);level.update(.02);assert.equal(level.refs.annabelle.visible,on);assert.equal(level.refs.annabelleMonster.visible,!on);}
+      const monster=level.refs.annabelleMonster;
+      const scale=monster.refs.root.scale;assert.equal(scale.x,scale.y);assert.equal(scale.y,scale.z);
+      assert(monster.crouch<.001,'corner monster still crouches');
+      assert.deepEqual(level.refs.annabelle.scale.toArray(),[1,1,1]);
+      const humanHead=head.getWorldPosition(new THREE.Vector3());
+      const monsterHead=monster.refs.head.getWorldPosition(new THREE.Vector3());
+      const torso=monster.refs.chest.getWorldPosition(new THREE.Vector3()).sub(monster.refs.hips.getWorldPosition(new THREE.Vector3()));
+      assert(Math.atan2(Math.hypot(torso.x,torso.z),torso.y)<Math.PI/7,'monster torso folded forward');
+      const humanHand=level.refs.annabelle.getObjectByName('mixamorig:RightHand').getWorldPosition(new THREE.Vector3());
+      const monsterHand=monster.refs.hands.r.getWorldPosition(new THREE.Vector3());
+      console.log(`Injured alignment: head separation ${humanHead.distanceTo(monsterHead).toFixed(3)}m; shared chair brace ${humanHand.distanceTo(monsterHand).toFixed(3)}m.`);
+      assert(humanHead.distanceTo(monsterHead)<.10,'perception head alignment');
+      assert(humanHand.distanceTo(monsterHand)<.10,'shared chair brace alignment');
+      const humanTorso=level.refs.annabelle.getObjectByName('mixamorig:Spine2').getWorldPosition(new THREE.Vector3());
+      const monsterTorso=monster.refs.chest.getWorldPosition(new THREE.Vector3());
+      const monsterBounds=new THREE.Box3().setFromObject(monster.group);
+      console.log(`Fitted uniform scale ${scale.x.toFixed(3)}; torso separation ${humanTorso.distanceTo(monsterTorso).toFixed(3)}m; monster height ${monsterBounds.getSize(new THREE.Vector3()).y.toFixed(3)}m.`);
+      assert(monsterBounds.getSize(new THREE.Vector3()).y>1.4,'monster is undersized');
+      assert(humanTorso.distanceTo(monsterTorso)<.10,'perception torso alignment');
+      assert(cardPositions.length>15);
+      const first=cardPositions[0],last=cardPositions.at(-1);
+      assert(first.p.distanceTo(last.p)>.08,'card popped directly onto cushion');
+      console.log(`Keycard hand-to-cushion placement: ${first.p.distanceTo(last.p).toFixed(3)}m over 0.7s.`);
+      assert(first.p.distanceTo(last.p)<.65,'card travels too far');
+      assert(cardPositions.some(v=>v.t>first.t+.25&&v.t<first.t+.65&&v.p.distanceTo(first.p)>.02&&v.p.distanceTo(last.p)>.01),'missing card slide');
+      assert.equal(spoken.length, 3+REVEAL_DIALOGUE.length);
+      for(const on of [false,true,false,true,false,true]){gameState.visorWorn=on;level.refs.setCorrectedSight(on);assert.equal(mirrorIdentity,on);assert.equal(level.refs.annabelle.visible,on);assert.equal(level.refs.annabelleMonster.visible,!on);level.update(.02);assert.equal(level.refs.annabelle.visible,on);assert.equal(level.refs.annabelleMonster.visible,!on);
+        assert(head.getWorldPosition(new THREE.Vector3()).distanceTo(monster.refs.head.getWorldPosition(new THREE.Vector3()))<.10,'post-swap head alignment drifted');}
       assert.equal(level.refs.puzzle.endingChoice,'NONE');
-      assert.deepEqual(spoken.slice(2).map(line=>line.text),REVEAL_DIALOGUE.map(b=>`${b.speaker}: ${b.text}`));
-      assert(REVEAL_DIALOGUE.every((b,i)=>!i||b.t>=REVEAL_DIALOGUE[i-1].t+REVEAL_DIALOGUE[i-1].hold+.49));
+      assert.deepEqual(spoken.slice(3).map(line=>line.text),REVEAL_DIALOGUE.map(b=>`${b.speaker}: ${b.text}`));
+      assert(REVEAL_DIALOGUE.every((b,i)=>!i||b.t>=REVEAL_DIALOGUE[i-1].t+REVEAL_DIALOGUE[i-1].hold+REVEAL_DIALOGUE[i-1].gap-.001));
       assert(spoken.every(line => line.always));
       assert.deepEqual(camera.position.toArray(), CHAIR_EYE);
       const pickup = level.interactables.find(h => h.userData.interact.label === 'Take the PROJECT HOLLOW ACCESS KEYCARD');
@@ -331,7 +412,7 @@ try {
     before=now;
   }
   console.log(`Camera maxima: ${maxSpeed.toFixed(2)} m/s, ${(maxAngular*180/Math.PI).toFixed(1)} deg/s.`);
-  console.log(`PASS: ${fullDuration.toFixed(2)}s reveal; one-shot letter close; collision-clear stairs route; 1024x2048 stable projective planar reflection; side/stair/pitch world-plane math; grazing/back-side retained frame; exclusive creature/Annabelle swap; actual crouched-mesh height/reset; timed dialogue/pauses; late card handoff/pickup/endings; seven cancellation points; control restoration.`);
+  console.log(`PASS: ${fullDuration.toFixed(2)}s reveal; one-shot letter close; collision-clear stairs route; 1024x2048 stable projective planar reflection; side/stair/pitch world-plane math; grazing/back-side retained frame; exclusive creature/Annabelle swap; uniform fitted monster scale; natural Annabelle scale; upright injured torso; shared chair brace/head alignment; actual mesh height/reset; timed dialogue/pauses; late card handoff/pickup/endings; seven cancellation points; control restoration.`);
   console.log('Headless geometry/state/GPU-call validation. Browser-rendered appearance and pointer-lock permission were not exercised.');
 } finally {
   fs.rmSync(bundlePath, { force: true });
