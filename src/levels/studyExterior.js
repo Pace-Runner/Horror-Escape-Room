@@ -988,9 +988,12 @@ export function createStudyExterior({ roomW, roomD, roomH, doorX, doorwayW, door
   ]) {
     houseParts.add(new THREE.PlaneGeometry(w, h), trimMat, { position: [x, y, frontZ + OUT / 2], rotation: [rx, ry, 0] });
   }
+  // The side casings stop under the head casing (y = doorwayH + 0.07). Run up
+  // into it, all three fronts shared one plane over the two top corners and
+  // flickered there; butted, each face has its own patch of that plane.
   for (const [w, h, x, y] of [
-    [0.14, doorwayH + 0.14, dl - 0.07, (doorwayH + 0.14) / 2],
-    [0.14, doorwayH + 0.14, dr + 0.07, (doorwayH + 0.14) / 2],
+    [0.14, doorwayH + 0.07, dl - 0.07, (doorwayH + 0.07) / 2],
+    [0.14, doorwayH + 0.07, dr + 0.07, (doorwayH + 0.07) / 2],
     [doorwayW + 0.42, 0.2, doorX, doorwayH + 0.17]
   ]) {
     houseParts.add(new THREE.BoxGeometry(w, h, 0.03), trimMat, { position: [x, y, frontZ + OUT + 0.015] });
@@ -1006,11 +1009,15 @@ export function createStudyExterior({ roomW, roomD, roomH, doorX, doorwayW, door
   for (const wx of [-6.2, -3.6, 3.6, 6.2]) {
     const cx = doorX + wx;
     houseParts.add(new THREE.PlaneGeometry(0.9, 1.7), glassMat, { position: [cx, 1.95, windowZ] });
-    for (const [w, h, x, y] of [
-      [1.08, 0.1, 0, 2.85], [1.14, 0.07, 0, 1.06], [0.09, 1.82, -0.495, 1.95], [0.09, 1.82, 0.495, 1.95],
-      [0.9, 0.04, 0, 1.95], [0.035, 1.7, 0, 1.95]
+    // Head, sill, the two sides between them, the transom bar, and a mullion
+    // 1 cm shallower that passes behind the bar. The sides used to run 6 cm up
+    // into the head and 5.5 cm down into the sill, and the mullion straight
+    // through the bar, every pair sharing a front plane where they crossed.
+    for (const [w, h, x, y, d = 0.05] of [
+      [1.08, 0.1, 0, 2.85], [1.14, 0.07, 0, 1.06], [0.09, 1.705, -0.495, 1.9475], [0.09, 1.705, 0.495, 1.9475],
+      [0.9, 0.04, 0, 1.95], [0.035, 1.7, 0, 1.95, 0.04]
     ]) {
-      houseParts.add(new THREE.BoxGeometry(w, h, 0.05), trimMat, { position: [cx + x, y, windowZ + 0.02] });
+      houseParts.add(new THREE.BoxGeometry(w, h, d), trimMat, { position: [cx + x, y, windowZ + 0.02] });
     }
     for (const sx of [-0.78, 0.78]) {
       houseParts.add(new THREE.BoxGeometry(0.44, 1.8, 0.03), shutterMat, { position: [cx + sx, 1.95, windowZ + 0.02] });

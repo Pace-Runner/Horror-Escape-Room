@@ -210,8 +210,11 @@ export function dressStudyDoor(parent, width, height, wood, brass, reverse = fal
   for (const x of [-width / 2 + 0.065, width / 2 - 0.065]) {
     part(trim, new THREE.BoxGeometry(0.035, height - 0.10, 0.018), wood, x, 0, 0.057);
   }
+  // The rails fit BETWEEN the stiles, the way the joinery is cut. Run full
+  // width they overlapped each stile in a 3 cm square at every corner, front
+  // face on front face, and those squares flickered between two grains.
   for (const y of [-height / 2 + 0.065, height / 2 - 0.065]) {
-    part(trim, new THREE.BoxGeometry(width - 0.1, 0.035, 0.018), wood, 0, y, 0.057);
+    part(trim, new THREE.BoxGeometry(width - 0.165, 0.035, 0.018), wood, 0, y, 0.057);
   }
   const handleX = (reverse ? -1 : 1) * (width / 2 - 0.16);
   part(trim, new RoundedBoxGeometry(0.075, 0.20, 0.018, 1, 0.008), brass, handleX, -0.15, 0.064);

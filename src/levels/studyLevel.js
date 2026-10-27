@@ -209,7 +209,8 @@ export function createStudyLevel({
     if (!facesFront) casing.rotation.y = Math.PI / 2;
     group.add(casing);
   }
-  addDoorCasing(DOOR_X, frontZ - 0.04, DOORWAY_W, DOORWAY_H, true);
+  // The front exit has its own frame now (dressFinalStudyExit); a second
+  // casing here sat inside it and showed as slivers of a different wood.
   addDoorCasing(ROOM_W / 2 - 0.04, ENTRY_DOOR_Z, ENTRY_DOOR_W, ENTRY_DOOR_H, false);
 
   // Temporary bright testing setup: navigation and puzzle faces need no torch.
@@ -1801,24 +1802,40 @@ export function createStudyLevel({
 
   // The final front door is controlled by the Override Key sockets only.
   const frontDoor = new THREE.Group();
+  frontDoor.name = 'Final_Exit_Door';
   frontDoor.position.set(DOOR_X, 0, ROOM_D / 2 - 0.05);
   group.add(frontDoor);
 
-  const doorSlab = new THREE.Mesh(
-    new THREE.BoxGeometry(1.78, 2.98, 0.09),
-    studySurfaces.woodMaterial(0.88)
-  );
-  doorSlab.position.y = 1.05;
-  frontDoor.add(doorSlab);
-  const doorStopMat = studySurfaces.woodMaterial(0.72, 'trim');
-  for (const x of [-0.9, 0.9]) {
-    const stop = new THREE.Mesh(new THREE.BoxGeometry(0.025, 3, 0.10), doorStopMat);
-    stop.position.set(x, 1.5, 0.025);
-    frontDoor.add(stop);
-  }
-  const doorHeadStop = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.025, 0.10), doorStopMat);
-  doorHeadStop.position.set(0, 2.995, 0.025);
-  frontDoor.add(doorHeadStop);
+  /**
+   * THE LEAF, AND WHY IT NO LONGER FILLS THE DOORWAY.
+   *
+   * It was a 1.78 x 2.98 slab: the whole 3 m opening, floor to lintel, in one
+   * piece. No front door is built like that. A leaf that tall is out of all
+   * proportion to the person walking through it, and it is what made this
+   * door read as a board standing in a hole. A Victorian front door is a leaf
+   * of about 2.4 m under a transom rail, with a fanlight above that lit the
+   * hall of a house with no electric light. So the leaf is 2.42 m now; the
+   * frame (dressFinalStudyExit) supplies the rail and the glass, and the
+   * opening itself is unchanged -- the walls, colliders and porch outside all
+   * still meet a 1.8 x 3.0 doorway.
+   *
+   * ONE WOOD. The doorway used to show six wood materials in three textures,
+   * which is a large part of why it looked patched together. Leaf, frame and
+   * mouldings are all trimMat now: the espresso of the skirting, the entry
+   * door and the window trims, so the skirting runs into plinths of its own
+   * wood. Only the nine panels are a tone lighter (the stair treads' cached
+   * material, so nothing new is compiled), because they are the security code
+   * and have to stay countable from across the room.
+   */
+  const SLAB_W = 1.78;
+  const SLAB_H = 2.42;
+  const SLAB_T = 0.09;
+  /** 5 mm clear of the floor, so the leaf's underside never lies in the floor's plane. */
+  const LEAF_BOTTOM = 0.005;
+  const exitWood = trimMat;
+  const panelWood = studySurfaces.woodMaterial(1.02, 'trim');
+  const doorSlab = new THREE.Mesh(new THREE.BoxGeometry(SLAB_W, SLAB_H, SLAB_T), exitWood);
+  doorSlab.name = 'Final_Exit_Leaf';
 
   // No legacy lock objects or interaction volumes remain on the door.
   const frontDoorSlabHit = new THREE.Mesh(
@@ -1842,12 +1859,23 @@ export function createStudyLevel({
   /** Eased open by update(), the same treatment the bedroom door gets. */
   const doorState = { open: false };
   const DOOR_OPEN_SWING = -Math.PI / 2.1;
+  /**
+   * THE PIN IS ON THE LEAF'S PORCH-SIDE EDGE, not its centre line.
+   *
+   * Turning about the centre line swung the outer half of the 9 cm leaf back
+   * past the pin as it opened -- 4.5 cm of door through the lining, the porch
+   * reveal and the casing outside, every time. A door that opens outward is
+   * hung on its outside face, and turning about that corner keeps the whole
+   * leaf on the opening's side of the pin at every angle: the room-face corner
+   * moves in by 9 cm x sin(angle) and never out. The slab is offset back by the
+   * same half thickness, so the closed door stands exactly where it did.
+   */
   const doorHinge = new THREE.Object3D();
-  doorHinge.position.set(-0.89, 0, 0);
+  doorHinge.name = 'Final_Exit_Hinge';
+  doorHinge.position.set(-SLAB_W / 2, 0, SLAB_T / 2);
   frontDoor.add(doorHinge);
   doorHinge.add(doorSlab);
-  doorSlab.position.set(0.89, 1.49, 0);
-  dressStudyDoor(doorSlab, 1.78, 2.98, studySurfaces.woodMaterial(0.85, 'feature'), crestBrassMat, true);
+  doorSlab.position.set(SLAB_W / 2, LEAF_BOTTOM + SLAB_H / 2, -SLAB_T / 2);
 
   /**
    * The door's panelling -- three rows of raised panels, and the security
@@ -1860,19 +1888,17 @@ export function createStudyLevel({
    * not in rhythm.
    *
    * CHILDREN OF THE SLAB, not of `frontDoor`. The panels are the door; they
-   * swing with it. The locks are children of `frontDoor` instead, because
-   * those are bolts seated in the frame and stay where they are.
+   * swing with it, and so do the knob and the three lock escutcheons on the
+   * stile. The reseal bolts are children of `frontDoor` instead, because those
+   * are bars thrown across the frame and stay where they are.
    *
-   * Layout: the slab is 1.78 x 2.98 centred on its own origin. The panel field
-   * takes the left 62% and the lock stile the right, which is how real
-   * joinery does it -- a lock goes through the stile, never through a panel --
-   * and which also keeps the lock bodies at x = +0.35 clear of every panel a
-   * player has to count.
+   * Layout: the slab is SLAB_W x SLAB_H centred on its own origin. The panel
+   * field takes the hinge-side 62% (slab -x) and the lock stile the rest,
+   * which is how real joinery does it -- a lock goes through the stile, never
+   * through a panel -- and which also keeps every lock and the knob clear of
+   * every panel a player has to count.
    */
   const PANEL_FIELD_WIDTH_FRACTION = 0.62;
-  const SLAB_W = 1.78;
-  const SLAB_H = 2.98;
-  const panelMat = studySurfaces.woodMaterial(0.95);
 
   {
     const fieldW = SLAB_W * PANEL_FIELD_WIDTH_FRACTION;
@@ -1888,14 +1914,15 @@ export function createStudyLevel({
         // catches the study's lamp along its top edge, which is what makes it
         // legible as a separate rectangle from across the room. A recess
         // would read as shadow and merge with its neighbours.
+        // 1.1 cm proud of the room face, its back 3 mm inside the leaf.
         const panel = new THREE.Mesh(
           new THREE.BoxGeometry(span.width * fieldW, rowH, 0.014),
-          panelMat
+          panelWood
         );
         panel.position.set(
           fieldX + (span.x + span.width / 2) * fieldW,
           rowCentreY,
-          -0.054
+          -(SLAB_T / 2 + 0.004)
         );
         panel.userData.finalExitPanel = true;
         doorSlab.add(panel);
@@ -1903,7 +1930,12 @@ export function createStudyLevel({
     });
   }
 
-  dressFinalStudyExit(frontDoor, doorSlab, studySurfaces.woodMaterial(0.78, 'feature'), crestBrassMat);
+  // The frame, fanlight, mouldings and brass. See studyHeroPresentation.js.
+  const { lockHeights } = dressFinalStudyExit({
+    frontDoor, hinge: doorHinge, slab: doorSlab,
+    opening: { width: DOORWAY_W, height: DOORWAY_H, wallZ: frontZ - frontDoor.position.z },
+    wood: exitWood, panelWood, brass: crestBrassMat
+  });
 
   /**
    * The shut door's collider, held so it can be TAKEN AWAY again.
@@ -1934,9 +1966,13 @@ export function createStudyLevel({
   const resealBolts = new THREE.Group();
   resealBolts.visible = false;
   frontDoor.add(resealBolts);
-  for (const y of [0.45, 1.05, 1.65]) {
-    const bolt = new THREE.Mesh(new THREE.BoxGeometry(1.25, 0.1, 0.08), alcoveMat);
-    bolt.position.set(0, y, -0.13);
+  // One bar across each of the three locks, thrown 4 cm into the architrave
+  // on both sides so it ends inside the frame instead of lying across it. In
+  // depth it sits between the leaf's mouldings (5 mm clear, at -0.072) and the
+  // casing's face (5 mm behind it, at -0.125): z -0.12 to -0.077.
+  for (const y of lockHeights) {
+    const bolt = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.1, 0.043), alcoveMat);
+    bolt.position.set(0, y, -0.0985);
     resealBolts.add(bolt);
   }
   function startCommittedEnding() {
