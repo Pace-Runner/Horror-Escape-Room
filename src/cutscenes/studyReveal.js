@@ -248,7 +248,7 @@ export function alignStudyCreature(creature,spot,anchors) {
 }
 
 function poseStudyArms(creature) {
-  if(!creature.studyArmBones){
+  if(!creature.studyArmBones?.has('right arm')){
     const bones=new Map();
     creature.group?.traverse(b=>{if(b.isBone)bones.set(b.name.toLowerCase(),b);});
     creature.studyArmBones=bones;
@@ -288,18 +288,19 @@ export function updateStudyCreature(creature,dt) {
   // Sample a quiet upright stance, without chase gait knee compression/sway.
   if(creature.sampleReflectionPose)creature.sampleReflectionPose({speed:creature.studyWalkSpeed||0,phase:creature.studyWalkPhase||0,time:t});
   else creature.update(Math.max(0,dt)*0.65);
-  const breath=Math.sin(t*1.85);
-  creature.offsetBones({Spine:[.01+breath*.005,0,-.015],
-    Chest:[.01+breath*.008,0,.025],
-    'Left shoulder':[.015,0,.055+breath*.005],
-    'Right shoulder':[-.01,0,-.025-breath*.005],
+  const breath=Math.sin(t*1.65)+.18*Math.sin(t*2.17);
+  creature.offsetBones({Spine:[.01+breath*.010,0,-.015],
+    Chest:[.01+breath*.022,0,.025],
+    'Left shoulder':[.015+breath*.006,0,.055+breath*.012],
+    'Right shoulder':[-.01-breath*.006,0,-.025-breath*.012],
     Head:[.065+Math.sin(t*.65)*.006,Math.sin(t*.55)*.008,.015]});
   // Ground this dedicated chair actor from the posed shoes. Root setters reset Y;
   // a cached offset on an imported child cannot guarantee contact after sampling.
   const root=creature.refs?.root;
   if(root){
     root.position.y=0;creature.group.updateMatrixWorld(true);
-    if(!creature.studySoles){
+    if(!creature.studySoles?.length){
+      creature.studyGroundTime=undefined;
       creature.studySoles=[];
       creature.group.traverse(mesh=>{
         if(!mesh.isSkinnedMesh)return;

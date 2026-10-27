@@ -9,7 +9,7 @@ import { createBalustradeBuilder, railGeometry, RAIL_PROFILES } from './studyBal
 import { createStudySurfaces } from './studySurfaces.js';
 import { createAnnabelle } from './annabelleFigure.js';
 import { createOkabeCreature } from '../systems/OkabeCreature.js';
-import { poseStudyCreature, alignStudyCreature, updateStudyCreature, CHAIR_EYE } from '../cutscenes/studyReveal.js';
+import { poseStudyCreature, alignStudyCreature, updateStudyCreature, CHAIR_EYE, createStudyRevealTiming } from '../cutscenes/studyReveal.js';
 import { createClockMechanism } from './clockMechanism.js';
 import { createArchivePresentation, createArchiveRecord, buildArchiveVisor, createVisorGlassMap } from './studyArchivePresentation.js';
 import { addStudyFootprints } from './studyFootprints.js';
@@ -58,8 +58,9 @@ export function createStudyLevel({
   onLookInMirror = () => {},
   onReadLetter = () => {},
   onResetLetter = () => {},
-  /** 'released' | 'contained'. The last decision in the game. */
-  onChooseEnding = () => {},
+  // Batch 1 stops at these physical-choice hooks; no ending sequence starts.
+  onReleaseChosen = () => {},
+  onResealChosen = () => {},
   getPlayerPosition = () => null,
   /** A sound effect by name (AudioDirector's SFX); the level has no audio of its own. */
   onSfx = () => {},
@@ -484,6 +485,7 @@ export function createStudyLevel({
     mirrorRevealed: false,
     hasHollowOverrideKey: false,
     endingChoice: 'NONE',
+    endingChoiceComplete: false,
     endingSequenceStarted: false
   };
   let mirrorRevealGeneration = 0;
@@ -1823,7 +1825,9 @@ export function createStudyLevel({
     // Pinch the lower corner at the index phalanx instead of balancing the
     // card over an open palm. The same grip point follows the monster wrist.
     const index=annabelleFigure.getCardGripBone();
-    const world=(index||hand).getWorldPosition(new THREE.Vector3())
+    const sourceHand=annabelleFigure.getHandBone();
+    const offset=index&&sourceHand?index.getWorldPosition(new THREE.Vector3()).sub(sourceHand.getWorldPosition(new THREE.Vector3())):new THREE.Vector3();
+    const world=hand.getWorldPosition(new THREE.Vector3()).add(offset)
       .add(new THREE.Vector3(.035,.022,.003).applyQuaternion(annabelle.quaternion));
     hollowOverrideKey.position.copy(hand.worldToLocal(world));
     hollowOverrideKey.quaternion.copy(hand.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(annabelle.quaternion));
@@ -2055,73 +2059,90 @@ export function createStudyLevel({
   // One physical card, two irreversible readers. State commits before callbacks.
   const overrideSockets = [];
   let overrideAuthorization = null;
-  let resealTurning = false;
-  let resealTurnProgress = 0;
+  let overrideTurning = null;
+  let overrideTurnProgress = 0;
   const resealBolts = new THREE.Group();
-  resealBolts.visible = false;
+  resealBolts.name='Study_Containment_Bolts';
   frontDoor.add(resealBolts);
-  // One bar across each of the three locks, thrown 4 cm into the architrave
-  // on both sides so it ends inside the frame instead of lying across it. In
-  // depth it sits between the leaf's mouldings (5 mm clear, at -0.072) and the
-  // casing's face (5 mm behind it, at -0.125): z -0.12 to -0.077.
-  for (const y of lockHeights) {
-    const bolt = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.1, 0.043), alcoveMat);
-    bolt.position.set(0, y, -0.0985);
-    resealBolts.add(bolt);
+  // Forged steel crossbars in fixed, bolted sleeves. No extra lights or shadows.
+  const steel=new THREE.MeshStandardMaterial({color:0x7c8388,metalness:.82,roughness:.34,
+    roughnessMap:archiveToken.children[0].material.roughnessMap});
+  const darkSteel=new THREE.MeshStandardMaterial({color:0x41474b,metalness:.74,roughness:.46});
+  const bars=[];let barRelease=0;
+  for(const y of lockHeights){
+    const bar=new THREE.Mesh(new RoundedBoxGeometry(1.90,.105,.055,1,.012),steel);
+    bar.position.set(0,y,-.102);bar.castShadow=false;bar.receiveShadow=true;
+    resealBolts.add(bar);bars.push(bar);
+    for(const x of [-.87,.87]){
+      const sleeve=new THREE.Mesh(new THREE.BoxGeometry(.20,.24,.085),darkSteel);
+      sleeve.position.set(x,y,-.104);frontDoor.add(sleeve);
+      for(const dy of [-.085,.085]){
+        const bolt=new THREE.Mesh(new THREE.CylinderGeometry(.019,.019,.014,6),steel);
+        bolt.rotation.x=Math.PI/2;bolt.position.set(x,y+dy,-.153);frontDoor.add(bolt);
+      }
+    }
   }
-  function startCommittedEnding() {
-    if (puzzle.endingChoice === 'NONE' || puzzle.endingSequenceStarted) return;
-    puzzle.endingSequenceStarted = true;
-    onChooseEnding(puzzle.endingChoice === 'RELEASE' ? 'released' : 'contained');
+  function setContainmentBars(progress){
+    barRelease=THREE.MathUtils.clamp(progress,0,1);
+    resealBolts.visible=barRelease<1;
+    for(const bar of bars)bar.position.x=-2.05*barRelease;
   }
-  function updateOverrideLabels(corrected = gameState.visorWorn) {
-    overrideSockets.forEach(({ display, choice }) => {
-      display.mesh.visible = true;
-      display.write(overrideAuthorization === 'RESEALED' && choice === 'RESEALED'
-        ? ['AUTHORIZED', 'TURN TO LOCK'] : corrected
-        ? choice === 'RELEASE'
-          ? ['OVERRIDE FUNCTION:', 'RELEASE ALL', 'CONTAINMENT LOCKS']
-          : ['OVERRIDE FUNCTION:', 'PERMANENT', 'MANUAL RESEAL']
-        : choice === 'RELEASE' ? ['INSERT ACCESS CARD'] : ['AUTHORIZATION REQUIRED']);
+  setContainmentBars(0);
+  function updateOverrideLabels() {
+    overrideSockets.forEach(socket=>{
+      const {display,choice,reader,handle}=socket;
+      const committed=puzzle.endingChoice!=='NONE';
+      const locked=(committed&&puzzle.endingChoice!==choice)||(!committed&&overrideAuthorization&&overrideAuthorization!==choice);
+      socket.state=locked?'locked':committed?'committed':overrideAuthorization===choice?'authorized':'ready';
+      reader.setAuthorized(socket.state==='authorized'||socket.state==='committed');
+      reader.setLocked(!!locked);
+      handle.root.userData.locked=!!locked;
+      display.mesh.visible=true;
+      display.write(locked?['LOCKED','OTHER CONTROL SELECTED']:committed?
+        [choice==='RELEASE'?'RELEASE ENGAGED':'CONTAINMENT SEALED']:overrideAuthorization===choice?
+        ['CARD ACCEPTED',choice==='RELEASE'?'TURN TO RELEASE':'TURN TO LOCK']:['PROJECT HOLLOW','ACCESS KEYCARD REQUIRED']);
     });
   }
-  function commitOverride(choice, socket) {
-    if (overrideAuthorization !== null || puzzle.endingChoice !== 'NONE' || gameState.endingChosen) return;
-    if (!puzzle.mirrorRevealed || !gameState.inventory.has('hollowOverrideKey')) {
-      showCaption('A PROJECT HOLLOW ACCESS KEYCARD is required.');
-      return;
+  function authorizeOverride(choice,socket) {
+    if(overrideAuthorization!==null||puzzle.endingChoice!=='NONE'||gameState.endingChosen)return;
+    if(!puzzle.mirrorRevealed||!gameState.inventory.has('hollowOverrideKey')){
+      showCaption('A PROJECT HOLLOW ACCESS KEYCARD is required.');return;
     }
-    // Reserving the physical card disables both readers before the handle stage.
-    overrideAuthorization = choice;
-    onUseItem('hollowOverrideKey');
-    socket.installedKey.visible = true;
-    socket.reader.setAuthorized(true);
-    for (const { hit } of overrideSockets) {
-      const index = interactables.indexOf(hit);
-      if (index >= 0) interactables.splice(index, 1);
+    overrideAuthorization=choice;onUseItem('hollowOverrideKey');
+    socket.installedKey.visible=true;socket.insertProgress=0;
+    socket.installedKey.position.y=socket.cardY+.06;
+    for(const {hit} of overrideSockets){const i=interactables.indexOf(hit);if(i>=0)interactables.splice(i,1);}
+    if(!interactables.includes(socket.handleHit))interactables.push(socket.handleHit);
+    onSfx('latch');updateOverrideLabels();
+    showCaption(choice==='RELEASE'?'Emergency release authorized. Turn the control to release.':'Manual reseal authorized. Turn the handle to lock.');
+  }
+  function operateOverride(socket){
+    if(overrideAuthorization!==socket.choice||socket.insertProgress<1||overrideTurning||puzzle.endingChoice!=='NONE'||gameState.endingChosen)return;
+    // Physical handle operation is the irrevocable choice, before any callback.
+    puzzle.endingChoice=socket.choice;puzzle.endingChoiceComplete=false;
+    overrideTurning=socket;overrideTurnProgress=0;
+    for(const panel of overrideSockets)for(const target of [panel.hit,panel.handleHit]){
+      const i=interactables.indexOf(target);if(i>=0)interactables.splice(i,1);
     }
-    // The new sockets replace the old porch choices completely.
-    onSfx('latch');
-    if (choice === 'RELEASE') {
-      puzzle.endingChoice = choice;
-      doorState.open = true;
-      setDoorSolid(false);
+    updateOverrideLabels();onSfx('latch');
+  }
+  function completeOverride(socket){
+    if(puzzle.endingChoiceComplete)return;
+    puzzle.endingChoiceComplete=true;
+    const detail={choice:socket.choice};
+    if(socket.choice==='RELEASE'){
+      doorState.open=true;setDoorSolid(false);
       onDoorOpening(frontDoor.getWorldPosition(new THREE.Vector3()));
-      // Night air through the opened front door sets the candles guttering.
-      // The strongest push in the room (0.85 is about a 40-degree lean at the
-      // door), and the widest, but still a few metres: the sconces along the
-      // front wall gutter, the ones at the back of the room never feel it.
-      studyCandles.gust(frontDoor.getWorldPosition(new THREE.Vector3()), { strength: 0.85, radius: 5, life: 3.2 });
-      showCaption('Emergency release engaged. Walk through the front exit.');
-    } else {
-      interactables.push(socket.handleHit);
-      updateOverrideLabels();
-      showCaption('Manual reseal authorized.');
+      studyCandles.gust(frontDoor.getWorldPosition(new THREE.Vector3()),{strength:.85,radius:5,life:3.2});
+      showCaption('Emergency release engaged.');onReleaseChosen(detail);
+    }else{
+      doorState.open=false;setDoorSolid(true);setContainmentBars(0);
+      showCaption('Manual reseal engaged.');onResealChosen(detail);
     }
   }
   for (const [choice, x, z, rotation, modelUrl] of [
     ['RELEASE', 1.55, 6.49, Math.PI, emergencyReleasePanelUrl],
-    ['RESEALED', 6.35, -6.49, 0, manualResealPanelUrl]
+    ['RESEALED', -1.55, 6.49, Math.PI, manualResealPanelUrl]
   ]) {
     const socketGroup = new THREE.Group();
     socketGroup.position.set(x, 1.35, z);
@@ -2144,7 +2165,7 @@ export function createStudyLevel({
     const retrofit = new THREE.Mesh(new RoundedBoxGeometry(0.40, 0.30, 0.016, 1, 0.004), alcoveMat);
     retrofit.position.set(0, 0.025, panelDepth + 0.009); socketGroup.add(retrofit);
     const reader = createHollowReader(faceZ + 0.0005);
-    if (!isReleasePanel) { reader.root.position.x = -0.113; reader.root.position.y = -0.01; }
+    reader.root.position.x = -0.113; reader.root.position.y = -0.01;
     socketGroup.add(reader.root);
     const header = studyLabel(0.34, 0.072, true, true);
     header.write(['PROJECT HOLLOW', isReleasePanel ? 'EMERGENCY RELEASE' : 'MANUAL RESEAL']);
@@ -2154,7 +2175,7 @@ export function createStudyLevel({
       mount.position.set(0, y, panelDepth - 0.012); socketGroup.add(mount);
     }
     socketGroup.add(header.mesh);
-    const handle = isReleasePanel ? null : createResealHandle(faceZ + 0.001);
+    const handle = createResealHandle(faceZ + 0.001,isReleasePanel?'TURN TO RELEASE':'TURN TO LOCK');
     if (handle) socketGroup.add(handle.root);
     const panelFrontZ = z + Math.cos(rotation) * (panelDepth + (handle ? 0.073 : 0.046));
     colliders.push({
@@ -2172,24 +2193,19 @@ export function createStudyLevel({
     if (handleHit) {
       handleHit.position.set(0.085, 0.025, faceZ + 0.034);
       handleHit.userData.interact = {
-        label: 'Turn Manual Reseal handle — TURN TO LOCK',
-        onInteract: () => {
-          if (overrideAuthorization !== 'RESEALED' || resealTurning || puzzle.endingChoice !== 'NONE' || gameState.endingChosen) return;
-          resealTurning = true;
-          const index = interactables.indexOf(handleHit);
-          if (index >= 0) interactables.splice(index, 1);
-        }
+        get label(){return choice==='RELEASE'?'Turn Emergency Release control - TURN TO RELEASE':'Turn Manual Reseal handle - TURN TO LOCK';},
+        onInteract:()=>operateOverride(socket)
       };
       socketGroup.add(handleHit);
     }
-    const socket = { choice, display, hit, installedKey, reader, handle, handleHit };
+    const socket = { choice,group:socketGroup,display,hit,installedKey,reader,handle,handleHit,cardY:installedKey.position.y,insertProgress:1,state:'ready' };
     hit.userData.interact = {
       get label() {
         const action = choice === 'RELEASE' ? 'Emergency Release' : 'Manual Reseal';
         return puzzle.mirrorRevealed && gameState.inventory.has('hollowOverrideKey')
-          ? `Use Access Keycard — ${action}` : `Card reader — ${action}`;
+          ? `Insert PROJECT HOLLOW access keycard - ${action}` : `${action} - requires PROJECT HOLLOW access keycard`;
       },
-      onInteract: () => commitOverride(choice, socket)
+      onInteract: () => authorizeOverride(choice, socket)
     };
     socketGroup.add(hit);
     interactables.push(hit);
@@ -2254,6 +2270,44 @@ export function createStudyLevel({
       }
       door.open = open;
     }
+  }
+
+  function prepareRevealTest(direct=false){
+          onResetLetter();
+          // Invalidate a previously opened letter before its UI is closed.
+          mirrorRevealGeneration++;letterReading=false;
+          Object.assign(puzzle,{correctedTrailSolved:true,truthRecordsSolved:true,
+            truthRecordsComplete:direct,mirrorUnlocked:direct,mirrorRevealInProgress:false,
+            mirrorRevealed:false,hasHollowOverrideKey:false,endingChoice:'NONE',endingSequenceStarted:false});
+          mirrorPresentation?.reset?.();mirror.reset();
+          annabelleFigure.reset();showAnnabelle(false);annabelleMonster.visible=false;
+          revealChairActive=false;resetCardPerformance();
+            hollowOverrideKey.visible=false;hollowOverrideKeyHit.visible=false;
+          const cardIndex=interactables.indexOf(hollowOverrideKeyHit);
+          if(cardIndex>=0)interactables.splice(cardIndex,1);
+          const mirrorIndex=interactables.indexOf(mirrorGlass);
+          if(mirrorIndex>=0)interactables.splice(mirrorIndex,1);
+          mirrorGlass.userData.interact.label='Look into the mirror';
+          overrideAuthorization=null;overrideTurning=null;overrideTurnProgress=0;puzzle.endingChoiceComplete=false;
+          setContainmentBars(0);
+          for(const socket of overrideSockets){
+            socket.insertProgress=1;socket.installedKey.position.y=socket.cardY;
+            if(!interactables.includes(socket.hit))interactables.push(socket.hit);
+            socket.installedKey.visible=false;socket.reader.setAuthorized(false);
+            if(socket.handle)socket.handle.pivot.rotation.z=0;
+            const i=interactables.indexOf(socket.handleHit);if(i>=0)interactables.splice(i,1);
+          }
+          doorState.open=false;doorHinge.rotation.y=0;setDoorSolid(true);
+          restrictedDoorMotion.update(1,true);letterDoorMotion.update(1,true);
+          restrictedContents.visible = true;
+          syncTruthRecordTargets();
+          syncRestrictedCabinetCollision();
+          letterPaper.visible=!direct;letterHit.visible=!direct;
+          const letterIndex=interactables.indexOf(letterHit);
+          if(direct&&letterIndex>=0)interactables.splice(letterIndex,1);
+          if(!direct&&letterIndex<0)interactables.push(letterHit);
+          if(direct)interactables.push(mirrorGlass);
+          updateTruthRecords(gameState.visorWorn);updateOverrideLabels(gameState.visorWorn);
   }
 
   return {
@@ -2370,43 +2424,41 @@ export function createStudyLevel({
       hollowOverrideKey,
       overrideSockets,
       puzzle,
-      ...(import.meta.env.DEV ? {
-        prepareRevealTest(direct=false) {
-          onResetLetter();
-          // Invalidate a previously opened letter before its UI is closed.
-          mirrorRevealGeneration++;letterReading=false;
-          Object.assign(puzzle,{correctedTrailSolved:true,truthRecordsSolved:true,
-            truthRecordsComplete:direct,mirrorUnlocked:direct,mirrorRevealInProgress:false,
-            mirrorRevealed:false,hasHollowOverrideKey:false,endingChoice:'NONE',endingSequenceStarted:false});
-          mirrorPresentation?.reset?.();mirror.reset();
-          annabelleFigure.reset();showAnnabelle(false);annabelleMonster.visible=false;
-          revealChairActive=false;resetCardPerformance();
-            hollowOverrideKey.visible=false;hollowOverrideKeyHit.visible=false;
-          const cardIndex=interactables.indexOf(hollowOverrideKeyHit);
-          if(cardIndex>=0)interactables.splice(cardIndex,1);
-          const mirrorIndex=interactables.indexOf(mirrorGlass);
-          if(mirrorIndex>=0)interactables.splice(mirrorIndex,1);
-          mirrorGlass.userData.interact.label='Look into the mirror';
-          overrideAuthorization=null;resealTurning=false;resealTurnProgress=0;
-          resealBolts.visible=false;resealBolts.scale.x=1;
-          for(const socket of overrideSockets){
-            socket.installedKey.visible=false;socket.reader.setAuthorized(false);
-            if(socket.handle)socket.handle.pivot.rotation.z=0;
-            const i=interactables.indexOf(socket.handleHit);if(i>=0)interactables.splice(i,1);
-          }
-          doorState.open=false;doorHinge.rotation.y=0;setDoorSolid(true);
-          restrictedDoorMotion.update(1,true);letterDoorMotion.update(1,true);
-          restrictedContents.visible = true;
-          syncTruthRecordTargets();
-          syncRestrictedCabinetCollision();
-          letterPaper.visible=!direct;letterHit.visible=!direct;
-          const letterIndex=interactables.indexOf(letterHit);
-          if(direct&&letterIndex>=0)interactables.splice(letterIndex,1);
-          if(!direct&&letterIndex<0)interactables.push(letterHit);
-          if(direct)interactables.push(mirrorGlass);
-          updateTruthRecords(gameState.visorWorn);updateOverrideLabels(gameState.visorWorn);
-        }
-      } : {}),
+      ...(import.meta.env.DEV ? {prepareRevealTest} : {}),
+      prepareHandoffTest(){
+        prepareRevealTest(true);
+        puzzle.mirrorRevealed=true;revealChairActive=true;
+        annabelleFigure.setCrouched(true);annabelleFigure.perform('tried',0);
+        const timing=createStudyRevealTiming(),beat=timing.dialogue.find(b=>b.id==='override');
+        prepareCardPerformance({start:beat.t,audioAt:beat.t,duration:beat.hold,
+          decideAt:timing.reactions.find(b=>b.id==='decide').t-beat.t});
+        updateCardPerformance(beat.t+beat.hold+1);
+        syncRevealedFigure();syncOfferedCard();
+        mirrorGlass.userData.interact.label='The reflection is still';
+      },
+      setResealLockdown(progress){
+        if(puzzle.endingChoice!=='RESEALED')return;
+        doorState.open=false;setDoorSolid(true);setContainmentBars(0);
+      },
+      setEndingSeated(progress){
+        const w=THREE.MathUtils.smoothstep(progress,0,1);
+        annabelle.position.copy(personFinal);
+        annabelleFigure.setEndingSeated(w);annabelleFigure.setLocomotion(0,0);
+      },
+      setResealReaction(point,weight){annabelleFigure.setAttention(point,weight);},
+      setResealResignation(weight){annabelleFigure.setEndingResignation(weight);},
+      setReleaseBarsProgress(progress){
+        if(puzzle.endingChoice==='RELEASE')setContainmentBars(progress);
+      },
+      setReleaseDoorOpen(open){
+        if(puzzle.endingChoice!=='RELEASE')return;
+        doorState.open=!!open;setDoorSolid(!open);
+      },
+      setReleaseConcern(weight){annabelleFigure.setEndingConcern(weight);},
+      setReleaseReaction(point,weight,soften=false){
+        annabelleFigure.setAttention(point,weight);
+        if(soften)annabelleFigure.perform('remember',1.4);
+      },
       doorState,
       frontDoorSlabHit,
       drawer,
@@ -2498,11 +2550,13 @@ export function createStudyLevel({
       puzzle.endingChoice = 'NONE';
       puzzle.endingSequenceStarted = false;
       overrideAuthorization = null;
-      resealTurning = false;
-      resealTurnProgress = 0;
-      resealBolts.visible = false;
-      resealBolts.scale.x = 1;
-      for (const { hit, installedKey, reader, handle, handleHit } of overrideSockets) {
+      overrideTurning = null;
+      overrideTurnProgress = 0;
+      puzzle.endingChoiceComplete=false;
+      setContainmentBars(0);
+      for (const socket of overrideSockets) {
+        const {hit,installedKey,reader,handle,handleHit}=socket;
+        socket.insertProgress=1;installedKey.position.y=socket.cardY;
         installedKey.visible = false;
         reader.setAuthorized(false);
         if (handle) handle.pivot.rotation.z = 0;
@@ -2578,26 +2632,18 @@ export function createStudyLevel({
       }
       if (annabelle.visible||cardPerformance) annabelleFigure.update(dt, getPlayerPosition());
       if(cardPerformance){syncPersonRoots();syncOfferedCard();}
-      if (resealTurning && puzzle.endingChoice === 'NONE') {
-        resealTurnProgress = Math.min(1, resealTurnProgress + Math.max(0, dt) / 1.0);
-        const eased = resealTurnProgress * resealTurnProgress * (3 - 2 * resealTurnProgress);
-        const socket = overrideSockets.find(s => s.choice === 'RESEALED');
-        socket.handle.pivot.rotation.z = -THREE.MathUtils.degToRad(110) * eased;
-        if (resealTurnProgress === 1) {
-          puzzle.endingChoice = 'RESEALED';
-          doorState.open = false;
-          setDoorSolid(true);
-          resealBolts.visible = true;
-          resealBolts.scale.x = 0.05;
-          startCommittedEnding();
-        }
+      for(const socket of overrideSockets)if(socket.insertProgress<1){
+        socket.insertProgress=Math.min(1,socket.insertProgress+Math.max(0,dt)/.25);
+        socket.installedKey.position.y=socket.cardY+.06*(1-THREE.MathUtils.smoothstep(socket.insertProgress,0,1));
       }
-      if (resealBolts.visible) resealBolts.scale.x += (1 - resealBolts.scale.x) * Math.min(1, dt * 5);
-      if (puzzle.endingChoice === 'RELEASE' && !puzzle.endingSequenceStarted && doorHinge.rotation.y < -0.8) {
-        const position = getPlayerPosition();
-        if (position && Math.abs(position.x - DOOR_X) < DOORWAY_W / 2
-          && position.z >= frontZ + 0.2 && position.y < 2.5) startCommittedEnding();
+      if(overrideTurning){
+        overrideTurnProgress=Math.min(1,overrideTurnProgress+Math.max(0,dt));
+        const socket=overrideTurning;
+        const angle=socket.choice==='RELEASE'?Math.PI/2:-THREE.MathUtils.degToRad(110);
+        socket.handle.pivot.rotation.z=angle*THREE.MathUtils.smoothstep(overrideTurnProgress,0,1);
+        if(overrideTurnProgress===1){overrideTurning=null;completeOverride(socket);}
       }
+
       memoryDoorMotion.update(dt, puzzle.memoryArchiveUnlocked);
       restrictedDoorMotion.update(dt, puzzle.correctedTrailSolved);
       syncTruthRecordTargets();

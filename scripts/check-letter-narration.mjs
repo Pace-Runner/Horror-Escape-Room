@@ -65,6 +65,6 @@ pending.onStarted({duration:140});pending.onEnded();assert(prompt.hidden&&!ui.is
 audio.playVoice=normalPlay;
 assert(ducks.some(d=>d.db===-2.5&&d.release===.4));
 const main=fs.readFileSync(new URL('../src/main.js',import.meta.url),'utf8');
-assert(main.includes('canPlay: entry => !annabelleLetterNarration?.ownsVoice'));
+assert(main.includes('!annabelleLetterNarration?.ownsVoice &&'));
 assert(main.includes('onResetLetter:()=>{annabelleLetterNarration.stop();documentUI.close({complete:false});}'));
 console.log('PASS: real letter UI + narration controller; 400ms delay; Space capture/repeats; close-before-reveal; natural end; no narration captions; thought ownership; -2.5dB duck / 400ms restore; reset/unload/pending-decode cleanup.');

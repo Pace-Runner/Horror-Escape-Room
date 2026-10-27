@@ -250,6 +250,10 @@
 
   <!-- Level-transition fade. Not a .hidden toggle: see src/core/ScreenFade.js. -->
   <div id="fade-overlay"></div>
+  <div id="ending-glitch" aria-hidden="true"></div>
+  <div id="ending-claw-scratch" aria-hidden="true">
+    <img src="/src/assets/ui/reseal-claw-gashes.png" alt="" draggable="false" decoding="async" />
+  </div>
 
   <div id="start-screen">
     <div id="main-menu" aria-label="Main menu">
@@ -387,6 +391,24 @@
     </div>
   </div>
 
+  <section id="release-ending-screen" class="hidden" role="dialog" aria-labelledby="release-ending-title">
+    <div class="release-ending-panel">
+      <h1 id="release-ending-title">ENDING: RELEASED</h1>
+      <div data-release-actions hidden>
+        <button class="menu-option" data-release-menu type="button">Return to Main Menu</button>
+        <button class="menu-option" data-release-credits type="button">Credits</button>
+      </div>
+    </div>
+  </section>
+  <section id="reseal-ending-screen" class="hidden" role="dialog" aria-labelledby="reseal-ending-title">
+    <div class="release-ending-panel">
+      <h1 id="reseal-ending-title">ENDING: CONTAINED</h1>
+      <div data-release-actions hidden>
+        <button class="menu-option" data-release-menu type="button">Return to Main Menu</button>
+        <button class="menu-option" data-release-credits type="button">Credits</button>
+      </div>
+    </div>
+  </section>
   <div id="credits-screen" class="hidden">
     <div id="credits-panel" role="dialog" aria-labelledby="credits-title">
       <div class="credits-ornament" aria-hidden="true">✦</div>

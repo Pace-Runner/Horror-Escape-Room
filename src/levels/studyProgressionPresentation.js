@@ -63,10 +63,13 @@ export function createHollowReader(faceZ) {
   return { root, installedCard, setAuthorized(on) {
     indicator.material.color.setHex(on ? 0x70835c : 0x8d7944);
     indicator.material.emissive.setHex(on ? 0x263d17 : 0x4c3914);
+  }, setLocked(on){
+    root.userData.locked=!!on;
+    if(on){indicator.material.color.setHex(0x75463c);indicator.material.emissive.setHex(0x32140e);}
   } };
 }
 
-export function createResealHandle(faceZ) {
+export function createResealHandle(faceZ, actionLabel='TURN TO LOCK') {
   const root = new THREE.Group(); root.name = 'HOLLOW_Manual_Reseal_Rotary_Handle';
   root.position.set(0.085, 0.025, 0);
   const steel = new THREE.MeshStandardMaterial({ color: 0x444740, metalness: 0.65, roughness: 0.75 });
@@ -83,7 +86,7 @@ export function createResealHandle(faceZ) {
   const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.030, 12), steel);
   hub.rotation.x = Math.PI / 2; pivot.add(hub);
   const label = studyLabel(0.155, 0.032, true, true);
-  label.write(['TURN TO LOCK']); label.mesh.position.set(0, -0.160, faceZ + 0.002); root.add(label.mesh);
+  label.write([actionLabel]); label.mesh.position.set(0, -0.160, faceZ + 0.002); root.add(label.mesh);
   return { root, pivot };
 }
 

@@ -11,11 +11,14 @@ import * as THREE from 'three';
 import {clone as cloneSkeleton} from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { createCutsceneRunner } from '../src/core/Cutscene.js';
 import { createStudyActorPresentation } from '../src/cutscenes/studyActorPresentation.js';
+import {buildStudyReleaseEnding,RELEASE_TIMING} from '../src/cutscenes/studyReleaseEnding.js';
+import {buildStudyResealEnding,RESEAL_TIMING} from '../src/cutscenes/studyResealEnding.js';
+import { createEndingBodyPresentation } from '../src/cutscenes/endingBodyPresentation.js';
 import { createStudyMirrorReflection } from '../src/cutscenes/studyMirrorReflection.js';
 import { CaptionSequencer } from '../src/core/CaptionSequencer.js';
 import { Interaction } from '../src/core/Interaction.js';
 import { resolveCircle } from '../src/core/collision.js';
-import { buildStudyReveal, createStudyRevealTiming, studyMirrorRoute, createStudyChoreography, REVEAL_DURATION, REVEAL_TIMES, REVEAL_DIALOGUE, CHAIR_EYE, poseStudyCreature, MIRROR_EYE } from '../src/cutscenes/studyReveal.js';
+import { buildStudyReveal, createStudyRevealTiming, studyMirrorRoute, createStudyChoreography, REVEAL_DURATION, REVEAL_TIMES, REVEAL_DIALOGUE, CHAIR_EYE, poseStudyCreature, updateStudyCreature, MIRROR_EYE } from '../src/cutscenes/studyReveal.js';
 import { ANNABELLE_FINAL_LETTER } from '../src/story/studyReveal.js';
 
 const rootDir = path.resolve(import.meta.dirname, '..');
@@ -151,6 +154,30 @@ try {
   assert.equal(actor.emotionalState,'hurt');actor.perform('know',2);actor.update(.1);assert.equal(actor.emotionalState,'hurt');
   const guard=actor.root.getObjectByName('mixamorig:LeftHand').getWorldPosition(new THREE.Vector3());
   assert(guard.y<1.15,'guarding hand still reaches face');
+  const shoulderBeforeResign=actor.root.getObjectByName('mixamorig:RightShoulder').getWorldPosition(new THREE.Vector3()).y;
+  actor.setEndingResignation(1);actor.update(0);
+  assert(actor.root.getObjectByName('mixamorig:RightShoulder').getWorldPosition(new THREE.Vector3()).y<shoulderBeforeResign-.01,'reseal resignation failed to lower shoulders');
+  actor.reset();actor.setCrouched(true);
+  for(let w=.05;w<=1.001;w+=.05){
+  actor.setEndingSeated(w);actor.update(0);
+  actor.root.updateMatrixWorld(true);
+  let seatedMin=Infinity,seatedMax=-Infinity;
+  actor.root.traverse(mesh=>{if(!mesh.isSkinnedMesh)return;mesh.skeleton.update();
+    for(let i=0;i<mesh.geometry.attributes.position.count;i++){
+      const p=mesh.getVertexPosition(i,new THREE.Vector3()).applyMatrix4(mesh.matrixWorld);
+      seatedMin=Math.min(seatedMin,p.y);seatedMax=Math.max(seatedMax,p.y);
+    }
+  });
+  assert(seatedMin>-.04,'ending sit sinks into floor at '+w);
+  if(w>.99){assert(seatedMax<.95,'Annabelle did not sit');
+    const hipsY=actor.root.getObjectByName('mixamorig:Hips').getWorldPosition(new THREE.Vector3()).y;
+    assert(hipsY<.25,'seated pelvis floats above floor: '+hipsY);
+  }
+  }
+  console.log('PASS: ending-only supported sitting transition stays above floor and finishes below .95m; reset restores standing.');
+  actor.reset();actor.update(0);
+  assert(actor.emotionalState==='frightened' ,'new run retained exhausted ending state');
+
 
 
   // Cabinet presentation must follow locks, hinges and reset without leaking
@@ -279,6 +306,20 @@ try {
     gameState.inventory.clear();
   }
 
+  // Startup/reset can sample the chair actor before its asynchronous GLB arrives.
+  const earlyMonster=createOkabeCreature({restCorrection:0,gait:'player',personProportions:true});
+  updateStudyCreature(earlyMonster,0);await earlyMonster.ready;
+  earlyMonster.studyBracePoint=new THREE.Vector3(-.18,1.15,-.25);
+  updateStudyCreature(earlyMonster,.1);
+  assert(earlyMonster.studyArmBones.has('right arm'),'pre-load arm cache never recovered');
+  assert(earlyMonster.studySoles.length>0,'pre-load sole cache never recovered');
+  const chestBefore=earlyMonster.refs.chest.quaternion.clone();
+  const shoulderBefore=earlyMonster.getRigBone('Right shoulder').getWorldPosition(new THREE.Vector3());
+  for(let i=0;i<12;i++)updateStudyCreature(earlyMonster,.1);
+  assert(earlyMonster.refs.chest.quaternion.angleTo(chestBefore)>.006,'monster chest idle is frozen');
+  assert(earlyMonster.getRigBone('Right shoulder').getWorldPosition(new THREE.Vector3()).distanceTo(shoulderBefore)>.001,'monster breathing is imperceptible');
+
+
   // A real reflected camera renders the room and staged body, then restores ownership.
   const scene = new THREE.Scene(), group = new THREE.Group(), root = new THREE.Group();
   root.add(new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.8, 0.2), new THREE.MeshStandardMaterial()));
@@ -371,10 +412,11 @@ try {
     const cutscene = createCutsceneRunner({ camera, player, interaction, captions });
     const creature = { visible: false, setCorrection(v) { this.correction = v; }, setSpeed() {}, update() {}, offsetBones() {} };
     let read, calls = 0, completed = 0, promise,mirrorIdentity;
-    const picked = [], used = [], endings = [];
+    const picked = [], used = [], endings = [], choiceHooks=[];
     const level = createStudyLevel({ onReadLetter: request => { assert(!read); read = request; },
       onPickUpItem: id => { picked.push(id); gameState.inventory.add(id); },
       onUseItem: id => { used.push(id); gameState.inventory.delete(id); }, onChooseEnding: value => endings.push(value),
+      onReleaseChosen:detail=>choiceHooks.push(detail.choice),onResealChosen:detail=>choiceHooks.push(detail.choice),
       onLookInMirror: () => {
         calls++;
         level.refs.installMirrorReflection({ setCorrected(on){mirrorIdentity=on;}, setEnabled(){}, dispose(){} });
@@ -508,6 +550,88 @@ try {
       assert(gaitMirror.actorPresentation.motion.speed>.4,'cutscene camera motion did not drive gait');
       assert(legSamples.some(q=>q.angleTo(legSamples[0])>.025),'Hollow legs frozen in cinematic reflection');
       gaitMirror.dispose();
+      const bodyEye=new THREE.PerspectiveCamera(70,16/9,.05,100);bodyEye.position.set(0,1.6,0);
+      bodyEye.lookAt(0,.35,.35);bodyEye.updateMatrixWorld(true);
+      let ownedBody=false;
+      const endingBody=createEndingBodyPresentation({human,hollow,setBodyShown:on=>ownedBody=on});
+      for(const [identity,actor] of [['human',human],['hollow',hollow]]){
+        endingBody.show(identity,{position:bodyEye.position.toArray(),quaternion:bodyEye.quaternion.toArray()});
+        assert(actor.visible);assert.equal(ownedBody,identity==='human');
+        actor.group.updateMatrixWorld(true);let projected=0;
+        actor.group.traverse(mesh=>{if(!mesh.isSkinnedMesh||!mesh.visible)return;
+          const n=mesh.geometry.attributes.position.count;
+          for(let i=0;i<n;i+=3){const p=mesh.getVertexPosition(i,new THREE.Vector3()).applyMatrix4(mesh.matrixWorld).project(bodyEye);
+            if(Math.abs(p.x)<.95&&Math.abs(p.y)<.95&&Math.abs(p.z)<1)projected++;
+          }});
+        assert(projected>30,`${identity} body missing from first-person truth frame`);
+      }
+      endingBody.restore();assert(!ownedBody);
+      const externalBody=createEndingBodyPresentation({human,hollow,visorTemplate:level.refs.visorGroup});
+      const externalPose={external:true,bodyPosition:[0,0,7.55],bodyYaw:Math.PI,
+        position:[0,1.48,9.3],quaternion:[0,0,0,1],time:17};
+      externalBody.show('human',externalPose);
+      assert(human.group.getObjectByName('Mark_Physical_Visor')?.userData.attachment==='face','ending goggles missing on face');
+      externalBody.show('human',{...externalPose,time:18.4,removeAt:18});
+      externalBody.show('hollow',{...externalPose,time:19.2,removeAt:18});
+      assert(hollow.group.getObjectByName('Mark_Physical_Visor')?.userData.attachment==='hand','removed goggles disappeared on monster');
+      const beforeClaw=hollow.refs.hands.l.getWorldPosition(new THREE.Vector3()).distanceTo(new THREE.Vector3(...externalPose.position));
+      externalBody.show('hollow',{...externalPose,time:20,removeAt:18,claw:1});
+      assert(hollow.refs.hands.l.getWorldPosition(new THREE.Vector3()).distanceTo(new THREE.Vector3(...externalPose.position))<beforeClaw-.2,'claw did not reach lens');
+      assert(hollow.refs.root.position.distanceTo(new THREE.Vector3(0,0,7.55))<1e-7,'external camera dragged body');
+      // Assert actual skinned monster geometry is in the external camera frame, not just actor.visible.
+      const lens=new THREE.PerspectiveCamera(60,16/9,.05,100);lens.position.fromArray(externalPose.position);
+      lens.lookAt(0,1.3,7.55);lens.updateMatrixWorld(true);
+      externalBody.show('hollow',{...externalPose,time:21,visorWorn:false});
+      let inFrame=0;
+      hollow.group.traverse(mesh=>{if(!mesh.isSkinnedMesh||!mesh.visible)return;mesh.skeleton.update();
+        for(let i=0;i<mesh.geometry.attributes.position.count;i+=3){
+          const v=mesh.getVertexPosition(i,new THREE.Vector3()).applyMatrix4(mesh.matrixWorld).project(lens);
+          if(Math.abs(v.x)<.95&&Math.abs(v.y)<.95&&Math.abs(v.z)<1)inFrame++;
+        }
+      });
+      assert(inFrame>100,'actual monster mesh not visible in third-person shot');
+      assert(hollow.group.getObjectByName('Mark_Physical_Visor')?.userData.attachment==='hand','monster visor remains on eyes');
+      externalBody.show('hollow',{...externalPose,time:22,emptyHands:true,lunge:.8,jump:.16,claw:.8});
+      assert(!hollow.group.getObjectByName('Mark_Physical_Visor').visible,'external monster still holds goggles');
+      assert(hollow.refs.root.position.y>.1,'monster never leaves the floor for the jump');
+      assert(hollow.refs.root.position.z>8.3,'monster stands still instead of lunging at lens');
+      for(const [identity,body] of [['human',human],['hollow',hollow]]){
+        externalBody.show(identity,{...externalPose,time:23,emptyHands:true});
+        body.group.updateMatrixWorld(true);
+        const face=body.getEyePosition(new THREE.Vector3()).sub(body.refs.head.getWorldPosition(new THREE.Vector3())).setY(0);
+        const toLens=new THREE.Vector3(...externalPose.position).sub(body.refs.root.position).setY(0);
+        assert(face.dot(toLens)>0,identity+' faces backwards in ending');
+        assert(!body.group.getObjectByName('Mark_Physical_Visor').visible,'goggles appear outside');
+      }
+      for(const [build,T] of [[buildStudyResealEnding,RESEAL_TIMING],[buildStudyReleaseEnding,RELEASE_TIMING]]){
+      const containedCamera=new THREE.PerspectiveCamera(70,16/9,.05,100);containedCamera.position.set(-1.55,1.6,5.5);containedCamera.rotation.y=Math.PI;
+      const contained=build({camera:containedCamera,player:{},refs:level.refs,visor:{},fade:{}});
+      const slashSamples=[];
+      for(const age of [.64,.77,.89]){
+        const pose=contained.sample(T.claw+age);
+        externalBody.show('hollow',pose);
+        containedCamera.position.fromArray(pose.position);containedCamera.quaternion.fromArray(pose.quaternion);containedCamera.fov=pose.fov;
+        containedCamera.updateProjectionMatrix();containedCamera.updateMatrixWorld(true);hollow.group.updateMatrixWorld(true);
+        const hand=hollow.refs.hands.l.getWorldPosition(new THREE.Vector3()).project(containedCamera);
+        slashSamples.push(hand.x);
+        assert(hollow.refs.root.position.y>.15,'ending strike is not airborne');
+        assert(!hollow.group.getObjectByName('Mark_Physical_Visor').visible,'ending attack holds goggles');
+      }
+      assert(slashSamples[0]>slashSamples[2]+.3,'single claw does not sweep across lens');
+      const contactPose=contained.sample(T.contact);
+      externalBody.show('hollow',contactPose);
+      containedCamera.position.fromArray(contactPose.position);containedCamera.quaternion.fromArray(contactPose.quaternion);
+      containedCamera.fov=contactPose.fov;containedCamera.updateProjectionMatrix();containedCamera.updateMatrixWorld(true);
+      hollow.group.updateMatrixWorld(true);
+      const eyeAtContact=hollow.getEyePosition(new THREE.Vector3());
+      assert(eyeAtContact.distanceTo(containedCamera.position)<.85,'impact never reaches extreme close-up');
+      const closeEye=eyeAtContact.clone().project(containedCamera);
+      assert(Math.abs(closeEye.x)<1.1&&Math.abs(closeEye.y)<1.1,'monster face misses impact frame '+JSON.stringify(closeEye.toArray()));
+
+      }
+      externalBody.restore();assert(!hollow.group.getObjectByName('Mark_Physical_Visor'),'ending props leaked after cancel');
+      console.log('PASS: third-person facing and empty hands; airborne lunge and claw reach; legacy visor attachments; props clean up.');
+
 
       console.log('PASS: both full reflection rigs walk; shared phase survives swap; idle blends back; existing visor hand/face attachments and repeated put-on/take-off.');
       const lights=[];level.group.traverse(object=>{if(object.isLight)lights.push(object);});
@@ -711,6 +835,16 @@ try {
         assert.deepEqual(Array.from(m.geometry.attributes.uv.array),Array.from(original[i].geometry.attributes.uv.array));
         assert.equal(m.material.side,THREE.FrontSide);assert(m.material.depthWrite&&m.material.depthTest&&!m.material.transparent);
       });
+      level.refs.setEndingSeated(1);level.update(0);
+      assert(level.refs.annabelle.position.distanceTo(personFinal)<.001,'ending seat moved away from fireplace handoff spot');
+      const seated=level.refs.annabelle;
+      for(const [from,to] of [['LeftUpLeg','LeftLeg'],['LeftLeg','LeftFoot'],['RightUpLeg','RightLeg'],['RightLeg','RightFoot'],['LeftArm','LeftForeArm'],['LeftForeArm','LeftHand'],['RightArm','RightForeArm'],['RightForeArm','RightHand']]){
+        const a=seated.getObjectByName('mixamorig:'+from).getWorldPosition(new THREE.Vector3());
+        const b=seated.getObjectByName('mixamorig:'+to).getWorldPosition(new THREE.Vector3()),d=b.sub(a);
+        assert.equal(new THREE.Raycaster(a,d.clone().normalize(),.01,d.length()-.01).intersectObject(chair,true).length,0,'seated '+from+' crosses chair');
+      }
+      level.refs.setEndingSeated(0);level.update(0);
+      assert(level.refs.annabelle.position.distanceTo(personFinal)<.001,'ending cancellation did not restore Annabelle');
       assert.equal(spoken.length, 3+REVEAL_DIALOGUE.length);
       for(const on of [false,true,false,true,false,true]){gameState.visorWorn=on;level.refs.setCorrectedSight(on);assert.equal(mirrorIdentity,on);assert.equal(level.refs.annabelle.visible,on);assert.equal(level.refs.annabelleMonster.visible,!on);level.update(.02);assert.equal(level.refs.annabelle.visible,on);assert.equal(level.refs.annabelleMonster.visible,!on);
         assert(level.refs.annabelle.position.distanceTo(personFinal)<.001,'Annabelle reset after handoff');
@@ -720,6 +854,12 @@ try {
         for(const {mesh,index} of monster.studySoles){const p=mesh.getVertexPosition(index,new THREE.Vector3()).applyMatrix4(mesh.matrixWorld);floor=Math.min(floor,p.y);const side=mesh.geometry.attributes.position.getX(index)>0?0:1;feet[side]=Math.min(feet[side],p.y);}
         assert(Math.abs(floor)<.003,'monster soles sink or float after visor toggle');assert(feet.every(y=>Math.abs(y)<.012),'one monster foot floats');
         assert(level.refs.hollowOverrideKey.visible,'offered card vanished on toggle');
+        const activeHand=on?level.refs.annabelle.getObjectByName('mixamorig:RightHand'):monster.refs.hands.r;
+        const heldCard=level.refs.hollowOverrideKey;
+        assert.equal(heldCard.parent,activeHand,'card parent is not the visible offering hand');
+        assert(heldCard.getWorldPosition(new THREE.Vector3()).distanceTo(activeHand.getWorldPosition(new THREE.Vector3()))<.15,'card floats away from monster hand');
+        if(!on)assert(activeHand.getWorldPosition(new THREE.Vector3()).y>1.1,'monster offering arm hangs down');
+
         assert(level.refs.hollowOverrideKey.getWorldPosition(new THREE.Vector3()).distanceTo(offeredPickup.position)<.08,'handoff prompt drifted after toggle');}
       assert.equal(level.refs.puzzle.endingChoice,'NONE');
       assert.deepEqual(spoken.slice(3).map(line=>line.text),REVEAL_DIALOGUE.map(b=>`${b.speaker}: ${b.text}`));
@@ -741,11 +881,37 @@ try {
       assert(level.refs.annabelle.getObjectByName('mixamorig:RightHand').getWorldPosition(new THREE.Vector3()).y<heldHeight-.05,'empty hand failed to lower after pickup');
       const reseal = level.refs.overrideSockets.find(s => s.choice === 'RESEALED');
       const release = level.refs.overrideSockets.find(s => s.choice === 'RELEASE');
+      assert.deepEqual(release.group.position.toArray(),[1.55,1.35,6.49]);
+      assert.deepEqual(reseal.group.position.toArray(),[-1.55,1.35,6.49]);
+      gameState.inventory.delete('hollowOverrideKey');
+      for(const panel of [release,reseal]){
+        assert(panel.hit.userData.interact.label.includes('requires PROJECT HOLLOW access keycard'));
+        panel.hit.userData.interact.onInteract();panel.handleHit.userData.interact.onInteract();
+      }
+      assert.equal(level.refs.puzzle.endingChoice,'NONE');assert(!release.installedKey.visible&&!reseal.installedKey.visible);
+      gameState.inventory.add('hollowOverrideKey');
       reseal.hit.userData.interact.onInteract(); release.hit.userData.interact.onInteract();
+      reseal.handleHit.userData.interact.onInteract();assert.equal(level.refs.puzzle.endingChoice,'NONE','handle committed before card seated');
+      level.update(.25);
+
       assert.equal(used.filter(id => id === 'hollowOverrideKey').length, 1);
       assert.equal(level.refs.puzzle.endingChoice, 'NONE');
-      reseal.handleHit.userData.interact.onInteract(); level.update(1);
-      assert.deepEqual(endings, ['contained']); assert(level.refs.annabelle.visible);
+      reseal.handleHit.userData.interact.onInteract();
+      assert.equal(level.refs.puzzle.endingChoice,'RESEALED','choice must commit immediately on handle operation');
+      assert.equal(release.state,'locked');assert(release.reader.root.userData.locked);
+      release.hit.userData.interact.onInteract();release.handleHit.userData.interact.onInteract();reseal.handleHit.userData.interact.onInteract();
+      assert.deepEqual(choiceHooks,[]);level.update(1);level.update(1);
+      assert.deepEqual(choiceHooks,['RESEALED']);assert.deepEqual(endings,[]);
+      assert(level.refs.puzzle.endingChoiceComplete&&!level.refs.puzzle.endingSequenceStarted);
+      assert(Math.abs(reseal.handle.pivot.rotation.z)>1.8);assert(level.refs.annabelle.visible);
+      level.refs.setResealLockdown(.4);
+      const bolts=level.group.getObjectByName('Study_Containment_Bolts');
+      assert(bolts.visible&&bolts.children.every(b=>b.position.x===0));
+      assert(bolts.children.every(b=>b.material.metalness>.7&&!b.castShadow),'containment bars must be steel without additional shadows');
+      level.refs.setResealLockdown(1);assert.equal(bolts.scale.x,1);assert(!level.refs.doorState.open);
+
+      assert(Math.abs(level.group.getObjectByName('Final_Exit_Hinge').rotation.y)<.001,'reseal opened exit door');
+
       await level.refs.mirrorGlass.userData.interact.onInteract(); assert.equal(calls, 1);
     } else {
       assert(!level.refs.puzzle.mirrorRevealed && !level.refs.puzzle.mirrorRevealInProgress);
@@ -755,6 +921,47 @@ try {
     level.reset(); read.onFinished();
     assert.equal(calls, 1); assert(!level.refs.puzzle.mirrorRevealed);
     assert(Math.abs(new THREE.Box3().setFromObject(level.refs.annabelle).getSize(new THREE.Vector3()).y - 1.705) < 0.01);
+    if(cancelAt===null){
+      const release=level.refs.overrideSockets.find(s=>s.choice==='RELEASE'),reseal=level.refs.overrideSockets.find(s=>s.choice==='RESEALED');
+      for(const panel of [release,reseal]){
+        assert.equal(panel.state,'ready');assert(level.interactables.includes(panel.hit));
+        assert(!panel.installedKey.visible&&!panel.reader.root.userData.locked);assert.equal(panel.handle.pivot.rotation.z,0);
+      }
+      assert.equal(level.refs.puzzle.endingChoice,'NONE');assert(!level.refs.puzzle.endingChoiceComplete);
+      level.refs.puzzle.mirrorRevealed=true;gameState.inventory.add('hollowOverrideKey');
+      release.hit.userData.interact.onInteract();assert.equal(level.refs.puzzle.endingChoice,'NONE');
+      level.update(.25);release.handleHit.userData.interact.onInteract();
+      assert.equal(level.refs.puzzle.endingChoice,'RELEASE');assert.equal(reseal.state,'locked');
+      level.update(1);level.update(2);release.handleHit.userData.interact.onInteract();reseal.handleHit.userData.interact.onInteract();
+      assert.deepEqual(choiceHooks,['RESEALED','RELEASE']);assert.deepEqual(endings,[]);
+      assert(Math.abs(release.handle.pivot.rotation.z-Math.PI/2)<.001);
+      const steelBars=level.group.getObjectByName('Study_Containment_Bolts');
+      assert(steelBars.visible,'bars must be installed throughout Level 3');
+      level.refs.setReleaseBarsProgress(.5);assert(steelBars.children.every(b=>Math.abs(b.position.x+1.025)<.001),'steel bars did not retract physically');
+      level.refs.setReleaseBarsProgress(1);assert(!steelBars.visible,'release left bars across doorway');
+
+      assert(level.group.getObjectByName('Final_Exit_Hinge').rotation.y<-.8,'release failed to open current exit');
+      assert(!level.refs.puzzle.endingSequenceStarted,'Batch 1 started an ending cinematic');
+      // A reset mid-turn cancels the pending hook and restores both choices.
+      level.reset();assert(level.group.getObjectByName('Study_Containment_Bolts').visible,'reset failed to reinstall steel bars');level.refs.puzzle.mirrorRevealed=true;gameState.inventory.add('hollowOverrideKey');
+      reseal.hit.userData.interact.onInteract();level.update(.25);reseal.handleHit.userData.interact.onInteract();level.update(.2);
+      level.reset();level.update(2);assert.deepEqual(choiceHooks,['RESEALED','RELEASE']);
+      for(const panel of [release,reseal])assert(panel.state==='ready'&&level.interactables.includes(panel.hit)&&panel.handle.pivot.rotation.z===0);
+      assert.equal(gameState.endingChosen,false,'Batch 1 modified global ending state');
+      console.log('PASS: both exit-wall controls; keycard gate; physical insertion and handle stages; immediate exclusive choice; locked panel feedback; one-shot choice hooks only; both branches and mid-turn reset.');
+      gameState.visorWorn=true;level.refs.prepareHandoffTest();level.update(.05);
+      assert(level.refs.puzzle.mirrorRevealed&&level.refs.puzzle.mirrorUnlocked&&!level.refs.puzzle.mirrorRevealInProgress);
+      assert(level.refs.annabelle.visible&&level.refs.hollowOverrideKey.visible&&!level.refs.puzzle.hasHollowOverrideKey);
+      assert(!gameState.inventory.has('hollowOverrideKey'),'shortcut auto-granted card instead of real pickup');
+      const shortcutPickup=level.interactables.find(h=>h.userData.interact.label==='Take the PROJECT HOLLOW ACCESS KEYCARD');
+      assert(shortcutPickup&&shortcutPickup.position.distanceTo(level.refs.hollowOverrideKey.getWorldPosition(new THREE.Vector3()))<.08);
+      assert.equal(level.refs.puzzle.endingChoice,'NONE');assert.equal(calls,1,'shortcut replayed reveal');
+      shortcutPickup.userData.interact.onInteract();assert(gameState.inventory.has('hollowOverrideKey'));
+      assert(!level.refs.hollowOverrideKey.visible);level.reset();
+      console.log('PASS: completed-reveal shortcut directly prepares the real offered-card pickup with both ending panels reset.');
+
+    }
+
   }
   // Bound frame-to-frame camera velocity and quaternion changes at 120 Hz.
   const initialQuaternion = new THREE.Quaternion().toArray();

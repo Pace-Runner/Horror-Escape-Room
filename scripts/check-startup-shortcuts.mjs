@@ -26,3 +26,14 @@ for(const [code,level] of [['Digit1','bedroom'],['Digit2','hallwayBasement'],['D
   for(const extra of [{repeat:true},{ctrlKey:true},{target:{closest:()=>true}}]){calls.length=0;invoke(extra);assert.equal(calls.length,0);}
 }
 console.log('PASS: startup canvas cleared before menu removal; render state restored; production/demo shortcuts 1–4, numpad and L; repeat/modifier/text-field guards. No browser launched.');
+
+const handoffKey=source.slice(source.indexOf("  if(e.code==='Digit9'"),source.indexOf('  if (!player.isLocked) return;',source.indexOf("  if(e.code==='Digit9'")));
+let jumps=0;const jump=new Function('e','gameStarted','prepareStudyHandoffTest',handoffKey);
+for(const code of ['Digit9','Numpad9']){
+  jump({code,preventDefault(){}},true,()=>jumps++);
+  for(const extra of [{repeat:true},{ctrlKey:true},{metaKey:true},{altKey:true},{target:{closest:()=>true}}]){
+    const before=jumps;jump({code,preventDefault(){},...extra},true,()=>jumps++);assert.equal(jumps,before);
+  }
+}
+assert.equal(jumps,2);jump({code:'Digit9',preventDefault(){}},false,()=>jumps++);assert.equal(jumps,2);
+console.log('PASS: 9/numpad9 handoff shortcut; works during cinematic/end card; repeat/modifier/text-input/title-screen guards.');

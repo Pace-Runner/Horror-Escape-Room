@@ -1,0 +1,7 @@
+# Reseal claw-gash overlay
+
+Generated with the built-in image-generation tool, with a transparent background. The original alpha channel is preserved in `reseal-claw-gashes.png`.
+
+## Final prompt
+
+Use case: game-asset. Create a production-quality transparent RGBA screen-space damage decal for a realistic horror game's camera lens, widescreen 16:9 composition. ONLY three large deep irregular claw gashes slashing diagonally from upper right toward lower left, staggered parallel strokes spanning the middle 75 percent of frame. The gouges must have physically realistic chipped glass edges, tiny shattered glass splinters, rough torn dark crevices, granular fractured micro-texture, subtle smoky scuffing, glints on ragged silver-grey edges, uneven widths and tapered ends. Main gouges around 2–4 percent of frame width each, with little branching hairline fractures tightly localized along edges. Heavy, brutal lens damage, cinematic practical-effects realism. The scene must remain visible through all undamaged areas: fully transparent background and transparent negative space between gashes. No solid rectangular glass pane, no black background, no checkerboard painted into image, no scenery, no camera, no hands, no monster, no typography, no blood, no flesh. Neutral dark charcoal and desaturated silvery glass palette, no neon, no vector lines, no simple smooth scratches. Screen-facing orthographic flat decal, no perspective tilt. Damage should stay fully inside frame with generous transparent outer margins.

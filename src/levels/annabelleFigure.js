@@ -13,7 +13,7 @@ export function createAnnabelle() {
   const parentQ = new THREE.Quaternion();
   let corrected = false, crouched = false, time = 0, revealAge = Infinity, loaded = false;
   let bracePoint = null, attention = null, attentionWeight = 0, cardTarget=null, cardWeight=0, offerWeight=0;
-  let acting=[],hurtSince=null,walkSpeed=0,walkPhase=0,walkBlend=0;
+  let acting=[],hurtSince=null,walkSpeed=0,walkPhase=0,walkBlend=0,resignation=0,endingConcern=0,endingSeated=0;
   const get = name => bones.get(name);
   const applySight = () => colours.forEach(({ material, colour }) => {
     material.color.copy(colour);
@@ -184,11 +184,42 @@ export function createAnnabelle() {
       const moved=Math.min(get('LeftFoot').getWorldPosition(new THREE.Vector3()).y,get('RightFoot').getWorldPosition(new THREE.Vector3()).y);
       get('Hips').position.y+=(feetY-moved)/root.getWorldScale(new THREE.Vector3()).y;
     }
+    if(endingConcern>0){
+      offset('Spine1',-.014*endingConcern);offset('Head',.025*endingConcern);
+      offset('LeftShoulder',-.012*endingConcern,0,.012*endingConcern);
+    }
+    if(resignation>0){
+      offset('Spine1',.025*resignation);offset('Head',.055*resignation);
+      get('LeftShoulder').position.y-=.012*resignation;
+      get('RightShoulder').position.y-=.018*resignation;
+    }
+    // Ending only: supported floor sit, knees forward, without moving the root below ground.
+    if(endingSeated>0){
+      const w=endingSeated;
+      root.updateMatrixWorld(true);
+      const planted=Math.min(get('LeftFoot').getWorldPosition(new THREE.Vector3()).y,get('RightFoot').getWorldPosition(new THREE.Vector3()).y);
+      get('Hips').position.y-=.80*w;
+      for(const side of ['Left','Right']){
+        for(const [name,child,direction] of [
+          [side+'UpLeg',side+'Leg',[side==='Left'?.12:-.12,.12,.99]],
+          [side+'Leg',side+'Foot',[0,-.30,.95]],
+          [side+'Foot',side+'ToeBase',[0,0,1]]]){
+          const before=get(name).quaternion.clone();aim(name,child,direction);
+          get(name).quaternion.slerpQuaternions(before,get(name).quaternion.clone(),w);
+        }
+      }
+      root.updateMatrixWorld(true);
+      const moved=Math.min(get('LeftFoot').getWorldPosition(new THREE.Vector3()).y,get('RightFoot').getWorldPosition(new THREE.Vector3()).y);
+      get('Hips').position.y+=(planted-moved)/root.getWorldScale(new THREE.Vector3()).y;
+      offset('Spine1',.06*w);offset('Head',.08*w);
+    }
     // Keep the protective hand at the ribs, never up against the face.
-    const guard=root.localToWorld(new THREE.Vector3(.10,1.02,.17));
+    const guard=root.localToWorld(new THREE.Vector3(.10,1.02-.80*endingSeated,.17));
     placeLimb('LeftArm','LeftForeArm','LeftHand',guard);
-    if(crouched)braceHand();
-    if(offerWeight>0){
+    if(endingSeated>0){
+      placeLimb('RightArm','RightForeArm','RightHand',root.localToWorld(new THREE.Vector3(-.22,.94-.80*endingSeated,.22)));
+    }else if(crouched)braceHand();
+    if(offerWeight>0&&endingSeated===0){
       const wrist=get('RightHand'),before=wrist.quaternion.clone();
       aim('RightHand','RightHandMiddle1',[0,.35,1]);
       wrist.quaternion.slerpQuaternions(before,wrist.quaternion.clone(),offerWeight);
@@ -227,6 +258,9 @@ export function createAnnabelle() {
     setBracePoint(point) { bracePoint=point.clone();buildPose();animate(); },
     setRestHandTarget(point) {bracePoint=point.clone();},
     setOfferTarget(point,weight) {cardTarget=point;cardWeight=THREE.MathUtils.clamp(weight,0,1);},
+    setEndingSeated(weight){endingSeated=THREE.MathUtils.clamp(weight,0,1);},
+    setEndingConcern(weight){endingConcern=THREE.MathUtils.clamp(weight,0,1);},
+    setEndingResignation(weight){resignation=THREE.MathUtils.clamp(weight,0,1);},
     setLocomotion(speed,phase) {walkSpeed=Math.max(0,speed);walkPhase=phase;},
     getHandBone() {return get('RightHand');},
     getCardGripBone() {return get('RightHandIndex3');},
@@ -238,6 +272,6 @@ export function createAnnabelle() {
     perform(id,hold=2.5) {if(id==='tried'&&hurtSince===null)hurtSince=time;acting.push({id,hold,age:0}); },
     setCorrectedSight(on) { corrected=!!on; applySight(); },
     update(dt,target) { const step=Math.max(0,Math.min(0.1,dt));time+=step;walkBlend+=(Math.min(1,walkSpeed/.65)-walkBlend)*(1-Math.exp(-step/.10));if(Number.isFinite(revealAge))revealAge+=step;acting=acting.filter(event=>{event.age+=step;return event.age<event.hold+1.2;});animate(target); },
-    reset() { time=0;revealAge=Infinity;crouched=false;attention=null;attentionWeight=0;cardTarget=null;cardWeight=0;offerWeight=0;acting=[];hurtSince=null;walkSpeed=walkPhase=walkBlend=0;buildPose();animate(); }
+    reset() { time=0;revealAge=Infinity;crouched=false;attention=null;attentionWeight=0;cardTarget=null;cardWeight=0;offerWeight=0;acting=[];hurtSince=null;walkSpeed=walkPhase=walkBlend=resignation=endingConcern=endingSeated=0;buildPose();animate(); }
   };
 }

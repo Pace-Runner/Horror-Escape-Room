@@ -2571,3 +2571,34 @@ body.cutscene-letterbox .cutscene-bar {
   font-family: inherit; padding: 1px 6px;
   border: 1px solid rgba(216, 210, 196, .45); border-radius: 3px; margin-right: 6px;
 }
+
+#release-ending-screen, #reseal-ending-screen { position:fixed; inset:0; z-index:59; background:#050504; display:grid; place-items:center; color:#d8d2c4; text-align:center; }
+.release-ending-panel { max-width:660px; padding:32px; }
+#release-ending-title, #reseal-ending-title { font:inherit; font-size:clamp(1.6rem,4vw,2.8rem); letter-spacing:.18em; margin-bottom:30px; }
+.release-ending-panel p { font-size:1.1rem; line-height:1.6; letter-spacing:.06em; }
+[data-release-actions] { margin-top:40px; }
+[data-release-actions] .menu-option { display:block; margin:12px auto; }
+
+/* Endings retain the normal full frame; only the final menu restores UI. */
+body.ending-cinematic #hud,
+body.ending-cinematic #crosshair,
+body.ending-cinematic #caption-box,
+body.ending-cinematic #fps-counter,
+body.ending-cinematic #cutscene-skip { display:none !important; }
+
+#ending-glitch { position:fixed; inset:0; z-index:48; pointer-events:none; opacity:0;
+  background:repeating-linear-gradient(0deg,rgba(160,193,204,.32) 0 2px,transparent 2px 7px),
+    linear-gradient(113deg,rgba(95,141,160,.25),rgba(211,223,215,.35),transparent);
+  mix-blend-mode:screen; }
+
+/* Transparent textured glass gouges, fixed to the lens and swept in with the claw.
+   Kept beneath the existing fade so the damage vanishes into black at impact. */
+#ending-claw-scratch { position:fixed; inset:0; width:100%; height:100%; z-index:29;
+  pointer-events:none; opacity:0; --scratch:0;
+  -webkit-mask-image:linear-gradient(225deg,#000 calc(var(--scratch)*100%),transparent calc(var(--scratch)*100% + 1%));
+  mask-image:linear-gradient(225deg,#000 calc(var(--scratch)*100%),transparent calc(var(--scratch)*100% + 1%)); }
+#ending-claw-scratch img { display:block; width:100%; height:100%; object-fit:fill;
+  user-select:none; pointer-events:none; }
+
+/* Only the owned spoken ending caption is visible; gameplay HUD stays hidden. */
+body.ending-cinematic.ending-dialogue #caption-box { display:block !important; }

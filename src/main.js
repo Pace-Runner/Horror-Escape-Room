@@ -1,4 +1,10 @@
+import {createStudyEndingAudio} from './cutscenes/studyEndingAudio.js';
+import {endingAudioUrls} from './cutscenes/studyEndingAudioAssets.js';
 import { createStudyRevealAudio } from './cutscenes/studyRevealAudio.js';
+import { buildStudyReleaseEnding, RELEASE_TIMING } from './cutscenes/studyReleaseEnding.js';
+import { buildStudyResealEnding, RESEAL_TIMING } from './cutscenes/studyResealEnding.js';
+import { createEndingBodyPresentation } from './cutscenes/endingBodyPresentation.js';
+import { createReleaseEndingScreen } from './core/ReleaseEndingScreen.js';
 import { createMarkThoughts } from './systems/MarkThoughts.js';
 import { createSessionTapeFocus } from './cutscenes/session14.js';
 import * as THREE from 'three';
@@ -1152,7 +1158,7 @@ const paperRustle = () => sfx('paper') || audio.paperRustle();
 const captions = new CaptionSequencer(captionEl);
 let annabelleLetterNarration=null;
 const markThoughts = createMarkThoughts(audio, { captions,
-  canPlay: entry => !annabelleLetterNarration?.ownsVoice && (!cutscene.isRunning || entry.cutscene === cutscene.name) && !tapePlaying && (!documentUI.isOpen || entry.document)
+  canPlay: entry => !gameState.endingChosen && !annabelleLetterNarration?.ownsVoice && (!cutscene.isRunning || entry.cutscene === cutscene.name) && !tapePlaying && (!documentUI.isOpen || entry.document)
 });
 const thought = (key, options) => markThoughts.play(key, options);
 const interaction = new Interaction(camera, promptEl, captions);
@@ -1160,7 +1166,7 @@ const interaction = new Interaction(camera, promptEl, captions);
 // the primary channel and always exists, the clip may not. A line with no
 // `voice` key, or whose clip has not been recorded yet, is simply silent.
 captions.onLineStart = (line) => {
-  if (line.markThought || line.revealManaged) return;
+  if (line.markThought || line.revealManaged || line.endingManaged) return;
   const voice = line.voice;
   // Unrecorded examine/pickup captions must not stop a recorded Mark thought.
   if (!audio.hasVoice(voice)) return;
@@ -2949,7 +2955,8 @@ const study = createDeferredLevel(() => createStudyLevel({
     });
   },
 
-  onChooseEnding: (which) => { playEnding(which); },
+  onReleaseChosen:detail=>window.dispatchEvent(new CustomEvent('study:release-chosen',{detail})),
+  onResealChosen:detail=>window.dispatchEvent(new CustomEvent('study:reseal-chosen',{detail})),
 
   onTakeGateKey: () => {
     sfx('keys_pickup');
@@ -3958,6 +3965,13 @@ function playStairsScare() {
 }
 
 function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
+  if(activeEndingAudio){
+    releaseEndingGeneration++;resealEndingGeneration++;
+    activeEndingAudio.dispose();activeEndingAudio=null;
+    if(cutscene.isRunning&&cutscene.name?.startsWith('studyEnding_'))cutscene.cancel();
+    endingInFlight=false;document.body.classList.remove('ending-cinematic');
+  }
+
   annabelleLetterNarration?.stop();
   startModelLoads();
   // A prior restrained bedroom view must never clamp the spawn orientation of
@@ -4225,6 +4239,9 @@ const INTERLUDES = {
 
 // ---------- game reset (restart without page refresh) ----------
 function resetGame() {
+  document.body.classList.remove('ending-cinematic');
+  releaseEndingGeneration++;releaseEndingScreen.hide();endingInFlight=false;
+  resealEndingGeneration++;resealEndingScreen.hide();
   openingSequenceActive = false;
   markThoughts.clear({ reset: true });
   contextualHints.reset();
@@ -4365,6 +4382,11 @@ const KEYS_HELD_BY_CUTSCENES = new Set(['KeyF', 'KeyQ', 'KeyV', 'KeyT', 'KeyH', 
 window.addEventListener('keydown', (e) => {
   if (openingSequenceActive) return;
   if (e.code === 'KeyH') { showHint(e); return; }
+  if(e.code==='Digit9'||e.code==='Numpad9'){
+    if(!gameStarted||e.repeat||e.ctrlKey||e.metaKey||e.altKey
+      ||e.target?.closest?.('input, textarea, select, [contenteditable], [role="textbox"]'))return;
+    e.preventDefault();void prepareStudyHandoffTest();return;
+  }
   if (!player.isLocked) return;
   if (import.meta.env.DEV && (e.code === 'Digit5' || e.code === 'Digit6')) {
     if(e.repeat||e.ctrlKey||e.metaKey||e.altKey
@@ -4552,6 +4574,124 @@ const ENDING_CREDITS = {
 };
 
 let endingInFlight = false;
+let activeEndingAudio=null;
+let releaseEndingGeneration=0;
+const releaseEndingScreen=createReleaseEndingScreen({root:document.getElementById('release-ending-screen'),
+  onMenu:()=>{fade.clear();showMainMenu();},
+  onCredits:()=>{buildCredits();toggleCredits(true);}
+});
+window.addEventListener('study:release-chosen',()=>{void startStudyReleaseEnding();});
+let resealEndingGeneration=0;
+const resealEndingScreen=createReleaseEndingScreen({root:document.getElementById('reseal-ending-screen'),
+  onMenu:()=>{fade.clear();showMainMenu();},
+  onCredits:()=>{buildCredits();toggleCredits(true);}
+});
+window.addEventListener('study:reseal-chosen',()=>{void startStudyResealEnding();});
+
+
+async function startStudyReleaseEnding(){
+  if(sceneManager.activeKey!=='study'||endingInFlight||gameState.endingChosen||cutscene.isRunning
+    ||study.refs.puzzle.endingChoice!=='RELEASE'||!study.refs.puzzle.endingChoiceComplete)return false;
+  const token=++releaseEndingGeneration;
+  endingInFlight=true;gameState.endingChosen='released';
+  markThoughts.clear();captions.cancel();audio.stopVoice();player.clearKeys();
+  interaction.setEnabled(false);player.movementEnabled=false;player.lookEnabled=false;
+  script.cancel();creatureAI.stop();creatureStanding=false;setThirdPerson(false);
+  document.body.classList.add('ending-cinematic');
+  const bodyPresentation=createEndingBodyPresentation({human:playerBody,hollow:creature,visorTemplate:study.refs.visorGroup,setBodyShown:on=>{cutsceneBodyShown=on;}});
+  const endingAudio=createStudyEndingAudio(audio,{branch:'release',timing:RELEASE_TIMING,urls:endingAudioUrls,captions,onDialogueActive:on=>document.body.classList.toggle('ending-dialogue',on),cancelThoughts(){markThoughts.clear();captions.cancel();}});
+  activeEndingAudio=endingAudio;
+  let contactSeen=false,contactEffectFrames=0;
+  const endingCanvasStyle={filter:canvas.style.filter,transform:canvas.style.transform};
+  try{
+    await endingAudio.prepare();
+    if(token!==releaseEndingGeneration||sceneManager.activeKey!=='study'||gameState.endingChosen!=='released')return false;
+    const ending=buildStudyReleaseEnding({camera,player,refs:study.refs,visor,fade,timing:endingAudio.timing,
+      stopChatter(){markThoughts.clear();captions.cancel();audio.stopVoice();},
+      // The bounded audio timeline replaces the old independent one-shots/loops.
+      updateAudio:t=>endingAudio.update(t),stopAudio:()=>endingAudio.dispose(),
+      showIdentity:(identity,pose)=>{
+        bodyPresentation.show(identity,pose);
+        document.getElementById('ending-glitch').style.opacity=String(pose?.glitch??0);
+        const scratch=document.getElementById('ending-claw-scratch');
+        scratch.style.opacity=pose?.scratch>0?'1':'0';
+        scratch.style.setProperty('--scratch',String(pose?.scratch??0));
+        canvas.style.filter=pose?.blur>0?`blur(${pose.blur.toFixed(2)}px)`:endingCanvasStyle.filter;
+        if(pose?.contactHit&&!contactSeen){contactSeen=true;contactEffectFrames=2;}
+        const distort=contactEffectFrames>0;if(distort)contactEffectFrames--;
+        canvas.style.transform=distort?'translate(2px,-1px) skewX(.6deg)':endingCanvasStyle.transform;
+        if(distort)document.getElementById('ending-glitch').style.opacity='.4';
+      }
+    });
+    const done=await cutscene.playScene(ending);
+    if(!done||token!==releaseEndingGeneration||gameState.endingChosen!=='released')return false;
+    interaction.setEnabled(false);player.movementEnabled=false;player.lookEnabled=false;
+    hud.style.display='none';crosshair.style.display='none';promptEl.style.display='none';
+    menuOverlayState='release-ending';startScreen.classList.add('hidden');
+    releaseEndingScreen.show();if(player.isLocked)player.unlock();fade.clear();
+    return true;
+  }finally{
+    endingAudio.dispose();if(activeEndingAudio===endingAudio)activeEndingAudio=null;
+    canvas.style.filter=endingCanvasStyle.filter;canvas.style.transform=endingCanvasStyle.transform;
+    document.getElementById('ending-claw-scratch').style.opacity='0';
+    document.getElementById('ending-glitch').style.opacity='0';
+    bodyPresentation.restore(token===releaseEndingGeneration);
+    if(token===releaseEndingGeneration){endingInFlight=false;document.body.classList.remove('ending-cinematic');}
+  }
+}
+
+async function startStudyResealEnding(){
+  if(sceneManager.activeKey!=='study'||endingInFlight||gameState.endingChosen||cutscene.isRunning
+    ||study.refs.puzzle.endingChoice!=='RESEALED'||!study.refs.puzzle.endingChoiceComplete)return false;
+  const token=++resealEndingGeneration;
+  endingInFlight=true;gameState.endingChosen='contained';
+  markThoughts.clear();captions.cancel();audio.stopVoice();player.clearKeys();
+  interaction.setEnabled(false);player.movementEnabled=false;player.lookEnabled=false;
+  script.cancel();creatureAI.stop();creatureStanding=false;setThirdPerson(false);
+  document.body.classList.add('ending-cinematic');
+  const bodyPresentation=createEndingBodyPresentation({human:playerBody,hollow:creature,visorTemplate:study.refs.visorGroup,setBodyShown:on=>{cutsceneBodyShown=on;}});
+  const endingAudio=createStudyEndingAudio(audio,{branch:'reseal',timing:RESEAL_TIMING,urls:endingAudioUrls,captions,onDialogueActive:on=>document.body.classList.toggle('ending-dialogue',on),cancelThoughts(){markThoughts.clear();captions.cancel();}});
+  activeEndingAudio=endingAudio;
+  let contactSeen=false,contactEffectFrames=0;
+  const endingCanvasStyle={filter:canvas.style.filter,transform:canvas.style.transform};
+  try{
+    await endingAudio.prepare();
+    if(token!==resealEndingGeneration||sceneManager.activeKey!=='study'||gameState.endingChosen!=='contained')return false;
+    const ending=buildStudyResealEnding({camera,player,refs:study.refs,visor,fade,timing:endingAudio.timing,
+      stopChatter(){markThoughts.clear();captions.cancel();audio.stopVoice();},
+      updateAudio:t=>endingAudio.update(t),stopAudio:()=>endingAudio.dispose(),
+      muffleNight(progress=1){endingAudio.setAmbienceBase(-5*progress);audio.setMuffle(.24*Math.min(1,progress),1.2);},
+      restoreNight(){audio.duck(['amb'],0,{attack:.4,hold:0,release:0});audio.setMuffle(0,.4);},
+      showIdentity:(identity,pose)=>{
+        bodyPresentation.show(identity,pose);
+        document.getElementById('ending-glitch').style.opacity=String(pose?.glitch??0);
+        const scratch=document.getElementById('ending-claw-scratch');
+        scratch.style.opacity=pose?.scratch>0?'1':'0';
+        scratch.style.setProperty('--scratch',String(pose?.scratch??0));
+        canvas.style.filter=pose?.blur>0?`blur(${pose.blur.toFixed(2)}px)`:endingCanvasStyle.filter;
+        if(pose?.contactHit&&!contactSeen){contactSeen=true;contactEffectFrames=2;}
+        const distort=contactEffectFrames>0;if(distort)contactEffectFrames--;
+        canvas.style.transform=distort?'translate(2px,-1px) skewX(.6deg)':endingCanvasStyle.transform;
+        if(distort)document.getElementById('ending-glitch').style.opacity='.4';
+      }
+    });
+    const done=await cutscene.playScene(ending);
+    if(!done||token!==resealEndingGeneration||gameState.endingChosen!=='contained')return false;
+    interaction.setEnabled(false);player.movementEnabled=false;player.lookEnabled=false;
+    hud.style.display='none';crosshair.style.display='none';promptEl.style.display='none';
+    menuOverlayState='reseal-ending';startScreen.classList.add('hidden');
+    resealEndingScreen.show();if(player.isLocked)player.unlock();fade.clear();
+    return true;
+  }finally{
+    endingAudio.dispose();if(activeEndingAudio===endingAudio)activeEndingAudio=null;
+    canvas.style.filter=endingCanvasStyle.filter;canvas.style.transform=endingCanvasStyle.transform;
+    document.getElementById('ending-glitch').style.opacity='0';
+    document.getElementById('ending-claw-scratch').style.opacity='0';
+    bodyPresentation.restore(token===resealEndingGeneration);
+    if(token===resealEndingGeneration){endingInFlight=false;document.body.classList.remove('ending-cinematic');}
+  }
+}
+
 
 /**
  * Time ran out on Medium or Hard. Not a story ending, so no camera shot and
@@ -4582,6 +4722,8 @@ async function playOutOfTime() {
 }
 
 async function playEnding(which) {
+  if(which==='released')return startStudyReleaseEnding();
+  if(which==='contained')return startStudyResealEnding();
   const committedChoice = study.refs.puzzle.endingChoice;
   if (endingInFlight || gameState.endingChosen || cutscene.isRunning
     || (which === 'released' ? committedChoice !== 'RELEASE'
@@ -4824,6 +4966,8 @@ function toggleCredits(show) {
   if (show && player.isLocked) player.unlock();
 }
 creditsCloseBtn.addEventListener('click', () => {
+  if(menuOverlayState==='release-ending'&&gameState.endingChosen==='released'){toggleCredits(false);releaseEndingScreen.show({ready:true});return;}
+  if(menuOverlayState==='reseal-ending'&&gameState.endingChosen==='contained'){toggleCredits(false);resealEndingScreen.show({ready:true});return;}
   if (menuOverlayState === 'credits') {
     showMainMenu();
     return;
@@ -5014,6 +5158,9 @@ function clearStartupFrame() {
 }
 
 function beginGame() {
+  document.body.classList.remove('ending-cinematic');
+  releaseEndingGeneration++;releaseEndingScreen.hide();endingInFlight=false;
+  resealEndingGeneration++;resealEndingScreen.hide();
   clearStartupFrame();
   // A fresh run by definition, so it starts from fresh story state. Without
   // this the only thing that ever cleared endingChosen was resetGame(), and a
@@ -5193,6 +5340,34 @@ player.controls.addEventListener('unlock', () => {
   if (gameState.endingChosen) return;
   showPauseScreen();
 });
+
+// Testing shortcut: jump directly to the completed reveal's real keycard offer.
+let studyHandoffTestBusy=false;
+async function prepareStudyHandoffTest(){
+  if(studyHandoffTestBusy)return;studyHandoffTestBusy=true;
+  try{
+    document.body.classList.remove('ending-cinematic');
+    releaseEndingGeneration++;resealEndingGeneration++;
+    releaseEndingScreen.hide();resealEndingScreen.hide();endingInFlight=false;
+    abortTransition();cutscene.cancel();annabelleLetterNarration.stop();markThoughts.clear();captions.cancel();audio.stopVoice();
+    documentUI.close({complete:false});toggleCredits(false);fade.clear();
+    gameState.endingChosen=null;gameState.letterRead=true;menuOverlayState='game';
+    startScreen.classList.add('hidden');player.clearKeys();player.lock();
+    player.movementEnabled=false;player.lookEnabled=false;interaction.setEnabled(false);
+    startModelLoads();await study.prepare();await study.refs.cornerReady;
+    activateLevel('study');setThirdPerson(false);
+    consumeItem('hollowOverrideKey');pickUpItem('visor',{animate:false});visor.set(true);visor.refresh();
+    study.refs.prepareHandoffTest();
+    const target=study.refs.hollowOverrideKey.getWorldPosition(new THREE.Vector3());
+    const dx=target.x-CHAIR_EYE[0],dz=target.z-CHAIR_EYE[2];
+    player.spawn(CHAIR_EYE[0],CHAIR_EYE[2],Math.atan2(-dx,-dz),Math.atan2(target.y-CHAIR_EYE[1],Math.hypot(dx,dz)));
+    player.setLookBounds(null);player.crouch=0;player.lookEnabled=true;player.movementEnabled=true;
+    interaction.setEnabled(true);captions.setPaused(false);audio.resume();
+    hud.style.display='block';crosshair.style.display='block';
+    objectiveEl.textContent="Take the Project HOLLOW access keycard from Annabelle's hand.";
+    showCaption("Level 3 test: take Annabelle's keycard.");
+  }finally{studyHandoffTestBusy=false;}
+}
 
 // ---------- dev-only test hook ----------
 //
@@ -6215,6 +6390,8 @@ function tick() {
     || (sceneManager.activeKey === 'hallwayBasement' && performance.now() < levelTwoCriticalUntil) });
 
   postFX.update(dt);
+  // Endings retain perception casting (Annabelle) but use an unfiltered film image.
+  if(endingInFlight)postFX.visorPass.visor=0;
   // The rush's blackout overrides every light the levels and the storm set
   // above, so it goes after all of them.
   applyHouseBlackout();
