@@ -13,6 +13,7 @@ import { createCutsceneRunner } from '../src/core/Cutscene.js';
 import { createStudyMirrorReflection } from '../src/cutscenes/studyMirrorReflection.js';
 import { CaptionSequencer } from '../src/core/CaptionSequencer.js';
 import { Interaction } from '../src/core/Interaction.js';
+import { resolveCircle } from '../src/core/collision.js';
 import { buildStudyReveal, studyMirrorRoute, createStudyChoreography, REVEAL_DURATION, REVEAL_TIMES, REVEAL_DIALOGUE, CHAIR_EYE, poseStudyCreature, MIRROR_EYE } from '../src/cutscenes/studyReveal.js';
 import { ANNABELLE_FINAL_LETTER } from '../src/story/studyReveal.js';
 
@@ -104,6 +105,28 @@ try {
     assert(contents && !contents.visible, 'restricted records visible while locked');
     const recordTargets = contents.children.filter(t => /^Select /.test(t.userData.interact?.label ?? ''));
     assert.equal(recordTargets.length, 3);
+    const cabinet = contents.parent;
+    const cabinetCollision = level.colliders.find(box =>
+      Math.abs(box.minX - (cabinet.position.x - 1.07)) < 1e-6
+      && Math.abs(box.maxX - (cabinet.position.x + 1.07)) < 1e-6);
+    assert(cabinetCollision, 'restricted cabinet has no hand clearance');
+    const closedFront = cabinetCollision.maxZ;
+    function assertCabinetClearance() {
+      level.group.updateMatrixWorld(true);
+      const leaves = new THREE.Box3().setFromObject(level.refs.hollowArchivePanel);
+      leaves.union(new THREE.Box3().setFromObject(level.group.getObjectByName('RestrictedArchiveRightHinge')));
+      const position = { x: cabinet.position.x, z: cabinetCollision.maxZ + 0.6 };
+      for (let step = 0; step < 60; step++) {
+        position.z -= 0.04;
+        resolveCircle(position, 0.35, [cabinetCollision]);
+      }
+      assert(position.z - leaves.max.z > 0.55, 'hand can reach through cabinet doors');
+      const record = recordTargets[0].getWorldPosition(new THREE.Vector3());
+      assert(Math.hypot(position.x - record.x, position.z - record.z) < 3.2,
+        'cabinet clearance makes records unreachable');
+      assert.equal(cabinetCollision.minY, cabinet.position.y, 'loft collider blocks downstairs');
+    }
+    assertCabinetClearance();
     const previousWindow = globalThis.window;
     globalThis.window = { addEventListener() {} };
     const prompt = { style: {}, textContent: '' };
@@ -155,13 +178,17 @@ try {
     assertRecordPrompts(false);
     level.update(0.1);
     assertRecordPrompts(false);
+    assertCabinetClearance();
     level.update(1);
     assert(contents.visible, 'unlocked records remain hidden');
     assertRecordPrompts(true);
+    assertCabinetClearance();
+    assert(cabinetCollision.maxZ > closedFront + 0.6, 'collision did not follow open doors');
     level.update(1);
     for (const target of recordTargets) assert.equal(level.interactables.filter(t => t === target).length, 1);
     level.reset();
     assertRecordPrompts(false);
+    assert.equal(cabinetCollision.maxZ, closedFront, 'reset retained open-door collision');
     assert(!contents.visible && !key.visible, 'reset retained unlocked cabinet presentation');
     console.log('PASS: locked archive visibility, recessed letter pull, outward keyhole and seated key through opening/reset.');
   }
@@ -277,7 +304,7 @@ try {
   for (const cancelAt of [null, 0.2, 3, 13.5, 18, 28, 31, REVEAL_DURATION-2]) {
     gameState.inventory.clear(); gameState.hasVisor = true; gameState.visorWorn = true; gameState.endingChosen = false;
     const camera = new THREE.PerspectiveCamera(70, 16 / 9, 0.05, 100);
-    camera.position.set(4.4, 4.7, -5.35);
+    camera.position.set(4.4, 4.7, -4.55);
     const player = { eyeHeight: 1.6, groundY: 3.1, movementEnabled: true, lookEnabled: true,
       cinematic: false, isLocked: true, crouch: 0, sprint: 0, keys: {}, clearKeys() { this.keys = {}; },
       aim(yaw, pitch) { camera.rotation.set(pitch, yaw, 0, 'YXZ'); }, spawn() { throw new Error('unexpected teleport'); } };
@@ -390,7 +417,7 @@ try {
   }
   // Bound frame-to-frame camera velocity and quaternion changes at 120 Hz.
   const initialQuaternion = new THREE.Quaternion().toArray();
-  const choreography = createStudyChoreography([4.4,4.7,-5.35],initialQuaternion,[-7.25,-5.9]);
+  const choreography = createStudyChoreography([4.4,4.7,-4.55],initialQuaternion,[-7.25,-5.9]);
   let before=choreography(0),maxSpeed=0,maxAngular=0;
   for(let i=1;i<=Math.ceil(REVEAL_DURATION*120);i++){
     const now=choreography(Math.min(REVEAL_DURATION,i/120));

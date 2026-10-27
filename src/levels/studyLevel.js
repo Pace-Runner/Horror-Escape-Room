@@ -1450,13 +1450,31 @@ export function createStudyLevel({
   }
 
   // Furniture stays static. Original puzzle panels, hit targets and slide clocks stay separate.
+  let restrictedCabinetCollider;
   for (const station of [memoryArchive, hollowAlcove]) {
-    colliders.push({
+    const collider = {
       minX: station.position.x - 0.82, maxX: station.position.x + 0.82,
       minZ: station.position.z - 0.235, maxZ: station.position.z + 0.285,
       minY: LOFT_Y, maxY: LOFT_Y + 2.26
+    };
+    colliders.push(collider);
+    if (station === hollowAlcove) restrictedCabinetCollider = collider;
+  }
+  function syncRestrictedCabinetCollision() {
+    // Camera-mounted hands extend beyond the player's 35 cm body radius.
+    // Leave another 25 cm around this cabinet, including the opening leaves.
+    const handClearance = 0.25;
+    const doorReach = 0.70 * Math.max(
+      Math.abs(Math.sin(restrictedLeftHinge.rotation.y)),
+      Math.abs(Math.sin(restrictedRightHinge.rotation.y))
+    );
+    Object.assign(restrictedCabinetCollider, {
+      minX: hollowAlcove.position.x - 0.82 - handClearance,
+      maxX: hollowAlcove.position.x + 0.82 + handClearance,
+      maxZ: hollowAlcove.position.z + 0.29 + doorReach + 0.045 + handClearance
     });
   }
+  syncRestrictedCabinetCollision();
   loadStudyModel(archiveCabinetUrl).then((model) => {
     // Existing visor cover / letter drawer occupy this service recess instead.
     model.getObjectByName('Archive_Service_Panel').visible = false;
@@ -2165,6 +2183,7 @@ export function createStudyLevel({
           restrictedDoorMotion.update(1,true);letterDoorMotion.update(1,true);
           restrictedContents.visible = true;
           syncTruthRecordTargets();
+          syncRestrictedCabinetCollision();
           letterPaper.visible=!direct;letterHit.visible=!direct;
           const letterIndex=interactables.indexOf(letterHit);
           if(direct&&letterIndex>=0)interactables.splice(letterIndex,1);
@@ -2245,6 +2264,7 @@ export function createStudyLevel({
       restrictedContents.visible = false;
       restrictedDoorMotion.reset();
       syncTruthRecordTargets();
+      syncRestrictedCabinetCollision();
       setGallerySight(false);
       const restrictedIndex = interactables.indexOf(restrictedPlaque.mesh);
       if (restrictedIndex >= 0) interactables.splice(restrictedIndex, 1);
@@ -2353,6 +2373,7 @@ export function createStudyLevel({
       memoryDoorMotion.update(dt, puzzle.memoryArchiveUnlocked);
       restrictedDoorMotion.update(dt, puzzle.correctedTrailSolved);
       syncTruthRecordTargets();
+      syncRestrictedCabinetCollision();
       restrictedContents.visible = puzzle.correctedTrailSolved;
       visorCoverMotion.update(dt, puzzle.memoryArchiveSolved);
       letterDoorMotion.update(dt, puzzle.truthRecordsSolved);

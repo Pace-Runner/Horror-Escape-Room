@@ -5183,7 +5183,7 @@ if (import.meta.env.DEV) {
       gameState.letterRead=direct;gameState.endingChosen=null;
       consumeItem('hollowOverrideKey');pickUpItem('visor',{animate:false});visor.set(false);visor.refresh();
       postFX.visorPass.uniforms.uPanic.value=0;postFX.visorPass.uniforms.uDescentPanic.value=0;
-      player.crouch=0;player.setLookBounds(null);player.spawn(4.4,-5.35,0,-Math.atan2(1.13,.525));
+      player.crouch=0;player.setLookBounds(null);player.spawn(4.4,-4.55,0,-Math.atan2(1.13,1.325));
       player.lookEnabled=true;player.movementEnabled=true;interaction.setEnabled(true);
       if(direct){
         // The same guarded reveal entry point called by normal letter closure.
