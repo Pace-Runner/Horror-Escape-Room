@@ -3,6 +3,8 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { createVisorGallery } from './studyVisorGallery.js';
 import { createStudyDecor } from './studyDecor.js';
 import { createCandleFlames } from '../world/CandleFlames.js';
+import { createHearthFire } from '../world/HearthFire.js';
+import { createStudyFireplaceDressing } from './studyFireplace.js';
 import { createStudySurfaces } from './studySurfaces.js';
 import { createAnnabelle } from './annabelleFigure.js';
 import { createOkabeCreature } from '../systems/OkabeCreature.js';
@@ -73,7 +75,9 @@ export function createStudyLevel({
 
   const studySurfaces = createStudySurfaces();
   const loadStudyModel = (url) => loadModel(url).then(model => studySurfaces.harmoniseAsset(
-    model, url === archiveCabinetUrl || url === annabelleChairUrl ? 'builtIn' : 'feature'
+    model, url === archiveCabinetUrl || url === annabelleChairUrl ? 'builtIn'
+      // The fireplace in the espresso of the trim, not the red 'feature' mahogany.
+      : url === victorianFireplaceUrl ? 'trim' : 'feature'
   ));
   const floorTex = studySurfaces.floorMap;
   const wallTex = studySurfaces.wallMap;
@@ -1027,12 +1031,28 @@ export function createStudyLevel({
   fireplace.name = 'Victorian_Fireplace';
   fireplace.position.set(-5.3, 0, -6.26);
   group.add(fireplace);
+  // Slips, slate, iron and the fender (studyFireplace.js), and a low fire in
+  // the grate (world/HearthFire.js). Both built now, so the warm-up sees the
+  // fire's light and shaders; only the GLB's re-surfacing waits for its load.
+  const fireplaceDressing = createStudyFireplaceDressing({ brassMaterial: crestBrassMat });
+  fireplace.add(fireplaceDressing.group);
+  const hearthFire = createHearthFire();
+  fireplace.add(hearthFire.group);
+  {
+    const fender = fireplaceDressing.fenderBounds;
+    colliders.push({
+      minX: fireplace.position.x + fender.minX, maxX: fireplace.position.x + fender.maxX,
+      minZ: fireplace.position.z + fender.minZ, maxZ: fireplace.position.z + fender.maxZ,
+      minY: 0, maxY: fender.maxY
+    });
+  }
   loadStudyModel(victorianFireplaceUrl).then((model) => {
     model.traverse((object) => {
       if (!object.isMesh) return;
       object.castShadow = false;
       object.receiveShadow = true;
     });
+    fireplaceDressing.dressModel(model);
     fireplace.add(model);
   }).catch((error) => console.warn('Victorian fireplace could not load:', error));
   colliders.push({
@@ -2230,6 +2250,8 @@ export function createStudyLevel({
       mirror,
       /** See world/CrystalDecanter.js: main.js films the room into it once it is lit. */
       decanter,
+      /** world/HearthFire.js: the fire in the study grate. */
+      fire: hearthFire,
       installMirrorReflection(presentation) {
         mirrorPresentation?.dispose();
         mirrorPresentation = presentation;
@@ -2493,6 +2515,7 @@ export function createStudyLevel({
       visorCoverMotion.update(dt, puzzle.memoryArchiveSolved);
       letterDoorMotion.update(dt, puzzle.truthRecordsSolved);
       clockMechanism.update(dt, puzzle.clockSolved);
+      hearthFire.update(dt);
       const crestTargetX = puzzle.crestSolved ? 2.05 : 0;
       const previousCrestTravel = crestCoverTravel;
       crestCoverTravel += (crestTargetX - crestCoverTravel) * Math.min(1, dt * 5);

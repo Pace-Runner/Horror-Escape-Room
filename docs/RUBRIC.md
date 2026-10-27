@@ -79,6 +79,7 @@ that the others do not?*"
 | Dynamic skybox | the animated night sky outside the study, `src/levels/studyExterior.js` (`StudyNightSky`) |
 | Fog | the backrooms, `src/levels/backroomsLevel.js` |
 | **Candle flames** | every flame in a room is one instanced draw: shader-carved teardrops that lean in drafts, door gusts and the player's wake, with a fixed pool of flickering lights handed to the nearest candles, `src/world/CandleFlames.js` |
+| **Hearth fire** | procedural fire in the study grate: fbm-noise flame sheets (additive), shader-animated sparks, glowing ember logs and one flickering light; procedurally painted majolica slips and slate, `src/world/HearthFire.js`, `src/levels/studyFireplace.js` |
 | Curves and surfaces | Lathe, Tube, Extrude and CatmullRom geometry throughout (the decanter, cables, trim) |
 
 ## Shaders (10%) -- every member must be able to explain these

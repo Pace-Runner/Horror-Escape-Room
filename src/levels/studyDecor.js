@@ -155,6 +155,48 @@ export function createStudyDecor({ woodMaterial, brassMaterial, candles = null }
     return object;
   }
 
+  // Mantel garniture: a pair of baluster vases and a bell jar of dead roses.
+  // Not a clock (it would look like part of the clock puzzle), not a mirror
+  // (the study's mirror is meant to be the only one not broken), and not
+  // another photo (the portrait carries that reveal).
+  const vaseGeometry = new THREE.LatheGeometry([
+    [0.03, 0], [0.05, 0.03], [0.065, 0.09], [0.045, 0.16], [0.028, 0.20], [0.04, 0.24], [0.036, 0.245]
+  ].map(([radius, height]) => new THREE.Vector2(radius, height)), 12);
+  const glaze = new THREE.MeshStandardMaterial({ color: 0x3a2f2a, roughness: 0.45 });
+  const stem = new THREE.MeshStandardMaterial({ color: 0x4f4232, roughness: 0.9 });
+  const deadRose = new THREE.MeshStandardMaterial({ color: 0x5e3434, roughness: 0.85 });
+  const jarGlass = new THREE.MeshStandardMaterial({
+    color: 0xc8d2cf, transparent: true, opacity: 0.16, roughness: 0.08, depthWrite: false
+  });
+  const jarSideGeometry = new THREE.CylinderGeometry(1, 1, 1, 18, 1, true);
+  const roseGeometry = new THREE.SphereGeometry(1, 8, 6);
+  function vase() {
+    const object = prop('Decor_Baluster_Vase');
+    mesh(object, vaseGeometry, glaze, [1, 1, 1], [0, 0, 0]);
+    for (const [x, z, lean] of [[-0.008, 0, -0.12], [0.009, 0.006, 0.1], [0, -0.008, 0.02]]) {
+      const twig = cylinder(object, stem, 0.0025, 0.14, [x, 0.30, z]);
+      twig.rotation.z = lean;
+    }
+    return object;
+  }
+  function bellJar() {
+    const object = prop('Decor_Bell_Jar_Dead_Roses');
+    cylinder(object, woodMaterial, 0.085, 0.03, [0, 0.015, 0]);
+    for (const [x, z, h] of [[-0.02, 0.01, 0.13], [0.018, -0.006, 0.15], [0, 0.02, 0.11]]) {
+      cylinder(object, stem, 0.0028, h, [x, 0.03 + h / 2, z]);
+      mesh(object, roseGeometry, deadRose, [0.017, 0.014, 0.017], [x, 0.03 + h, z]);
+    }
+    // The glass last, and not in the instanced batches: drawn after the roses.
+    const side = new THREE.Mesh(jarSideGeometry, jarGlass);
+    side.scale.set(0.07, 0.2, 0.07);
+    side.position.y = 0.13;
+    const top = new THREE.Mesh(domeGeometry, jarGlass);
+    top.scale.set(0.07, 0.07, 0.07);
+    top.position.y = 0.23;
+    object.add(side, top);
+    return object;
+  }
+
   function createBookcase(index, loft = false) {
     const object = prop('Decor_Open_Bookcase');
     box(object, woodMaterial, [2.8, 2.8, 0.025], [0, 1.4, -0.212]);
@@ -205,10 +247,14 @@ export function createStudyDecor({ woodMaterial, brassMaterial, candles = null }
     const pen = cylinder(desk, brassMaterial, 0.0025, 0.13, [0.40, 0.793, 0.015]);
     pen.rotation.z = Math.PI / 2;
 
-    place(fireplace, candle(), -0.68, 1.46, 0.08);
-    place(fireplace, photo(photoTexture, 0.24, 0.18), -0.04, 1.46, 0.025, -0.07);
-    place(fireplace, book(2, true), 0.59, 1.46, 0.025, 0.10);
-    place(fireplace, book(4, true, 0.21, 0.026), 0.59, 1.495, 0.025, -0.035);
+    // A symmetrical garniture, as a Victorian mantel was set: candlesticks at
+    // the ends (live flames; the fire's light covers the mantel), vases, and
+    // a bell jar in the middle where the photo used to be.
+    for (const side of [-1, 1]) {
+      place(fireplace, candle(), side * 0.76, 1.46, 0.05);
+      place(fireplace, vase(), side * 0.42, 1.46, 0.02);
+    }
+    place(fireplace, bellJar(), 0, 1.46, 0.02);
 
     // Follow the chair's local left side, with clearance from its arm and the wall.
     const tablePosition = concealmentChair.localToWorld(new THREE.Vector3(-0.82, 0, 0.24));
