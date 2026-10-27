@@ -95,6 +95,44 @@ try {
   fs.writeFileSync(bundlePath, bundle.outputFiles[0].text);
   const { createStudyLevel, gameState } = await import(pathToFileURL(bundlePath));
 
+  // Cabinet presentation must follow locks, hinges and reset without leaking
+  // records or hardware through the closed doors.
+  {
+    const level = createStudyLevel({ onUseItem: id => gameState.inventory.delete(id) });
+    const contents = level.group.getObjectByName('RestrictedArchiveContents');
+    assert(contents && !contents.visible, 'restricted records visible while locked');
+    level.refs.setCorrectedSight(true);
+    level.update(0.1);
+    assert(!contents.visible, 'visor exposed locked records');
+    const pull = level.group.getObjectByName('LetterCompartmentPull');
+    level.group.updateMatrixWorld(true);
+    const pullBounds = new THREE.Box3().setFromObject(pull);
+    const pullFront = contents.worldToLocal(pullBounds.max.clone()).z;
+    assert(pullFront < 0.2675 - 0.02, 'letter pull penetrates the closed outer doors');
+
+    const key = level.group.getObjectByName('MemoryArchive_Used_Key_In_Lock');
+    const lock = key.parent;
+    assert(lock.position.z > 0.0225 && lock.rotation.y === 0, 'keyhole must face outwards');
+    assert(!key.visible);
+    gameState.inventory.add('archiveKey');
+    level.interactables.find(t => t.userData.interact?.label === 'Unlock the memory archive').userData.interact.onInteract();
+    assert(key.visible && !gameState.inventory.has('archiveKey'));
+    level.group.updateMatrixWorld(true);
+    const closedKeyPosition = key.getWorldPosition(new THREE.Vector3());
+    const seatedTransform = key.matrix.clone();
+    level.update(1);
+    level.group.updateMatrixWorld(true);
+    assert(key.matrix.equals(seatedTransform), 'inserted key moved relative to its lock');
+    assert(key.getWorldPosition(new THREE.Vector3()).distanceTo(closedKeyPosition) > 0.1,
+      'inserted key did not follow the opening door');
+    level.refs.puzzle.correctedTrailSolved = true;
+    level.update(1);
+    assert(contents.visible, 'unlocked records remain hidden');
+    level.reset();
+    assert(!contents.visible && !key.visible, 'reset retained unlocked cabinet presentation');
+    console.log('PASS: locked archive visibility, recessed letter pull, outward keyhole and seated key through opening/reset.');
+  }
+
   // Voice hooks must follow actual interactions, never visibility/proximity.
   {
     const events = []; let progress = 0, allowAuto = true;

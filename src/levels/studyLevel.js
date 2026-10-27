@@ -1043,7 +1043,7 @@ export function createStudyLevel({
   keyholeShape.lineTo(-0.004, -0.025);
   keyholeShape.closePath();
   // A real opening in one thin plate, rather than a dark decal over brass.
-  // The assembly faces the cabinet interior (-Z), with 0.5 mm rear-bevel clearance.
+  // Mount on the outward (+Z) face, near the meeting stile of the closed doors.
   const lockOutline = new THREE.Shape();
   lockOutline.moveTo(-0.0185, -0.0375);
   lockOutline.lineTo(0.0185, -0.0375);
@@ -1059,9 +1059,14 @@ export function createStudyLevel({
     depth: 0.003, bevelEnabled: true, bevelThickness: 0.0002, bevelSize: 0.0002,
     bevelSegments: 1, curveSegments: 12, steps: 1
   }), crestBrassMat);
-  archiveLock.position.set(0.22, -0.15, -0.0232);
-  archiveLock.rotation.y = Math.PI;
+  archiveLock.position.set(0.22, -0.15, 0.0232);
   archiveDoor.add(archiveLock);
+  for (const y of [-0.031, 0.031]) {
+    const screw = new THREE.Mesh(new THREE.SphereGeometry(0.0025, 8, 6), crestBrassMat);
+    screw.scale.z = 0.35;
+    screw.position.set(0, y, 0.0035);
+    archiveLock.add(screw);
+  }
   const archiveKeyhole = new THREE.Group();
   archiveKeyhole.name = 'MemoryArchive_Keyhole';
   archiveKeyhole.position.z = -0.0005;
@@ -1069,7 +1074,8 @@ export function createStudyLevel({
   archiveKeyhole.add(new THREE.Mesh(new THREE.ShapeGeometry(keyholeShape), clockHandMat));
   const archiveUsedKey = buildBrassKey();
   archiveUsedKey.name = 'MemoryArchive_Used_Key_In_Lock';
-  // Keep even the inserted teeth behind the opposite (+Z) door face.
+  // The shaft enters along -Z; the bow stays outside. Parenting to the lock
+  // keeps the inserted key seated as the door swings open.
   archiveUsedKey.position.z = 0.020;
   archiveUsedKey.rotation.x = -Math.PI / 2;
   archiveUsedKey.rotateY(0.65);
@@ -1273,6 +1279,10 @@ export function createStudyLevel({
   const hollowAlcove = new THREE.Group();
   hollowAlcove.position.set(4.4, LOFT_Y, -6.255);
   group.add(hollowAlcove);
+  const restrictedContents = new THREE.Group();
+  restrictedContents.name = 'RestrictedArchiveContents';
+  restrictedContents.visible = false;
+  hollowAlcove.add(restrictedContents);
   // The final exit bolts still share this material with the former alcove shell.
   const alcoveMat = new THREE.MeshStandardMaterial({ color: 0x272725, metalness: 0.4, roughness: 0.88 });
   const restrictedPlaque = createArchiveRecord(1.28, 0.24, 6, { fontSize: 18, paddingY: 10 });
@@ -1286,7 +1296,7 @@ export function createStudyLevel({
   };
   const restrictedHeaderMount = new THREE.Mesh(new RoundedBoxGeometry(1.32, 0.28, 0.012, 1, 0.004), restrictedCabinetMat);
   restrictedHeaderMount.position.set(0, 1.97, -0.162);
-  hollowAlcove.add(restrictedHeaderMount, restrictedPlaque.mesh);
+  restrictedContents.add(restrictedHeaderMount, restrictedPlaque.mesh);
   const hollowArchivePanel = new THREE.Mesh(new RoundedBoxGeometry(0.70, 2.04, 0.045, 1, 0.006), restrictedCabinetMat);
   const restrictedLeftHinge = new THREE.Group(), restrictedRightHinge = new THREE.Group();
   restrictedLeftHinge.name = 'RestrictedArchiveLeftHinge';
@@ -1316,19 +1326,27 @@ export function createStudyLevel({
   ];
   const annabelleLetterBody = ANNABELLE_FINAL_LETTER;
   const truthDrawer = new THREE.Group();
-  truthDrawer.position.set(0, 0.45, 0.28);
-  hollowAlcove.add(truthDrawer);
+  // Recess the complete compartment behind the outer doors (rear z = 0.2675),
+  // including the pull and its mounting posts.
+  truthDrawer.position.set(0, 0.45, 0.17);
+  restrictedContents.add(truthDrawer);
   const truthDrawerFront = new THREE.Mesh(new RoundedBoxGeometry(0.6, 0.26, 0.05, 1, 0.005), restrictedCabinetMat);
   truthDrawerFront.position.z = -0.01;
   const truthDrawerFloor = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.03, 0.23), restrictedCabinetMat);
   truthDrawerFloor.position.set(0, -0.1, -0.155);
-  const truthDrawerHandle = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.035, 0.05), crestBrassMat);
-  truthDrawerHandle.position.z = 0.03;
+  const truthDrawerHandle = new THREE.Mesh(new RoundedBoxGeometry(0.16, 0.018, 0.018, 1, 0.004), crestBrassMat);
+  truthDrawerHandle.name = 'LetterCompartmentPull';
   const letterDoorHinge = new THREE.Group();
   letterDoorHinge.name = 'LetterCompartmentHinge';
   letterDoorHinge.position.set(0, -0.13, -0.01);
   truthDrawerFront.position.set(0, 0.13, 0);
-  truthDrawerHandle.position.set(0, 0, 0.04);
+  truthDrawerHandle.position.set(0, 0, 0.052);
+  for (const x of [-0.065, 0.065]) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.028, 10), crestBrassMat);
+    post.rotation.x = Math.PI / 2;
+    post.position.set(x, 0, 0.038);
+    truthDrawerFront.add(post);
+  }
   truthDrawerFront.add(truthDrawerHandle);
   letterDoorHinge.add(truthDrawerFront);
   truthDrawer.add(letterDoorHinge, truthDrawerFloor);
@@ -1375,11 +1393,11 @@ export function createStudyLevel({
     const x = [0, 0.46, -0.46][index];
     const display = createArchiveRecord(0.404, 0.44, index + 7);
     display.mesh.position.set(x, 1.30, 0.24);
-    hollowAlcove.add(display.mesh);
+    restrictedContents.add(display.mesh);
     truthRecordDisplays.push(display);
     const border = truthRecordBorder();
     border.position.set(x, 1.30, 0.255);
-    hollowAlcove.add(border);
+    restrictedContents.add(border);
     truthRecordBorders.push(border);
     const hit = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.5, 0.12), archiveHitMat);
     hit.position.copy(display.mesh.position);
@@ -1415,7 +1433,7 @@ export function createStudyLevel({
         if (puzzle.truthRecordsSolved) voiceProgress('letter');
       }
     };
-    hollowAlcove.add(hit);
+    restrictedContents.add(hit);
     truthRecordHits.push(hit);
     interactables.push(hit);
   });
@@ -1457,7 +1475,7 @@ export function createStudyLevel({
   memoryPresentation.interior(memoryArchive, true);
   restrictedPresentation.interior(hollowAlcove, true, false);
   memoryPresentation.records(memoryContents, 0.21, 0.56, true);
-  restrictedPresentation.records(hollowAlcove, 0.24, 0.48, true, false);
+  restrictedPresentation.records(restrictedContents, 0.24, 0.48, true, false);
   memoryPresentation.memoryDoor(archiveDoor);
   memoryPresentation.memoryDoor(archiveRightDoor);
   restrictedPresentation.memoryDoor(hollowArchivePanel, 2.04);
@@ -2135,6 +2153,7 @@ export function createStudyLevel({
           }
           doorState.open=false;doorHinge.rotation.y=0;setDoorSolid(true);
           restrictedDoorMotion.update(1,true);letterDoorMotion.update(1,true);
+          restrictedContents.visible = true;
           letterPaper.visible=!direct;letterHit.visible=!direct;
           const letterIndex=interactables.indexOf(letterHit);
           if(direct&&letterIndex>=0)interactables.splice(letterIndex,1);
@@ -2212,6 +2231,7 @@ export function createStudyLevel({
       distortedTrail.visible = true;
       puzzle.correctedTrailProgress = 0;
       puzzle.correctedTrailSolved = false;
+      restrictedContents.visible = false;
       restrictedDoorMotion.reset();
       setGallerySight(false);
       const restrictedIndex = interactables.indexOf(restrictedPlaque.mesh);
@@ -2320,6 +2340,7 @@ export function createStudyLevel({
       }
       memoryDoorMotion.update(dt, puzzle.memoryArchiveUnlocked);
       restrictedDoorMotion.update(dt, puzzle.correctedTrailSolved);
+      restrictedContents.visible = puzzle.correctedTrailSolved;
       visorCoverMotion.update(dt, puzzle.memoryArchiveSolved);
       letterDoorMotion.update(dt, puzzle.truthRecordsSolved);
       clockMechanism.update(dt, puzzle.clockSolved);
