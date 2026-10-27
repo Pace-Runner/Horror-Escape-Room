@@ -78,6 +78,7 @@ that the others do not?*"
 | **Smooth vs flat shading** | the decanter body (smooth) and its cut-crystal stopper (flat), same file |
 | Dynamic skybox | the animated night sky outside the study, `src/levels/studyExterior.js` (`StudyNightSky`) |
 | Fog | the backrooms, `src/levels/backroomsLevel.js` |
+| **Candle flames** | every flame in a room is one instanced draw: shader-carved teardrops that lean in drafts, door gusts and the player's wake, with a fixed pool of flickering lights handed to the nearest candles, `src/world/CandleFlames.js` |
 | Curves and surfaces | Lathe, Tube, Extrude and CatmullRom geometry throughout (the decanter, cables, trim) |
 
 ## Shaders (10%) -- every member must be able to explain these

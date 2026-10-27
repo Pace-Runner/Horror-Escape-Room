@@ -9,6 +9,8 @@ import {
 import { addBaseboard } from '../world/trim.js';
 import { buildBrassKey, buildIronKey } from '../world/keyModels.js';
 import { createRainGlassMaterial } from '../world/RainGlassMaterial.js';
+import { createCandleFlames } from '../world/CandleFlames.js';
+import { createWallSconceKit, SCONCE_WALL_OFFSET } from '../world/wallSconce.js';
 import { loadModel, applyTextureByMaterialName } from '../world/modelLoader.js';
 import { line, linePicker } from '../dialogue/index.js';
 import { cueInfo } from '../world/audio/assets.js';
@@ -981,7 +983,63 @@ export function createBedroomLevel({
   // The two candle flames, for their crackle: main.js's audio director reads a
   // world position off each. Both are built in model-load callbacks, so each
   // adds itself when it exists, and the sound starts when its candle does.
+  // The wall sconces below are NOT in it: the director plays every anchor's
+  // loop at once, uncapped, and six crackles in a room this size would sum
+  // into a fire.
   const candleAnchors = [];
+
+  /**
+   * LIVE CANDLES (world/CandleFlames.js): every flame in this room is one
+   * instanced draw, leaning in the player's wake, the door's swing and the
+   * storm's gusts through the window, and the three nearest get a real light.
+   *
+   * Built here, synchronously, with its whole light pool. The two candles that
+   * used to have lights made them inside their models' load callbacks, after
+   * the room had been put together -- so the room's light count changed when
+   * a model arrived, and every lit material in it had to be rebuilt. The pool
+   * is in the room from the first frame and only its intensities ever change.
+   */
+  const candles = createCandleFlames({ parent: group, capacity: 12, lightCount: 3, name: 'Bedroom_Candle_Flames' });
+  // The storm window leaks: never a gale, but the flame nearest it is never quite still.
+  candles.addDraft(new THREE.Vector3(WINDOW_POSITION_X, 1.2, -ROOM_D / 2 + 0.12),
+    { direction: { x: 0, z: 1 }, strength: 0.08, radius: 2.2, unsteadiness: 0.8 });
+
+  /**
+   * Four aged-bronze wall sconces (world/wallSconce.js), the same pattern as
+   * the study's, to match the vanity's bronze candlestick. Each sits flat on
+   * its wall, at 1.62 m, where nothing else is:
+   *   - back wall, between the window (ends x -1.7) and the search nightstand
+   *     (0.33); it is above the scratched floor message, which it barely lights;
+   *   - right wall, between the bedside table (ends z -1.47) and the vanity (0.58);
+   *   - front wall, left of the door: its boards end at x 0.42;
+   *   - left wall, beyond the pinboard. The board is hinged at z -0.59 and
+   *     swings out to stand square to the wall there, so it never comes
+   *     within a metre of this one at z 0.6.
+   * Their light is an eighth of the study's (that room is lit for testing; this
+   * one by a single bulb, and then by nothing): half a metre from the flame
+   * the wall gets about twice what the bulb gives it (three times on the left
+   * wall, which the bulb barely reaches), fading out within a metre -- and
+   * once the bulb has blown, those pools are most of what there is to see by.
+   */
+  const sconceKit = createWallSconceKit({
+    metal: new THREE.MeshStandardMaterial({ color: 0x5c4a2e, metalness: 0.55, roughness: 0.6 }),
+    wax: new THREE.MeshStandardMaterial({ color: 0xd8c9a8, roughness: 0.92 }),
+    candles
+  });
+  const sconceLight = { intensity: 0.25, distance: 2.6 };
+  for (const [x, z, yaw] of [
+    [-0.55, -ROOM_D / 2 + 0.12 + SCONCE_WALL_OFFSET, 0],
+    [ROOM_W / 2 - SCONCE_WALL_OFFSET, -0.55, -Math.PI / 2],
+    [-0.60, ROOM_D / 2 - SCONCE_WALL_OFFSET, Math.PI],
+    [-ROOM_W / 2 + 0.12 + SCONCE_WALL_OFFSET, 0.6, Math.PI / 2]
+  ]) {
+    const sconce = sconceKit.build({ light: sconceLight });
+    sconce.position.set(x, 1.62, z);
+    sconce.rotation.y = yaw;
+    group.add(sconce);
+  }
+  // All four in eight instanced draws, the flames' anchors left in place.
+  sconceKit.batch(group);
 
   // Mattress, duvet and pillows now ship with bed.glb. Keeping no legacy
   // primitive stand-ins here prevents them from covering the refined asset.
@@ -1007,10 +1065,6 @@ export function createBedroomLevel({
     minZ: bedColliderMinZ,
     maxZ: bedColliderMaxZ
   });
-
-  let shelfFlame = null;
-  let shelfFlameMaterial = null;
-  let shelfCandleLight = null;
 
   loadModel(bedModelUrl).then((bedFrame) => {
     bedFrame.traverse((child) => {
@@ -1068,22 +1122,19 @@ export function createBedroomLevel({
     candleWick.position.y = 0.112;
     shelfCandle.add(candleWick);
 
-    shelfFlame = new THREE.Group();
-    shelfFlame.position.y = 0.136;
+    // The flame stands on the wick, just above the wax (top at 0.103), and
+    // burns on the room's CandleFlames. It may have one of the pool's lights,
+    // stood 12 cm out into the room: at the flame, 7 cm from the wall,
+    // it would scorch a white spot on the wallpaper rather than light it.
+    const shelfFlame = new THREE.Group();
+    shelfFlame.name = 'Level1HeadboardCandleWickTip';
+    shelfFlame.position.y = 0.106;
     shelfCandle.add(shelfFlame);
     candleAnchors.push(shelfFlame);
-    shelfFlameMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffa347, transparent: true, opacity: 0.86,
-      depthWrite: false, side: THREE.DoubleSide
+    candles.add(shelfFlame, {
+      width: 0.014, height: 0.042, halo: 0.07,
+      light: { color: 0xff9b4a, intensity: 0.18, distance: 2, decay: 2, offset: [0, 0.02, 0.12] }
     });
-    const flameGeometry = new THREE.PlaneGeometry(0.026, 0.052);
-    const flameA = new THREE.Mesh(flameGeometry, shelfFlameMaterial);
-    const flameB = new THREE.Mesh(flameGeometry, shelfFlameMaterial);
-    flameB.rotation.y = Math.PI / 2;
-    shelfFlame.add(flameA, flameB);
-    shelfCandleLight = new THREE.PointLight(0xff9b4a, 0.13, 0.72, 2);
-    shelfCandleLight.position.y = 0.13;
-    shelfCandle.add(shelfCandleLight);
 
     const shelfFrameGroup = new THREE.Group();
     shelfFrameGroup.name = 'Level1MansionFrameVisual';
@@ -1317,28 +1368,18 @@ export function createBedroomLevel({
         dresserTop.visible = true;
       }
       if (isCandlestick) {
-        // Two crossed tapered faces keep the small flame legible from either
-        // side of the vanity without a particle system or shadow map.
-        const flameGeometry = new THREE.BufferGeometry();
-        flameGeometry.setAttribute('position', new THREE.Float32BufferAttribute([
-          -0.014, 0, 0, 0.014, 0, 0, 0, 0.067, 0
-        ], 3));
-        flameGeometry.computeVertexNormals();
-        const flameMaterial = new THREE.MeshBasicMaterial({
-          color: 0xffb45e, side: THREE.DoubleSide, transparent: true,
-          opacity: 0.88, depthWrite: false
-        });
+        // The GLB's wick tops out at 0.3945, level with the melted wax: the
+        // flame's base. A live CandleFlames flame now, and a candidate for
+        // one of the pool's lights (it used to make its own, here, late).
         const flame = new THREE.Group();
+        flame.name = 'Level1VanityCandleWickTip';
         flame.position.y = 0.395;
-        const flameFront = new THREE.Mesh(flameGeometry, flameMaterial);
-        const flameSide = new THREE.Mesh(flameGeometry, flameMaterial);
-        flameSide.rotation.y = Math.PI / 2;
-        flame.add(flameFront, flameSide);
         model.add(flame);
         candleAnchors.push(flame);
-        const candleGlow = new THREE.PointLight(0xffa65a, 0.18, 0.9, 2);
-        candleGlow.position.y = 0.43;
-        model.add(candleGlow);
+        candles.add(flame, {
+          width: 0.018, height: 0.05, halo: 0.08,
+          light: { color: 0xffa65a, intensity: 0.22, distance: 2.2, decay: 2 }
+        });
       }
       dresser.add(model);
     }).catch((err) => {
@@ -1405,9 +1446,21 @@ export function createBedroomLevel({
   const doorRattleAmplitudeRadians = 0.045;
   let doorRattleRemainingSeconds = 0;
 
+  const doorGustPoint = new THREE.Vector3();
   /** Briefly nudges the locked slab without changing its puzzle-open state. */
   function rattleDoor() {
     doorRattleRemainingSeconds = doorRattleDurationSeconds;
+    // Something shaking it from the far side pumps a breath of air round the
+    // frame: only the candle by the door shivers.
+    candles.gust(doorFrame.localToWorld(doorGustPoint.set(0, 1.1, -0.2)), { strength: 0.15, radius: 1.6, life: 0.9 });
+  }
+  /**
+   * The open door's gust: it swings INTO the room (doorOpenSwing about a hinge
+   * at its left edge), shoving the air in its arc ahead of it -- 45 cm into
+   * the room from the frame, the middle of that arc. Local -z faces the room.
+   */
+  function doorSwingGust() {
+    candles.gust(doorFrame.localToWorld(doorGustPoint.set(0, 1.1, -0.45)), { strength: 0.6, radius: 2.5, life: 1.8 });
   }
 
   /**
@@ -2809,6 +2862,7 @@ export function createBedroomLevel({
         puzzleState.hasBedroomKey = false;
         onBedroomKeyUsed();
         onDoorOpening(doorSlab.getWorldPosition(new THREE.Vector3()));
+        doorSwingGust();
         showCaption(line('dialog_door_opens'));
         // Enough of the hinge swing to read as a door opening, and no more.
         // This used to be 1400ms and cut straight to Level 2; now a 700ms fade
@@ -3407,6 +3461,12 @@ export function createBedroomLevel({
       // For the audio director: where the candles burn, and how long the
       // lockbox takes to open (main.js waits that long before the door rattles).
       candleAnchors,
+      /**
+       * world/CandleFlames.js: every flame in the room and its light pool.
+       * main.js gusts it on each lightning flash, puts it out for the
+       * blackout, and ticks it while the room is seen from the hallway.
+       */
+      candles,
       lockboxOpenSeconds: LOCKBOX_OPEN_DURATION_SECONDS,
       /**
        * Runs the "something moves past the door" beat once. Returns how long it
@@ -3556,8 +3616,16 @@ export function createBedroomLevel({
       puzzleState.doorUnlocked = false;
       puzzleState.messageRead = false;
       puzzleState.polaroidRead = false;
+
+      // Every candle relit and upright, no gust in flight, the pool released.
+      candles.reset();
     },
-    update(dt) {
+    /**
+     * @param {number} dt
+     * @param {THREE.Vector3} [playerPosition] the camera, from SceneManager.update:
+     *   the candles lean in the wake of whoever walks past them.
+     */
+    update(dt, playerPosition = null) {
       if (looseBoardPry.t !== null && looseBoardPry.t < LOOSE_BOARD_LIFT.seconds + LOOSE_BOARD_SET_DOWN.seconds) {
         looseBoardPry.t += dt;
         placeLooseBoard(looseBoardPry.t);
@@ -3660,15 +3728,9 @@ export function createBedroomLevel({
           : (lampPulseOn ? LAMP_SHADE_PULSE_EMISSIVE_INTENSITY : LAMP_SHADE_OFF_EMISSIVE_INTENSITY);
       }
 
-      // The headboard candle is visual dressing only: two crossed planes and
-      // one unshadowed local light give it a quiet, inexpensive live flame.
-      if (shelfFlame && shelfFlameMaterial && shelfCandleLight) {
-        const shelfFlameFlicker = 0.90 + 0.10 * Math.sin(this._t * 7.3)
-          + 0.04 * Math.sin(this._t * 18.7);
-        shelfFlame.scale.set(0.96 + 0.04 * shelfFlameFlicker, shelfFlameFlicker, 1);
-        shelfFlameMaterial.opacity = 0.76 + 0.12 * shelfFlameFlicker;
-        shelfCandleLight.intensity = 0.11 + 0.04 * shelfFlameFlicker;
-      }
+      // Every flame in the room: flicker, lean in the player's wake and in
+      // any gust, and the light pool handed to the three nearest.
+      candles.update(dt, { playerPosition });
 
       // Storm.js drives `lightning`'s intensity up to ~3.2 during a flash;
       // feed that same value into the shader (normalised to 0-1) so the

@@ -2439,6 +2439,12 @@ let houseBlackout = null;
 
 function setHouseLightsOut(out) {
   upstairsHallway.refs.setLightsOut(out);
+  // The bedroom's candle flames are a shader, with no emissive to zero, so
+  // they are put out by name. Their pool lights are caught by the traverse
+  // below like any other, but CandleFlames rewrites their intensity every
+  // frame, so the snapshot cannot be what brings them back: relit here, each
+  // light fades in again over a third of a second as its flame catches.
+  bedroom.refs.candles?.setExtinguished(out);
   if (out && !houseBlackout) {
     const ambients = [bedroom.refs.ambient, upstairsHallway.refs.ambient];
     const lights = new Map();
@@ -3536,6 +3542,7 @@ const windowRevealLight = new THREE.SpotLight(0xbcd4ff, 0, 4, 0.95, 0.7, 2);
 
 let bedroomStorm = null;
 let rain = null;
+const thunderGustPoint = new THREE.Vector3();
 function initializeBedroomPresentation() {
   bedroomStorm = new Storm({
     bulbLight: bedroom.refs.bulbLight,
@@ -3554,6 +3561,13 @@ function initializeBedroomPresentation() {
        * in Storm.js because Storm has no business knowing a light has a shadow.
        */
       bedroom.refs.lightning.shadow.needsUpdate = true;
+      // The thunderclap shakes the old window and a breath of storm leaks in
+      // round the frame: from just outside the glass (local -z is outdoors),
+      // pushing into the room. The sconce nearest the window, two metres off,
+      // ducks and gutters; the candle on the headboard shivers; the vanity's,
+      // across the room, never feels it.
+      bedroom.refs.candles?.gust(bedroom.refs.windowGroup.localToWorld(thunderGustPoint.set(0, 0, -0.4)),
+        { strength: 0.7, radius: 3, life: 1.5 });
 
       if (windowFlashArmed && !windowFlashUsed) {
         windowFlashArmed = false;
@@ -6102,6 +6116,13 @@ function tick() {
   // The camera IS the player's position; the basement reads it to know when
   // they have walked up to the metal door.
   sceneManager.update(dt, camera.position);
+  // Only the active level is ticked, but from the hallway the bedroom is still
+  // in view through its open door (see updateDoorwayJoin) until that door
+  // shuts and hideBedroomBehind() hides it: keep its candles burning, or they
+  // freeze mid-flicker in plain sight.
+  if (sceneManager.activeKey === 'upstairsHallway' && bedroom.group.visible) {
+    bedroom.refs.candles?.update(dt, { playerPosition: camera.position });
+  }
   // Spoken captions are always shown for this forced listening moment,
   // following the same tape clock that schedules its recorded voices.
   tapeSubtitles.update();

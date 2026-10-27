@@ -12,7 +12,7 @@ import { createArchivePresentation, createArchiveRecord, buildArchiveVisor, crea
 import { addStudyFootprints } from './studyFootprints.js';
 import { addStudyArchitectureTrim } from './studyArchitectureTrim.js';
 import { createStudyExterior } from './studyExterior.js';
-import { createLeftWallWithWindows } from './studyWindows.js';
+import { createLeftWallWithWindows, STUDY_WINDOWS } from './studyWindows.js';
 import { hingeMotion, studyLabel, dressCrestControl, createCrestPanelCollision, dressStudyDoor, batchStudyPuzzleDetails } from './studyPuzzlePresentation.js';
 import { buildBrassKey } from '../world/keyModels.js';
 import { createHollowCard, createHollowReader, createPhysicalCrestTile, createResealHandle } from './studyProgressionPresentation.js';
@@ -949,7 +949,19 @@ export function createStudyLevel({
   // Every candle flame in the room is one batch; a few of them own a real
   // flickering light. The pool is fixed here, at build time, so the boot
   // warm-up compiles the room with exactly the lights it will ever have.
-  const studyCandles = createCandleFlames({ parent: group, capacity: 48, lightCount: 6, name: 'Study_Candle_Flames' });
+  // Four, not more: every light is paid by every lit pixel in the room, and
+  // again in the mirror's reflection pass once it is live. Four is enough for
+  // the sconces round the player; the rest of the seventeen stay unlit flames.
+  const studyCandles = createCandleFlames({ parent: group, capacity: 48, lightCount: 4, name: 'Study_Candle_Flames' });
+  // The three casements in the left wall are old and leak: a draught falls
+  // off the cold glass and spills into the room at each sill, so the sconces
+  // below them always lean a little away from the wall, more when the wind
+  // outside gets up. (The level sits at the world origin, so these room
+  // coordinates are the world ones CandleFlames wants.)
+  for (const z of STUDY_WINDOWS.zs) {
+    studyCandles.addDraft(new THREE.Vector3(STUDY_WINDOWS.wallX, STUDY_WINDOWS.bottom - 0.05, z),
+      { direction: { x: 1, z: 0 }, strength: 0.13, radius: 1.6, unsteadiness: 0.6 });
+  }
   const studyDecor = createStudyDecor({ woodMaterial: architectureWoodMat, brassMaterial: crestBrassMat, candles: studyCandles });
   const shelfAlongWallGeometry = new THREE.BoxGeometry(2.8, 2.8, 0.45);
   const shelfAcrossWallGeometry = new THREE.BoxGeometry(0.45, 2.8, 2.8);
@@ -1966,7 +1978,10 @@ export function createStudyLevel({
       setDoorSolid(false);
       onDoorOpening(frontDoor.getWorldPosition(new THREE.Vector3()));
       // Night air through the opened front door sets the candles guttering.
-      studyCandles.gust(frontDoor.getWorldPosition(new THREE.Vector3()), { strength: 1.1, radius: 5, life: 3.2 });
+      // The strongest push in the room (0.85 is about a 40-degree lean at the
+      // door), and the widest, but still a few metres: the sconces along the
+      // front wall gutter, the ones at the back of the room never feel it.
+      studyCandles.gust(frontDoor.getWorldPosition(new THREE.Vector3()), { strength: 0.85, radius: 5, life: 3.2 });
       showCaption('Emergency release engaged. Walk through the front exit.');
     } else {
       interactables.push(socket.handleHit);
@@ -2077,6 +2092,39 @@ export function createStudyLevel({
     [[archiveCabinetHit, ...memoryRecordHits], 'l3_memory'],
     [truthRecordHits, 'l3_restricted'], [[letterHit], 'l3_letter']
   ]) for (const target of targets) target.userData.hintKey = key;
+
+  /**
+   * AIR PUSHED OUT BY A SWINGING DOOR. A door or flap opening towards you
+   * shoves the air in front of it into the room, and the candles near it lean
+   * away and gutter for a second. One gust per opening, fired the frame the
+   * hinge has visibly started to move (an edge on the hinge's own angle, so it
+   * fires however the door was opened, and again after a restart closes it).
+   *
+   * Sized to the door, and short-ranged: the archives' tall double doors move
+   * the most air and reach the sconces either side of them, about 1.5 m off;
+   * the visor's cover and the letter flap are small and barely stir anything.
+   * `at` and `offset` put the gust a little in front of the door, in the frame
+   * of the cabinet it belongs to (which never moves, unlike the hinge itself).
+   */
+  const doorDraughts = [
+    { hinge: archiveDoorHinge, axis: 'y', at: memoryArchive, offset: [0, 1.0, 0.75], strength: 0.5, radius: 2.2 },
+    { hinge: restrictedLeftHinge, axis: 'y', at: hollowAlcove, offset: [0, 1.1, 0.75], strength: 0.55, radius: 2.3 },
+    { hinge: visorCoverHinge, axis: 'y', at: memoryArchive, offset: [0, 0.68, 0.56], strength: 0.3, radius: 1.3 },
+    { hinge: letterDoorHinge, axis: 'x', at: truthDrawer, offset: [0, 0, 0.35], strength: 0.25, radius: 1.2 },
+    // The Shadow Crest's cover, when the puzzle is solved.
+    { hinge: crestHinge, axis: 'y', at: shadowCrest, offset: [0, 0, 0.5], strength: 0.3, radius: 1.6 }
+  ].map((door) => ({ ...door, open: false }));
+  const draughtPoint = new THREE.Vector3();
+  function updateDoorDraughts() {
+    for (const door of doorDraughts) {
+      const open = Math.abs(door.hinge.rotation[door.axis]) > 0.15;
+      if (open && !door.open) {
+        studyCandles.gust(door.at.localToWorld(draughtPoint.fromArray(door.offset)),
+          { strength: door.strength, radius: door.radius, life: 1.8 });
+      }
+      door.open = open;
+    }
+  }
 
   return {
     group,
@@ -2346,6 +2394,10 @@ export function createStudyLevel({
       const visorIndex = interactables.indexOf(visorHitbox);
       if (visorIndex >= 0) interactables.splice(visorIndex, 1);
       gate.rotation.y = 0;
+      // Every candle relit and upright, no gust still in flight, the pool's
+      // lights released; the window draughts are part of the room and stay.
+      studyCandles.reset();
+      for (const door of doorDraughts) door.open = false;
     },
 
     update(dt) {
@@ -2410,6 +2462,8 @@ export function createStudyLevel({
       crestCoverTravel += (crestTargetX - crestCoverTravel) * Math.min(1, dt * 5);
       crestHinge.rotation.y = -THREE.MathUtils.degToRad(100) * crestCoverTravel / 2.05;
       if (crestCoverTravel !== previousCrestTravel) syncCrestPanelCollision();
+      // After every hinge above has moved this frame; the candles feel it next frame.
+      updateDoorDraughts();
       const doorTarget = doorState.open ? DOOR_OPEN_SWING : 0;
       doorHinge.rotation.y += (doorTarget - doorHinge.rotation.y) * Math.min(1, dt * 2.6);
     }
