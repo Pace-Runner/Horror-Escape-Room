@@ -1,7 +1,8 @@
 import * as THREE from 'three';
-import wallpaperUrl from '../assets/textures/study/option_a_damask_512.jpg?url';
+import {prepareStudyWallpaper,STUDY_PAPER_REPEAT} from './studySurfaceSampling.js';
+import wallpaperUrl from '../assets/textures/study/continuous_damask_1k.webp?url';
 import floorUrl from '../assets/textures/study/weathered_dark_hardwood_floor_texture.webp?url';
-import ceilingUrl from '../assets/textures/study/continuous_ceiling_plaster.webp?url';
+import ceilingUrl from '../assets/textures/study/continuous_plaster_v2.webp?url';
 import builtInWoodUrl from '../assets/textures/study/aged_dark_brown_wood_grain_texture.webp?url';
 import trimWoodUrl from '../assets/textures/study/aged_espresso_wood_grain_texture.webp?url';
 import featureWoodUrl from '../assets/textures/study/polished_mahogany_wood_grain_texture.webp?url';
@@ -9,12 +10,12 @@ import wallRoughnessUrl from '../assets/textures/study/wall_roughness_512.webp?u
 import floorRoughnessUrl from '../assets/textures/study/floor_roughness_512.webp?url';
 import woodRoughnessUrl from '../assets/textures/study/wood_roughness_512.webp?url';
 
-// The wall uses the cropped Option A tile; the ceiling is one continuous image.
+// Evenly lit paper with continuous sampler edges; one unbroken plaster ceiling image.
 // No runtime image baking, duplicated texture loads or large source uploads.
 const surfaceTextures = new Map();
-function loadSurface(url, color = true, mirrored = false) {
+function loadSurface(url, color = true, mirrored = false, continuous = false) {
   if (!surfaceTextures.has(url)) {
-    const map = new THREE.TextureLoader().load(url);
+    const map = new THREE.TextureLoader().load(url, continuous ? prepareStudyWallpaper : undefined);
     if (color) map.colorSpace = THREE.SRGBColorSpace;
     map.wrapS = map.wrapT = mirrored ? THREE.MirroredRepeatWrapping : THREE.RepeatWrapping;
     map.anisotropy = 4;
@@ -25,7 +26,10 @@ function loadSurface(url, color = true, mirrored = false) {
 
 /** Shared study palette. Replace synthetic wood only; preserve other authored channels. */
 export function createStudySurfaces() {
-  const wallMap = loadSurface(wallpaperUrl);
+  const wallMap = loadSurface(wallpaperUrl,true,false,true);
+  // Measured linear-albedo ratios retain the previous room brightness/palette.
+  const wallTint=new THREE.Color().setRGB(.597,.623,.644);
+  const ceilingTint=new THREE.Color().setRGB(.892,.917,.945);
   const wallRoughness = loadSurface(wallRoughnessUrl, false, true);
   const floorMap = loadSurface(floorUrl);
   const floorRoughness = loadSurface(floorRoughnessUrl, false);
@@ -193,12 +197,14 @@ export function createStudySurfaces() {
           point.fromBufferAttribute(positions, i).applyMatrix4(object.matrixWorld);
           normal.fromBufferAttribute(normals, i).transformDirection(object.matrixWorld);
           // Unwrap once around the room: adjacent walls share phase at corners.
-          // 26 square repeats close exactly around the 58m perimeter, without mirroring.
+          // Repeat one complete floral period, not a shaded square photograph.
+          // 56 repeats close around the perimeter at the original motif scale.
           const around = Math.abs(normal.x) > 0.5
             ? (normal.x < 0 ? 16 + point.z + 6.5 : 45 + 6.5 - point.z)
             : (normal.z < 0 ? 29 + 8 - point.x : point.x + 8);
-          const paperScale = 58 / 26;
-          uv.setXY(i, around / paperScale, point.y / paperScale);
+          const paperScale = 58 / 56;
+          const paperHeight=paperScale*STUDY_PAPER_REPEAT.height/STUDY_PAPER_REPEAT.width;
+          uv.setXY(i, around / paperScale, point.y / paperHeight);
           const cornerDistance = Math.abs(normal.x) > 0.5 ? 6.5 - Math.abs(point.z) : 8 - Math.abs(point.x);
           const baseWear = Math.exp(-Math.max(0, point.y) / 0.30)
             + (point.y >= 3.1 ? Math.exp(-(point.y - 3.1) / 0.22) * 0.45 : 0);
@@ -248,6 +254,6 @@ export function createStudySurfaces() {
       uv.needsUpdate = true;
     });
   }
-  return { wallMap, wallRoughness, floorMap, floorRoughness, ceilingMap, woodMaterial,
+  return { wallMap, wallTint, ceilingTint, wallRoughness, floorMap, floorRoughness, ceilingMap, woodMaterial,
     floorSurface, harmoniseAsset, ageRug, alignSurfaces };
 }

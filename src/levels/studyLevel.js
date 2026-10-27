@@ -97,6 +97,7 @@ export function createStudyLevel({
     new THREE.MeshStandardMaterial({ map: studySurfaces.ceilingMap,
       color: 0xb4b0a5, roughness: 1, metalness: 0, envMapIntensity: 0.15 })
   );
+  ceiling.material.color.multiply(studySurfaces.ceilingTint);
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.y = ROOM_H;
   ceiling.name='Study_Shadowed_Plaster';ceiling.castShadow=true;ceiling.receiveShadow=true;
@@ -104,6 +105,7 @@ export function createStudyLevel({
   group.add(ceiling);
 
   const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, color: 0xe1dbc9, roughness: 1, metalness: 0, emissive: 0, envMapIntensity: 0.1, vertexColors: true });
+  wallMat.color.multiply(studySurfaces.wallTint);
   const wallGeometry = (w, h) => new THREE.PlaneGeometry(w, h, Math.max(1, Math.ceil(w / 1.6)), Math.max(1, Math.ceil(h / 0.32)));
   function wall(w, x, z, ry) {
     const m = new THREE.Mesh(wallGeometry(w, ROOM_H), wallMat);
