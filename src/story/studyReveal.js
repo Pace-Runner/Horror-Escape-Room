@@ -1,32 +1,38 @@
 export const ANNABELLE_FINAL_LETTER = `Mark,
 
-If you're reading this, then you've forgotten again.
+I’m writing this tonight because I don’t think I can keep following you much longer.
 
-Project HOLLOW was your choice. You volunteered because you believed the treatment could make the body adapt — heal faster, survive damage that should have been permanent.
+You woke up confused and you didn’t recognise me. I tried to stop you from leaving, but every time I came near you, you looked at me like I was something else. You fought me. I’m hurt now, and I’m getting weaker. If you find me again before you understand what’s happening, I’m scared you’ll kill me.
 
-It worked.
+Project HOLLOW was never a creature. It was the project you helped create, and you were the subject.
 
-It just never stopped.
+It was meant to make the body adapt — faster healing, stronger tissue, survival after injuries that should have been fatal. You volunteered when no one else would. At first, it worked. Then the changes kept going. Your body changed, your memory began to fail, and eventually your perception changed too. You stopped recognising people. You started seeing things that weren’t really there.
 
-You started forgetting things first. Then people. Then you began seeing things that weren't there — or seeing people as something else entirely.
+That’s why you built the Calibration Visor. The visor does not distort what you see. It corrects it.
 
-You made the Calibration Visor to correct what you were seeing. It shows reality as it is. Your own eyes can no longer be trusted.
+The thing you’ve been seeing in this house — the thing following you through the halls — is me. I wasn’t hunting you. I was trying to keep the promise you made me give: if you forgot who you were and tried to leave, I had to stop you.
 
-I am not the monster you see, Mark. I'm not hunting you. I stayed in this house to help you, because you asked me to.
+The trail you’ve been following is mine too. It isn’t black. It’s blood.
 
-You made me promise that if you stopped recognising me, if you became dangerous, I would keep you contained here.
+I don’t know how much longer I have.
 
-I tried, Mark.
+You built one last safeguard into the house. Two controls beside the way out. You told me that if this ever happened, only one of them could be used. One opens the containment. The other seals it again.
 
-Whatever you think you saw me do, I was trying to stop you from getting out. You told me to. You made me promise.
+I know what you wanted before your memories started disappearing. You chose containment. You were terrified of what would happen if HOLLOW ever got outside.
 
-I'm sorry.
+But you didn’t know I would still be trapped here with you.
 
-But if you still don't believe me...
+I can’t ask you to save me. And I can’t ask you to let HOLLOW outside.
 
-Put on the visor.
+I know you don’t remember me. I know you probably don’t believe any of this. But before you decide what happens next, there’s something you need to see for yourself.
 
-Look in the mirror.
+Go downstairs.
+
+Look into the mirror.
+
+Then look again through the visor.
+
+After that, the choice is yours.
 
 — Annabelle`;
 

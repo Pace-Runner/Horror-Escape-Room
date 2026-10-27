@@ -565,7 +565,7 @@ try {
     assert(level.refs.letterHit.visible&&level.interactables.includes(level.refs.letterHit));
     level.refs.letterHit.userData.interact.onInteract(); level.refs.letterHit.userData.interact.onInteract();
     assert.equal(read.body, ANNABELLE_FINAL_LETTER);
-    assert(read.body.includes('Put on the visor.\n\nLook in the mirror.'));
+    assert(read.body.includes('Go downstairs.\n\nLook into the mirror.\n\nThen look again through the visor.'));
     read.onFinished(); read.onFinished();
     void level.refs.mirrorGlass.userData.interact.onInteract();
     assert.equal(calls, 1); assert(cutscene.isRunning);
