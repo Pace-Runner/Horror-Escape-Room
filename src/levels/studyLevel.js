@@ -29,11 +29,9 @@ import victorianFireplaceUrl from '../assets/models/study/victorian_fireplace.gl
 import shadowCrestHousingUrl from '../assets/models/study/shadow_crest_housing.glb?url';
 import emergencyReleasePanelUrl from '../assets/models/study/emergency_release_panel.glb?url';
 import manualResealPanelUrl from '../assets/models/study/manual_reseal_panel.glb?url';
-import { createFamilyPhotoTexture } from '../world/textures.js';
 import { makeHandle } from '../world/trim.js';
 import { DOOR_PANEL_ROWS, getPanelSpans } from '../world/doorPanels.js';
 import { gameState } from '../core/GameState.js';
-import { createHiddenWritingTexture } from '../world/textures.js';
 import { line } from '../dialogue/index.js';
 import { ANNABELLE_FINAL_LETTER } from '../story/studyReveal.js';
 
@@ -93,7 +91,7 @@ export function createStudyLevel({
   );
   ceiling.rotation.x = Math.PI / 2;
   ceiling.position.y = ROOM_H;
-  ceiling.geometry.attributes.uv.array.forEach((value, i, array) => { array[i] = value * (i % 2 ? ROOM_D : ROOM_W) / 6; });
+  // Default 0..1 UVs cover the room with one continuous plaster image.
   group.add(ceiling);
 
   const wallMat = new THREE.MeshStandardMaterial({ map: wallTex, color: 0xe1dbc9, roughness: 1, metalness: 0, emissive: 0, envMapIntensity: 0.1, vertexColors: true });
@@ -978,7 +976,7 @@ export function createStudyLevel({
       });
     }
   }
-  // Dressing bays leave the portrait, entry, stair approach and mirror clear.
+  // Dressing bays leave the entry, stair approach and mirror clear.
   // The rear-left downstairs bay is reserved for Annabelle and her chair.
   addShelf(-7.75, 1.4, -2, false, true, { index: 0 });
   [-2.4, 0.4].forEach((x) => addShelf(x, 1.4, -6.25, true, true, { index: x === 0.4 ? 1 : 5 }));
@@ -1013,37 +1011,6 @@ export function createStudyLevel({
   rug.position.set(STUDY_RUG.x, STUDY_RUG.y, STUDY_RUG.z);
   group.add(rug);
 
-  /**
-   * The portrait, in two states.
-   *
-   * Uncorrected it is the same three people the bedroom's photographs show.
-   * Through the visor there are four, and the fourth is scratched out -- which
-   * is the storyline's reveal: "the same family picture seen in the first room,
-   * this time with a 4th person, scratched out with marker."
-   *
-   * Both textures are built up front and swapped, rather than one being redrawn,
-   * so putting the visor on and taking it off is instant and can be done as many
-   * times as the player likes without repainting a canvas.
-   */
-  const portraitTexPlain = createFamilyPhotoTexture();
-  const portraitTexTrue = createFamilyPhotoTexture({ figures: 4, scratchedFourth: true });
-  const portraitMat = new THREE.MeshStandardMaterial({ map: portraitTexPlain, color: 0xc0b6a4, roughness: 0.96 });
-  const portrait = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 0.7), portraitMat);
-  portrait.position.set(-ROOM_W / 2 + 0.05, 1.7, 1);
-  portrait.rotation.y = Math.PI / 2;
-  portrait.userData.hintKey = 'l3_visor';
-  portrait.userData.interact = {
-    label: 'Examine family portrait',
-    onInteract: () => {
-      showCaption(line(portraitMat.map === portraitTexTrue
-        ? 'dialog_portrait_with_visor'
-        : 'dialog_portrait_without_visor'));
-      correctedEvidence();
-    }
-  };
-  interactables.push(portrait);
-  group.add(portrait);
-
   // Puzzle 3: loft records station, facing the open approach from the stairs.
   const memoryArchive = new THREE.Group();
   memoryArchive.name = 'MemoryArchive';
@@ -1076,7 +1043,7 @@ export function createStudyLevel({
   keyholeShape.lineTo(-0.004, -0.025);
   keyholeShape.closePath();
   // A real opening in one thin plate, rather than a dark decal over brass.
-  // The assembly faces the cabinet interior (-Z), with 0.5 mm rear-bevel clearance.
+  // Mount on the outward (+Z) face, near the meeting stile of the closed doors.
   const lockOutline = new THREE.Shape();
   lockOutline.moveTo(-0.0185, -0.0375);
   lockOutline.lineTo(0.0185, -0.0375);
@@ -1092,9 +1059,14 @@ export function createStudyLevel({
     depth: 0.003, bevelEnabled: true, bevelThickness: 0.0002, bevelSize: 0.0002,
     bevelSegments: 1, curveSegments: 12, steps: 1
   }), crestBrassMat);
-  archiveLock.position.set(0.22, -0.15, -0.0232);
-  archiveLock.rotation.y = Math.PI;
+  archiveLock.position.set(0.22, -0.15, 0.0232);
   archiveDoor.add(archiveLock);
+  for (const y of [-0.031, 0.031]) {
+    const screw = new THREE.Mesh(new THREE.SphereGeometry(0.0025, 8, 6), crestBrassMat);
+    screw.scale.z = 0.35;
+    screw.position.set(0, y, 0.0035);
+    archiveLock.add(screw);
+  }
   const archiveKeyhole = new THREE.Group();
   archiveKeyhole.name = 'MemoryArchive_Keyhole';
   archiveKeyhole.position.z = -0.0005;
@@ -1102,7 +1074,8 @@ export function createStudyLevel({
   archiveKeyhole.add(new THREE.Mesh(new THREE.ShapeGeometry(keyholeShape), clockHandMat));
   const archiveUsedKey = buildBrassKey();
   archiveUsedKey.name = 'MemoryArchive_Used_Key_In_Lock';
-  // Keep even the inserted teeth behind the opposite (+Z) door face.
+  // The shaft enters along -Z; the bow stays outside. Parenting to the lock
+  // keeps the inserted key seated as the door swings open.
   archiveUsedKey.position.z = 0.020;
   archiveUsedKey.rotation.x = -Math.PI / 2;
   archiveUsedKey.rotateY(0.65);
@@ -1306,6 +1279,10 @@ export function createStudyLevel({
   const hollowAlcove = new THREE.Group();
   hollowAlcove.position.set(4.4, LOFT_Y, -6.255);
   group.add(hollowAlcove);
+  const restrictedContents = new THREE.Group();
+  restrictedContents.name = 'RestrictedArchiveContents';
+  restrictedContents.visible = false;
+  hollowAlcove.add(restrictedContents);
   // The final exit bolts still share this material with the former alcove shell.
   const alcoveMat = new THREE.MeshStandardMaterial({ color: 0x272725, metalness: 0.4, roughness: 0.88 });
   const restrictedPlaque = createArchiveRecord(1.28, 0.24, 6, { fontSize: 18, paddingY: 10 });
@@ -1319,7 +1296,7 @@ export function createStudyLevel({
   };
   const restrictedHeaderMount = new THREE.Mesh(new RoundedBoxGeometry(1.32, 0.28, 0.012, 1, 0.004), restrictedCabinetMat);
   restrictedHeaderMount.position.set(0, 1.97, -0.162);
-  hollowAlcove.add(restrictedHeaderMount, restrictedPlaque.mesh);
+  restrictedContents.add(restrictedHeaderMount, restrictedPlaque.mesh);
   const hollowArchivePanel = new THREE.Mesh(new RoundedBoxGeometry(0.70, 2.04, 0.045, 1, 0.006), restrictedCabinetMat);
   const restrictedLeftHinge = new THREE.Group(), restrictedRightHinge = new THREE.Group();
   restrictedLeftHinge.name = 'RestrictedArchiveLeftHinge';
@@ -1349,19 +1326,27 @@ export function createStudyLevel({
   ];
   const annabelleLetterBody = ANNABELLE_FINAL_LETTER;
   const truthDrawer = new THREE.Group();
-  truthDrawer.position.set(0, 0.45, 0.28);
-  hollowAlcove.add(truthDrawer);
+  // Recess the complete compartment behind the outer doors (rear z = 0.2675),
+  // including the pull and its mounting posts.
+  truthDrawer.position.set(0, 0.45, 0.17);
+  restrictedContents.add(truthDrawer);
   const truthDrawerFront = new THREE.Mesh(new RoundedBoxGeometry(0.6, 0.26, 0.05, 1, 0.005), restrictedCabinetMat);
   truthDrawerFront.position.z = -0.01;
   const truthDrawerFloor = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.03, 0.23), restrictedCabinetMat);
   truthDrawerFloor.position.set(0, -0.1, -0.155);
-  const truthDrawerHandle = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.035, 0.05), crestBrassMat);
-  truthDrawerHandle.position.z = 0.03;
+  const truthDrawerHandle = new THREE.Mesh(new RoundedBoxGeometry(0.16, 0.018, 0.018, 1, 0.004), crestBrassMat);
+  truthDrawerHandle.name = 'LetterCompartmentPull';
   const letterDoorHinge = new THREE.Group();
   letterDoorHinge.name = 'LetterCompartmentHinge';
   letterDoorHinge.position.set(0, -0.13, -0.01);
   truthDrawerFront.position.set(0, 0.13, 0);
-  truthDrawerHandle.position.set(0, 0, 0.04);
+  truthDrawerHandle.position.set(0, 0, 0.052);
+  for (const x of [-0.065, 0.065]) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.028, 10), crestBrassMat);
+    post.rotation.x = Math.PI / 2;
+    post.position.set(x, 0, 0.038);
+    truthDrawerFront.add(post);
+  }
   truthDrawerFront.add(truthDrawerHandle);
   letterDoorHinge.add(truthDrawerFront);
   truthDrawer.add(letterDoorHinge, truthDrawerFloor);
@@ -1408,11 +1393,11 @@ export function createStudyLevel({
     const x = [0, 0.46, -0.46][index];
     const display = createArchiveRecord(0.404, 0.44, index + 7);
     display.mesh.position.set(x, 1.30, 0.24);
-    hollowAlcove.add(display.mesh);
+    restrictedContents.add(display.mesh);
     truthRecordDisplays.push(display);
     const border = truthRecordBorder();
     border.position.set(x, 1.30, 0.255);
-    hollowAlcove.add(border);
+    restrictedContents.add(border);
     truthRecordBorders.push(border);
     const hit = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.5, 0.12), archiveHitMat);
     hit.position.copy(display.mesh.position);
@@ -1448,20 +1433,48 @@ export function createStudyLevel({
         if (puzzle.truthRecordsSolved) voiceProgress('letter');
       }
     };
-    hollowAlcove.add(hit);
+    restrictedContents.add(hit);
     truthRecordHits.push(hit);
-    interactables.push(hit);
   });
   updateTruthRecords();
 
+  function syncTruthRecordTargets() {
+    // Interaction raycasts a flat target list, even under hidden parents.
+    // Register selectors only after the cabinet has actually swung open.
+    const accessible = puzzle.correctedTrailSolved && restrictedDoorMotion.isOpen();
+    for (const hit of truthRecordHits) {
+      const index = interactables.indexOf(hit);
+      if (accessible && index < 0) interactables.push(hit);
+      else if (!accessible && index >= 0) interactables.splice(index, 1);
+    }
+  }
+
   // Furniture stays static. Original puzzle panels, hit targets and slide clocks stay separate.
+  let restrictedCabinetCollider;
   for (const station of [memoryArchive, hollowAlcove]) {
-    colliders.push({
+    const collider = {
       minX: station.position.x - 0.82, maxX: station.position.x + 0.82,
       minZ: station.position.z - 0.235, maxZ: station.position.z + 0.285,
       minY: LOFT_Y, maxY: LOFT_Y + 2.26
+    };
+    colliders.push(collider);
+    if (station === hollowAlcove) restrictedCabinetCollider = collider;
+  }
+  function syncRestrictedCabinetCollision() {
+    // Camera-mounted hands extend beyond the player's 35 cm body radius.
+    // Leave another 25 cm around this cabinet, including the opening leaves.
+    const handClearance = 0.25;
+    const doorReach = 0.70 * Math.max(
+      Math.abs(Math.sin(restrictedLeftHinge.rotation.y)),
+      Math.abs(Math.sin(restrictedRightHinge.rotation.y))
+    );
+    Object.assign(restrictedCabinetCollider, {
+      minX: hollowAlcove.position.x - 0.82 - handClearance,
+      maxX: hollowAlcove.position.x + 0.82 + handClearance,
+      maxZ: hollowAlcove.position.z + 0.29 + doorReach + 0.045 + handClearance
     });
   }
+  syncRestrictedCabinetCollision();
   loadStudyModel(archiveCabinetUrl).then((model) => {
     // Existing visor cover / letter drawer occupy this service recess instead.
     model.getObjectByName('Archive_Service_Panel').visible = false;
@@ -1490,7 +1503,7 @@ export function createStudyLevel({
   memoryPresentation.interior(memoryArchive, true);
   restrictedPresentation.interior(hollowAlcove, true, false);
   memoryPresentation.records(memoryContents, 0.21, 0.56, true);
-  restrictedPresentation.records(hollowAlcove, 0.24, 0.48, true, false);
+  restrictedPresentation.records(restrictedContents, 0.24, 0.48, true, false);
   memoryPresentation.memoryDoor(archiveDoor);
   memoryPresentation.memoryDoor(archiveRightDoor);
   restrictedPresentation.memoryDoor(hollowArchivePanel, 2.04);
@@ -1543,16 +1556,6 @@ export function createStudyLevel({
     trailMarkerHits.push(hit);
   });
   setGallerySight(!!gameState.visorWorn);
-
-  // Writing on the walls, in the same hand as everything else Mark wrote.
-  const wallInkMat = new THREE.MeshBasicMaterial({
-    map: createHiddenWritingTexture(["DON'T LET IT OUT"]),
-    transparent: true,
-    depthWrite: false
-  });
-  const wallInk = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.55), wallInkMat);
-  wallInk.position.set(-1.0, 1.85, -ROOM_D / 2 + 0.06);
-  visorOnly.add(wallInk);
 
   // Correspondence is mounted inside the fixed compartment. The existing
   // document callback still owns reading completion and mirror progression.
@@ -2037,7 +2040,7 @@ export function createStudyLevel({
 
   // Decorative meshes only: no interaction registrations, lights, physics or new colliders.
   group.userData.studyDecorPropCount = studyDecor.dressRoom({
-    group, desk, fireplace, concealmentChair, photoTexture: portraitTexPlain, loftY: LOFT_Y
+    group, desk, fireplace, concealmentChair, loftY: LOFT_Y
   });
   const entryFinish = new THREE.Group();
   entryFinish.rotation.y = -Math.PI / 2;
@@ -2066,16 +2069,7 @@ export function createStudyLevel({
       lamp,
       doorLamp,
       entryDoor,
-      portraitMat,
-      portraitTexPlain,
-      portraitTexTrue,
-      /**
-       * What the visor does to this room. Unit 15 will grow this; today it is
-       * the portrait, which is the one reveal already built.
-       */
       setCorrectedSight(on) {
-        portraitMat.map = on ? portraitTexTrue : portraitTexPlain;
-        portraitMat.needsUpdate = true;
         // One group, one flag. Everything the broken eye cannot resolve is a
         // child of it, so the room cannot correct halfway.
         visorOnly.visible = on;
@@ -2187,6 +2181,9 @@ export function createStudyLevel({
           }
           doorState.open=false;doorHinge.rotation.y=0;setDoorSolid(true);
           restrictedDoorMotion.update(1,true);letterDoorMotion.update(1,true);
+          restrictedContents.visible = true;
+          syncTruthRecordTargets();
+          syncRestrictedCabinetCollision();
           letterPaper.visible=!direct;letterHit.visible=!direct;
           const letterIndex=interactables.indexOf(letterHit);
           if(direct&&letterIndex>=0)interactables.splice(letterIndex,1);
@@ -2259,14 +2256,15 @@ export function createStudyLevel({
       doorState.open = false;
       doorHinge.rotation.y = 0;
       setDoorSolid(true);
-      portraitMat.map = portraitTexPlain;
-      portraitMat.needsUpdate = true;
 
       visorOnly.visible = false;
       distortedTrail.visible = true;
       puzzle.correctedTrailProgress = 0;
       puzzle.correctedTrailSolved = false;
+      restrictedContents.visible = false;
       restrictedDoorMotion.reset();
+      syncTruthRecordTargets();
+      syncRestrictedCabinetCollision();
       setGallerySight(false);
       const restrictedIndex = interactables.indexOf(restrictedPlaque.mesh);
       if (restrictedIndex >= 0) interactables.splice(restrictedIndex, 1);
@@ -2374,6 +2372,9 @@ export function createStudyLevel({
       }
       memoryDoorMotion.update(dt, puzzle.memoryArchiveUnlocked);
       restrictedDoorMotion.update(dt, puzzle.correctedTrailSolved);
+      syncTruthRecordTargets();
+      syncRestrictedCabinetCollision();
+      restrictedContents.visible = puzzle.correctedTrailSolved;
       visorCoverMotion.update(dt, puzzle.memoryArchiveSolved);
       letterDoorMotion.update(dt, puzzle.truthRecordsSolved);
       clockMechanism.update(dt, puzzle.clockSolved);
