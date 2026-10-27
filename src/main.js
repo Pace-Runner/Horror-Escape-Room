@@ -4347,32 +4347,10 @@ window.addEventListener('keydown', (e) => {
   // A cutscene owns the view and the hand, so nothing that acts through either
   // reaches the game until it hands back -- see KEYS_HELD_BY_CUTSCENES.
   if (cutscene.isRunning && KEYS_HELD_BY_CUTSCENES.has(e.code)) return;
-  // Deliberately INSTANT, not faded: these are a mentor-demo tool and 1.7s of
-  // black per press is friction. But each one aborts first, or a jump taken
-  // mid-fade lands behind an overlay that will never lift.
-  // Preview shortcuts remain available in production/demo builds too.
-  if (e.code === 'KeyL' || e.code === 'Digit2' || e.code === 'Numpad2') {
-    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey
-      || e.target?.closest?.('input, textarea, select, [contenteditable], [role="textbox"]')) return;
-    e.preventDefault();
-    abortTransition();
-    activateLevel('hallwayBasement');
-    return;
-  }
-  if (e.code === 'Digit3') { abortTransition(); activateLevel('study'); }
-  if (e.code === 'Digit4') {
-    // Routed off the CURRENT level, so the debug key exercises the same table
-    // the real exits do. Falls back when jumped to from inside the corridor.
-    const route = TRANSITIONS[sceneManager.activeKey] ?? { to: 'hallwayBasement' };
-    abortTransition();
-    backrooms.setRoute({ from: sceneManager.activeKey, ...route });
-    activateLevel('backrooms');
-  }
   if (e.code === 'KeyG') {
     // Debug: skip the whole Level 1 puzzle chain and take the REAL exit.
     //
-    // Different from Digit4, which teleports into the corridor instantly:
-    // this drives the actual door -> hinge swing -> fade -> corridor path, so
+    // This drives the actual door -> hinge swing -> fade -> corridor path, so
     // it is the one that tests the transition rather than the destination.
     //
     // Works by handing the player the door's own crowbar and key and calling
@@ -5182,7 +5160,7 @@ if (import.meta.env.DEV) {
       gameState.letterRead=direct;gameState.endingChosen=null;
       consumeItem('hollowOverrideKey');pickUpItem('visor',{animate:false});visor.set(false);visor.refresh();
       postFX.visorPass.uniforms.uPanic.value=0;postFX.visorPass.uniforms.uDescentPanic.value=0;
-      player.crouch=0;player.setLookBounds(null);player.spawn(4.4,-5.35,0,-Math.atan2(1.13,.525));
+      player.crouch=0;player.setLookBounds(null);player.spawn(4.4,-4.55,0,-Math.atan2(1.13,1.325));
       player.lookEnabled=true;player.movementEnabled=true;interaction.setEnabled(true);
       if(direct){
         // The same guarded reveal entry point called by normal letter closure.

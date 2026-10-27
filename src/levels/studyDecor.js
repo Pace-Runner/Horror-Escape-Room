@@ -20,7 +20,6 @@ export function createStudyDecor({ woodMaterial, brassMaterial }) {
   const linen = new THREE.MeshStandardMaterial({ color: 0x96896f, roughness: 0.97, side: THREE.DoubleSide });
   const green = new THREE.MeshStandardMaterial({ color: 0x29382f, roughness: 0.82 });
   const ceramic = new THREE.MeshStandardMaterial({ color: 0x716a59, roughness: 0.68 });
-  const photoMaterials = new Map();
   const flameMaterial = new THREE.MeshBasicMaterial({ color: 0xe3b36c, toneMapped: false });
   const flameGeometry = new THREE.SphereGeometry(1, 7, 5);
   const covers = [0x303729, 0x433126, 0x402a2d, 0x333c41, 0x6b604a]
@@ -124,26 +123,6 @@ export function createStudyDecor({ woodMaterial, brassMaterial }) {
     }
     return object;
   }
-  function photo(texture, width, height, crop = [0, 0, 1, 1]) {
-    const object = prop('Decor_Framed_Family_Photo');
-    box(object, woodMaterial, [width + 0.065, height + 0.065, 0.035], [0, height / 2 + 0.0325, 0]);
-    const geometry = new THREE.PlaneGeometry(width, height);
-    const uv = geometry.attributes.uv;
-    for (let i = 0; i < uv.count; i++) {
-      uv.setXY(i, crop[0] + uv.getX(i) * (crop[2] - crop[0]), crop[1] + uv.getY(i) * (crop[3] - crop[1]));
-    }
-    if (!photoMaterials.has(texture)) photoMaterials.set(texture,
-      new THREE.MeshStandardMaterial({ map: texture, color: 0xb2a58c, roughness: 0.95 }));
-    const material = photoMaterials.get(texture);
-    mesh(object, geometry, material, [1, 1, 1], [0, height / 2 + 0.0325, 0.019]);
-    for (const side of [-1, 1]) {
-      box(object, woodMaterial, [0.027, height + 0.065, 0.028], [side * (width / 2 + 0.020), height / 2 + 0.0325, 0.025]);
-      box(object, woodMaterial, [width + 0.013, 0.027, 0.028], [0, height / 2 + 0.0325 + side * (height / 2 + 0.020), 0.025]);
-      box(object, brassMaterial, [0.004, height + 0.008, 0.004], [side * (width / 2 + 0.003), height / 2 + 0.0325, 0.022]);
-      box(object, brassMaterial, [width, 0.004, 0.004], [0, height / 2 + 0.0325 + side * (height / 2 + 0.003), 0.022]);
-    }
-    return object;
-  }
 
   function createBookcase(index, loft = false) {
     const object = prop('Decor_Open_Bookcase');
@@ -182,7 +161,7 @@ export function createStudyDecor({ woodMaterial, brassMaterial }) {
     return object;
   }
 
-  function dressRoom({ group, desk, fireplace, concealmentChair, photoTexture, loftY }) {
+  function dressRoom({ group, desk, fireplace, concealmentChair, loftY }) {
     // Keep the incident note's left/rear desk quadrant completely clear.
     place(desk, lamp(), 0.64, 0.79, -0.20);
     for (let i = 0; i < 3; i++) place(desk, book(i + 1, true), -0.63, 0.79 + i * 0.035, 0.21, -0.08 + i * 0.07);
@@ -196,7 +175,6 @@ export function createStudyDecor({ woodMaterial, brassMaterial }) {
     pen.rotation.z = Math.PI / 2;
 
     place(fireplace, candle(), -0.68, 1.46, 0.08);
-    place(fireplace, photo(photoTexture, 0.24, 0.18), -0.04, 1.46, 0.025, -0.07);
     place(fireplace, book(2, true), 0.59, 1.46, 0.025, 0.10);
     place(fireplace, book(4, true, 0.21, 0.026), 0.59, 1.495, 0.025, -0.035);
 
