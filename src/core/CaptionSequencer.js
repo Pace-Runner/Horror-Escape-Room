@@ -283,7 +283,8 @@ export class CaptionSequencer {
       return;
     }
     if (this._phase === 'hold') {
-      if (this._t >= this._line.duration) {
+      // Audio-owned dialogue ends from its source's completion callback.
+      if (!this._line.manualEnd && this._t >= this._line.duration) {
         this._phase = 'out';
         this._t = 0;
         this._hideLine();

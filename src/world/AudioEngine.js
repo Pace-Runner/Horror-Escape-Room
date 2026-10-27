@@ -980,7 +980,7 @@ export class AudioEngine {
    * need. There is a factor of six in hand, and at a frame rate low enough to
    * break that, a dropped footstep is not the problem.
    */
-  updateFootsteps(bobPhase, { moving = 0, sprint = 0, crouch = 0 } = {}) {
+  updateFootsteps(bobPhase, { moving = 0, sprint = 0, crouch = 0, impact = 1, silent = false } = {}) {
     if (!this.ctx) return;
     const t = ((bobPhase - STEP_PHASE_OFFSET) % Math.PI + Math.PI) % Math.PI;
     const prev = this.stepPhase;
@@ -999,7 +999,7 @@ export class AudioEngine {
     // three frames against trigger points pi apart, and stepPhase is written
     // every frame regardless -- so roughly one walk-start in eight had its
     // opening footfall consumed in silence.
-    if (prev === null) return;
+    if (silent || prev === null) return;
     if (t >= prev) return;                       // no wrap, no footfall
     const walk = (this.stepSurface && this.stepSurfaceSets[this.stepSurface]) || this.stepWalk;
     const set = sprint > 0.5 ? this.stepRun : walk;
@@ -1010,7 +1010,7 @@ export class AudioEngine {
     // even tread sounds like a metronome rather than like somebody walking.
     this.stepFoot = !this.stepFoot;
     const level = (crouch > 0.5 ? STEP_CROUCH_LEVEL : STEP_LEVEL)
-      * (this.stepFoot ? 1 : 0.82);
+      * (this.stepFoot ? 1 : 0.82) * Math.min(1.3,Math.max(.5,impact));
     this.#playStep(set, level, this.stepFoot ? -0.12 : 0.12);
   }
 

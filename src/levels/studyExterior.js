@@ -761,7 +761,9 @@ export function createStudyExterior({ roomW, roomD, roomH, doorX, doorwayW, door
   // Beams round the top, the beadboard ceiling, and the roof above it.
   porchParts.add(new THREE.BoxGeometry(PORCH_W + 0.1, 0.2, 0.14), whitePaint, { position: [0, POST_H - 0.1, PORCH_D / 2 - 0.1] });
   for (const px of [-1.45, 1.45]) {
-    porchParts.add(new THREE.BoxGeometry(0.12, 0.2, PORCH_D), whitePaint, { position: [px, POST_H - 0.1, 0] });
+    // Start at the exterior siding. Ends on the interior wall plane flicker
+    // through the wallpaper as pale rectangles on either side of the door.
+    porchParts.add(new THREE.BoxGeometry(0.12, 0.2, PORCH_D - OUT), whitePaint, { position: [px, POST_H - 0.1, OUT / 2] });
   }
   porchParts.add(new THREE.BoxGeometry(PORCH_W + 0.5, 0.16, 0.04), whitePaint, { position: [0, POST_H + 0.2, PORCH_D / 2 + 0.36] });
   const ceiling = new THREE.Mesh(

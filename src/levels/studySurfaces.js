@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import wallpaperUrl from '../assets/textures/study/option_a_damask_512.jpg?url';
 import floorUrl from '../assets/textures/study/weathered_dark_hardwood_floor_texture.webp?url';
-import ceilingUrl from '../assets/textures/study/option_a_ceiling_512.jpg?url';
+import ceilingUrl from '../assets/textures/study/continuous_ceiling_plaster.webp?url';
 import builtInWoodUrl from '../assets/textures/study/aged_dark_brown_wood_grain_texture.webp?url';
 import trimWoodUrl from '../assets/textures/study/aged_espresso_wood_grain_texture.webp?url';
 import featureWoodUrl from '../assets/textures/study/polished_mahogany_wood_grain_texture.webp?url';
@@ -9,7 +9,7 @@ import wallRoughnessUrl from '../assets/textures/study/wall_roughness_512.webp?u
 import floorRoughnessUrl from '../assets/textures/study/floor_roughness_512.webp?url';
 import woodRoughnessUrl from '../assets/textures/study/wood_roughness_512.webp?url';
 
-// Option A wall/ceiling tiles are cropped from the supplied sheet at 512px; wood/floors unchanged.
+// The wall uses the cropped Option A tile; the ceiling is one continuous image.
 // No runtime image baking, duplicated texture loads or large source uploads.
 const surfaceTextures = new Map();
 function loadSurface(url, color = true, mirrored = false) {
@@ -29,7 +29,9 @@ export function createStudySurfaces() {
   const wallRoughness = loadSurface(wallRoughnessUrl, false, true);
   const floorMap = loadSurface(floorUrl);
   const floorRoughness = loadSurface(floorRoughnessUrl, false);
+  // Map the full ceiling once: no tile boundaries or mirrored plaster bands.
   const ceilingMap = loadSurface(ceilingUrl);
+  ceilingMap.wrapS = ceilingMap.wrapT = THREE.ClampToEdgeWrapping;
   const woodMaps = {
     builtIn: loadSurface(builtInWoodUrl), trim: loadSurface(trimWoodUrl), feature: loadSurface(featureWoodUrl)
   };

@@ -62,6 +62,7 @@ const PAN_CENTRE = Math.SQRT1_2;
  * the wind, the loudest continuous thing in a Level 1 built to be quiet, and
  * under a voice line either way.
  */
+export const STUDY_BED_GAIN_DB = 5;
 const BED = {
   cue: 'rain_bed', peakDb: -33, levels: ['bedroom', 'study'], fadeIn: 3, fadeOut: 2.5
 };
@@ -520,8 +521,10 @@ export function createAudioDirector({
       // a random point, so the study does not open on the same bar.
       const offset = levelKey === 'bedroom' || !loop.end ? loop.start : rand(loop.start, loop.end);
       bed = play(BED.cue, 'amb', {
-        loop: true, loopStart: loop.start, loopEnd: loop.end, offset, gain: gains.bed, fadeIn: BED.fadeIn
+        loop: true, loopStart: loop.start, loopEnd: loop.end, offset, gain: gains.bed*(levelKey==='study'?10**(STUDY_BED_GAIN_DB/20):1), fadeIn: BED.fadeIn
       });
+    } else if(wanted&&playing){
+      bed.setGain(gains.bed*(levelKey==='study'?10**(STUDY_BED_GAIN_DB/20):1),.4);
     } else if (!wanted && playing) {
       bed = stopCue(bed, BED.fadeOut);
     }
