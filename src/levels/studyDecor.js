@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { createArchivePaperMaterial } from './studyArchivePresentation.js';
+import { createWallSconceKit, SCONCE_WALL_OFFSET } from '../world/wallSconce.js';
 
 /** Static, non-interactive dressing. Repeated parts are instanced after placement. */
 export function createStudyDecor({ woodMaterial, brassMaterial, candles = null }) {
@@ -113,12 +114,15 @@ export function createStudyDecor({ woodMaterial, brassMaterial, candles = null }
     candles?.add(wickTip, flame);
     return object;
   }
-  function wallSconce() {
-    const object = prop('Decor_Brass_Candle_Sconce');
-    const back = mesh(object, cylinderGeometry, brassMaterial, [0.050, 0.014, 0.090], [0, 0.10, 0]);
-    back.rotation.x = Math.PI / 2;
-    box(object, brassMaterial, [0.015, 0.018, 0.14], [0, 0.055, 0.070]);
-    place(object, candle({ light: true }), 0, 0.060, 0.14);
+  // world/wallSconce.js: the plate, swan-neck arm, drip pan and taper. Its
+  // parts go into `meshes` like every other prop here, so the batch at the end
+  // of dressRoom draws all seventeen sconces in a handful of instanced calls.
+  const sconceKit = createWallSconceKit({ metal: brassMaterial, wax, wick, candles, meshes });
+  /** @param {object} [light] overrides for this sconce's pool light (world/wallSconce.js SCONCE_LIGHT) */
+  function wallSconce(light = {}) {
+    const object = sconceKit.build({ light });
+    object.name = 'Decor_Brass_Candle_Sconce';
+    propCount++;
     return object;
   }
   function sideTable() {
@@ -213,8 +217,54 @@ export function createStudyDecor({ woodMaterial, brassMaterial, candles = null }
     place(table, book(3, true, 0.20, 0.026), 0.075, 0.61, 0.035, -0.14);
     place(table, book(1, true, 0.19, 0.023), 0.075, 0.636, 0.035, -0.075);
 
-    place(group, wallSconce(), 3.90, 1.63, -6.455);
-    place(group, wallSconce(), -6.30, 1.65, 6.455, Math.PI);
+    /**
+     * Brass candle sconces round the room, every one hung flat on the
+     * wallpaper (SCONCE_WALL_OFFSET in front of the wall plane: the first two
+     * used to float 4 cm off it). Each spot was checked against everything on
+     * its wall; the note on each row says what it sits between.
+     *
+     * None is within a metre of the Shadow Crest's three lamp dials (front
+     * wall, x -5.35 to -3.25). Its plaque reads THREE LIGHTS GUARD THE ARCHIVE,
+     * and a real flame beside them would read as a fourth lamp.
+     *
+     * The last number is the sconce's light, for when the room's light pool
+     * hands it one. Each was set from the light the wall there already gets
+     * (the study's temporary ambient and fills): intensity = 2 x (that light /
+     * the room's typical 4.2), so every pool reads the same against its own
+     * wall -- about double the wall's brightness 45 cm from the flame, fading
+     * to nothing by a metre and a half. Brighter by the rear fill and the loft
+     * fill, dimmer in the room's darker corners.
+     */
+    const back = -6.5 + SCONCE_WALL_OFFSET, front = 6.5 - SCONCE_WALL_OFFSET;
+    const left = -8 + SCONCE_WALL_OFFSET, right = 8 - SCONCE_WALL_OFFSET;
+    const loft = loftY + 1.65;
+    for (const [x, y, z, yaw, intensity] of [
+      // Ground floor, back wall (under the loft, 2.82 m high).
+      [-6.53, 1.75, back, 0, 2.0],            // left of the fireplace (x -6.25), clear of Annabelle's corner
+      [-4.07, 1.75, back, 0, 2.5],            // right of the fireplace (-4.35), left of the bookcase (-3.8)
+      [3.90, 1.63, back, 0, 2.0],             // left of the mirror (4.33): the original sconce
+      [5.70, 1.63, back, 0, 1.9],             // right of the mirror (5.27), left of the reseal panel (6.12)
+      // Left wall, below the windows (sills at 2.75).
+      [left, 1.70, 0.05, Math.PI / 2, 2.0],   // between the bookcase (ends z -0.6) and the portrait (0.55..1.45)
+      [left, 1.70, 1.95, Math.PI / 2, 1.9],   // the portrait's other side
+      [left, 1.70, 4.20, Math.PI / 2, 1.8],   // under the pier between the windows at z 3.1 and 5.3
+      // Front wall.
+      [-6.45, 1.65, front, Math.PI, 1.8],     // left of the crest: the original sconce, 1.1 m from its left dial
+      [-2.15, 1.65, front, Math.PI, 2.2],     // right of the crest, 1.1 m from its right dial; exit casing at -1.09
+      [7.40, 1.65, front, Math.PI, 1.7],      // beyond the map board (ends 6.85), short of the corner
+      // Right wall.
+      [right, 1.65, -4.35, -Math.PI / 2, 1.9], // under the landing, beside the clock (z -4.99)
+      [right, 1.65, 3.30, -Math.PI / 2, 1.8],  // between the stair foot (2.6) and the entry casing (3.86)
+      // Loft, back wall, either side of each archive (cabinets +/-0.82 wide).
+      [-6.84, loft, back, 0, 1.9],            // between the loft bookcase (x -7.46) and the memory archive (-6.22)
+      [-3.74, loft, back, 0, 2.2],            // between the memory archive (-4.58) and the gallery bookcase (-2.955)
+      [3.14, loft, back, 0, 2.7],             // between the gallery bookcase (2.755) and the restricted archive (3.58)
+      [5.86, loft, back, 0, 1.9],             // between the restricted archive (5.22) and the landing
+      // Loft, right wall, where the stair arrives.
+      [right, loft, -2.65, -Math.PI / 2, 2.0]  // past the loft bookcase (ends -3.345), 0.8 m from the stair head
+    ]) {
+      place(group, wallSconce({ intensity }), x, y, z, yaw);
+    }
 
     // Collapse repeated static box/cylinder parts into a few shared instance batches.
     group.updateMatrixWorld(true);
@@ -231,6 +281,8 @@ export function createStudyDecor({ woodMaterial, brassMaterial, candles = null }
       instances.name = 'Study_Decor_Instances';
       instances.castShadow = false;
       instances.receiveShadow = true;
+      // The sconces' parts are off the minimap (MAIN_ONLY); everything else stays on layer 0.
+      instances.layers.mask = objects[0].layers.mask;
       objects.forEach((object, index) => {
         instances.setMatrixAt(index, new THREE.Matrix4().multiplyMatrices(inverse, object.matrixWorld));
         object.removeFromParent();

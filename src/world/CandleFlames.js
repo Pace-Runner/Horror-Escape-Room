@@ -26,7 +26,10 @@ import { MAIN_ONLY } from '../core/RenderLayers.js';
  *        - the player's wake: walking past drags air along with you and
  *          shoves it ahead of you, so a nearby flame leans with your motion
  *          and away from your body, then wobbles back as the spring settles;
- *        - gusts: gust() pushes outward from a point, e.g. a door swinging.
+ *        - gusts: gust() pushes outward from a point, e.g. a door swinging;
+ *        - steady draughts: addDraft() is a leak that never stops (an old
+ *          sash window), blowing one way and breathing -- swelling and
+ *          slackening on its own slow, irregular rhythm.
  *      The harder a flame is pushed, the more it flickers and the dimmer and
  *      shorter it burns -- a flame in a draught gutters.
  *   5. LIGHT. A small fixed pool of unshadowed PointLights goes to the
@@ -37,6 +40,13 @@ import { MAIN_ONLY } from '../core/RenderLayers.js';
  *      the player walks on, a light fades out of the candle left behind and
  *      into the one ahead (LIGHT_FADE_SECONDS each way), with hysteresis so
  *      two candles at nearly the same distance do not trade it back and forth.
+ *      A candle can say where its light stands (light.offset). A point light
+ *      falls off as 1/d^2, so one left at the flame, 15 cm from the wallpaper,
+ *      burns a spot behind the wick forty times brighter than the wall half a
+ *      metre away: a white blot, not a pool. Stood a little way out into the
+ *      room, the same light spreads into the soft, wide glow a candle really
+ *      throws (most of which, in a real room, is light bounced off the wall
+ *      and the brass, which no point light models).
  *
  * WHY A FIXED POOL. three.js bakes the number of lights into every lit
  * shader. Adding a light later -- when a candlestick model finishes loading,
@@ -251,7 +261,9 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
 
   const entries = [];
   const gusts = [];
+  const drafts = [];
   const worldPosition = new THREE.Vector3();
+  const lightPoint = new THREE.Vector3();
   const localPosition = new THREE.Vector3();
   const haloCentre = new THREE.Vector3();
   const parentInverse = new THREE.Matrix4();
@@ -277,21 +289,32 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
    * @param {number} [options.width]   Metres, at rest.
    * @param {number} [options.height]  Metres, at rest.
    * @param {boolean|object} [options.light]  May this candle be given a pool light? An
-   *   object overrides { color, intensity, distance, decay } for it.
+   *   object overrides { color, intensity, distance, decay } for it, and may add
+   *   `offset` ([x, y, z] or a Vector3): where the light stands relative to the
+   *   wick tip, in the anchor's own space -- so for a wall sconce whose +z faces
+   *   the room, [0, 0.02, 0.2] stands it 20 cm out from the candle. Without
+   *   one the light sits in the flame, as it always has.
    * @param {number} [options.halo]    Halo radius in metres; 0 for none.
-   * @param {number} [options.draft]   How much the ambient draft moves this flame, 0..1.
+   * @param {number} [options.draft]   How much drafts move this flame, 0..1: the
+   *   slow ambient sway and every addDraft() source alike.
    */
   function add(anchor, { width = 0.016, height = 0.046, light = false, halo = 0.075, draft = 1 } = {}) {
     if (entries.length >= capacity) {
       console.warn(`${name}: no room for another flame (capacity ${capacity})`);
       return null;
     }
+    const lightSettings = light ? { ...DEFAULT_LIGHT, ...(typeof light === 'object' ? light : {}) } : null;
+    if (lightSettings?.offset) {
+      // A copy: the caller's array or vector stays theirs.
+      const { offset } = lightSettings;
+      lightSettings.offset = Array.isArray(offset) ? new THREE.Vector3().fromArray(offset) : offset.clone();
+    }
     const entry = {
       anchor, width, height, halo, draft,
       seed: Math.random() * 100,
       leanX: 0, leanZ: 0, swingX: 0, swingZ: 0,
       flicker: 1, strain: 0, gutter: 0, lit: true, shown: false,
-      lightSettings: light ? { ...DEFAULT_LIGHT, ...(typeof light === 'object' ? light : {}) } : null,
+      lightSettings,
       // Refreshed every update: world position for the light ranking, and
       // position in the parent's space for placing the light.
       x: 0, y: 0, z: 0, localX: 0, localY: 0, localZ: 0, rank: Infinity
@@ -313,6 +336,42 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
    */
   function gust(position, { strength = 0.9, radius = 3, life = 2.2 } = {}) {
     gusts.push({ x: position.x, y: position.y, z: position.z, strength, radius, life, age: 0 });
+  }
+
+  /**
+   * A draught that never stops: air leaking in round an old window frame, or
+   * under a door. Where a gust pushes outward from a point and dies away, a
+   * draught blows ONE way (`direction`) for as long as the room exists, and
+   * reaches the flames near its source with the same Gaussian falloff.
+   *
+   * It is not steady, though, because real ones are not: the wind outside
+   * rises and falls, so the push is scaled by a slow "breath" -- two
+   * incommensurate sines per draught, so it never visibly repeats -- and its
+   * heading wanders a few degrees either side. With `unsteadiness` 0.6 a
+   * draught swings between 40% and 160% of `strength`. Part of the room, so
+   * reset() leaves it alone; change `strength` on the returned object to
+   * open or close the leak.
+   *
+   * @param {THREE.Vector3} position  Where the air comes in: world space, as for gust().
+   * @param {object} [options]
+   * @param {{ x: number, z: number }} [options.direction]  Which way it blows, in world
+   *   space (only x and z count: a flame only leans sideways).
+   * @param {number} [options.strength]      Lean at the source (1 is about 45 degrees).
+   * @param {number} [options.radius]        Metres.
+   * @param {number} [options.unsteadiness]  0 steady .. 1 comes and goes completely.
+   */
+  function addDraft(position, { direction = { x: 1, z: 0 }, strength = 0.12, radius = 1.6, unsteadiness = 0.6 } = {}) {
+    const length = Math.hypot(direction.x, direction.z) || 1;
+    const source = {
+      x: position.x, y: position.y, z: position.z,
+      heading: Math.atan2(direction.z / length, direction.x / length),
+      strength, radius, unsteadiness,
+      seed: Math.random() * 100,
+      // Refreshed once a frame, then shared by every flame it reaches.
+      pushX: 0, pushZ: 0
+    };
+    drafts.push(source);
+    return source;
   }
 
   /** Every flame out (a blackout), or back as they were. Their lights go with them. */
@@ -424,6 +483,15 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
       gusts[index].age += step;
       if (gusts[index].age >= gusts[index].life) gusts.splice(index, 1);
     }
+    // Each draught's breath and heading, once a frame for all the flames it reaches.
+    for (const source of drafts) {
+      const s = source.seed;
+      const breath = Math.max(0, 1 + source.unsteadiness
+        * (0.6 * Math.sin(elapsed * 0.83 + s) + 0.4 * Math.sin(elapsed * 2.27 + s * 1.9)));
+      const heading = source.heading + 0.18 * Math.sin(elapsed * 0.41 + s * 0.7);
+      source.pushX = Math.cos(heading) * source.strength * breath;
+      source.pushZ = Math.sin(heading) * source.strength * breath;
+    }
 
     parent.updateWorldMatrix(true, false);
     parentInverse.copy(parent.matrixWorld).invert();
@@ -470,6 +538,18 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
         targetX += push * dx / flat;
         targetZ += push * dz / flat;
         turbulence += push;
+      }
+      for (const source of drafts) {
+        const dx = worldPosition.x - source.x;
+        const dz = worldPosition.z - source.z;
+        const dy = worldPosition.y - source.y;
+        const distance = Math.hypot(dx, dz, dy * 0.6);
+        const reach = entry.draft * Math.exp(-(distance * distance) / (source.radius * source.radius));
+        if (reach < 0.002) continue;
+        targetX += source.pushX * reach;
+        targetZ += source.pushZ * reach;
+        // Moving air is never laminar round a flame: half its push again as flutter.
+        turbulence += 0.5 * reach * Math.hypot(source.pushX, source.pushZ);
       }
       // Pushed flames flutter about the lean rather than holding it still.
       targetX += turbulence * 0.35 * Math.sin(elapsed * 13.1 + s * 3.0);
@@ -524,10 +604,17 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
         slot.light.intensity = 0;
         continue;
       }
+      if (entry.lightSettings.offset) {
+        // The anchor's world matrix is this frame's: getWorldPosition above refreshed it.
+        lightPoint.copy(entry.lightSettings.offset).applyMatrix4(entry.anchor.matrixWorld).applyMatrix4(parentInverse);
+      } else {
+        lightPoint.set(entry.localX, entry.localY + entry.height * 0.45, entry.localZ);
+      }
+      // Wherever it stands, the light swings with the flame's lean.
       slot.light.position.set(
-        entry.localX + entry.leanX * entry.height * 0.5,
-        entry.localY + entry.height * 0.45,
-        entry.localZ + entry.leanZ * entry.height * 0.5
+        lightPoint.x + entry.leanX * entry.height * 0.5,
+        lightPoint.y,
+        lightPoint.z + entry.leanZ * entry.height * 0.5
       );
       slot.light.intensity = entry.lightSettings.intensity * slot.fade
         * (0.55 + 0.45 * entry.flicker) * (1 - 0.3 * entry.strain);
@@ -553,6 +640,7 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, name
   return {
     add,
     gust,
+    addDraft,
     update,
     reset,
     setExtinguished,
