@@ -1435,9 +1435,19 @@ export function createStudyLevel({
     };
     restrictedContents.add(hit);
     truthRecordHits.push(hit);
-    interactables.push(hit);
   });
   updateTruthRecords();
+
+  function syncTruthRecordTargets() {
+    // Interaction raycasts a flat target list, even under hidden parents.
+    // Register selectors only after the cabinet has actually swung open.
+    const accessible = puzzle.correctedTrailSolved && restrictedDoorMotion.isOpen();
+    for (const hit of truthRecordHits) {
+      const index = interactables.indexOf(hit);
+      if (accessible && index < 0) interactables.push(hit);
+      else if (!accessible && index >= 0) interactables.splice(index, 1);
+    }
+  }
 
   // Furniture stays static. Original puzzle panels, hit targets and slide clocks stay separate.
   for (const station of [memoryArchive, hollowAlcove]) {
@@ -2154,6 +2164,7 @@ export function createStudyLevel({
           doorState.open=false;doorHinge.rotation.y=0;setDoorSolid(true);
           restrictedDoorMotion.update(1,true);letterDoorMotion.update(1,true);
           restrictedContents.visible = true;
+          syncTruthRecordTargets();
           letterPaper.visible=!direct;letterHit.visible=!direct;
           const letterIndex=interactables.indexOf(letterHit);
           if(direct&&letterIndex>=0)interactables.splice(letterIndex,1);
@@ -2233,6 +2244,7 @@ export function createStudyLevel({
       puzzle.correctedTrailSolved = false;
       restrictedContents.visible = false;
       restrictedDoorMotion.reset();
+      syncTruthRecordTargets();
       setGallerySight(false);
       const restrictedIndex = interactables.indexOf(restrictedPlaque.mesh);
       if (restrictedIndex >= 0) interactables.splice(restrictedIndex, 1);
@@ -2340,6 +2352,7 @@ export function createStudyLevel({
       }
       memoryDoorMotion.update(dt, puzzle.memoryArchiveUnlocked);
       restrictedDoorMotion.update(dt, puzzle.correctedTrailSolved);
+      syncTruthRecordTargets();
       restrictedContents.visible = puzzle.correctedTrailSolved;
       visorCoverMotion.update(dt, puzzle.memoryArchiveSolved);
       letterDoorMotion.update(dt, puzzle.truthRecordsSolved);

@@ -12,6 +12,7 @@ import {clone as cloneSkeleton} from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { createCutsceneRunner } from '../src/core/Cutscene.js';
 import { createStudyMirrorReflection } from '../src/cutscenes/studyMirrorReflection.js';
 import { CaptionSequencer } from '../src/core/CaptionSequencer.js';
+import { Interaction } from '../src/core/Interaction.js';
 import { buildStudyReveal, studyMirrorRoute, createStudyChoreography, REVEAL_DURATION, REVEAL_TIMES, REVEAL_DIALOGUE, CHAIR_EYE, poseStudyCreature, MIRROR_EYE } from '../src/cutscenes/studyReveal.js';
 import { ANNABELLE_FINAL_LETTER } from '../src/story/studyReveal.js';
 
@@ -101,9 +102,34 @@ try {
     const level = createStudyLevel({ onUseItem: id => gameState.inventory.delete(id) });
     const contents = level.group.getObjectByName('RestrictedArchiveContents');
     assert(contents && !contents.visible, 'restricted records visible while locked');
+    const recordTargets = contents.children.filter(t => /^Select /.test(t.userData.interact?.label ?? ''));
+    assert.equal(recordTargets.length, 3);
+    const previousWindow = globalThis.window;
+    globalThis.window = { addEventListener() {} };
+    const prompt = { style: {}, textContent: '' };
+    const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 100);
+    const interaction = new Interaction(camera, prompt, { say() {} });
+    globalThis.window = previousWindow;
+    interaction.setTargets(level.interactables);
+    function assertRecordPrompts(accessible) {
+      level.group.updateMatrixWorld(true);
+      for (const target of recordTargets) {
+        const position = target.getWorldPosition(new THREE.Vector3());
+        camera.position.copy(position).add(new THREE.Vector3(0, 0, 1));
+        camera.lookAt(position); camera.updateMatrixWorld(true);
+        interaction.update();
+        assert.equal(level.interactables.includes(target), accessible);
+        assert.equal(interaction.current === target, accessible,
+          `${target.userData.interact.label}: incorrect prompt availability`);
+        if (!accessible) assert(!recordTargets.includes(interaction.current), 'selector prompt through closed door');
+        else assert.equal(prompt.style.display, 'block');
+      }
+    }
+    assertRecordPrompts(false);
     level.refs.setCorrectedSight(true);
     level.update(0.1);
     assert(!contents.visible, 'visor exposed locked records');
+    assertRecordPrompts(false);
     const pull = level.group.getObjectByName('LetterCompartmentPull');
     level.group.updateMatrixWorld(true);
     const pullBounds = new THREE.Box3().setFromObject(pull);
@@ -126,9 +152,16 @@ try {
     assert(key.getWorldPosition(new THREE.Vector3()).distanceTo(closedKeyPosition) > 0.1,
       'inserted key did not follow the opening door');
     level.refs.puzzle.correctedTrailSolved = true;
+    assertRecordPrompts(false);
+    level.update(0.1);
+    assertRecordPrompts(false);
     level.update(1);
     assert(contents.visible, 'unlocked records remain hidden');
+    assertRecordPrompts(true);
+    level.update(1);
+    for (const target of recordTargets) assert.equal(level.interactables.filter(t => t === target).length, 1);
     level.reset();
+    assertRecordPrompts(false);
     assert(!contents.visible && !key.visible, 'reset retained unlocked cabinet presentation');
     console.log('PASS: locked archive visibility, recessed letter pull, outward keyhole and seated key through opening/reset.');
   }
