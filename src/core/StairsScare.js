@@ -8,7 +8,10 @@ import * as THREE from 'three';
  *   1. the view settles on the stairs
  *   2. the house goes dark again, as it did for the rush
  *   3. the torch sputters and dies
- *   4. they shake it twice; it catches for a moment each time, then dies again
+ *   4. they shake it twice; it catches for a moment each time, then dies again.
+ *      The torch rides in the left hand (core/LeftTorch.js), but this scene
+ *      was made with it in the right, so it is passed across as the view
+ *      settles on the stairs, and given back behind the black at the end
  *   5. a low growl, close behind them
  *   6. CUT to third person: the monster is right behind them, looking down at
  *      them (cutscenes/stairsBehind.js, through the scene runner)
@@ -22,7 +25,7 @@ import * as THREE from 'three';
  * WHY NOT ALL ONE SCENE FOR THE RUNNER. core/Cutscene.js films through a camera
  * of its own and hides the hands for the whole scene -- right for a shot from
  * outside the head, wrong for steps 1-4 and 7, which are the player's own view
- * with the torch in their hand: the shake IS the hand. So those steps turn the
+ * with the torch in their hand: the shake IS the torch. So those steps turn the
  * player's own camera (player.aim, with player.cinematic holding it), and only
  * step 6 goes through the runner. Step 8 is core/JumpScare.js, as the
  * backrooms catch plays its scares, with a scare of its own.
@@ -60,7 +63,8 @@ const AFTER_SHAKES_SECONDS = 0.7;
 
 /**
  * The faint glow on the hand while the torch is dead: where it hangs in the
- * camera's own space (right, up, forward is -Z), and how strong and far.
+ * camera's own space (right, up, forward is -Z), and how strong and far. On
+ * the right, where the torch is for this scene.
  * Without it the shakes happen in pure black and cannot be seen.
  */
 const HAND_GLOW_OFFSET = [0.15, 0.25, -0.25];
@@ -117,7 +121,9 @@ function angleBetween(from, to) {
  *   returns a function that puts the player's chosen view back.
  * @param {object} deps.torch - main.js's torch: isAvailable(), bringOut(), and
  *   setPower(0..1), which scales the beam without touching its switch, and
- *   repair(), which clears any failure the torch was in the middle of.
+ *   repair(), which clears any failure the torch was in the middle of. And for
+ *   the hand it is in: toRightHand() (true if it went), shake(drop, tilt,
+ *   roll), setPinned(on) (shown with the hands hidden) and putBack().
  * @param {object} deps.hallway - the upstairs hallway's refs: stairsYaw.
  * @param {(standing: {x: number, z: number}) => Promise<boolean>} deps.playBehindShot -
  *   plays the third-person scene of the monster behind the player; resolves
@@ -147,15 +153,11 @@ export function createStairsScare({
   whileBlack = () => Promise.resolve()
 }) {
   const handGlowPosition = new THREE.Vector3();
-  const handsRestPosition = new THREE.Vector3();
-  const handsRestQuaternion = new THREE.Quaternion();
-  const shakeQuaternion = new THREE.Quaternion();
-  const shakeEuler = new THREE.Euler();
   /** Per-frame steps waiting on update(), each returning true once it is done. */
   let frameSteps = [];
   let running = false;
-  /** True while a shake has the hands moved off their rest pose. */
-  let isShaking = false;
+  /** True while the torch is in the right hand for this scene. */
+  let torchInRight = false;
   /** True from the jump scare's first frame until the view is handed back. */
   let isScareOnScreen = false;
 
@@ -203,33 +205,16 @@ export function createStairsScare({
     });
   }
 
-  /** Puts the hands back where the shake found them, if one has them moved. */
-  function restoreHands() {
-    if (!isShaking) return;
-    hands.root.position.copy(handsRestPosition);
-    hands.root.quaternion.copy(handsRestQuaternion);
-    isShaking = false;
-  }
-
   /**
-   * One shake: the hands flick down and tilt, and spring back. At the bottom
-   * the batteries knock and the torch catches for a moment.
+   * One shake: the torch flicks down and tilts, and springs back. At the
+   * bottom the batteries knock and the torch catches for a moment.
    */
   function shakeTorch(sputter, isAlive) {
     let knocked = false;
     let sputterEndsAt = -1;
-    // Read now rather than when the scare starts: bringing the torch out can
-    // re-frame the hands after that.
-    handsRestPosition.copy(hands.root.position);
-    handsRestQuaternion.copy(hands.root.quaternion);
-    isShaking = true;
     return animate(SHAKE_SECONDS, isAlive, (t) => {
       const flick = Math.sin(Math.PI * t) * (1 - 0.35 * Math.sin(2 * Math.PI * t));
-      hands.root.position.copy(handsRestPosition);
-      hands.root.position.y -= SHAKE_DROP_METRES * flick;
-      shakeEuler.set(-SHAKE_TILT_RADIANS * flick, 0, 0.12 * flick);
-      shakeQuaternion.setFromEuler(shakeEuler);
-      hands.root.quaternion.copy(handsRestQuaternion).multiply(shakeQuaternion);
+      torch.shake(SHAKE_DROP_METRES * flick, SHAKE_TILT_RADIANS * flick, 0.12 * flick);
       if (!knocked && t >= SHAKE_KNOCK_AT) {
         knocked = true;
         audio.torchRattle();
@@ -241,7 +226,7 @@ export function createStairsScare({
         sputterEndsAt = -1;
       }
       if (t >= 1) {
-        restoreHands();
+        torch.shake(0, 0, 0);
         torch.setPower(0);
       }
     });
@@ -285,7 +270,9 @@ export function createStairsScare({
     frameSteps = [];
     handLight.intensity = 0;
     creature.visible = false;
-    restoreHands();
+    // Back in its own hand while the screen is black (or the room is changing).
+    torch.putBack();
+    torchInRight = false;
     hands.setVisible?.(true);
     torch.repair();
     torch.setPower(1);
@@ -324,7 +311,13 @@ export function createStairsScare({
     audio.growl(GROWL_SECONDS);
     if (!await animate(GROWL_LEAD_SECONDS, isAlive)) return false;
     handLight.intensity = 0;
+    // Not in the shot from outside: it hangs off the player's camera.
+    torch.setPinned(false);
     const finished = await playBehindShot(standing);
+    // The runner's hand-back shows the hands again; the right one stays out of
+    // sight while the torch is in it.
+    if (torchInRight) hands.setVisible?.(false);
+    torch.setPinned(torchInRight);
     // The runner handed the camera back when the shot ended; this scene is
     // not over, so take it again before the next frame.
     player.cinematic = true;
@@ -356,6 +349,7 @@ export function createStairsScare({
   /** Step 8: the scare, then a beat of black. */
   async function playJumpScare(isAlive) {
     hands.setVisible?.(false);
+    torch.putBack();
     isScareOnScreen = true;
     await jumpScare.run({ creature, isAlive, kind: 'thrash' });
     if (!isAlive()) return false;
@@ -398,6 +392,8 @@ export function createStairsScare({
       takeControl();
       const restoreView = forceFirstPerson();
       torch.bringOut();
+      // Across to the right hand while the view settles on the stairs.
+      torchInRight = torch.toRightHand();
       let finished = false;
       try {
         finished = await playLightsOut(standing, isAlive)

@@ -246,6 +246,13 @@ outside shot in the stairs scare: the monster bent over the player from behind.
 It plays full screen, with no bars (user, 2026-10-23), like the rest of that
 scare.
 
+The torch rides in the left hand (`core/LeftTorch.js`), but the stairs scare
+was made with it in the right. So as the view settles on the stairs,
+`StairsScare` passes it across: down out of view, then up on the right,
+mirrored. The two shakes flick it there (`LeftTorch.setShake`). The right
+hand's own item stays out of sight, and the torch is hidden for the outside
+shot. It goes back to the left hand behind the black after the jump scare.
+
 ### The fall, and comeRound
 
 [src/core/StairsFall.js](../src/core/StairsFall.js) replaces the fade down the

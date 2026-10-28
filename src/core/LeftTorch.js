@@ -17,6 +17,11 @@ import { HELD_MAGNIFICATION } from '../systems/hands/sockets.js';
  *
  * Live-tunable from the console: edit window.__game.leftTorch.framing and the
  * next frame uses it.
+ *
+ * A scene can pass it to the RIGHT hand (setHand): the stairs scare shakes the
+ * torch there, as it was filmed before the torch moved to the left. It goes
+ * down out of view, across, and up the other side, mirrored, and setShake
+ * flicks it on top of wherever it is held.
  */
 const deg = THREE.MathUtils.degToRad;
 
@@ -34,11 +39,15 @@ export const LEFT_TORCH_FRAMING = {
 const RAISE_SECONDS = 0.6;
 /** How far below its resting spot the torch starts, camera-space metres. */
 const RAISE_DROP = 0.45;
+/** Seconds to pass it to the other hand: down out of view (RAISE_DROP), across, and up. */
+const SWAP_SECONDS = 0.6;
 
 const _up = new THREE.Vector3(0, 1, 0);
 const _aim = new THREE.Vector3();
 const _align = new THREE.Quaternion();
 const _roll = new THREE.Quaternion();
+const _flick = new THREE.Quaternion();
+const _euler = new THREE.Euler();
 
 /**
  * @param {object} deps
@@ -58,6 +67,14 @@ export function createLeftTorch({ camera, itemMeshes }) {
   let lagX = 0;
   let lagY = 0;
   let clock = 0;
+  /** Which hand: -1 its own (left, as framed), 1 the right (mirrored); and 0..1 of the pass between. */
+  let hand = -1;
+  let handFrom = -1;
+  let swap = 1;
+  /** A scene's flick on top of the framing: camera-space drop (metres), tilt down and roll (radians). */
+  const shake = { drop: 0, tilt: 0, roll: 0 };
+  /** Shown while carried even with the hands hidden: a scene that clears the right hand but keeps the torch. */
+  let pinned = false;
 
   function ensureMesh() {
     if (mesh) return true;
@@ -71,14 +88,23 @@ export function createLeftTorch({ camera, itemMeshes }) {
   function applyFraming(bobX, bobY, lagYaw, lagPitch) {
     const f = LEFT_TORCH_FRAMING;
     const drop = (1 - raise) * (1 - raise) * RAISE_DROP;
-    group.position.set(f.position[0] + bobX, f.position[1] + bobY - drop, f.position[2]);
-    _aim.fromArray(f.aim).normalize();
+    // 1 as framed, in the left hand; -1 mirrored into the right. Half way
+    // across it is at its lowest, out of view.
+    const across = swap * swap * (3 - 2 * swap);
+    const side = -(handFrom + (hand - handFrom) * across);
+    const passing = Math.sin(Math.PI * swap) * RAISE_DROP;
+    group.position.set(f.position[0] * side + bobX, f.position[1] + bobY - drop - passing - shake.drop, f.position[2]);
+    _aim.fromArray(f.aim);
+    _aim.x *= side;
+    _aim.normalize();
     _align.setFromUnitVectors(_up, _aim);
-    _roll.setFromAxisAngle(_aim, f.roll);
+    _roll.setFromAxisAngle(_aim, f.roll * side);
     group.quaternion.copy(_roll).multiply(_align);
     // Look-lag: the torch trails the turn a little, then settles.
     group.rotateOnWorldAxis(_up, lagYaw);
     group.rotateX(lagPitch);
+    // A scene's flick, about the camera's own axes: the beam tips down and rolls.
+    if (shake.tilt || shake.roll) group.quaternion.premultiply(_flick.setFromEuler(_euler.set(-shake.tilt, 0, shake.roll * side)));
     group.scale.setScalar(f.scale);
   }
 
@@ -99,13 +125,36 @@ export function createLeftTorch({ camera, itemMeshes }) {
      * Per frame. `motion` is main.js's handMotion; `viewShown` follows the hands
      * (hidden in third person, cutscenes and the jump scare).
      */
+    /**
+     * 'right' passes the torch to the right hand, 'left' gives it back: down
+     * out of view, across, and up the other side, or at once with animate false.
+     */
+    setHand(which, { animate = true } = {}) {
+      const next = which === 'right' ? 1 : -1;
+      if (next === hand) return;
+      handFrom = animate ? hand : next;
+      hand = next;
+      swap = animate ? 0 : 1;
+    },
+
+    /** A scene's flick on top of where it is held: camera-space drop (metres), tilt down and roll (radians). */
+    setShake(drop = 0, tilt = 0, roll = 0) {
+      shake.drop = drop;
+      shake.tilt = tilt;
+      shake.roll = roll;
+    },
+
+    /** Keeps it shown while carried even with the hands hidden (a scene that clears the right hand). */
+    setPinned(on) { pinned = !!on; },
+
     update(dt, motion, viewShown) {
       clock += dt;
-      const show = carried && viewShown && ensureMesh();
+      const show = carried && (viewShown || pinned) && ensureMesh();
       group.visible = show;
       if (!show) return;
 
       raise = Math.min(1, raise + dt / RAISE_SECONDS);
+      swap = Math.min(1, swap + dt / SWAP_SECONDS);
 
       // Walking bob: the same phase as the player's step, a touch off the right
       // hand's so the two do not move as one rigid pair.
@@ -123,6 +172,10 @@ export function createLeftTorch({ camera, itemMeshes }) {
     reset() {
       carried = false;
       raise = 0;
+      hand = handFrom = -1;
+      swap = 1;
+      shake.drop = shake.tilt = shake.roll = 0;
+      pinned = false;
       group.visible = false;
     }
   };

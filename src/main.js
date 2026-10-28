@@ -4816,7 +4816,24 @@ const scareTorch = {
   },
   setPower: setTorchPower,
   // It works again afterwards.
-  repair: () => applyFlashlightBeam()
+  repair: () => applyFlashlightBeam(),
+  // The stairs scare was made with the torch in the right hand: passed across
+  // for it (core/LeftTorch.js), with whatever the right hand held put out of sight.
+  toRightHand: () => {
+    if (!leftTorch.carried) return false;
+    hands.setVisible(false);
+    leftTorch.setPinned(true);
+    leftTorch.setHand('right');
+    return true;
+  },
+  shake: (drop, tilt, roll) => leftTorch.setShake(drop, tilt, roll),
+  setPinned: (on) => leftTorch.setPinned(on),
+  // Back in the left hand at once: only ever behind black or with the hands hidden.
+  putBack: () => {
+    leftTorch.setShake();
+    leftTorch.setPinned(false);
+    leftTorch.setHand('left', { animate: false });
+  }
 };
 const stairsScare = createStairsScare({
   camera,
