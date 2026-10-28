@@ -50,6 +50,26 @@ that the others do not?*"
   two-bone IK, solved in world space by the law of cosines with a pole.
   `src/core/JumpScare.js` (`poseBody`, `lensOnEyes`, `reachArm`),
   `src/core/jumpScares/{sedate,lightningFace,dragged}.js`.
+- **The stairs jump scare, procedural**: no animation clip. The creature lunges
+  into your face, then shakes there the way a Five Nights at Freddy's
+  animatronic does: a neck-and-head turn at 13 Hz, rolls and nods, a body
+  rattle, and both claws raised by IK with the elbows held under them, all
+  stepped at 24 poses a second. `src/core/jumpScares/thrash.js`.
+- **The kept ending, one rig for two figures**: caught a fifth time, Mark is
+  dragged home through four levels. The haul's IK and posing drive the
+  monster (MMD rig) and Annabelle (Mixamo rig) through one adapter, and
+  each figure drags in its own style (`haulStyle`). The last beat is
+  procedural acting layered on her rig:
+  - panting and flinching
+  - a turn led by her head
+  - a look back over her shoulder
+  - a walk on planted feet: footstep planning, two-bone leg IK, toe-off,
+    hips lowered to fit the stride, and arms swinging against the legs
+  - footsteps panned to where each foot lands
+
+  `src/core/jumpScares/hauled.js`, `src/levels/annabelleDragger.js`,
+  `src/cutscenes/keptBedroom.js`, and `playKeptEnding` and `chainedForGood`
+  in `src/main.js`.
 
 ## Control & Playability (10%)
 

@@ -21,6 +21,11 @@
 
 export const dialog_out_of_time = ["Out of time. The lights go out, and the house keeps you.", "endings/out_of_time.m4a", 3.5];
 
+// ---- the kept ending: caught a fifth time, dragged home and chained again ---
+// Mark, on the bed. No recording yet: the caption shows on its own.
+
+export const dialog_ending_kept = ["She brought me all the way back. And this time the chain won't give.", "endings/kept.m4a", 5];
+
 // ---- the two news reports read over the closing pan -----------------------
 
 export const dialog_ending_released = [

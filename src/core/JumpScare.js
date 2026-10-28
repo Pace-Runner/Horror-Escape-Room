@@ -575,7 +575,8 @@ export function createJumpScare({ camera, fade, postFX, audio, playScream = () =
      * @param {object|null} [options.dark] - the room is in a blackout: the
      *   under-light every scare puts on its face is turned down to `scale` of
      *   itself and tinted `color` (the moon's), so she is lit like the room
-     *   she came out of, not by a lamp from nowhere
+     *   she came out of, not by a lamp from nowhere. A scale above 1 lifts it,
+     *   for a room too dim to see the figure in (the kept ending's lab)
      * @returns {Promise<void>}
      */
     run({ creature, isAlive = () => true, kind = 'lunge', ceiling = null, colliders = null, pool = null, onCue = null, body = null, dark = null }) {

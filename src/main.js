@@ -65,6 +65,8 @@ import { createOkabeCreature } from './systems/OkabeCreature.js';
 import { createCreatureAI } from './systems/CreatureAI.js';
 import { createStudySeeker, STUDY_CATCH_RESPAWN } from './systems/StudySeeker.js';
 import { createAnnabelle } from './levels/annabelleFigure.js';
+import { createAnnabelleDragger } from './levels/annabelleDragger.js';
+import { createKeptBedroomBeat, KEPT_BED } from './cutscenes/keptBedroom.js';
 import { createBackroomsHunter } from './systems/BackroomsHunter.js';
 import { createAudioDirector } from './systems/AudioDirector.js';
 import { createBackroomsBarks } from './systems/BackroomsBarks.js';
@@ -4413,6 +4415,11 @@ function onStudyCaught(context = null) {
     studySeeker?.release();
     return;
   }
+  // The fifth time she does not leave him in her corner: she takes him home.
+  if (studyCaughtTimes + 1 >= KEPT_AFTER_CATCHES) {
+    studyCaughtTimes++;
+    if (playKeptEnding()) return;
+  }
   caughtInFlight = true;
   audioDirector.caught({ where: 'study' });
   // A whisper still on screen must not sit over her face.
@@ -4507,6 +4514,244 @@ function onStudyCaught(context = null) {
         hands.setVisible(true);
       }
     }
+  });
+}
+
+// ---- the kept ending
+/**
+ * THE KEPT ENDING. The fifth time she catches him in the study, she does not
+ * sedate him and leave him in the corner by her chair: she takes him home. No
+ * jump scare. Black, and then four shots of him on his back, dragged by the
+ * ankle back the way he came, two seconds each with a fade to black between
+ * them (jumpScares/hauled.js):
+ *
+ *   the study, to its entry door          the monster
+ *   the backrooms                         Annabelle
+ *   Level 2's lab, toward its doors       the monster
+ *   the upstairs hall, to the bedroom     Annabelle
+ *
+ * Then the bed and the chain on his wrist, as the game began -- and this time
+ * nothing opens. The end screen's only way on is a new run.
+ *
+ * The rooms are switched with sceneManager.activate(), not activateLevel(): a
+ * two-second shot must not wake a room's entry beats, thoughts and timers.
+ * Only the bedroom, which he is left in, is entered properly. Each lane was
+ * measured against its room's colliders: clear for the haul and her ahead,
+ * and for his body behind.
+ */
+const KEPT_AFTER_CATCHES = 5;
+/** The four shots; `floor` says what the drag sounds like on it. */
+const KEPT_SHOTS = [
+  { level: 'study', by: 'monster', at: [4.2, 4.8], yaw: -Math.PI / 2, floor: 'wood' },
+  { level: 'backrooms', by: 'annabelle', at: [32, 59.8], yaw: 0, floor: 'carpet' },
+  // The lab can be dim: the light on the monster is lifted there (run's `dark`, scale above 1).
+  { level: 'hallwayBasement', by: 'monster', at: [2.2, 10], yaw: 0, floor: 'hard', dark: { scale: 2 } },
+  { level: 'upstairsHallway', by: 'annabelle', at: [1.2, 7.5], yaw: 0, floor: 'wood' }
+];
+/** His breathing through the drag, and on the bed after it (AudioEngine's 0..1 dial). */
+const KEPT_DRAG_BREATHING = 0.5;
+const KEPT_BED_BREATHING = 0.3;
+/**
+ * The last beat, on the bed. He looks across the room from the chained view
+ * (BEDROOM_RESTRAINED_LOOK_BOUNDS): the door is behind him, out of sight, so
+ * she stands where he can see her -- by the nightstand at the head of the bed
+ * -- and leaves the way he cannot follow with his eyes.
+ */
+const KEPT_BED_VIEW = { yaw: 1.3, pitch: -0.1 };
+const keptScript = createScriptRunner({ captions });
+/** Annabelle for the drag, made the first time the ending needs her. */
+let keptAnnabelle = null;
+
+function keptDragger(by) {
+  if (by !== 'annabelle') return creature;
+  if (!keptAnnabelle) {
+    keptAnnabelle = createAnnabelleDragger();
+    worldRoot.add(keptAnnabelle.group);
+  }
+  return keptAnnabelle;
+}
+
+/** One shot's room, up behind the black: the room and its fog, and the player at the lane's start. */
+function stageKeptShot(shot, dragger) {
+  sceneManager.activate(shot.level, player);
+  scene.fog = LEVEL_FOG[shot.level] ?? null;
+  audioDirector.onLevelActivated(shot.level);
+  player.groundY = 0;
+  player.spawn(shot.at[0], shot.at[1], shot.yaw, 0);
+  creature.visible = false;
+  dragger.group.position.y = 0;
+}
+
+/** A haul's beats (jumpScares/hauled.js), as sound on this room's floor. */
+function keptCue(name, shot) {
+  const hard = shot.floor !== 'carpet';
+  if (name === 'heave') sfx('cloth', { gainDb: hard ? 7 : 4 });
+  if (name === 'yank') {
+    sfx('cloth', { gainDb: 9 });
+    if (hard) sfx('chair_scrape', { gainDb: -4 });
+    audio.thump(0.32);
+  }
+  if (name === 'stumble' && hard) sfx('creak');
+}
+
+/** Runs `onFrame(t, dt)` every frame for `seconds` of real time; false if `isAlive` went false first. */
+function keptFrames(seconds, isAlive, onFrame) {
+  return new Promise((resolve) => {
+    const start = performance.now();
+    let last = start;
+    const step = () => {
+      if (!isAlive()) { resolve(false); return; }
+      const now = performance.now();
+      const t = Math.min(seconds, (now - start) / 1000);
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      onFrame(t, dt);
+      if (t >= seconds) { resolve(true); return; }
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
+
+/** Caught the fifth time: the drag home. Returns false if an ending is already under way. */
+function playKeptEnding() {
+  if (endingInFlight || gameState.endingChosen) return false;
+  endingInFlight = true;
+  gameState.endingChosen = 'kept';
+  captions.cancel();
+  keptScript.run(async (s) => {
+    s.do(() => {
+      if (studyHidden) exitStudyHideSpot({ quiet: true });
+      player.clearKeys();
+      player.movementEnabled = false;
+      player.lookEnabled = false;
+      interaction.setEnabled(false);
+      stopStudyHideAndSeek();
+      if (thirdPerson) setThirdPerson(false);
+      hands.setVisible(false);
+      player.cinematic = true;
+      jumpScareRunning = true;
+      // The catch itself, in the dark: a body hitting the boards and the breath knocked out of him.
+      fade.snapToBlack();
+      audio.thump(0.9);
+      sfx('gasp');
+      audio.setBreathing(KEPT_DRAG_BREATHING);
+    });
+    if (!await s.wait(0.7)) return false;
+    try {
+      for (const shot of KEPT_SHOTS) {
+        const dragger = keptDragger(shot.by);
+        if (dragger.ready) await dragger.ready;
+        if (!s.alive()) return false;
+        s.do(() => {
+          stageKeptShot(shot, dragger);
+          if (shot.by === 'monster') sfx('sniff', { gainDb: -3 });
+        });
+        playerBodyBorrowed = true;
+        await jumpScare.run({
+          creature: dragger,
+          body: playerBody,
+          kind: 'hauled',
+          isAlive: s.alive,
+          onCue: (name) => keptCue(name, shot),
+          // The study is still in its blackout: she is lit like the dark room.
+          dark: shot.level === 'study' && study.refs.blackout.isOut ? { scale: 0.45, color: 0x8ea6d6 } : (shot.dark ?? null)
+        });
+        playerBodyBorrowed = false;
+        applyViewVisibility();
+        dragger.visible = false;
+        if (!s.alive()) return false;
+        // Each cut lands like being hauled over a threshold.
+        s.do(() => audio.thump(0.4));
+      }
+      return true;
+    } finally {
+      jumpScareRunning = false;
+      if (playerBodyBorrowed) {
+        playerBodyBorrowed = false;
+        applyViewVisibility();
+      }
+    }
+  }).then((home) => { if (home) chainedForGood(); });
+  return true;
+}
+
+/**
+ * Back on the bed with the chain on his wrist, as the run began. She is there
+ * by the nightstand, still out of breath from the haul, looking at him; he
+ * yanks at the chain and it holds, and she flinches; she looks away, and
+ * goes. At the edge of his sight she stops and looks back at him, once; then
+ * round the bed and behind him, where he cannot turn to see, her footsteps
+ * going where she goes, and he hears the door, and the lock. Nothing opens,
+ * and the end screen offers a new run.
+ */
+function chainedForGood() {
+  if (gameState.endingChosen !== 'kept') return;
+  // The room as the game opened in it (as resetGame does), so the bed and the chain can be seen.
+  bedroom.reset();
+  bedroomStorm.relight();
+  bedroom.refs.pendantIntact.visible = true;
+  bedroom.refs.pendantBroken.visible = false;
+  bedroom.refs.ambient.intensity = AMBIENT_LIT;
+  player.cinematic = false;
+  activateLevel('bedroom', { lockMovement: true });
+  const [bedX, bedZ] = bedroom.spawn;
+  player.spawn(bedX, bedZ, KEPT_BED_VIEW.yaw, KEPT_BED_VIEW.pitch);
+  // Nothing in his hands and nothing to pick: no way out. He can only look.
+  hands.setVisible(false);
+  interaction.setEnabled(false);
+  player.lookEnabled = true;
+  hud.style.display = 'none';
+  crosshair.style.display = 'none';
+  audio.setBreathing(KEPT_BED_BREATHING);
+
+  const her = keptDragger('annabelle');
+  const figure = her.figure;
+  her.reset();
+  her.group.position.y = 0;
+  her.visible = true;
+  // Her acting, feet and all: cutscenes/keptBedroom.js.
+  const beat = createKeptBedroomBeat({ her, bed: [bedX, bedZ] });
+  const eye = new THREE.Vector3();
+  const look = new THREE.Vector3();
+  const done = new Set();
+  const once = (key, t, at, run) => { if (t >= at && !done.has(key)) { done.add(key); run(); } };
+  let steps = 0;
+  /** A footfall where her foot came down: panned to it, and quieter the further off. */
+  const footfall = (x, z) => {
+    camera.getWorldDirection(look);
+    const dx = x - eye.x;
+    const dz = z - eye.z;
+    const far = Math.hypot(dx, dz) || 1;
+    const pan = THREE.MathUtils.clamp((dx * -look.z + dz * look.x) / (far * Math.hypot(look.x, look.z) || 1), -1, 1);
+    audio.footsteps({ count: 1, pan, level: (steps++ % 2 ? 0.4 : 0.5) / (1 + 0.35 * far) });
+  };
+
+  keptScript.run(async (s) => {
+    s.do(() => fade.fadeIn(KEPT_BED.fadeIn * 1000));
+    const finished = await keptFrames(beat.duration, s.alive, (t, dt) => {
+      once('promise', t, KEPT_BED.promise, () => figure.perform('promise', 2.2));
+      once('chainYank', t, KEPT_BED.chain, () => sfx('gate_locked', { gainDb: -5 }));
+      once('line', t, KEPT_BED.line, () => captions.play(line('dialog_ending_kept')));
+      once('chainAgain', t, KEPT_BED.chainAgain, () => sfx('gate_locked', { gainDb: -9 }));
+      once('flash', t, KEPT_BED.flash, () => bedroomStorm?.flashNow());
+      once('flashAgain', t, KEPT_BED.flashAgain, () => bedroomStorm?.flashNow());
+      once('doorOpens', t, beat.atDoor - 0.3, () => sfx('creak'));
+      once('latch', t, beat.atDoor + 0.4, () => sfx('latch'));
+      once('lockTurns', t, beat.atDoor + 0.95, () => sfx('metal_click'));
+      if (!her.visible) return;
+      camera.getWorldPosition(eye);
+      if (!beat.frame(t, dt, eye, footfall)) her.visible = false;
+    });
+    s.do(() => { her.visible = false; });
+    if (!finished || !s.alive()) return;
+    await fade.fadeOut(1800);
+    if (!s.alive() || gameState.endingChosen !== 'kept') return;
+    endingInFlight = false;
+    hands.setVisible(true);
+    // His line is long over by now; nothing is left over the title.
+    captions.cancel();
+    showEndScreen('kept', false);
   });
 }
 
@@ -4987,6 +5232,8 @@ function resetGame() {
   pickRespawnLine.reset();
   caughtTimes = 0;
   studyCaughtTimes = 0;
+  keptScript.cancel();
+  if (keptAnnabelle) keptAnnabelle.visible = false;
   sprintCatchLessonPlayed = false;
   sprintCatchReminderIndex = 0;
   sprintCatchNextAt = 0;
@@ -5249,12 +5496,14 @@ window.addEventListener('keydown', (e) => {
 const ENDING_TITLES = {
   released: 'ENDING: RELEASED',
   contained: 'ENDING: CONTAINED',
-  timeout: 'OUT OF TIME'
+  timeout: 'OUT OF TIME',
+  kept: 'ENDING: KEPT'
 };
 
 /** The small line under the title. Only running out of time is not an ending. */
 const ENDING_SUBTITLES = {
-  timeout: 'The house kept you'
+  timeout: 'The house kept you',
+  kept: 'She brought you all the way back. There is no way out.'
 };
 
 const ENDING_CREDITS = {
@@ -6118,6 +6367,10 @@ if (import.meta.env.DEV) {
     // The stairs scare normally waits for the player to walk to the top step.
     playStairsScare,
     stairsScare,
+    // The kept ending normally needs a fifth catch in the study.
+    playKeptEnding,
+    /** The kept ending's Annabelle (levels/annabelleDragger.js), made if need be: for staging her bedroom beat. */
+    get keptAnnabelle() { return keptDragger('annabelle'); },
     // Every jump scare on demand: jumpScare.run({ creature: okabe, kind }).
     jumpScare,
     // The study hide-and-seek (docs/LEVEL3_HIDE_AND_SEEK.md): its seeker, a

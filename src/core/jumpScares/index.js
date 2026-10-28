@@ -18,14 +18,18 @@ import { alreadyThere } from './alreadyThere.js';
 import { sedate } from './sedate.js';
 import { lightningFace } from './lightningFace.js';
 import { dragged } from './dragged.js';
+import { thrash } from './thrash.js';
+import { hauled } from './hauled.js';
 
 /**
  * `pool` (optional) keeps a scare to one place: run({ kind: 'random', pool })
  * draws from that pool only, and a plain 'random' only from the scares with
  * none. The study's three are a sedation, not a mauling -- see
- * systems/StudySeeker.js -- so they are pool 'study'.
+ * systems/StudySeeker.js -- so they are pool 'study'. The thrash is the stairs
+ * scare's own (pool 'stairs'), asked for by name, and so are the kept
+ * ending's haul shots (pool 'kept').
  */
-export const JUMP_SCARES = { lunge, knockedDown, ceilingDrop, alreadyThere, sedate, lightningFace, dragged };
+export const JUMP_SCARES = { lunge, knockedDown, ceilingDrop, alreadyThere, sedate, lightningFace, dragged, thrash, hauled };
 
 /** The study catch's scares, by name. */
 export const STUDY_CATCH_SCARES = Object.freeze(['sedate', 'lightningFace', 'dragged']);

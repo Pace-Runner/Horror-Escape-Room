@@ -26,6 +26,19 @@ for a few frames, back into a sixteen-year-old girl.
 in her chair's corner, still in the dark, with everything he had done
 still done.
 
+**The fifth catch ends the game: the kept ending.** She doesn't sedate him
+this time; she takes him home. There's no jump scare: four 2-second shots
+of him on his back, dragged by the ankle, with a fade to black between
+each. The monster drags him through the study to its entry door, Annabelle
+through the backrooms, the monster through Level 2's lab, and Annabelle
+down the upstairs hall to the bedroom. Then he's on the bed, chained as the
+game began, with nothing to pick or open. She stands over him, flinches as
+he pulls at the chain, then leaves. She looks back at him once, and he hears
+the door lock behind her. The end screen ("ENDING: KEPT") only offers a new
+run. The full beat-by-beat is in `docs/CUTSCENES.md`. Code: `playKeptEnding` in main.js,
+`core/jumpScares/hauled.js`, `levels/annabelleDragger.js`. In dev:
+`__game.playKeptEnding()`.
+
 **The storm causes both blackouts, by coincidence.** Annabelle didn't cut
 the power. She uses the dark.
 

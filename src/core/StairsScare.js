@@ -14,7 +14,8 @@ import * as THREE from 'three';
  *      them (cutscenes/stairsBehind.js, through the scene runner)
  *   7. CUT back to first person; they turn round, and the torch catches as
  *      they do -- the hall is empty
- *   8. they turn back to the stairs, and it is there: the backrooms jump scare
+ *   8. they turn back to the stairs, and it is there: the thrash
+ *      (jumpScares/thrash.js), one lunge and a second of shaking in their face
  *   9. black, then the view comes back at the top of the stairs with the
  *      lights on. Nobody dies, and the torch works again.
  *
@@ -23,8 +24,8 @@ import * as THREE from 'three';
  * outside the head, wrong for steps 1-4 and 7, which are the player's own view
  * with the torch in their hand: the shake IS the hand. So those steps turn the
  * player's own camera (player.aim, with player.cinematic holding it), and only
- * step 6 goes through the runner. Step 8 is core/JumpScare.js, exactly as the
- * backrooms catch plays it.
+ * step 6 goes through the runner. Step 8 is core/JumpScare.js, as the
+ * backrooms catch plays its scares, with a scare of its own.
  *
  * ON THE FRAME CLOCK, like the runner: main.js calls update(dt) every frame,
  * with 0 while the game is paused, so Esc holds the scene rather than letting
@@ -356,7 +357,7 @@ export function createStairsScare({
   async function playJumpScare(isAlive) {
     hands.setVisible?.(false);
     isScareOnScreen = true;
-    await jumpScare.run({ creature, isAlive });
+    await jumpScare.run({ creature, isAlive, kind: 'thrash' });
     if (!isAlive()) return false;
     const [stillAlive] = await Promise.all([animate(AFTER_SCARE_BLACK_SECONDS, isAlive), whileBlack()]);
     if (!stillAlive || !isAlive()) return false;

@@ -263,6 +263,90 @@ the fade out (it must end on black) and one instead of the fade in.
 
 To replay it in dev: from the maze, `__game.playCutscene('comeRound')`.
 
+### The kept ending
+
+Caught a fifth time in the study, Mark is dragged home: four 2-second shots,
+each one `hauled` (below) through `jumpScare.run`, with a fade to black
+between them.
+
+| Room | Dragged by | Lane (where his feet start, toward) |
+|------|------------|-------------------------------------|
+| Study | the monster | (4.2, 4.8), to the entry door |
+| Backrooms | Annabelle | (32, 59.8), north up the corridor |
+| Level 2's lab | the monster | (2.2, 10), toward the lab doors |
+| Upstairs hall | Annabelle | (1.2, 7.5), to the bedroom door |
+
+Each lane was measured clear against the room's colliders. The rooms are
+switched with `sceneManager.activate` rather than `activateLevel`, so no
+room's entry beats, thoughts or timers wake for a two-second shot. Annabelle
+drags through `levels/annabelleDragger.js`, which gives her figure the calls
+the jump scare rig makes on the monster. `KEPT_SHOTS` in main.js holds the
+lanes.
+
+The two draggers haul differently, through the `haulStyle` a figure carries
+(the fields are listed at the top of `jumpScares/hauled.js`):
+
+- **The monster** stoops low, with its head down and cocked to one side. It
+  rocks with each heave and yanks hard on every third beat.
+- **Annabelle** is a girl hauling a grown man. She leans her whole weight
+  back, holds his leg at her hips and pants, and takes long braced steps.
+  She looks at him, then over her shoulder at where she's going, and once
+  her knees give (the `stumble` cue).
+
+Each shot picks a fresh glance, stumble and head cock, so no two look alike.
+Mark claws at the floor and kicks his free leg. The heave, yank and stumble
+cues come back to main.js (`keptCue`) as cloth, scrape and creak sounds
+matched to that room's floor.
+
+Then the bedroom is reset and entered properly: he's chained, the
+interactions are off and the hands are hidden. `chainedForGood` in main.js
+stages the room and plays the sounds. Annabelle's acting is in
+[src/cutscenes/keptBedroom.js](../src/cutscenes/keptBedroom.js) (`KEPT_BED`
+holds the timings). The beat goes like this:
+
+- **She's there.** Annabelle stands by the nightstand, still out of breath
+  from the haul, stooped, and straightening as her breath comes back. She
+  nods slowly (she keeps her promises), and lightning shows her.
+- **The chain.** He yanks at the chain twice, and she flinches each time, the
+  second time less. His caption-only line plays.
+- **She goes.** She looks away, down and to the side she'll turn to. Her
+  head leads the turn and her shoulders follow, then she walks out.
+- **The look back.** At the edge of his sight she stops and looks back over
+  her shoulder at him, once, as lightning lights her face. Then she goes
+  quickly.
+- **The door.** She passes round the bed and behind him, where he can't turn
+  to look. Each footstep sounds as her foot comes down, panned to where it
+  landed. The door, latch and lock follow her arrival at the door. Her way
+  out is a function of time (`distanceAt`, `wayAt`), so the sounds stay in
+  step with her even when frames drop.
+
+Then comes the end screen.
+
+**Her feet are planted.** Her figure's own walk swings her legs but never
+touches the floor, so moving her along a path on it made her skate. In this
+beat:
+
+- **Planting.** Each foot stays where it was put while her body moves over
+  it. A foot steps (lifted, carried and put down ahead) when her body has
+  left it behind or turned away from it, one foot at a time.
+- **Rhythm.** Walking, the steps come on a clock that runs with the distance
+  she covers, so the rhythm is even.
+- **Turning.** A planted foot swivels on its ball as she turns over it.
+- **Push-off.** The foot behind her comes up onto its toes.
+- **Legs and hips.** Her legs are solved to her feet (two bones, the law of
+  cosines), and her hips come down as far as a long step needs.
+- **Corners.** Her path's corners are rounded, so she walks round the bed
+  rather than cutting to a point.
+- **Arms.** Her arms come down to her sides and swing once she turns to go.
+
+Measured headless across the whole beat:
+
+- **Foot slide:** the planted toes slide under 3 mm/s on 95% of contact
+  frames.
+- **Hip bob:** about 2 cm at full pace.
+
+To see it in dev: `__game.playKeptEnding()`.
+
 ## Jump scares
 
 [src/core/JumpScare.js](../src/core/JumpScare.js) is the shared rig: the light
@@ -272,7 +356,9 @@ aiming, the scream, the red tunnel and the strobes. Each scare is one file in
 
 | Scare | Where | What happens |
 |-------|-------|--------------|
-| `lunge` | anywhere; the stairs scare | It rushes your face from 2.6 m. |
+| `lunge` | anywhere | It rushes your face from 2.6 m. |
+| `hauled` | the kept ending only (pool `kept`) | Already on his back, dragged by the ankle, heave after heave, 2.6 s with a fade in and out. The haul of `dragged` with no grab, scream or red tunnel. Played by the monster or by Annabelle. |
+| `thrash` | the stairs scare only (pool `stairs`) | One second, Five Nights at Freddy's style: it lunges from 1.5 m, then shakes in your face -- the head snapping side to side, the body rattling, claws up either side of its face -- stepped at 24 poses a second, so it moves like a machine. |
 | `knockedDown` | anywhere | It hits you, the view falls to the floor, and it bends down over you. |
 | `ceilingDrop` | the backrooms only (needs a ceiling height) | It swings down out of the tiles, upside down, into your face. |
 | `alreadyThere` | anywhere | The light catches once and its face is already a hand from yours, perfectly still, then it snaps and screams. |
