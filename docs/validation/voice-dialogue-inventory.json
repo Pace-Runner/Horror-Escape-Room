@@ -150,6 +150,11 @@
       "status": "existing text-only placeholder; no shipped recording"
     },
     {
+      "key": "dialog_ending_kept",
+      "voice": "endings/kept.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
       "key": "dialog_ending_released",
       "voice": "endings/released_1.m4a",
       "status": "existing text-only placeholder; no shipped recording"

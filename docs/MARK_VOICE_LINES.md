@@ -44,7 +44,12 @@ ElevenLabs **Text to Speech** page with these settings:
   the same settings. ElevenLabs started refusing flow runs as "too many
   requests" after a few, so the Text to Speech page is the quicker way.
 
-The paths in the File columns are under `src/assets/voice/`.
+The paths in the File columns are under `audio-source/mark-voice-takes/`.
+The takes are not in the game yet. They were made for the dialogue lines
+below, but Mark's voice now plays through `src/story/markThoughts.js`, with
+its recordings in `src/assets/audio/Dont Let it out Mark voice/`, and
+`npm run check:voices` refuses any recording in `src/assets/voice/` that
+nothing maps. To use a take, add it there and map it the same way.
 
 ## Anywhere (`src/dialogue/anywhere.js`)
 
