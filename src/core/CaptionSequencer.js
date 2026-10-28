@@ -97,6 +97,7 @@ export class CaptionSequencer {
     this._aside = null;
     /** Fires when a line becomes visible; the voice bus hangs off this. */
     this.onLineStart = null;
+    this.onLineCancel = null;
     /**
      * Whether a line has a recording that will actually play. main.js wires it
      * to the audio engine. The captions setting is SUBTITLES for spoken lines:
@@ -212,6 +213,7 @@ export class CaptionSequencer {
   /** Ends the line on screen now and moves to the next one, if any. */
   skip() {
     if (this._phase === 'idle') return;
+    this.onLineCancel?.(this._line);
     this._phase = 'out';
     this._t = 0;
     this._hideLine();
@@ -230,6 +232,7 @@ export class CaptionSequencer {
    * run's captions to fade in over the fresh room.
    */
   cancel() {
+    this.onLineCancel?.(this._line);
     this._settle(false);
     this._queue = [];
     this._phase = 'idle';
@@ -246,6 +249,13 @@ export class CaptionSequencer {
   }
   extendMarkThought(seconds) {
     if(this._line?.markThought)this._line.duration=Math.max(1,seconds);
+  }
+  isCurrent(line){return this._line===line;}
+  waitForVoice(line){if(this.isCurrent(line)){line.manualEnd=true;line.voicePending=true;this.el.classList.remove('visible');}}
+  beginVoice(line,duration){
+    if(!this.isCurrent(line))return;
+    line.duration=duration;line.manualEnd=true;line.voicePending=false;this._phase='in';this._t=0;
+    if(this._shows(line)){renderCaptionText(this.el,line);this.el.classList.add('visible');}
   }
 
   setPaused(paused) {
@@ -277,7 +287,7 @@ export class CaptionSequencer {
    * for with H) is help, not dialogue, and shows even with captions off.
    */
   _shows(line) {
-    return this.enabled || Boolean(line?.always) || !this.isVoiced(line);
+    return !line?.voicePending&&(this.enabled || Boolean(line?.always) || !this.isVoiced(line));
   }
 
   update(dt) {
@@ -317,6 +327,7 @@ export class CaptionSequencer {
   }
 
   _start(line, isSequence) {
+    if(this._line!==line)this.onLineCancel?.(this._line);
     this._line = line;
     this._sequence = isSequence;
     this._phase = 'in';

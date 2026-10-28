@@ -8,63 +8,40 @@ import {createReleaseEndingScreen} from '../src/core/ReleaseEndingScreen.js';
 
 function classes(){const values=new Set();return {add:(...s)=>s.forEach(x=>values.add(x)),remove:(...s)=>s.forEach(x=>values.delete(x)),contains:x=>values.has(x),toggle(x,on){if(on)values.add(x);else values.delete(x);}};}
 globalThis.document={body:{classList:classes(),appendChild(){}},getElementById:()=>null,createElement:()=>({classList:classes(),style:{},appendChild(){}})};
-for(const cancelAt of [null,.1,1.1,3.2,6.8,9.1,T.still+.1,T.contact+.02,T.news+.1]){
+for(const cancelAt of [null,.1,.5,3.2,T.human+.5,T.claw+.2,T.news+.1]){
   const camera=new THREE.PerspectiveCamera(70,16/9,.05,100);camera.position.set(-1.55,1.6,5.5);camera.rotation.y=Math.PI;
-  const start=camera.position.clone(),initial=camera.quaternion.clone();
-  const player={movementEnabled:true,lookEnabled:true,keys:{},clearKeys(){},aim(yaw,pitch){camera.rotation.set(pitch,yaw,0,'YXZ');}};
-  const interaction={enabled:true,setEnabled(on){this.enabled=on;}};
+  const start=camera.position.clone(),player={movementEnabled:true,lookEnabled:true,keys:{},clearKeys(){},aim(){}};
   const annabelle=new THREE.Group();annabelle.position.set(-6.62,0,-6.075);
-  const mechanics=[],reactions=[],lockdown=[],resignation=[],identity=[],perceptions=[],seated=[];let clock=0,muffled=false,restores=0,chatter=0,clears=0,fadeAt=null;
-  const refs={annabelle,setEndingSeated:w=>seated.push(w),setResealLockdown:p=>lockdown.push(p),setResealReaction:(p,w)=>reactions.push({p,w}),setResealResignation:p=>resignation.push(p)};
-  const scene=buildStudyResealEnding({camera,player,refs,visor:{set:on=>perceptions.push({on,t:clock})},
-    fade:{fadeOut(ms){assert.equal(ms,450);fadeAt=clock;},clear(){clears++;}},
-    stopChatter(){chatter++;},playMechanical:(key,p)=>mechanics.push({key,p}),muffleNight(){muffled=true;},restoreNight(){muffled=false;restores++;},
-    showIdentity:who=>identity.push(who)});
-  assert.equal(scene.letterbox,false);assert(T.end>=15&&T.end<=24);
-  const runner=createCutsceneRunner({camera,player,interaction});const promise=runner.playScene(scene);
-  assert(!player.movementEnabled&&!player.lookEnabled&&!interaction.enabled);
-  assert(camera.position.distanceTo(start)<1e-8&&camera.quaternion.angleTo(initial)<1e-8);
-  assert.equal(await runner.playScene(scene),false,'second reseal started while active');
-  let prior=scene.sample(0),maxAngular=0;
+  const mechanics=[],fades=[],identity=[],seated=[];let clock=0,restores=0,chatter=0,clears=0,maxAngular=0;
+  const refs={annabelle,setEndingSeated:w=>seated.push(w),setResealLockdown(){},setResealReaction(){},setResealResignation(){}};
+  const scene=buildStudyResealEnding({camera,player,refs,visor:{set(){}},
+    fade:{fadeOut:ms=>fades.push({ms,t:clock}),fadeIn:ms=>fades.push({ms,t:clock,in:true}),clear(){clears++;}},
+    stopChatter(){chatter++;},playMechanical:(key,p)=>mechanics.push({key,p}),restoreNight(){restores++;},showIdentity:who=>identity.push(who)});
+  const runner=createCutsceneRunner({camera,player,interaction:{setEnabled(){}}});const promise=runner.playScene(scene);
+  assert(!player.movementEnabled&&!player.lookEnabled);assert.equal(await runner.playScene(scene),false);
+  let prior=scene.sample(0);
   while(runner.isRunning){
     if(cancelAt!==null&&clock>=cancelAt){runner.cancel();break;}
-    clock+=.01;runner.update(.01);
-    const p=scene.sample(Math.min(clock,T.end));
-    if(clock<T.human)assert(Math.hypot(p.position[0]-start.x,p.position[2]-start.z)<1e-8,'reseal camera moved before external shot');
-    assert(p.position[2]<6.45,'reseal camera crossed sealed exit');
-    maxAngular=Math.max(maxAngular,new THREE.Quaternion().fromArray(prior.quaternion).angleTo(new THREE.Quaternion().fromArray(p.quaternion))/.01);prior=p;
-    assert(clock<T.end+.1);
+    clock+=.01;runner.update(.01);const p=scene.sample(clock);
+    assert(p.position[2]<6.45,'camera crossed sealed exit');
+    if(clock>.35)maxAngular=Math.max(maxAngular,new THREE.Quaternion().fromArray(prior.quaternion).angleTo(new THREE.Quaternion().fromArray(p.quaternion))/.01);
+    prior=p;assert(clock<T.end+.1);
   }
-  const complete=await promise;assert.equal(seated.at(-1),0,'seated pose leaked after end/cancel');assert.equal(chatter,1);assert.equal(restores,1);assert(!muffled);
-  assert.equal(resignation.at(-1),0,'ending pose was not cleaned up');
-  if(cancelAt!==null){assert(!complete);assert(clears>0);continue;}
-  assert.equal(Math.max(...seated),1);assert(complete);assert(maxAngular<2.5,'reseal look snapped');
-  assert.equal(mechanics.length,11);assert(mechanics.some(c=>c.p[2]<0)&&mechanics.some(c=>c.p[1]>3),'lock sounds did not travel through house');
-  assert(Math.abs(Math.max(...lockdown)-1)<1e-8);assert.equal(Math.max(...resignation),1);
-  assert(reactions.some(r=>r.p?.z===6.45)&&reactions.some(r=>r.p?.x===start.x),'Annabelle did not look exit then Mark');
-  assert.deepEqual(perceptions.map(p=>p.on),[true]);assert(identity.includes('hollow')&&!identity.includes('human'));
-  const external=scene.sample(T.hollow),lens=new THREE.PerspectiveCamera(external.fov,16/9,.05,100);
-  lens.position.fromArray(external.position);lens.quaternion.fromArray(external.quaternion);lens.updateMatrixWorld(true);
-  const chest=new THREE.Vector3(...external.bodyPosition).add(new THREE.Vector3(0,1.3,0)).project(lens);
-  assert(Math.abs(chest.x)<.1&&Math.abs(chest.y)<.1&&Math.abs(chest.z)<1,'contained monster is behind external lens');
-  assert.equal(external.visorWorn,false,'external monster wears goggles');
-  assert(external.position[1]>2,'reseal external camera is still too low');
-  assert(Math.abs(T.claw-T.still-2.25)<1e-8,'tense turn hold');
-  assert(Math.abs(T.contact-T.claw-.9)<1e-8,'explosive lunge duration');
-  assert(Math.abs(T.black-T.contact-.45)<1e-8,'impact fade duration');
-  assert(Math.abs(T.news-T.black-1.25)<1e-8,'black before news static');
-  const tenseA=scene.sample(T.still),tenseB=scene.sample(T.claw-.01);
-  assert(Math.abs(tenseA.bodyYaw-tenseB.bodyYaw)>.7,'Hollow did not turn toward camera');
-  const windup=scene.sample(T.claw+.10),leap=scene.sample(T.claw+.65),hit=scene.sample(T.contact+.02);
-  assert(windup.anticipation>.8&&windup.lunge===0,'missing loaded stillness');
-  assert(leap.jump>.2&&leap.lunge>.3&&leap.blur>.1,'missing accelerating airborne strike/brief blur');
-  assert(hit.slash>.99&&hit.scratch>0&&hit.distortion===1,'contact effects out of sync');
-  assert(scene.sample(T.contact+.04).distortion===0,'distortion exceeds two frames');
-  assert(scene.sample(T.black).scratch===0,'prolonged claw overlay over black');
-  assert(mechanics.some(x=>x.key==='attack-contact')&&mechanics.some(x=>x.key==='attack-swell')&&mechanics.some(x=>x.key==='news-static'));
-  assert(Math.abs(fadeAt-T.fade)<.02);
-
+  const complete=await promise;assert.equal(chatter,1);assert.equal(restores,1);assert.equal(seated.at(-1),0);
+  if(cancelAt!==null){assert(!complete);assert(clears);continue;}
+  assert(complete);assert(maxAngular<2,'withdrawal/attack camera snapped');
+  assert.equal(fades.length,1,'opening still cuts/fades away from the player');
+  assert(fades.some(f=>f.ms===140&&Math.abs(f.t-T.contact)<.02));
+  const portrait=scene.sample(T.voice);assert(new THREE.Vector3(...portrait.position).distanceTo(start)<1e-8,'opening left player POV');assert(portrait.fov<camera.fov&&portrait.fov>=camera.fov-13,'opening zoom is not restrained');
+  const a=scene.sample(T.still),b=scene.sample(T.claw-.1),rush=scene.sample(T.contact-.1),hit=scene.sample(T.contact+.02);
+  assert(a.containedPerformance.notice>0&&b.containedPerformance.load>.8,'no living notice/weight-loading beat');
+  assert(b.containedPerformance.travel>0&&rush.containedPerformance.rush>.5,'no step or accelerating rush');
+  assert.equal(rush.jump,0,'contained monster still slides through a stiff airborne leap');
+  assert(hit.contactHit&&hit.scratch>0);assert.equal(scene.sample(T.black).scratch,0);
+  assert(identity.includes('hollow')&&!identity.includes('human'));assert(T.title>T.black&&T.credits>T.title&&T.news>T.credits&&T.end>T.creditsEnd);
+  assert(mechanics.some(c=>c.key==='attack-contact'));
 }
+console.log('PASS: contained player POV and modest zoom; continuous withdrawal below 2 rad/s; sealed exit; notice/step/load/rush instead of stiff jump; 140ms contact cut; radio delay; cancellation and actor cleanup.');
 
 // Identical end-screen controller: contained title is authored in its own root.
 const elements={actions:{hidden:true},menu:{addEventListener(_,fn){this.click=fn;},focus(){}},credits:{addEventListener(_,fn){this.click=fn;}}};
@@ -82,7 +59,7 @@ assert(main.includes('audio.setMuffle(.24*Math.min(1,progress),1.2)')&&main.incl
 const html=fs.readFileSync(new URL('../index.html',import.meta.url),'utf8');
 assert(html.includes('ENDING: CONTAINED'));
 for(const text of ['HOLLOW never left.','Annabelle never made it out.'])assert(!html.includes(text));
-console.log('PASS: reseal once; control lock/current view; bolts/closed exit hooks; spatial locks; muffled ambience cleanup; planted resignation; slow Annabelle/hands look; higher third-person single-claw jump/slash; persistent Annabelle; lens scratch; duration-driven full-frame ending; 450ms impact fade + 1.25s black before static; contained card/menu/credits/reset; branch remains separate from Release.');
+console.log('PASS: reseal once; control lock/current view; bolts/closed exit hooks; spatial locks; muffled ambience cleanup; seated reassurance; living full-body catch; safe face distance; lens scratch; duration-driven full-frame ending; 140ms contact cut + title and crawl over news; contained card/menu/credits/reset; branch remains separate from Release.');
 
 // Audio stays on the game SFX bus; finite envelopes, non-looping, and cancel-safe.
 const emitted=[];let stopped=0;

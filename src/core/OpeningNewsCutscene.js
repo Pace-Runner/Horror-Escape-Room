@@ -62,7 +62,7 @@ function preloadImage(url, image) {
   });
 }
 
-export function createOpeningNewsCutscene({ root }) {
+export function createOpeningNewsCutscene({ root, captionsEnabled=()=>true }) {
   const photoCards = [...root.querySelectorAll('.onc-photo-card')];
   const subtitle = root.querySelector('.onc-subtitle');
   const audio = new Audio();
@@ -137,7 +137,7 @@ export function createOpeningNewsCutscene({ root }) {
     }
 
     const cue = OPENING_NEWS_SUBTITLE_CUES.find((entry) => time >= entry.start && time < entry.end);
-    const nextSubtitle = cue?.text ?? '';
+    const nextSubtitle = captionsEnabled()?(cue?.text??''):'';
     if (subtitle.textContent !== nextSubtitle) subtitle.textContent = nextSubtitle;
     photoCards[3].classList.toggle('is-final-radio', time >= FINAL_RADIO_TIME);
   }
@@ -154,6 +154,7 @@ export function createOpeningNewsCutscene({ root }) {
   }
 
   function close() {
+    finish({skipped:true});
     root.classList.add('is-ending');
     return new Promise((resolve) => {
       window.setTimeout(() => {

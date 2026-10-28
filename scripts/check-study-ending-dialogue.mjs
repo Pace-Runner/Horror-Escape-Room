@@ -10,10 +10,10 @@ for(const [branch,build,duration] of [['release',buildStudyReleaseEnding,5.2],['
   assert(fs.existsSync('src/assets/audio/Dont Let it out Mark voice/'+spec.voice.slice(5)),'missing exact MP3');
   for(const resetDuringVoice of [false,true]){
     let now=0,current=null,plays=0,interruptions=0,cancels=0;const ducks=[],captionLines=[],captionVisibility=[];let captionClears=0;
-    const audio={ctx:{},cue:()=>null,voiceSource:{thought:true},duck:(groups,db,opts)=>ducks.push({groups,db,opts,t:now}),
-      preloadVoice:async key=>{assert.equal(key,spec.voice);return {duration};},
+    const audio={ctx:{currentTime:0},cue:()=>null,voiceSource:{thought:true},duck:(groups,db,opts)=>ducks.push({groups,db,opts,t:now}),
+      preloadVoice:async key=>key===spec.voice?{duration}:null,
       stopVoice(){if(this.voiceSource)interruptions++;this.voiceSource=null;current=null;},
-      playVoice(key,opts){assert.equal(key,spec.voice);assert.equal(this.voiceSource,null,'voice overlap');plays++;
+      playVoice(key,opts){if(key!==spec.voice){opts.onFailed?.();return false;}assert.equal(this.voiceSource,null,'voice overlap');plays++;
         current={end:now+duration,opts};this.voiceSource=current;opts.onStarted({duration});return true;}
     };
     const owner=createStudyEndingAudio(audio,{branch,timing:createEndingTiming(branch),cancelThoughts:()=>cancels++,captions:{say:line=>captionLines.push(line),cancel:()=>captionClears++},onDialogueActive:on=>captionVisibility.push(on)});

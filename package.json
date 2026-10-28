@@ -11,6 +11,9 @@
     "check:okabe": "node scripts/check-okabe.mjs",
     "check:seeker": "node scripts/check-study-seeker.mjs",
     "check:audio": "node scripts/check-audio.mjs",
+    "check:voices": "node scripts/check-voice-inventory.mjs && node scripts/check-dialogue-triggers.mjs && node scripts/check-letter-narration.mjs && node scripts/check-mark-voice.mjs",
+    "check:stealth-voice": "node scripts/check-study-stealth-voice.mjs",
+    "check:cassette-reminders": "node scripts/check-cassette-reminders.mjs",
     "compress:assets": "node scripts/compress-assets.mjs",
     "check:assets": "node scripts/compress-assets.mjs --check",
     "preview": "vite preview"

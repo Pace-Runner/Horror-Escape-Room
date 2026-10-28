@@ -140,3 +140,7 @@ play and how loud is `SFX` and the loop specs in `src/systems/AudioDirector.js`.
 | `trolley_roll.m4a`, `trolley_crash.m4a` | Added in 9937ee5 / 6ae89ef. **Source, author and licence not recorded** |
 | `news_intro.MP3` | The opening news report's audio. Added in fbd9a53. **Source, author and licence not recorded** |
 | `Dont Let it out Mark voice/**/*.mp3` | Mark's thoughts. Generated with **ElevenLabs** -- every file carries ElevenLabs' signed C2PA content credential. Added in 2b2ed2f |
+
+## Contained ending suspense and broadcast transition
+
+Five new curated sound-effect excerpts, their source cuts and licence record: [Contained ending sources](endings-contained/SOURCES.md). These are owned by the ending controller and do not enter the ambient cue pool.

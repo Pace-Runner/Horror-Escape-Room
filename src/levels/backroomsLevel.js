@@ -339,8 +339,7 @@ export function createBackroomsLevel({
       if (thoughtCorridors.has(name) && thoughtCorridors.size >= 3) onThought('backrooms_02');
       thoughtCorridors.add(name);
       if (thoughtCorridors.size >= 8) {
-        onThought('backrooms_03');
-        onThought('backrooms_04');
+        onThought('backrooms_03',{priority:40,onEnded:()=>onThought('backrooms_04')});
       }
       if (LEGS[name].kind === 'room' && thoughtCorridors.size >= 8) onThought('backrooms_05');
     }
@@ -1528,6 +1527,7 @@ export function createBackroomsLevel({
           door.speed = EXIT_DOOR_SWING.unlatchSpeed;
           door.latchCollider.minX = door.latchCollider.maxX = -1000;
           onDoorOpening(slab.getWorldPosition(new THREE.Vector3()));
+          if(route?.to==='study')onThought('backrooms_06',{onEnded:()=>onThought('backrooms_07')});
           showCaption(line('dialog_exit_door_opens'));
           return;
         }

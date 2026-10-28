@@ -1,4 +1,8 @@
+import {STUDY_STEALTH_LINES} from './studyStealthVoice.js';
 export const MARK_THOUGHTS = {
+  ...STUDY_STEALTH_LINES,
+  l2_hint_find_cassette:['LEVEL 2/l2_hint_01_find_cassette.mp3',"I wonder if there's a cassette for the tape player..."],
+  l2_hint_play_cassette:['LEVEL 2/l2_hint_02_play_cassette.mp3','I should play this cassette... find out what happened here.'],
   l2_20: ['LEVEL 2/l2_thought_20_initial_power.mp3', 'No power. I need to get this place running.'],
   l2_21: ['LEVEL 2/l2_thought_21_power_failed_again.mp3', "Great. Power's gone again."],
   l2_22: ['LEVEL 2/l2_thought_22_find_generator.mp3', 'There has to be a generator somewhere.'],

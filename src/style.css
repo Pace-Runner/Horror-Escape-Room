@@ -868,7 +868,6 @@ html, body {
   pointer-events: none;
 }
 
-#main-menu,
 /* The menu's stills, one per level (main.js MENU_STILL_SECONDS), under its vignette. */
 #menu-stills {
   position: absolute;
@@ -2670,8 +2669,32 @@ body.cutscene-letterbox .cutscene-bar {
 }
 
 #release-ending-screen, #reseal-ending-screen { position:fixed; inset:0; z-index:59; background:#050504; display:grid; place-items:center; color:#d8d2c4; text-align:center; }
+#ending-cinema { position:fixed; inset:0; z-index:52; overflow:hidden; pointer-events:none; background:#000; color:#eee7d9; }
+#ending-cinema [data-cinema-title] { position:absolute; inset:0; display:grid; place-items:center; margin:0; padding:6vw;
+  text-align:center; font-family:'Old Standard TT',Georgia,serif; font-size:clamp(36px,6.4vw,100px); font-weight:400; letter-spacing:.16em;
+  text-shadow:0 0 30px rgba(206,194,166,.12); opacity:0; }
+.ending-crawl-viewport { position:absolute; inset:0 0 max(180px,20vh); overflow:hidden; opacity:0;
+  mask-image:linear-gradient(to bottom,transparent 0%,#000 18%,#000 94%,transparent 100%); }
+#ending-cinema[data-phase="credits"] .ending-crawl-viewport { opacity:1; }
+.ending-crawl-plane { position:absolute; inset:0; }
+[data-cinema-crawl] { width:min(720px,78vw); margin:0 auto; text-align:center; font-family:'Playfair Display',Georgia,serif; font-weight:400;
+  font-size:clamp(22px,2.2vw,32px); line-height:1.8; will-change:transform; }
+[data-cinema-crawl] section { margin:0 0 2.4em; padding:0; border:0; }
+[data-cinema-crawl] h3,.ending-crawl-kicker { font-family:'Segoe UI',system-ui,sans-serif; font-size:.48em; font-weight:500; letter-spacing:.25em; text-transform:uppercase; color:#bcaf97; margin:0 0 1.2em; }
+[data-cinema-crawl] ul { display:block; list-style:none; margin:0; padding:0; }
+[data-cinema-crawl] li { font:inherit; letter-spacing:.04em; color:inherit; }
+[data-cinema-crawl] p { margin:.6em 0; }
+[data-cinema-crawl] .credits-note { font-family:'Old Standard TT',Georgia,serif; font-size:.65em; line-height:1.7; margin:1em 0; }
+.ending-crawl-thanks { position:absolute; inset:0; display:grid; place-items:center; margin:0; padding:24px;
+  text-align:center; font:400 clamp(26px,3vw,44px)/1.5 'Playfair Display',Georgia,serif; opacity:0; }
+#ending-cinema.ending-cinema--reduced .ending-crawl-plane { transform:none; }
+#ending-cinema.ending-cinema--reduced .ending-crawl-viewport { overflow:auto; pointer-events:auto; mask-image:none; padding:40px 0; }
+#ending-cinema.ending-cinema--reduced [data-cinema-crawl] { font-size:20px; }
 .release-ending-panel { max-width:660px; padding:32px; }
 #release-ending-title, #reseal-ending-title { font:inherit; font-size:clamp(1.6rem,4vw,2.8rem); letter-spacing:.18em; margin-bottom:30px; }
+#reseal-ending-screen:not(.hidden) .release-ending-panel { animation:contained-title-arrive 1.5s ease-out both; }
+@keyframes contained-title-arrive { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+@media (prefers-reduced-motion:reduce) { #reseal-ending-screen .release-ending-panel { animation:none !important; } }
 .release-ending-panel p { font-size:1.1rem; line-height:1.6; letter-spacing:.06em; }
 [data-release-actions] { margin-top:40px; }
 [data-release-actions] .menu-option { display:block; margin:12px auto; }
@@ -2699,3 +2722,6 @@ body.ending-cinematic #cutscene-skip { display:none !important; }
 
 /* Only the owned spoken ending caption is visible; gameplay HUD stays hidden. */
 body.ending-cinematic.ending-dialogue #caption-box { display:block !important; }
+.game-caption--hint .game-caption__speaker::after { content:' · HINT'; color:#bcaf97; }
+.onc-subtitle:not(:empty)::before { content:'NEWS'; display:block; font:500 .58em/1.5 'Segoe UI',sans-serif; letter-spacing:.16em; opacity:.75; }
+body:has(#document-view:not(.hidden)) #caption-box { z-index:56; }

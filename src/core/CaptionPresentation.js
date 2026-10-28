@@ -13,7 +13,8 @@ export function setupCaptionSurface(el, { recorded = false } = {}) {
 
 export function renderCaptionText(el, line) {
   const prefix = !line.markThought && line.text.match(/^(ANNABELLE|MARK|SCIENTIST|GIRL|MAN|WOMAN|DOCTOR|RESEARCHER):\s*/i);
-  const speaker = line.markThought ? null : line.speaker || prefix?.[1];
+  const speaker = line.speaker || (line.markThought ? 'MARK' : prefix?.[1]);
+  el.classList.toggle('game-caption--hint', !!line.hint);
   el.classList.toggle('game-caption--thought', !!line.markThought);
   el.classList.toggle('game-caption--dialogue', !!speaker);
   // Keep headless consumers and the original source text/timing untouched.

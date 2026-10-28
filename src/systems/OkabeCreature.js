@@ -3002,6 +3002,17 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
       }
     },
     getRigBone(name) {return bones?.get(canon(name))||null;},
+    /** Deterministic full monster gait for authored shots, without the mirror's restrained player pose. */
+    sampleCinematicPose({speed:visualSpeed=0,phase=0,time=0,crouch=0}={}) {
+      const saved={speed,gaitPhase,gaitName,crouchNow,turnNow,peekNow,twitchGain,elapsed,breathPhase,reflectionSample};
+      try {
+        reflectionSample=false;gaitName='monster';speed=Math.max(0,Math.min(6,visualSpeed));
+        gaitPhase=phase;crouchNow=crouch;turnNow=peekNow=0;twitchGain=0;elapsed=time;breathPhase=time*1.6;
+        animate();
+      } finally {
+        ({speed,gaitPhase,gaitName,crouchNow,turnNow,peekNow,twitchGain,elapsed,breathPhase,reflectionSample}=saved);
+      }
+    },
 
     /**
      * Stepping backwards (true) or forwards. The stride is the forward one

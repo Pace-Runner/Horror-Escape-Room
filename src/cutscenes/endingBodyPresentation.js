@@ -1,20 +1,21 @@
 import * as THREE from 'three';
 import {createStudyActorPresentation} from './studyActorPresentation.js';
+import {applyContainedEndingPerformance} from './containedEndingPerformance.js';
 
 /** Borrow existing rigs for ending-only external shots and physical visor handling. */
 export function createEndingBodyPresentation({human,hollow,setBodyShown=()=>{},visorTemplate=null}){
   const actors=[human,hollow],facingOffsets=new Map();
   const props=createStudyActorPresentation({visorTemplate});props.setHeld(true);props.finishVisor(true);
   // Aim the free left arm toward the lens; the right hand keeps the removed goggles.
-  function reach(actor,target,weight){
-    const upper=actor.getRigBone?.('Left arm'),lower=actor.getRigBone?.('Left elbow'),hand=actor.refs?.hands?.l;
+  function reach(actor,target,weight,side='Left'){
+    const upper=actor.getRigBone?.(side+' arm'),lower=actor.getRigBone?.(side+' elbow'),hand=actor.refs?.hands?.[side==='Left'?'l':'r'];
     if(!upper||!lower||!hand||weight<=0)return;
     actor.group.updateMatrixWorld(true);
     const shoulder=upper.getWorldPosition(new THREE.Vector3()),elbow=lower.getWorldPosition(new THREE.Vector3()),wrist=hand.getWorldPosition(new THREE.Vector3());
     const a=shoulder.distanceTo(elbow),b=elbow.distanceTo(wrist),direction=target.clone().sub(shoulder).normalize();
     const distance=Math.min(a+b-.015,shoulder.distanceTo(target));
     const along=(a*a+distance*distance-b*b)/(2*distance);
-    const pole=new THREE.Vector3(-1,-.2,0).applyQuaternion(actor.refs.root.quaternion);
+    const pole=new THREE.Vector3(side==='Left'?-1:1,-.2,0).applyQuaternion(actor.refs.root.quaternion);
     pole.addScaledVector(direction,-pole.dot(direction)).normalize();
     const bend=shoulder.clone().addScaledVector(direction,along).addScaledVector(pole,Math.sqrt(Math.max(0,a*a-along*along)));
     const end=shoulder.clone().addScaledVector(direction,distance);
@@ -26,7 +27,7 @@ export function createEndingBodyPresentation({human,hollow,setBodyShown=()=>{},v
       desired.premultiply(bone.parent.getWorldQuaternion(new THREE.Quaternion()).invert());
       bone.quaternion.slerp(desired,weight);
     }
-    actor.offsetBones({'Left wrist':[.15*weight,0,0]});
+    actor.offsetBones({[side+' wrist']:[.15*weight,0,0]});
     actor.group.updateMatrixWorld(true);
   }
   const saved=actors.map(actor=>({actor,visible:actor.visible,correction:actor.correction,
@@ -51,6 +52,10 @@ export function createEndingBodyPresentation({human,hollow,setBodyShown=()=>{},v
           facingOffsets.set(actor,front.lengthSq()>.00001&&front.dot(forward)<0?Math.PI:0);
         }
         yaw+=facingOffsets.get(actor);actor.setYaw(yaw);
+        if(pose.containedPerformance){
+          applyContainedEndingPerformance(actor,pose,reach);
+          actor.setHeadVisible(true);actor.visible=true;actor.group.updateMatrixWorld(true);return;
+        }
         const lens=new THREE.Vector3(...pose.position),toward=lens.clone().sub(actor.refs.root.position).setY(0);
         const distance=toward.length();toward.normalize();
         actor.refs.root.position.addScaledVector(toward,Math.max(0,distance-(pose.lensGap??.43))*(pose.lunge??0));
