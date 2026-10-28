@@ -66,7 +66,7 @@ g.hands.root.visible = false;
   - Grandfather clock at (7.74, −5.3).
   - Shadow crest at (−4.3, 1.65, 6.36).
   - Annabelle's chair at (−6.98, −4.98).
-- The room is still on a "temporary bright testing setup" (ambient 3.5 plus fills of 10–24) near `studyLevel.js` ~215.
+- The room is lit for night (main's pass): a cool ambient (0.85), the desk lamp, the candle pool, the hearth, and the window's night light, which is the only shadow caster. `check-study-reveal.mjs` holds the room to 9 lights, so the hide-and-seek blackout dims these lights and adds none of its own.
 
 ## Story constraint (read before any monster work)
 
@@ -114,4 +114,4 @@ The story framing is decided (2026-10-27): Annabelle, searching to sedate Mark; 
 
 - `main` is the team branch. Teammates push directly and through PRs from Pace-Runner/Horror-Escape-Room.
 - Work on a feature branch. Keep commits focused, with a message that explains why.
-- `level3-fixes` (pushed) holds the candles, fireplace, railing, exit door and key-hook fixes. Base hide-and-seek on it until it's merged.
+- `level3-fixes` is merged into `main`. `level3-hide-and-seek` (pushed) is `main` (merged 2026-10-28) plus the hide-and-seek.
