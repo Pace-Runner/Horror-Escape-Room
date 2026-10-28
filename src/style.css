@@ -853,9 +853,7 @@ html, body {
 #start-screen {
   position: fixed;
   inset: 0;
-  background:
-    radial-gradient(ellipse at 50% 48%, rgba(32, 17, 7, 0.26) 0%, rgba(2, 1, 1, 0.82) 71%, rgba(0, 0, 0, 0.97) 100%),
-    url('./assets/ui/haunted-bedroom-menu.webp') center / cover no-repeat;
+  background: #030201;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -871,6 +869,57 @@ html, body {
 }
 
 #main-menu,
+/* The menu's stills, one per level (main.js MENU_STILL_SECONDS), under its vignette. */
+#menu-stills {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+#menu-stills .menu-still {
+  position: absolute;
+  inset: 0;
+  background: center / cover no-repeat;
+  opacity: 0;
+  transition: opacity 2.4s ease;
+}
+
+#menu-stills .menu-still.is-shown {
+  opacity: 1;
+}
+
+#menu-stills .menu-still[data-level="bedroom"] {
+  background-image: url('./assets/ui/haunted-bedroom-menu.webp');
+}
+
+#menu-stills .menu-still[data-level="basement"] {
+  background-image: url('./assets/ui/basement-lab-menu.webp');
+}
+
+#menu-stills .menu-still[data-level="study"] {
+  background-image: url('./assets/ui/study-menu.webp');
+}
+
+#menu-stills::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 50% 48%, rgba(32, 17, 7, 0.26) 0%, rgba(2, 1, 1, 0.82) 71%, rgba(0, 0, 0, 0.97) 100%);
+}
+
+#main-menu,
+#legacy-start-controls {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #menu-stills .menu-still {
+    transition: none;
+  }
+}
+
 #legacy-start-controls {
   width: min(450px, calc(100vw - 48px));
   display: flex;
@@ -1269,6 +1318,41 @@ html, body {
   display: block;
 }
 
+/* A key and what it does now, shown once over the hotbar (main.js showControlTip). */
+#control-tip {
+  position: absolute;
+  left: 50%;
+  bottom: 112px;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  letter-spacing: 0.08rem;
+  white-space: nowrap;
+  color: #c9c2b4;
+  background: rgba(4, 3, 2, 0.72);
+  border: 1px solid #3a332b;
+  border-radius: 3px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.5s ease;
+}
+
+#control-tip.visible {
+  opacity: 1;
+}
+
+#control-tip kbd {
+  display: inline-block;
+  margin-right: 4px;
+  padding: 1px 6px;
+  font-family: inherit;
+  text-transform: uppercase;
+  color: #e8e0cf;
+  background: rgba(4, 3, 2, 0.55);
+  border: 1px solid #5a5045;
+  border-radius: 3px;
+}
+
 #hint-key kbd {
   display: inline-block;
   margin-right: 6px;
@@ -1430,6 +1514,19 @@ html, body {
    rather than just "this is low". */
 #stamina.spent #stamina-fill {
   background: #8c4a3a;
+}
+
+/* A stack's count on its slot: three books (main.js refreshInventoryUI). */
+.hotbar-slot[data-count]::after {
+  content: attr(data-count);
+  position: absolute;
+  right: 4px;
+  bottom: 2px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #e8e0cf;
+  text-shadow: 0 1px 2px #000;
+  pointer-events: none;
 }
 
 #hotbar {

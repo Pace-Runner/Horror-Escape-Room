@@ -20,7 +20,7 @@ that the others do not?*"
 |---|---|
 | **1 -- Bedroom** | An escape-the-room start: chained to the bed in a storm, freeing yourself with a paperclip and working a chain of hidden-object puzzles (lamp code, floorboard, lockbox) to get the door open. |
 | **2 -- Basement lab** | A *systems* puzzle and the first threat: restore power in the right order (fuse, generator, breaker routing), then use the CCTV cameras as a tool to read a code you cannot see directly, while the creature is loose. |
-| **3 -- Study** | The visor changes what you can see, the truth is revealed (the mirror shows who you are), and you **choose the ending** (release or contain). |
+| **3 -- Study** | The visor changes what you can see, the storm's blackouts turn it into **hide-and-seek** (hide, throw lures, restore the breaker), the truth is revealed (the mirror shows who you are), and you **choose the ending** (release or contain). |
 | Between levels -- **Backrooms** | A randomised maze chase: a fresh layout of spawn, exit and hunter every crossing, with safe rooms it cannot enter. |
 
 ---
@@ -44,6 +44,12 @@ that the others do not?*"
   hands" and the flashlight block.
 - **Animated avatars**: the player's body (walk, turn, crouch gait) and the
   creature, one rigged mesh with a monster shape key. `src/systems/OkabeCreature.js`.
+- **Caught in the study, in your own body**: the catch scares move the
+  player's body (it falls, is pinned, steps back, is dragged) and the camera
+  rides in its head. Each figure's arms are put on the other every frame by
+  two-bone IK, solved in world space by the law of cosines with a pole.
+  `src/core/JumpScare.js` (`poseBody`, `lensOnEyes`, `reachArm`),
+  `src/core/jumpScares/{sedate,lightningFace,dragged}.js`.
 
 ## Control & Playability (10%)
 
@@ -53,6 +59,10 @@ that the others do not?*"
   file. The jump is projectile motion under gravity with a landing dip, and
   costs stamina so it cannot be spammed.
 - Interact (E / right click), hotbar (scroll), drop (Q), hints (H), visor (V).
+- **Inspect (I):** whatever is in the hand opens flat on the screen in the
+  document reader. Its own model is photographed from above by a second,
+  small renderer, which leaves the game's shaders untouched.
+  `src/core/ItemInspect.js`, `src/story/itemNotes.js`.
 - **Physics**:
   - Jumping: gravity, semi-implicit Euler. `PointerLockPlayer.js`, `#updateJump`.
   - Dropped items fall, bounce with a coefficient of restitution and lose
@@ -60,6 +70,10 @@ that the others do not?*"
     `src/world/DropPhysics.js`.
   - Pushable boxes, the rolling instrument trolley, the backrooms doors.
     `src/core/collision.js`, `src/world/InstrumentTrolley.js`.
+  - **Throwing** (left click, in the study's blackouts): the same solver
+    given a launch speed, so a book lobs in an arc that lands exactly where
+    you aimed -- up onto the loft as well. `DropPhysics.js` (`planFall`'s
+    `lift`), `src/main.js` `throwHeldItem()`.
 - **Win and lose**: two endings; every difficulty has a per-room clock
   (Easy 30 min, Medium 15, Hard 8) and running out ends the run.
   `src/core/Difficulty.js`. Being caught by the hunter sets you back.
@@ -78,6 +92,7 @@ that the others do not?*"
 | **Smooth vs flat shading** | the decanter body (smooth) and its cut-crystal stopper (flat), same file |
 | Dynamic skybox | the animated night sky outside the study, `src/levels/studyExterior.js` (`StudyNightSky`) |
 | Fog | the backrooms, `src/levels/backroomsLevel.js` |
+| **Blackout lighting** | the study's storm cuts: every room light fades by intensity only, a moon spot through the casements and a lightning directional come up, two candles survive -- the light count never changes, so nothing recompiles, `src/levels/studyBlackout.js` |
 | **Candle flames** | every flame in a room is one instanced draw: shader-carved teardrops that lean in drafts, door gusts and the player's wake, with a fixed pool of flickering lights handed to the nearest candles, `src/world/CandleFlames.js` |
 | **Hearth fire** | procedural fire in the study grate: fbm-noise flame sheets (additive), shader-animated sparks, glowing ember logs and one flickering light; procedurally painted majolica slips and slate, `src/world/HearthFire.js`, `src/levels/studyFireplace.js` |
 | Curves and surfaces | Lathe, Tube, Extrude and CatmullRom geometry throughout (the decanter, cables, trim) |
@@ -105,6 +120,14 @@ that the others do not?*"
   story never plays silently. `src/core/CaptionSequencer.js`, `isVoiced`.
 - Sound design: `docs/AUDIO.md`.
 - Replay value: three difficulties, two endings, a different backrooms maze every crossing.
+- **Level 3 hide-and-seek** (`docs/LEVEL3_HIDE_AND_SEEK.md`): an AI state
+  machine (patrol, investigate, search, chase, withdraw) that hunts by
+  hearing (sprint far, walk near, crouch silent, thrown lures where they land)
+  and by sight (line of sight against cover heights, range set by the light
+  you are in), across two floors and a stair. Hide behind low or tall cover,
+  in the wardrobe or behind a curtain; three random catch scares; it is
+  Annabelle sedating Mark, not killing him. `src/systems/StudySeeker.js`,
+  `src/levels/studyHideProps.js`, `src/core/jumpScares/`.
 
 ## Polish (10%)
 
@@ -121,8 +144,12 @@ that the others do not?*"
 
 - The twist is built into the assets: the monster and the man are one mesh
   and one shape key (`blender/import_okabe.py`).
-- Blender models generated from scripts (`blender/build_*.py`).
-- A maze validator that runs in CI (`npm run check:maze`).
+- Blender models generated from scripts (`blender/build_*.py`). The study's hide-and-seek models are too (`blender/study/build_*.py`):
+  - The dust sheets are real cloth simulations draped over hidden furniture shapes.
+  - Every fabric texture is generated from a fixed seed.
+  - The wardrobe doors, the curtain strips and the book covers carry their own hinge pivots, so the game can move them.
+- A maze validator that runs in CI (`npm run check:maze`), and a headless
+  test of the study seeker's senses and walking graph (`npm run check:seeker`).
 - An in-engine cutscene system with letterboxing and per-frame acting (`docs/CUTSCENES.md`).
 - The visor that corrects sight rather than distorting it (`VisorPass.js` header).
 

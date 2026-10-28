@@ -29,7 +29,7 @@ A first-person Three.js (r169) + Vite horror escape room. It's a university grou
 - **Lights are baked into shaders.** The light count is part of every lit program, and main.js pre-compiles every room at boot (a 1.5–4 minute warm-up). Create lights synchronously at level build time. Never add, remove or hide them later; flicker by intensity only. Keep `castShadow` false unless a light truly needs it.
 - **Frame budget is tight.** The study mirror re-renders the whole scene. Prefer `InstancedMesh` and `mergeGeometries`, and reuse cached materials (`studySurfaces.woodMaterial(shade, family)`). Avoid new shader variants (`setColorAt`, `flatShading`, `vertexColors`, clearcoat).
 - **Transparent DoubleSide** quads need `forceSinglePass = true`. Meshes posed in a shader need `frustumCulled = false` and a big `boundingSphere`.
-- **Layers.** Use `MAIN_ONLY` (`core/RenderLayers.js`) to keep effects off the minimap.
+- **Layers.** Use `MAIN_ONLY` (`core/RenderLayers.js`) to keep effects off the minimap. Every camera that draws the main view must enable it: three gathers a frame's lights by layer, and the candle and hearth lights live on `MAIN_ONLY`. The third-person camera didn't, so its first frame rebuilt every shader for a smaller set of lights, an 8-second freeze.
 - **No coplanar faces.** Leave at least 5 mm between parallel visible faces; z-fighting has been a recurring teammate complaint.
 - **Assets.** RoundedBoxGeometry plus `studySurfaces.alignSurfaces` gives bad UV strips, so use plain BoxGeometry for wood trim. Imported models should be PS2/PS3 style, ≤10k triangles, with 1980–2000 clothing. CC-BY assets need a credits row (main.js `CREDIT_SECTIONS`).
 - **Puzzle-critical props.** The 9 panels on the study exit door are the basement keypad code (`DOOR_PANEL_ROWS`, 2/4/3) and must stay countable. The shadow crest's three lamp dials ("THREE LIGHTS GUARD THE ARCHIVE") shouldn't have lights near them. No clocks on the mantel (the clock puzzle) and no extra mirrors (the study mirror is the only unbroken one).
@@ -66,13 +66,23 @@ g.hands.root.visible = false;
   - Grandfather clock at (7.74, −5.3).
   - Shadow crest at (−4.3, 1.65, 6.36).
   - Annabelle's chair at (−6.98, −4.98).
-- The room is still on a "temporary bright testing setup" (ambient 3.5 plus fills of 10–24) near `studyLevel.js` ~215.
+- The room is lit for night (main's pass): a cool ambient (0.85), the desk lamp, the candle pool, the hearth, and the window's night light, which is the only shadow caster. `check-study-reveal.mjs` holds the room to 9 lights, so the hide-and-seek blackout dims these lights and adds none of its own.
 
 ## Story constraint (read before any monster work)
 
 `systems/CreatureAI.js` opens with a rule: the creature in the HOUSE is not hunting the player. It's Annabelle, hiding from you and trying to keep you inside. Only `BackroomsHunter.js` actually hunts, and its header explains why it was kept separate. Any new chasing behaviour in the house has to be reconciled with that twist (see the next section).
 
-## Next feature: Level 3 hide-and-seek (not started)
+## Level 3 hide-and-seek (pass 1 built, branch `level3-hide-and-seek`)
+
+Pass 1 is in: two storm blackouts (after the crest, and when the visor is
+taken), `systems/StudySeeker.js`, cover and hide spots, book and bottle
+throwing, the loft breaker and spare fuse, and three random study catch scares.
+Pass 2 built the models in `blender/study/`: scripts for the wardrobe,
+screen, curtains, dust sheets, books, breaker board and fuse tin, and import
+scripts for two Poly Haven picks (the Chesterfield and the wine bottle). Read `docs/LEVEL3_HIDE_AND_SEEK.md` first; `npm run check:seeker` tests
+it headlessly. The notes below are the original brief.
+
+### The original brief
 
 The idea (Kiran's): the lights go out in the study and the monster searches for the player. The player hides behind objects. Books can be picked up and thrown, and the monster runs to where they land instead of towards the player.
 
@@ -98,10 +108,10 @@ Still needed:
   - **Monster extras:** creature animation clips (search, listen, reach behind cover, sprint, grab) and possibly a lantern it carries.
   - **Atmosphere:** a study breaker box (Level 2's `breaker_panel.glb` can be reused).
 
-Decide the story framing with the team first. One option: the blackout is Annabelle's doing and the "monster" is her trying to stop you reaching the exit, which keeps the existing twist.
+The story framing is decided (2026-10-27): Annabelle, searching to sedate Mark; the storm causes the blackouts. See the doc.
 
 ## Git
 
 - `main` is the team branch. Teammates push directly and through PRs from Pace-Runner/Horror-Escape-Room.
 - Work on a feature branch. Keep commits focused, with a message that explains why.
-- `level3-fixes` (pushed) holds the candles, fireplace, railing, exit door and key-hook fixes. Base hide-and-seek on it until it's merged.
+- `level3-fixes` is merged into `main`. `level3-hide-and-seek` (pushed) is `main` (merged 2026-10-28) plus the hide-and-seek.

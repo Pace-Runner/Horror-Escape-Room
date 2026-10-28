@@ -1242,6 +1242,14 @@ export function createStudyExterior({ roomW, roomD, roomH, doorX, doorwayW, door
     porch,
     gate,
     exterior,
+    /**
+     * The night's own lights. They reach in through the windows and fill the
+     * study as well, so a blackout turns them down with the room's
+     * (studyBlackout.js BLACKOUT_FILL): intensity only, as ever.
+     */
+    nightLights: [sky, moon],
+    /** The moonlit window light: the one a lightning strike comes in by. */
+    windowLight: moon,
     /** Moves the rain and the clouds. */
     update(dt) {
       rain.material.uniforms.uTime.value += dt;

@@ -1391,6 +1391,14 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
   let silhouette = false;
   /** 0..1 on the rig's own twitches: a jump scare drives the head itself. */
   let twitchGain = 1;
+  /**
+   * setGrip(): curl added to each hand's fingers on top of the gait's, per
+   * side, radians at the finger's middle joint. A catch's hands clenching on
+   * Mark; negative splays them, reaching.
+   */
+  const grip = { l: 0, r: 0 };
+  /** setBackwards(): -1 runs the stride in reverse, a figure stepping backwards. */
+  let stepSign = 1;
   /** setCeiling(): the height to stay under, or null; and how far it is stooping for it. */
   let ceilingY = null;
   let ceilingCurl = 0;
@@ -2806,8 +2814,8 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
     // FINGERS, relaxed into a loose curl -- a claw on the monster, a fist on
     // the running survivor -- and clenched or splayed by a hand twitch. Left
     // at rest when there is nothing to add.
-    const fingL = G.fingerCurl + (tw.side < 0 ? TW_FINGERS * twHand : 0);
-    const fingR = G.fingerCurl + (tw.side > 0 ? TW_FINGERS * twHand : 0);
+    const fingL = G.fingerCurl + grip.l + (tw.side < 0 ? TW_FINGERS * twHand : 0);
+    const fingR = G.fingerCurl + grip.r + (tw.side > 0 ? TW_FINGERS * twHand : 0);
     if (fingL || fingR) {
       for (let i = 0; i < fingerList.length; i++) {
         const f = fingerList[i];
@@ -2915,6 +2923,19 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
      * before it is wiped and one written once is gone the next frame. That is
      * also what makes it safe: there is nothing to undo when the scene ends.
      */
+    /** A bone by the rig's name ('Left arm', 'right wrist'...), or null before the model is in. */
+    bone(name) {
+      return (bones && bones.get(canon(name))) ?? null;
+    },
+    /**
+     * Each hand's fingers curled (positive: a fist round a shoulder or an
+     * ankle) or splayed (negative) on top of the gait, held until changed.
+     * reset() lets go.
+     */
+    setGrip(left = 0, right = left) {
+      grip.l = Number.isFinite(left) ? left : 0;
+      grip.r = Number.isFinite(right) ? right : 0;
+    },
     offsetBones(offsets, weight = 1) {
       if (!bones || !(weight > 0)) return;
       for (const [name, rotation] of Object.entries(offsets)) {
@@ -2982,6 +3003,14 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
     },
     getRigBone(name) {return bones?.get(canon(name))||null;},
 
+    /**
+     * Stepping backwards (true) or forwards. The stride is the forward one
+     * played in reverse, which is what walking backwards is: the planted foot
+     * slides FORWARD under a body moving back over it, and the swing foot
+     * reaches back. A catch's haul (jumpScares/dragged.js). reset() faces it
+     * forwards again.
+     */
+    setBackwards(on) { stepSign = on ? -1 : 1; },
     /**
      * 0 standing, 1 crouched. Set it and leave it: the body eases between the
      * two itself, so a raw key state still animates down and up.
@@ -3092,7 +3121,7 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
       // Driven by DISTANCE, not by time, so the feet keep up with the body.
       // Wrapped, because every use of it is periodic in TAU and an hour of
       // walking is otherwise a phase in the tens of thousands.
-      gaitPhase = (gaitPhase + (speed / worldStride()) * TAU * dt) % TAU;
+      gaitPhase = (gaitPhase + stepSign * (speed / worldStride()) * TAU * dt) % TAU;
       // Exponential rather than linear, and framerate-independent: a linear
       // approach crosses the target and jitters on it at small dt.
       const tau = Math.abs(peekTarget) > Math.abs(peekNow) ? PEEK_OUT_TAU : PEEK_BACK_TAU;
@@ -3104,6 +3133,8 @@ export function createOkabeCreature({ clean = false, restCorrection = 1, gait = 
       gaitPhase = 0;
       elapsed = 0;
       breathPhase = 0;
+      grip.l = grip.r = 0;
+      stepSign = 1;
       speed = 0;
       peekTarget = 0;
       peekNow = 0;

@@ -281,6 +281,8 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, stea
   const playerVelocity = new THREE.Vector2();
   let elapsed = 0;
   let extinguished = false;
+  /** Anchors that stay lit through setExtinguished(true), or null. */
+  let spared = null;
 
   function isShown(object) {
     for (let node = object; node; node = node.parent) {
@@ -380,15 +382,21 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, stea
     return source;
   }
 
-  /** Every flame out (a blackout), or back as they were. Their lights go with them. */
-  function setExtinguished(out) {
+  /**
+   * Every flame out (a blackout), or back as they were. Their lights go with them.
+   * `spare` keeps some burning through it: anchors (wick tips) whose flames
+   * survive -- the study's storm leaves one or two candles alight.
+   */
+  function setExtinguished(out, { spare = null } = {}) {
     extinguished = !!out;
+    spared = extinguished && spare ? new Set(spare) : null;
   }
 
   /** A restart: no gusts in flight, every candle relit, every light released. */
   function reset() {
     gusts.length = 0;
     extinguished = false;
+    spared = null;
     hasLastPlayer = false;
     playerVelocity.set(0, 0);
     for (const entry of entries) {
@@ -505,7 +513,7 @@ export function createCandleFlames({ parent, capacity = 32, lightCount = 0, stea
     let drawn = 0;
 
     for (const entry of entries) {
-      entry.shown = !extinguished && entry.lit && isShown(entry.anchor);
+      entry.shown = (!extinguished || spared?.has(entry.anchor)) && entry.lit && isShown(entry.anchor);
       if (!entry.shown) continue;
       entry.anchor.getWorldPosition(worldPosition);
       entry.x = worldPosition.x;

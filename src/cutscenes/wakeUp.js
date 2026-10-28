@@ -396,11 +396,11 @@ export function wakeUp({ bedX, bedZ, duvetTop, cuff, windowAt, bulbAt, ahead, ba
       { t: T_FOCUSED, run: () => onThought('l1_01', { delay: 0, cutscene: 'wakeUp' }) },
       { t: T_LINE[1], run: (ctx) => sayLines(ctx, 1) },
       { t: T_LINE[1], run: () => onThought('l1_02', { delay: 0, cutscene: 'wakeUp' }) },
-      // The chain holds: metal, and the breath catches.
+      // The chain holds, and the breath catches. Not chain_drop: that clip is a
+      // steady 2.4 s rattle that plays as a hiss ("psssshhh"), not a chain.
       {
         t: T_TUG + 0.06,
         run: (ctx) => {
-          ctx.sfx('chain_drop', { gainDb: -9 });
           ctx.sfx('gasp', { gainDb: -4 });
           ctx.setBreathing(0.85);
         }

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { buildBrassKey, buildIronKey } from './keyModels.js';
+import { buildStudyBook, buildStudyGlass, buildStudyFuse } from './hideAndSeekItems.js';
 
 /**
  * One mesh builder per inventory item, shared by the hand and the floor.
@@ -74,7 +75,11 @@ const REST_ROTATION = {
   // Level 3's: the sigil face up, like a photograph; the keys flat, like the rest.
   archiveToken: [-Math.PI / 2, 0, 0],
   archiveKey: FACE_DOWN,
-  hollowOverrideKey: [-Math.PI / 2, 0, 0]
+  hollowOverrideKey: [-Math.PI / 2, 0, 0],
+  // A thrown book lands on a cover, a bottle and a fuse on their sides.
+  studyBook: [0, 0, Math.PI / 2],
+  studyGlass: FLAT,
+  studyFuse: FLAT
 };
 
 /**
@@ -235,7 +240,15 @@ const BUILDERS = {
   // The Archive Key now shares Level 1's canonical brass key geometry.
   archiveKey: (t) => (t ? fromTemplate(t) : null),
   // The HOLLOW card's lower edge sits in the grip, printed face toward +Z.
-  hollowOverrideKey: (t) => (t ? fromTemplate(t, { position: [0, 0.027, 0] }) : null)
+  hollowOverrideKey: (t) => (t ? fromTemplate(t, { position: [0, 0.027, 0] }) : null),
+  // The hide-and-seek's own. The book is blender/study/build_books.py's, the
+  // bottle import_bottle.py's (origin at its neck), the spare fuse Level 2's
+  // fuse.glb (framed like fuse15 above), all handed in by the study once
+  // loaded; until then, primitives in the same canonical frame
+  // (world/hideAndSeekItems.js).
+  studyBook: (t) => (t ? fromTemplate(t) : buildStudyBook(0)),
+  studyGlass: (t) => (t ? fromTemplate(t) : buildStudyGlass()),
+  studyFuse: (t) => (t ? fromTemplate(t, { rotation: [0, Math.PI / 2, 0], position: [0, 0.035, 0] }) : buildStudyFuse())
 };
 
 /** Every id this module can build -- the same set the hotbar has icons for. */
