@@ -25,8 +25,9 @@ assert(!drawerNode.translation || drawerNode.translation.every((value) => value 
 const source = fs.readFileSync(new URL('../src/levels/bedroomLevel.js', import.meta.url), 'utf8');
 const start = source.indexOf('  const NIGHTSTAND_DRAWER_TRAVEL_METRES');
 const end = source.indexOf('  // Knocked-over waste bin', start);
-const updateStart = source.indexOf('      // A reset-safe scripted slide');
-const updateEnd = source.indexOf('      this._t', updateStart);
+const updateStart = source.indexOf('      if (nightstandDrawer && nightstandDrawerMotion !== 0)');
+const updateEnd = source.indexOf('      if (lampDrawerVisual', updateStart);
+assert(updateStart>0&&updateEnd>updateStart,'bedside update extraction no longer matches the room');
 const resetStart = source.indexOf('      drawerStates.nightstandLeft.isOpen = false;');
 const resetEnd = source.indexOf('      drawerStates.dresserTop.isOpen = false;', resetStart);
 let collectedCount = 0;
@@ -43,7 +44,8 @@ const context = vm.createContext({
   puzzlePhotoTextures: { 1985: new THREE.Texture() }, puzzleState: state,
   drawerStates: { nightstandLeft: { isOpen: false } },
   photoThumbMeshes: { nightstandLeft: { visible: false } },
-  showCaption: () => {}, onPhotoCollected: () => { collectedCount += 1; }
+  line: key => [{text:key}], photoItemId:key=>{assert.equal(key,'nightstandLeft');return 'photo1985';},
+  showCaption: () => {}, onPhotoCollected: (count,id) => {assert.equal(id,'photo1985');collectedCount += 1;}
 });
 vm.runInContext(`${source.slice(start, end)}
 globalThis.tableTest = {

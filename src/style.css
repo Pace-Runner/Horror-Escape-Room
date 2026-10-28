@@ -2722,3 +2722,6 @@ body.ending-cinematic #cutscene-skip { display:none !important; }
 
 /* Only the owned spoken ending caption is visible; gameplay HUD stays hidden. */
 body.ending-cinematic.ending-dialogue #caption-box { display:block !important; }
+.game-caption--hint .game-caption__speaker::after { content:' · HINT'; color:#bcaf97; }
+.onc-subtitle:not(:empty)::before { content:'NEWS'; display:block; font:500 .58em/1.5 'Segoe UI',sans-serif; letter-spacing:.16em; opacity:.75; }
+body:has(#document-view:not(.hidden)) #caption-box { z-index:56; }

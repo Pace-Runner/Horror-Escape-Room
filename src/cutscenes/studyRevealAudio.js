@@ -50,6 +50,7 @@ export function createStudyRevealAudio(audio, { cancelThoughts = () => {}, posit
         audio.duck(groups,0,{attack:.4,hold:0,release:.1});onEnded();
       };
       return audio.playVoice(beat.voice,{
+        priority:60,
         onStarted(buffer){audio.duck(groups,-2.5,{attack:.15,hold:Math.max(0,buffer.duration-.15),release:.4});},
         onEnded:end,onFailed:end,onInterrupted:end
       });

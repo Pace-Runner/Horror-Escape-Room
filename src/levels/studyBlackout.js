@@ -5,14 +5,14 @@ import fuseUrl from '../assets/models/fuse.glb?url';
 import tinUrl from '../assets/models/study/study_fuse_tin.glb?url';
 
 /**
- * THE STUDY'S BLACKOUTS: the storm takes the power, twice.
+ * THE STUDY'S BLACKOUT: the storm takes the power after the crest key pickup.
  *
  * See docs/LEVEL3_HIDE_AND_SEEK.md for the story. In short: a strike kills the
- * study's power by coincidence -- first as the crest is solved, then as the
- * visor is lifted out of the archive -- and Annabelle uses the dark to find
+ * study's power by coincidence, and Annabelle uses the dark to find
  * Mark and sedate him. Almost everything goes out. What is left is the moon
  * through the three left-wall casements, the candle the gust missed, and the
- * lightning. The way out of each blackout is the breaker up on the loft.
+ * lightning. The way out is the breaker up on the loft. The component retains
+ * its legacy blown-fuse mode, but visor collection no longer starts a second encounter.
  *
  * LIGHTS ARE BAKED INTO SHADERS (CLAUDE.md). This file makes NO lights. The
  * room keeps a light budget (scripts/check-study-reveal.mjs), and main's

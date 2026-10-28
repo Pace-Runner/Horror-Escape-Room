@@ -64,8 +64,8 @@ export function createEndingAudioTimeline(branch,T){
   for(let at=T.news;at<T.newsEnd;at+=5.6){
     finish.push(event(at,'static',{offset:5.2,duration:Math.min(6,T.newsEnd-at),gain:.003,lowpass:2600,fadeIn:.3,fadeOut:.35,group:'news'}));
   }
-  // Bounded overlapping phrases continue under the report and thank-you hold.
-  for(let at=T.credits;at<T.end-2;at+=12){
+  // The score enters with the film title, then continues beneath the roll and report.
+  for(let at=T.title;at<T.end-2;at+=12){
     finish.push(event(at,'creditsMusic',{duration:Math.min(14,T.end-at),group:'credits'}));
   }
 

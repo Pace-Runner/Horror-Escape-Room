@@ -1,0 +1,102 @@
+{
+  "results": [
+    {
+      "test": "check-audio.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-bedroom-restraint.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-bedside-table.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-candle-lod.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-cassette-reminders.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-dialogue-triggers.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-ending-cinema.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-letter-narration.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-level2-tape-blackout.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-mark-voice.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-maze.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-okabe.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-startup-shortcuts.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-study-ending-audio.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-study-ending-dialogue.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-study-ending-news.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-study-release-ending.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-study-reseal-ending.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-study-reveal-audio.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-study-reveal.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-study-seeker.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-study-stealth-voice.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-study-surfaces.mjs",
+      "passed": true
+    },
+    {
+      "test": "check-voice-inventory.mjs",
+      "passed": true
+    }
+  ],
+  "passed": 24,
+  "total": 24
+}

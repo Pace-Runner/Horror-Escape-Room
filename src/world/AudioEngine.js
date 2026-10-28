@@ -13,6 +13,7 @@
 // or the browser will refuse to let it run.
 import { CUE_NAMES, cueUrl, cueInfo } from './audio/assets.js';
 import { createEmitter, createEchoBus, syncListener } from './audio/spatial.js';
+import {VOICE_PRIORITY} from '../core/VoicePriority.js';
 
 // Every recording is loaded through a glob rather than the `import url from
 // '../assets/audio/breathing.m4a?url'` pattern the .glb models use: a plain
@@ -870,12 +871,16 @@ export class AudioEngine {
   }
 
   playVoice(key,options={}) {
+    const priority=options.priority??VOICE_PRIORITY.story;
+    if(this.voiceRequest&&priority<this.voiceRequest.priority){options.onFailed?.();return false;}
     this.stopVoice();
     const generation=this.voiceGeneration;
     if(!key||!this.ctx||!this.voiceGain||!voiceUrl(key)){options.onFailed?.();return false;}
+    this.voiceRequest={priority,owner:options.owner,onInterrupted:options.onInterrupted};
     const start=buffer=>{
       if(generation!==this.voiceGeneration)return;
-      if(buffer)this.#startVoice(buffer,options);else options.onFailed?.();
+      if(options.shouldPlay&&!options.shouldPlay()){this.voiceRequest=null;options.onFailed?.();return;}
+      if(buffer)this.#startVoice(buffer,options);else {this.voiceRequest=null;options.onFailed?.();}
     };
     const cached=this.voiceBuffers.get(key);
     if(cached instanceof AudioBuffer)start(cached);
@@ -886,27 +891,41 @@ export class AudioEngine {
   /** Invalidates pending decodes too: interrupted lines never start later. */
   stopVoice() {
     this.voiceGeneration=(this.voiceGeneration||0)+1;
+    const request=this.voiceRequest;this.voiceRequest=null;
     const src=this.voiceSource;this.voiceSource=null;
-    if(!src)return;
+    if(!src){request?.onInterrupted?.();return;}
     src.__interrupted=true;
-    try{src.stop();}catch{}
-    src.disconnect();src.__fade?.disconnect();src.__onInterrupted?.();
+    const fade=src.__fade?.gain,now=this.ctx?.currentTime??0;
+    if(fade?.cancelScheduledValues&&fade?.linearRampToValueAtTime){
+      // De-click the outgoing voice. The next source starts after this ramp,
+      // so even a fast interruption never layers two spoken recordings.
+      this.voiceAvailableAt=now+.012;
+      if(fade.cancelAndHoldAtTime)fade.cancelAndHoldAtTime(now);
+      else {fade.cancelScheduledValues(now);fade.setValueAtTime(fade.value,now);}
+      fade.linearRampToValueAtTime(0,this.voiceAvailableAt);
+      try{src.stop(this.voiceAvailableAt);}catch{src.disconnect();src.__fade?.disconnect();}
+    }else{
+      try{src.stop();}catch{}
+      src.disconnect();src.__fade?.disconnect();
+    }
+    (request?.onInterrupted??src.__onInterrupted)?.();
   }
 
   #startVoice(buffer,options={}) {
     if(!this.ctx||!this.voiceGain)return;
     const ctx=this.ctx,src=ctx.createBufferSource(),fade=ctx.createGain();
-    const startAt=Math.max(ctx.currentTime,options.startAt??ctx.currentTime);
+    const startAt=Math.max(ctx.currentTime,this.voiceAvailableAt??0,options.startAt??ctx.currentTime);
     src.buffer=buffer;fade.gain.setValueAtTime(0,ctx.currentTime);
     fade.gain.setValueAtTime(0,startAt);fade.gain.linearRampToValueAtTime(1,startAt+.05);
     src.connect(fade).connect(this.voiceGain);src.__fade=fade;
     src.__onInterrupted=options.onInterrupted;
     src.onended=()=>{
       src.disconnect();fade.disconnect();
-      if(this.voiceSource===src)this.voiceSource=null;
+      if(this.voiceSource===src){this.voiceSource=null;this.voiceRequest=null;}
       if(!src.__interrupted)options.onEnded?.();
     };
-    this.voiceSource=src;src.start(startAt);options.onStarted?.(buffer,src);
+    const offset=typeof options.offset==='function'?options.offset():options.offset??0;
+    this.voiceSource=src;src.start(startAt,Math.min(Math.max(0,offset),Math.max(0,buffer.duration-.001)));options.onStarted?.(buffer,src);
   }
 
   #noiseBuffer(seconds = 2) {

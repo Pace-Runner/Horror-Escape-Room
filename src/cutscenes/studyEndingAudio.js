@@ -34,6 +34,7 @@ export function createStudyEndingAudio(audio,{branch,timing,urls={},fetchAudio=g
     if(disposed)return;cancelThoughts();audio.stopVoice?.();voiceRequested=true;
     const end=()=>{voiceRequested=false;clearCaption();if(disposed)return;speaking=false;mixAmbience();};
     audio.playVoice?.(voiceKey,{
+      priority:60,
       onStarted(){
         if(disposed)return;speaking=true;mixAmbience();
         captionActive=true;onDialogueActive(true);
@@ -51,14 +52,15 @@ export function createStudyEndingAudio(audio,{branch,timing,urls={},fetchAudio=g
     newsCaption=index;clearCaption();
     if(index<0)return;
     captionActive=true;onDialogueActive(true);
-    captions?.say({text:news.captions[index].text,recorded:true,endingManaged:true,manualEnd:true,
-      always:true,duration:news.captions[index].end-news.captions[index].start});
+    captions?.say({text:news.captions[index].text,speaker:'NEWS',recorded:true,endingManaged:true,manualEnd:true,
+      duration:news.captions[index].end-news.captions[index].start});
   }
   function startNews(){
     if(disposed)return;cancelThoughts();audio.stopVoice?.();voiceRequested=true;
     newsStartedAt=audio.ctx.currentTime+(T.news-T.black);
     const finish=()=>{voiceRequested=false;newsPlaying=false;newsFinishedAt=audio.ctx.currentTime;clearCaption();};
     audio.playVoice?.(news.voice,{
+      priority:60,
       startAt:newsStartedAt,
       onStarted(){
         if(disposed)return;newsPlaying=true;
@@ -118,7 +120,7 @@ export function createStudyEndingAudio(audio,{branch,timing,urls={},fetchAudio=g
         impacted=true;stopGroups(['scene'],.025);mixAmbience();
         audio.setMuffle?.(.72,.06);
       }
-      if(!radioOpened&&t>=T.news-1.6){radioOpened=true;audio.setMuffle?.(0,.9);}
+      if(!radioOpened&&t>=T.title){radioOpened=true;audio.setMuffle?.(0,.9);}
       if(!blacked&&t>=T.black){
         blacked=true;blackStartedAt=audio.ctx?.currentTime??0;stopGroups(['scene','impact','aftermath'],.04);mixAmbience();
         newsTriggered=true;startNews();

@@ -46,7 +46,11 @@ for(const [branch,T] of [['release',RELEASE_TIMING],['reseal',RESEAL_TIMING]]){
       let bound=0;for(const e of timeline){const spec=e.key==='rain'?{duration:e.duration,gain:e.gain}:SFX[e.key];
         if(t<e.t||t>=e.t+(e.duration??spec.duration))continue;
         if(t>=(branch==='release'?T.fade:T.contact)&&e.group==='scene')continue;
-        bound+=(e.gain??spec.gain)*(e.key==='rain'?1:sources.get(spec.file).peak);
+        const duration=e.duration??spec.duration,age=t-e.t;
+        const fadeIn=Math.min(e.fadeIn??spec.fadeIn??.01,duration*.25);
+        const fadeOut=Math.min(e.fadeOut??spec.fadeOut??.1,duration*.5);
+        const envelope=Math.min(1,fadeIn>0?age/fadeIn:1,fadeOut>0?(duration-age)/fadeOut:1);
+        bound+=(e.gain??spec.gain)*(e.key==='rain'?1:sources.get(spec.file).peak)*envelope;
       }
       assert(bound<.8,'ending layers lack mix headroom: '+bound);
     }
@@ -73,7 +77,7 @@ for(const [branch,T] of [['release',RELEASE_TIMING],['reseal',RESEAL_TIMING]]){
     assert(timeline.some(e=>e.key==='tension'),'missing continuous tension swell');
     const music=emitted.filter(e=>e.buffer.file===CONTAINED_SFX.creditsMusic.file);
     assert(music.length>=2,'missing credits score');
-    assert(Math.abs(music[0].t-T.credits)<.02,'score must start with credits');
+    assert(Math.abs(music[0].t-T.title)<.02,'score must start with DONT LET IT OUT');
     assert(music.every(e=>e.duration<=14&&e.t+e.duration<=T.end+.02),'score outlives ending');
     const rush=emitted.find(e=>e.buffer.file===CONTAINED_SFX.hollowRush.file);
     assert(Math.abs(rush.t-(T.contact-.40))<.011&&Math.abs(rush.duration-.40)<.011,'rush does not reach contact');

@@ -57,8 +57,10 @@ export function createStudyLevel({
   // press that walks through it.
   onDoorOpening = () => {},
   onTakeVisor = () => {},
-  /** The crest is solved: the storm's first strike (main.js runs the teaser blackout). */
+  /** The crest is solved and exposes its reward; collecting it is a separate event. */
   onCrestSolved = () => {},
+  /** The physical crest reward was collected, not merely revealed. */
+  onCrestKeyTaken = () => {},
   /** E on a hide spot (the wardrobe): main.js puts Mark inside it. */
   onEnterHideSpot = () => {},
   /** The loft breaker thrown: the power is back. 'teaser' | 'hunt'. */
@@ -498,8 +500,8 @@ export function createStudyLevel({
     endingChoiceComplete: false,
     endingSequenceStarted: false,
     /**
-     * The hide-and-seek's two blackouts (studyBlackout.js, main.js):
-     * none -> teaser -> teaserDone -> hunt -> huntDone.
+     * The hide-and-seek's single blackout (studyBlackout.js, main.js):
+     * none -> teaser -> teaserDone. The crest key starts the only encounter.
      */
     blackoutStage: 'none'
   };
@@ -932,6 +934,7 @@ export function createStudyLevel({
       const index = interactables.indexOf(archiveKeyHit);
       if (index >= 0) interactables.splice(index, 1);
       showCaption('Archive Key acquired.');
+      onCrestKeyTaken();
     }
   };
   shadowCrest.add(archiveKeyHit);
@@ -1023,7 +1026,7 @@ export function createStudyLevel({
   fireplace.add(fireplaceDressing.group);
   const hearthFire = createHearthFire();
   fireplace.add(hearthFire.group);
-  // The storm's two blackouts (studyBlackout.js): the moon and the lightning
+  // The storm's blackout (studyBlackout.js): the moon and the lightning
   // are made here, with every other light, so the warm-up sees all of them.
   const blackout = createStudyBlackout({
     // The desk lamp is the room's one electric light now (the ceiling fills
@@ -1637,7 +1640,6 @@ export function createStudyLevel({
     onInteract: () => {
       if (!puzzle.truthRecordsSolved || !letterDoorMotion.isOpen() || letterReading || puzzle.truthRecordsComplete) return;
       voiceProgress();
-      onThought('l3_08', { priority: 50, document: true });
       letterReading = true;
       const letterGeneration = mirrorRevealGeneration;
       onReadLetter({
@@ -2669,7 +2671,7 @@ export function createStudyLevel({
           if (stuckSeconds >= limit && !spokenHints.has(spokenPuzzle)) {
             spokenHints.add(spokenPuzzle);
             if (spokenPuzzle === 'letter') showCaption(line('dialog_study_letter_read_it'));
-            else onThought(`l3_hint_${spokenPuzzle}`, { priority: 20 });
+            // Spoken hints are requested with H, never unsolicited puzzle thoughts.
           }
         }
       }

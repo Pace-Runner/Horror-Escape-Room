@@ -1,0 +1,487 @@
+{
+  "decoded": 94,
+  "branches": [
+    {
+      "branch": "release",
+      "newsToggle": true,
+      "cleanup": true
+    },
+    {
+      "branch": "reseal",
+      "newsToggle": true,
+      "cleanup": true
+    }
+  ],
+  "clips": [
+    {
+      "voice": "mark/LEVEL 2/l2_thought_20_initial_power.mp3",
+      "duration": 4.4669375,
+      "peak": 0.3789612352848053
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_21_power_failed_again.mp3",
+      "duration": 3.3436666666666666,
+      "peak": 0.5511455535888672
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_22_find_generator.mp3",
+      "duration": 3.1869375,
+      "peak": 0.39750853180885315
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_23_flip_breaker.mp3",
+      "duration": 4.3885625,
+      "peak": 0.2530190348625183
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_24_check_computer.mp3",
+      "duration": 3.5787708333333335,
+      "peak": 0.4310338795185089
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_25_behind_me.mp3",
+      "duration": 2.0636666666666668,
+      "peak": 0.461712121963501
+    },
+    {
+      "voice": "mark/BACKROOMS/backrooms_thought_08_sprinting_alerts_it.mp3",
+      "duration": 2.7167291666666666,
+      "peak": 0.3094625473022461
+    },
+    {
+      "voice": "mark/BACKROOMS/backrooms_thought_09_stop_running.mp3",
+      "duration": 2.7950833333333334,
+      "peak": 0.388301283121109
+    },
+    {
+      "voice": "mark/BACKROOMS/backrooms_thought_10_dont_let_it_hear_me.mp3",
+      "duration": 3.3436666666666666,
+      "peak": 0.20363777875900269
+    },
+    {
+      "voice": "mark/BACKROOMS/backrooms_thought_11_running_gives_me_away.mp3",
+      "duration": 2.7950833333333334,
+      "peak": 0.26708656549453735
+    },
+    {
+      "voice": "mark/LEVEL 1/l1_thought_01_wakeup.mp3",
+      "duration": 3.4220208333333333,
+      "peak": 0.1865224540233612
+    },
+    {
+      "voice": "mark/LEVEL 1/l1_thought_02_chained.mp3",
+      "duration": 2.56,
+      "peak": 0.4425216615200043
+    },
+    {
+      "voice": "mark/LEVEL 1/l1_thought_03_paperclip.mp3",
+      "duration": 2.298770833333333,
+      "peak": 0.23723286390304565
+    },
+    {
+      "voice": "mark/LEVEL 1/l1_thought_04_cuff_open.mp3",
+      "duration": 3.761625,
+      "peak": 0.2082180231809616
+    },
+    {
+      "voice": "mark/LEVEL 1/l1_thought_05_light_blows.mp3",
+      "duration": 2.638354166666667,
+      "peak": 0.45404767990112305
+    },
+    {
+      "voice": "mark/LEVEL 1/l1_thought_06_flashlight.mp3",
+      "duration": 2.56,
+      "peak": 0.2885309159755707
+    },
+    {
+      "voice": "mark/LEVEL 1/l1_thought_07_dont_let_it_out.mp3",
+      "duration": 2.298770833333333,
+      "peak": 0.31406617164611816
+    },
+    {
+      "voice": "mark/LEVEL 1/l1_thought_08_scratch_marks.mp3",
+      "duration": 3.1085625,
+      "peak": 0.48718902468681335
+    },
+    {
+      "voice": "mark/LEVEL 1/l1_thought_09_familiar_place.mp3",
+      "duration": 3.2652916666666667,
+      "peak": 0.29696038365364075
+    },
+    {
+      "voice": "mark/LEVEL 1/l1_thought_10_something_outside.mp3",
+      "duration": 2.298770833333333,
+      "peak": 0.43507489562034607
+    },
+    {
+      "voice": "mark/LEVEL 1/l1_thought_11_the_hollow.mp3",
+      "duration": 3.761625,
+      "peak": 0.3783802390098572
+    },
+    {
+      "voice": "mark/LEVEL 1/l1_thought_12_lamp_pattern.mp3",
+      "duration": 3.3436666666666666,
+      "peak": 0.49393031001091003
+    },
+    {
+      "voice": "mark/LEVEL 1/l1_thought_13_code_315.mp3",
+      "duration": 3.4220208333333333,
+      "peak": 0.26057302951812744
+    },
+    {
+      "voice": "mark/LEVEL 1/l1_thought_14_project_hollow.mp3",
+      "duration": 4.075083333333334,
+      "peak": 0.30410444736480713
+    },
+    {
+      "voice": "mark/LEVEL 1/l1_thought_15_hidden_cubby.mp3",
+      "duration": 3.0301875,
+      "peak": 0.4105847179889679
+    },
+    {
+      "voice": "mark/LEVEL 1/l1_thought_16_crowbar.mp3",
+      "duration": 2.56,
+      "peak": 0.36628633737564087
+    },
+    {
+      "voice": "mark/LEVEL 1/l1_thought_17_loose_floorboard.mp3",
+      "duration": 3.1869375,
+      "peak": 0.2647044062614441
+    },
+    {
+      "voice": "mark/LEVEL 1/l1_thought_18_found_key.mp3",
+      "duration": 2.8734583333333332,
+      "peak": 0.35452690720558167
+    },
+    {
+      "voice": "mark/LEVEL 1/l1_thought_19_almost_out.mp3",
+      "duration": 2.2203958333333333,
+      "peak": 0.42140305042266846
+    },
+    {
+      "voice": "mark/HALLWAY/hallway_thought_01_enter.mp3",
+      "duration": 2.8734583333333332,
+      "peak": 0.46873122453689575
+    },
+    {
+      "voice": "mark/HALLWAY/hallway_thought_02_creature_seen.mp3",
+      "duration": 1.7501875,
+      "peak": 0.7852358818054199
+    },
+    {
+      "voice": "mark/HALLWAY/hallway_thought_03_hollow_assumption.mp3",
+      "duration": 3.1869375,
+      "peak": 0.6006069779396057
+    },
+    {
+      "voice": "mark/HALLWAY/hallway_thought_04_go_downstairs.mp3",
+      "duration": 3.4220208333333333,
+      "peak": 0.35306286811828613
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_01_enter_lab.mp3",
+      "duration": 3.68325,
+      "peak": 0.30589035153388977
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_02_restraints.mp3",
+      "duration": 3.0301875,
+      "peak": 0.3270112872123718
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_03_violent_aftermath.mp3",
+      "duration": 4.075083333333334,
+      "peak": 0.2726655602455139
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_04_memory_distortion.mp3",
+      "duration": 5.903666666666667,
+      "peak": 0.38477641344070435
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_05_no_power.mp3",
+      "duration": 3.9183541666666666,
+      "peak": 0.45330244302749634
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_06_expected_failure.mp3",
+      "duration": 3.761625,
+      "peak": 0.2830807566642761
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_07_power_restored.mp3",
+      "duration": 3.996729166666667,
+      "peak": 0.33168888092041016
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_08_cctv_online.mp3",
+      "duration": 4.153458333333333,
+      "peak": 0.31755536794662476
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_09_creature_on_camera.mp3",
+      "duration": 1.9852916666666667,
+      "peak": 0.4785153865814209
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_10_this_room.mp3",
+      "duration": 2.7167291666666666,
+      "peak": 0.3254944682121277
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_11_cant_be_right.mp3",
+      "duration": 3.1869375,
+      "peak": 0.41798150539398193
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_12_hollow_is_project.mp3",
+      "duration": 4.702020833333333,
+      "peak": 0.422996461391449
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_13_human_subject.mp3",
+      "duration": 2.9518333333333335,
+      "peak": 0.33836594223976135
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_14_mark_subject.mp3",
+      "duration": 3.9183541666666666,
+      "peak": 0.245176300406456
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_15_girl_knew_him.mp3",
+      "duration": 2.56,
+      "peak": 0.21406985819339752
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_16_started_with_him.mp3",
+      "duration": 3.9183541666666666,
+      "peak": 0.3383602499961853
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_17_not_attacking.mp3",
+      "duration": 2.638354166666667,
+      "peak": 0.3874490261077881
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_18_creature_hurt.mp3",
+      "duration": 2.0636666666666668,
+      "peak": 0.44959449768066406
+    },
+    {
+      "voice": "mark/LEVEL 2/l2_thought_19_route_forward.mp3",
+      "duration": 3.0301875,
+      "peak": 0.37107181549072266
+    },
+    {
+      "voice": "mark/BACKROOMS/backrooms_thought_01_enter.mp3",
+      "duration": 2.9518333333333335,
+      "peak": 0.31949663162231445
+    },
+    {
+      "voice": "mark/BACKROOMS/backrooms_thought_02_looping.mp3",
+      "duration": 3.761625,
+      "peak": 0.3941938877105713
+    },
+    {
+      "voice": "mark/BACKROOMS/backrooms_thought_03_place_wrong.mp3",
+      "duration": 2.9518333333333335,
+      "peak": 0.5385475754737854
+    },
+    {
+      "voice": "mark/BACKROOMS/backrooms_thought_04_with_me.mp3",
+      "duration": 2.8734583333333332,
+      "peak": 0.15132537484169006
+    },
+    {
+      "voice": "mark/BACKROOMS/backrooms_thought_05_familiar.mp3",
+      "duration": 3.761625,
+      "peak": 0.3651835322380066
+    },
+    {
+      "voice": "mark/BACKROOMS/backrooms_thought_06_the_study.mp3",
+      "duration": 2.7167291666666666,
+      "peak": 0.3107370138168335
+    },
+    {
+      "voice": "mark/BACKROOMS/backrooms_thought_07_why_know_it.mp3",
+      "duration": 2.298770833333333,
+      "peak": 0.20245425403118134
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_thought_01_clock_familiar.mp3",
+      "duration": 3.9183541666666666,
+      "peak": 0.33681273460388184
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_thought_02_clock_solved.mp3",
+      "duration": 3.9183541666666666,
+      "peak": 0.3415428400039673
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_thought_03_sigil.mp3",
+      "duration": 3.761625,
+      "peak": 0.33959099650382996
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_thought_04_visor_found.mp3",
+      "duration": 4.5452916666666665,
+      "peak": 0.23894238471984863
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_thought_05_visor_truth.mp3",
+      "duration": 4.153458333333333,
+      "peak": 0.4561682343482971
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_thought_06_blood.mp3",
+      "duration": 3.500395833333333,
+      "peak": 0.42268654704093933
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_thought_07_records.mp3",
+      "duration": 4.075083333333334,
+      "peak": 0.4100399315357208
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_thought_08_letter.mp3",
+      "duration": 2.0636666666666668,
+      "peak": 0.20190176367759705
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_hint_clock_01_session.mp3",
+      "duration": 4.075083333333334,
+      "peak": 0.35303062200546265
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_hint_shadow_01.mp3",
+      "duration": 4.780395833333333,
+      "peak": 0.25051507353782654
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_mark_reveal_01_descent.mp3",
+      "duration": 3.500395833333333,
+      "peak": 0.33806082606315613
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_mark_reveal_02_memory_panic.mp3",
+      "duration": 3.0301875,
+      "peak": 0.26069867610931396
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_mark_reveal_03_mirror_reaction.mp3",
+      "duration": 4.780395833333333,
+      "peak": 0.5286746025085449
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_annabelle_reveal_01_recognition.mp3",
+      "duration": 3.84,
+      "peak": 0.40177297592163086
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_mark_reveal_04_accusation.mp3",
+      "duration": 4.3101875,
+      "peak": 0.533683180809021
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_annabelle_reveal_02_promise.mp3",
+      "duration": 5.7469375,
+      "peak": 0.3436814546585083
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_mark_reveal_05_dont_remember.mp3",
+      "duration": 2.7167291666666666,
+      "peak": 0.27710363268852234
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_annabelle_reveal_03_truth.mp3",
+      "duration": 6.4,
+      "peak": 0.3133617639541626
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_annabelle_reveal_04_override.mp3",
+      "duration": 3.6257916666666667,
+      "peak": 0.41263318061828613
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_annabelle_ending_release.mp3",
+      "duration": 5.355083333333333,
+      "peak": 0.41644543409347534
+    },
+    {
+      "voice": "mark/LEVEL 3/l3_annabelle_ending_reseal.mp3",
+      "duration": 4.5452916666666665,
+      "peak": 0.3120763897895813
+    },
+    {
+      "voice": "l3_news_release.mp3",
+      "duration": 20.06202083333333,
+      "peak": 0.9851726293563843
+    },
+    {
+      "voice": "l3_news_contained.mp3",
+      "duration": 16.718354166666668,
+      "peak": 1.0011998414993286
+    },
+    {
+      "voice": "mark/LEVEL 3/anabelle_reading_letter.mp3",
+      "duration": 156.93954166666666,
+      "peak": 0.38934484124183655
+    },
+    {
+      "voice": "audio/news_intro.MP3",
+      "duration": 72.38529166666666,
+      "peak": 0.9738743901252747
+    },
+    {
+      "voice": "level2/tape_01_man.m4a",
+      "duration": 6.385,
+      "peak": 0.8811908960342407
+    },
+    {
+      "voice": "level2/tape_02_man.m4a",
+      "duration": 9.009,
+      "peak": 0.916590690612793
+    },
+    {
+      "voice": "level2/tape_03_man.m4a",
+      "duration": 4.969,
+      "peak": 0.8865132331848145
+    },
+    {
+      "voice": "level2/tape_04_girl.m4a",
+      "duration": 0.9287916666666667,
+      "peak": 0.8348894119262695
+    },
+    {
+      "voice": "level2/tape_05_man.m4a",
+      "duration": 2.67,
+      "peak": 0.7747722864151001
+    },
+    {
+      "voice": "level2/tape_06_man.m4a",
+      "duration": 1.625,
+      "peak": 0.5857216715812683
+    },
+    {
+      "voice": "level2/tape_07_girl.m4a",
+      "duration": 2.181979166666667,
+      "peak": 0.7089877128601074
+    },
+    {
+      "voice": "level2/tape_08_man.m4a",
+      "duration": 1.555,
+      "peak": 0.9463874101638794
+    },
+    {
+      "voice": "level2/tape_09_girl.m4a",
+      "duration": 2.716,
+      "peak": 1.0352108478546143
+    },
+    {
+      "voice": "level2/tape_10_girl.m4a",
+      "duration": 0.8819791666666666,
+      "peak": 0.9129012227058411
+    }
+  ]
+}

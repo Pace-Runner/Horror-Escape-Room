@@ -290,8 +290,8 @@ try {
     use('Turn hour hand (+1 hour)'); assert.equal(events[0].key, 'l3_01');
     voiceLevel.update(54); assert(!events.some(e => e.key === 'l3_hint_clock'));
     allowAuto = false; voiceLevel.update(30); assert(!events.some(e => e.key === 'l3_hint_clock'), 'document started hint');
-    allowAuto = true; voiceLevel.update(1); assert.equal(events.filter(e => e.key === 'l3_hint_clock').length, 1);
-    voiceLevel.update(60); assert.equal(events.filter(e => e.key === 'l3_hint_clock').length, 1);
+    allowAuto = true; voiceLevel.update(1); assert.equal(events.filter(e => e.key === 'l3_hint_clock').length, 0,'spoken hint must require H');
+    voiceLevel.update(60); assert.equal(events.filter(e => e.key === 'l3_hint_clock').length, 0);
     const oldProgress = progress;
     for (let i = 0; i < 3; i++) use('Turn minute hand (+5 minutes)');
     assert(voiceLevel.refs.puzzle.clockSolved); assert(progress > oldProgress);
@@ -302,7 +302,7 @@ try {
     voiceLevel.update(1); assert(!events.some(e => e.key === 'l3_06'), 'trail spoke from sight/update');
     use('Examine the trail'); use('Examine the trail');
     assert.equal(events.filter(e => e.key === 'l3_06' && e.options.replayable).length, 2);
-    console.log('PASS: Level 3 deliberate clock/trail triggers, engaged 55s one-shot hint, document suppression, solve interruption hook, single sigil pickup, replayable trail request.');
+    console.log('PASS: Level 3 deliberate clock/trail triggers, no unsolicited spoken hints, document suppression, solve interruption hook, single sigil pickup, replayable trail request.');
     gameState.inventory.clear();
   }
 
@@ -607,14 +607,16 @@ try {
       const containedCamera=new THREE.PerspectiveCamera(70,16/9,.05,100);containedCamera.position.set(-1.55,1.6,5.5);containedCamera.rotation.y=Math.PI;
       const contained=build({camera:containedCamera,player:{},refs:level.refs,visor:{},fade:{}});
       const slashSamples=[];
-      for(const age of [.64,.77,.89]){
+      for(const age of [.35,.70,1].map(f=>(T.contact-T.claw)*f)){
         const pose=contained.sample(T.claw+age);
         externalBody.show('hollow',pose);
         containedCamera.position.fromArray(pose.position);containedCamera.quaternion.fromArray(pose.quaternion);containedCamera.fov=pose.fov;
         containedCamera.updateProjectionMatrix();containedCamera.updateMatrixWorld(true);hollow.group.updateMatrixWorld(true);
         const hand=hollow.refs.hands.l.getWorldPosition(new THREE.Vector3()).project(containedCamera);
         slashSamples.push(hand.x);
-        assert(hollow.refs.root.position.y>.15,'ending strike is not airborne');
+        assert.equal(pose.jump,0,'shared ending catch must stay planted');
+        assert(hollow.refs.root.position.y<.08,'shared ending catch has an airborne jump');
+        assert(pose.containedPerformance?.rush>0,'missing full-body catch performance');
         assert(!hollow.group.getObjectByName('Mark_Physical_Visor').visible,'ending attack holds goggles');
       }
       assert(slashSamples[0]>slashSamples[2]+.3,'single claw does not sweep across lens');

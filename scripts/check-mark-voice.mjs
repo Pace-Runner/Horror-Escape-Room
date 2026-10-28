@@ -15,8 +15,8 @@ globalThis.__voiceTestGlob=pattern=>pattern.includes('Dont Let it out')?assets:{
 class Buffer {constructor(duration=4){this.duration=duration;}}
 globalThis.AudioBuffer=Buffer;
 const sources=[];
-const gain=()=>({gain:{setValueAtTime(){},linearRampToValueAtTime(){}},connect(){return this;},disconnect(){}});
-const context={currentTime:0,createGain:gain,createBufferSource(){const src={connect(){return this;},disconnect(){},start(){this.started=true;},stop(){this.stopped=true;}};sources.push(src);return src;}};
+const gain=()=>({gain:{value:1,cancelScheduledValues(){},setValueAtTime(v){this.value=v;},linearRampToValueAtTime(){}},connect(){return this;},disconnect(){}});
+const context={currentTime:0,createGain:gain,createBufferSource(){const src={connect(){return this;},disconnect(){},start(at,offset){this.started=true;this.startAt=at;this.offset=offset;},stop(at){this.stopped=true;this.stopAt=at;}};sources.push(src);return src;}};
 try {
  fs.writeFileSync(bundlePath,bundle.outputFiles[0].text);
  const {AudioEngine}=await import(pathToFileURL(bundlePath.pathname.replace(/^\/(\w:)/,'$1')).href);
@@ -30,7 +30,9 @@ try {
  // Exercise the actual main.js caption/voice bridge, including legacy caption keys without assets.
  const mainSource=fs.readFileSync(new URL('../src/main.js',import.meta.url),'utf8').replace(/\r\n/g,'\n');
  const bridge=mainSource.slice(mainSource.indexOf('captions.onLineStart = ')).split('\n};')[0].slice('captions.onLineStart = '.length)+'\n}';
- captions.onLineStart=new Function('markThoughts','audio','let tapePlaying=false;return '+bridge)(thoughts,audio);
+ captions.onLineStart=new Function('markThoughts','audio','captions','let tapePlaying=false;return '+bridge)(thoughts,audio,captions);
+ const release=mainSource.match(/captions.onLineCancel=(.*);/)[1];
+ captions.onLineCancel=new Function('audio','return '+release)(audio);
  for(const key of ['l1_03','hallway_01','l2_07','backrooms_01','l3_03']){
    thoughts.clear({reset:true});captions.cancel();
    assert(thoughts.play(key));const speaking=audio.voiceSource;
@@ -65,6 +67,44 @@ try {
  audio.playVoice(oldKey);audio.playVoice('mark/'+MARK_THOUGHTS.l3_03[0]);const latest=audio.voiceSource;
  resolveOld(new Buffer());await Promise.resolve();await Promise.resolve();assert.equal(audio.voiceSource,latest);
  audio.stopVoice();
+ // The bus protects both playing and still-decoding story recordings.
+ thoughts.clear({reset:true});captions.cancel();
+ const storyKey='mark/'+MARK_THOUGHTS.l1_01[0];
+ audio.playVoice('mark/'+MARK_THOUGHTS.l1_03[0],{priority:30});const fading=audio.voiceSource;
+ audio.playVoice(storyKey,{priority:60});const storySource=audio.voiceSource;
+ assert(Math.abs(fading.stopAt-context.currentTime-.012)<1e-8,'voice interruption lost its de-click ramp');
+ assert(storySource.startAt>=fading.stopAt,'replacement overlaps outgoing spoken voice');
+ assert(!thoughts.play('l3_hint_clock',{priority:20}));assert(!thoughts.play('l1_09'));assert.equal(audio.voiceSource,storySource);
+ audio.stopVoice();let finishPending,interrupted=0;
+ audio.voiceBuffers.set(storyKey,new Promise(resolve=>finishPending=resolve));
+ audio.playVoice(storyKey,{priority:60,onInterrupted:()=>interrupted++});
+ assert(!audio.playVoice('mark/'+MARK_THOUGHTS.l1_03[0],{priority:20}));
+ audio.stopVoice();finishPending(new Buffer());await Promise.resolve();await Promise.resolve();
+ assert.equal(interrupted,1);assert.equal(audio.voiceSource,null);
+ audio.voiceBuffers.set(storyKey,new Buffer());
+ // Captions wait for decoding, hold for actual audio, toggle independently and release their own voice.
+ let decode;audio.voiceBuffers.set(storyKey,new Promise(resolve=>decode=resolve));
+ captions.say({text:'Recorded story',speaker:'MARK',voice:storyKey});
+ assert(captions._line.voicePending);captions.setEnabled(false);captions.setEnabled(true);
+ assert(captions._line.voicePending);decode(new Buffer(4));await Promise.resolve();await Promise.resolve();
+ assert.equal(captions._line.duration,4);assert(!captions._line.voicePending);
+ for(let i=0;i<120;i++)captions.update(.1);assert.equal(captions._phase,'hold','caption expired while source was playing');
+ captions.cancel();assert.equal(audio.voiceSource,null);
+ // Replacing an authored sequence must preserve the NEW remaining lines.
+ audio.voiceBuffers.set(storyKey,new Buffer());
+ captions.say({text:'Old recorded line',voice:storyKey});
+ const oldCaptionSource=audio.voiceSource;
+ const authored=captions.play([{text:'New recorded line',voice:storyKey},{text:'Next authored line',voice:storyKey}]);
+ assert(oldCaptionSource.stopped);assert.equal(captions._queue.length,1);
+ audio.voiceSource.onended();for(let i=0;i<8;i++)captions.update(.1);
+ assert.equal(captions._line.text,'Next authored line');captions.cancel();await authored;
+ // Only a completed authored group advances. An important replacement kills its remaining lines.
+ thoughts.clear({reset:true});captions.cancel();
+ assert(thoughts.playSequence(['l2_12','l2_14','l2_15','l2_16'],{priority:true}));
+ const firstGroupSource=audio.voiceSource;firstGroupSource.onended();assert.equal(thoughts.currentKey,'l2_14');
+ assert(thoughts.play('l1_04',{priority:60}));const replacement=audio.voiceSource;
+ firstGroupSource.onended();assert.equal(audio.voiceSource,replacement);assert.equal(thoughts.currentKey,'l1_04');
+ thoughts.clear();assert.equal(audio.voiceSource,null);assert.equal(captions._line,null);
  const nodes=[];globalThis.document={createElement(){const el={hidden:false,textContent:'',classList:{add(){},remove(){}},setAttribute(){},append(...children){this.children=children;}};nodes.push(el);return el;},body:{append(){}}};
  const hints=createContextualHints();for(let i=0;i<4;i++)hints.show('l3_clock');assert.equal(nodes[2].textContent,HINTS.l3_clock[2]);hints.reset();hints.show('l3_clock');assert.equal(nodes[2].textContent,HINTS.l3_clock[0]);hints.hide();
  for(const [progress,key] of [[{},'l3_clock'],[{clockSolved:true},'l3_crest'],[{crestSolved:true},'l3_memory'],[{memoryVisorCollected:true},'l3_trail'],[{correctedTrailSolved:true},'l3_restricted'],[{truthRecordsSolved:true},'l3_letter'],[{hasHollowOverrideKey:true},'l3_choice']])assert.equal(getAvailableHintKeys('study',progress)[0],key);

@@ -2174,7 +2174,7 @@ export function createBedroomLevel({
     label: 'Observe the flashing lamp',
     onInteract: () => {
       showCaption(line('dialog_lamp_examine'));
-      onThought('l1_12');
+      onThought('l1_12', { replayable: true });
     }
   };
   lampGroup.add(lampHit);

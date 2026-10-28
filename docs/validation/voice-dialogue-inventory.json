@@ -1,0 +1,2366 @@
+{
+  "recordingCount": 184,
+  "mappedVoiceCount": 102,
+  "missingShippedVoiceFiles": [],
+  "unusedVoice": [
+    "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_mark_reveal_06_someones_there.mp3"
+  ],
+  "durationDifferences": [],
+  "containerMismatches": [
+    "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_annabelle_reveal_04_override.mp3",
+    "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/anabelle_reading_letter.mp3"
+  ],
+  "unusedVoiceReasons": {
+    "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_mark_reveal_06_someones_there.mp3": "Unused alternative reveal line retained to preserve the approved reveal order."
+  },
+  "legacyTextOnlyCaptionPaths": [
+    {
+      "key": "dialog_inspect_empty_hand",
+      "voice": "all/inspect_empty_hand.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_wrong_code_1",
+      "voice": "all/wrong_code_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_wrong_code_2",
+      "voice": "all/wrong_code_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_wrong_code_3",
+      "voice": "all/wrong_code_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_wrong_code_4",
+      "voice": "all/wrong_code_4.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_wrong_code_5",
+      "voice": "all/wrong_code_5.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_backrooms_caught_1",
+      "voice": "backrooms/caught_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_backrooms_caught_2",
+      "voice": "backrooms/caught_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_backrooms_caught_3",
+      "voice": "backrooms/caught_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_backrooms_caught_4",
+      "voice": "backrooms/caught_4.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_backrooms_caught_5",
+      "voice": "backrooms/caught_5.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_backrooms_respawn_1",
+      "voice": "backrooms/respawn_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_backrooms_respawn_2",
+      "voice": "backrooms/respawn_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_backrooms_respawn_3",
+      "voice": "backrooms/respawn_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_backrooms_respawn_4",
+      "voice": "backrooms/respawn_4.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_backrooms_roam",
+      "voice": "backrooms/roam_10sec.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_dead_end_1",
+      "voice": "backrooms/dead_end_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_dead_end_2",
+      "voice": "backrooms/dead_end_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_dead_end_3",
+      "voice": "backrooms/dead_end_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_exit_door_already_open",
+      "voice": "backrooms/exit_door_already_open.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_exit_door_opens",
+      "voice": "backrooms/exit_door_opens.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_look_at_monster_1",
+      "voice": "backrooms/look_monster_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_look_at_monster_2",
+      "voice": "backrooms/look_monster_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_look_at_monster_3",
+      "voice": "backrooms/look_monster_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_sealed_door",
+      "voice": "backrooms/sealed_door.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_ending_contained",
+      "voice": "endings/contained_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_ending_contained",
+      "voice": "endings/contained_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_ending_released",
+      "voice": "endings/released_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_ending_released",
+      "voice": "endings/released_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_out_of_time",
+      "voice": "endings/out_of_time.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hallway_bedroom_door",
+      "voice": "hallway/bedroom_door.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hallway_claws",
+      "voice": "hallway/claws.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hallway_enter",
+      "voice": "hallway/enter_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hallway_enter",
+      "voice": "hallway/enter_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hallway_enter",
+      "voice": "hallway/enter_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hallway_go_down",
+      "voice": "hallway/go_down.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hallway_lamp",
+      "voice": "hallway/lamp.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hallway_locked_bathroom",
+      "voice": "hallway/locked_bathroom.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hallway_locked_nursery",
+      "voice": "hallway/locked_nursery.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hallway_stairs",
+      "voice": "hallway/stairs.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hallway_window",
+      "voice": "hallway/window.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_bedside_drawer_open",
+      "voice": "level1/bedside_drawer_open.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_bedside_drawer_shut",
+      "voice": "level1/bedside_drawer_shut.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_bin_search",
+      "voice": "level1/bin_search.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_bin_search_again",
+      "voice": "level1/bin_search_again.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_boarded_door",
+      "voice": "level1/boarded_door_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_boarded_door",
+      "voice": "level1/boarded_door_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_bulb_blows",
+      "voice": "level1/bulb_blows_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_bulb_blows",
+      "voice": "level1/bulb_blows_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_claw_marks",
+      "voice": "level1/claw_marks.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_corkboard_hold_photo",
+      "voice": "level1/corkboard_hold_photo.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_corkboard_needs_photos",
+      "voice": "level1/corkboard_needs_photos.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_corkboard_open",
+      "voice": "level1/corkboard_open.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_corkboard_pinned",
+      "voice": "level1/corkboard_pinned.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_corkboard_solved",
+      "voice": "level1/corkboard_solved.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_cuff_hold_paperclip",
+      "voice": "level1/cuff_hold_paperclip.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_door_hangs_open",
+      "voice": "level1/door_hangs_open.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_door_locked_needs_key",
+      "voice": "level1/door_locked_needs_key.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_door_opens",
+      "voice": "level1/door_opens.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_door_planks_examine",
+      "voice": "level1/door_planks_examine.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_door_planks_pried_off",
+      "voice": "level1/door_planks_pried_off.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_flashlight_on",
+      "voice": "level1/flashlight_on.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_floorboard_needs_crowbar",
+      "voice": "level1/floorboard_needs_crowbar.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_floorboard_pried_up",
+      "voice": "level1/floorboard_pried_up.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_freed",
+      "voice": "level1/freed_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_freed",
+      "voice": "level1/freed_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hold_bedroom_key",
+      "voice": "level1/hold_bedroom_key.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hold_brass_key",
+      "voice": "level1/hold_brass_key.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hold_crowbar",
+      "voice": "level1/hold_crowbar.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_lamp_drawer_empty",
+      "voice": "level1/lamp_drawer_empty.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_lamp_examine",
+      "voice": "level1/lamp_examine.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_lockbox_locked_tight",
+      "voice": "level1/lockbox_locked_tight.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_lockbox_needs_key",
+      "voice": "level1/lockbox_needs_key.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_lockbox_opened",
+      "voice": "level1/lockbox_opened.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_middle_drawer_open",
+      "voice": "level1/middle_drawer_open.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_middle_drawer_shut",
+      "voice": "level1/middle_drawer_shut.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_open_door_locked_1",
+      "voice": "level1/open_door_locked_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_open_door_locked_2",
+      "voice": "level1/open_door_locked_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_open_door_locked_3",
+      "voice": "level1/open_door_locked_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_paperclip_unlocks_cuff",
+      "voice": "level1/paperclip_unlocks_cuff.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_past_the_door",
+      "voice": "level1/past_the_door_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_past_the_door",
+      "voice": "level1/past_the_door_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_past_the_door",
+      "voice": "level1/past_the_door_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_past_the_door",
+      "voice": "level1/past_the_door_4.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_pickup_bedroom_key",
+      "voice": "level1/pickup_bedroom_key.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_pickup_flashlight",
+      "voice": "level1/pickup_flashlight.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_pickup_floor_photo",
+      "voice": "level1/pickup_floor_photo.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_pickup_paperclip",
+      "voice": "level1/pickup_paperclip.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_pickup_radiator_photo",
+      "voice": "level1/pickup_radiator_photo.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_polaroid",
+      "voice": "level1/polaroid_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_polaroid",
+      "voice": "level1/polaroid_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_polaroid_examine",
+      "voice": "level1/polaroid_examine.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_radiator",
+      "voice": "level1/radiator.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_rug_folded_back",
+      "voice": "level1/rug_folded_back.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_scratches",
+      "voice": "level1/scratches_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_scratches",
+      "voice": "level1/scratches_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_scratches",
+      "voice": "level1/scratches_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_scratches_examine",
+      "voice": "level1/scratches_examine.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_wake",
+      "voice": "level1/wake_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_wake",
+      "voice": "level1/wake_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_wake",
+      "voice": "level1/wake_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_basement_arrival",
+      "voice": "level2/basement_arrival_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_basement_arrival",
+      "voice": "level2/basement_arrival_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_black_pool",
+      "voice": "level2/black_pool_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_black_pool",
+      "voice": "level2/black_pool_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_black_pool_examine",
+      "voice": "level2/black_pool_examine.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_blackout",
+      "voice": "level2/blackout_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_blackout",
+      "voice": "level2/blackout_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_blackout",
+      "voice": "level2/blackout_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_breaker_cover_lift",
+      "voice": "level2/breaker_cover_lift.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_breaker_cover_lower",
+      "voice": "level2/breaker_cover_lower.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_breaker_load_over",
+      "voice": "level2/breaker_load_over.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_breaker_load_spare",
+      "voice": "level2/breaker_load_spare.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_breaker_overload",
+      "voice": "level2/breaker_overload.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_breaker_panel_all_up",
+      "voice": "level2/breaker_panel_all_up.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_breaker_panel_examine",
+      "voice": "level2/breaker_panel_examine.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_breaker_panel_hums",
+      "voice": "level2/breaker_panel_hums.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_breaker_panel_knocked_down",
+      "voice": "level2/breaker_panel_knocked_down.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_breaker_panel_not_reset",
+      "voice": "level2/breaker_panel_not_reset.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_breaker_panel_takes_load",
+      "voice": "level2/breaker_panel_takes_load.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_breaker_panel_trips",
+      "voice": "level2/breaker_panel_trips.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_breakers_all_fed",
+      "voice": "level2/breakers_all_fed.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_breakers_already_up",
+      "voice": "level2/breakers_already_up.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_breakers_dead",
+      "voice": "level2/breakers_dead.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_cctv_basement",
+      "voice": "level2/cctv_basement_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_cctv_basement",
+      "voice": "level2/cctv_basement_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_cctv_basement",
+      "voice": "level2/cctv_basement_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_cctv_dash",
+      "voice": "level2/cctv_dash_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_cctv_dash",
+      "voice": "level2/cctv_dash_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_cctv_no_power",
+      "voice": "level2/cctv_no_power_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_cctv_no_power",
+      "voice": "level2/cctv_no_power_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_creature_corner",
+      "voice": "level2/creature_corner_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_creature_corner",
+      "voice": "level2/creature_corner_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_creature_corner",
+      "voice": "level2/creature_corner_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_creature_sketch",
+      "voice": "level2/creature_sketch_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_creature_sketch",
+      "voice": "level2/creature_sketch_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_deck_eject_empty",
+      "voice": "level2/deck_eject_empty.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_deck_examine",
+      "voice": "level2/deck_examine.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_deck_has_tape",
+      "voice": "level2/deck_has_tape.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_deck_hold_tape",
+      "voice": "level2/deck_hold_tape.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_deck_no_power",
+      "voice": "level2/deck_no_power.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_deck_play_empty",
+      "voice": "level2/deck_play_empty.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_deck_tape_in",
+      "voice": "level2/deck_tape_in.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_deck_tape_out",
+      "voice": "level2/deck_tape_out.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_door_bolts_unpowered",
+      "voice": "level2/door_bolts_unpowered.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_door_note",
+      "voice": "level2/door_note.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_dropped_fuse_blown",
+      "voice": "level2/dropped_fuse_blown.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_dropped_fuse_overrated",
+      "voice": "level2/dropped_fuse_overrated.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_fuse_already_seated",
+      "voice": "level2/fuse_already_seated.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_fuse_burns_out",
+      "voice": "level2/fuse_burns_out.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_fuse_clicks_in",
+      "voice": "level2/fuse_clicks_in.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_fuse_cover_first_open",
+      "voice": "level2/fuse_cover_first_open.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_fuse_cover_open",
+      "voice": "level2/fuse_cover_open.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_fuse_cover_shut",
+      "voice": "level2/fuse_cover_shut.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_fuse_hold_one",
+      "voice": "level2/fuse_hold_one.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_fuse_pulled_out",
+      "voice": "level2/fuse_pulled_out.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_fuse_rating_too_high",
+      "voice": "level2/fuse_rating_too_high.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_fuse_slot_empty",
+      "voice": "level2/fuse_slot_empty.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_fuse_spares_left",
+      "voice": "level2/fuse_spares_left.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_fuse_taken",
+      "voice": "level2/fuse_taken.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_generator_catches",
+      "voice": "level2/generator_catches.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_generator_leave_it_alone",
+      "voice": "level2/generator_leave_it_alone.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_generator_primer",
+      "voice": "level2/generator_primer.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_generator_running",
+      "voice": "level2/generator_running_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_generator_running",
+      "voice": "level2/generator_running_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_generator_turning_over",
+      "voice": "level2/generator_turning_over.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_generator_valve",
+      "voice": "level2/generator_valve.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_generator_wrong_order",
+      "voice": "level2/generator_wrong_order.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hood_airflow_on",
+      "voice": "level2/hood_airflow_on.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hood_button_dead",
+      "voice": "level2/hood_button_dead.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hood_button_no_power",
+      "voice": "level2/hood_button_no_power.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hood_heat_on",
+      "voice": "level2/hood_heat_on.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hood_light_lit",
+      "voice": "level2/hood_light_lit.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_instrument_trolley",
+      "voice": "level2/instrument_trolley.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_instrument_trolley_fallen",
+      "voice": "level2/instrument_trolley_fallen.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_lab_doors_heavy",
+      "voice": "level2/lab_doors_heavy.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_load_chart",
+      "voice": "level2/load_chart.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_main_lever_already_routed",
+      "voice": "level2/main_lever_already_routed.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_main_lever_already_up",
+      "voice": "level2/main_lever_already_up.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_main_lever_dead",
+      "voice": "level2/main_lever_dead.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_main_lever_drops_back",
+      "voice": "level2/main_lever_drops_back.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_maintenance_log",
+      "voice": "level2/maintenance_log.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_metal_door_opens",
+      "voice": "level2/metal_door_opens.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_metal_door_unlocks",
+      "voice": "level2/metal_door_unlocks.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_microscope",
+      "voice": "level2/microscope.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_monitor_button_no_power",
+      "voice": "level2/monitor_button_no_power.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_monitor_dead",
+      "voice": "level2/monitor_dead.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_monitor_feeds_live",
+      "voice": "level2/monitor_feeds_live.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_monitor_off",
+      "voice": "level2/monitor_off.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_monitor_switched_on",
+      "voice": "level2/monitor_switched_on.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_operating_table",
+      "voice": "level2/operating_table.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_power_restored",
+      "voice": "level2/power_restored_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_power_restored",
+      "voice": "level2/power_restored_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_power_routed",
+      "voice": "level2/power_routed_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_power_routed",
+      "voice": "level2/power_routed_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_power_routed",
+      "voice": "level2/power_routed_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_recorder_empty",
+      "voice": "level2/recorder_empty.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_recorder_examine",
+      "voice": "level2/recorder_examine.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_remote_dead",
+      "voice": "level2/remote_dead.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_remote_monitor_off",
+      "voice": "level2/remote_monitor_off.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_restart_plate",
+      "voice": "level2/restart_plate.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_restraints",
+      "voice": "level2/restraints_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_restraints",
+      "voice": "level2/restraints_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_room_goes_out",
+      "voice": "level2/room_goes_out.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_security_lockout_released",
+      "voice": "level2/security_lockout_released.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_slides",
+      "voice": "level2/slides.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_starter_first_pull",
+      "voice": "level2/starter_first_pull.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_starter_later_pull",
+      "voice": "level2/starter_later_pull.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_surgical_lamp_dead",
+      "voice": "level2/surgical_lamp_dead.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_surgical_lamp_lit",
+      "voice": "level2/surgical_lamp_lit.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_surgical_lamp_no_power",
+      "voice": "level2/surgical_lamp_no_power.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_tape_after",
+      "voice": "level2/tape_after_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_tape_after",
+      "voice": "level2/tape_after_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_tape_nudge_deck",
+      "voice": "level2/tape_nudge_deck.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_tape_nudge_recorder",
+      "voice": "level2/tape_nudge_recorder.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_tape_stack",
+      "voice": "level2/tape_stack.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_tape_stack_after",
+      "voice": "level2/tape_stack_after.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_tape_taken",
+      "voice": "level2/tape_taken.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_torn_notes",
+      "voice": "level2/torn_notes.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_trolley_crash",
+      "voice": "level2/trolley_crash_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_trolley_crash",
+      "voice": "level2/trolley_crash_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_annabelle",
+      "voice": "level3/annabelle_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_annabelle",
+      "voice": "level3/annabelle_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_annabelle",
+      "voice": "level3/annabelle_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_annabelle",
+      "voice": "level3/annabelle_4.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_caught_back_by_door",
+      "voice": "level3/caught_back_by_door.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_caught_hauled_back",
+      "voice": "level3/caught_hauled_back.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_combination_opened",
+      "voice": "level3/combination_opened.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_creature_flees",
+      "voice": "level3/creature_flees_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_creature_flees",
+      "voice": "level3/creature_flees_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_creature_flees",
+      "voice": "level3/creature_flees_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_deadbolt_no_key",
+      "voice": "level3/deadbolt_no_key.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_deadbolt_opened",
+      "voice": "level3/deadbolt_opened.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_drawer_empty",
+      "voice": "level3/drawer_empty.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_drawer_opened",
+      "voice": "level3/drawer_opened.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_fence_gate_locked",
+      "voice": "level3/fence_gate_locked.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_fence_gate_locked_visor",
+      "voice": "level3/fence_gate_locked_visor.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_fence_gate_opens",
+      "voice": "level3/fence_gate_opens.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_front_door_locks_left",
+      "voice": "level3/front_door_locks_left.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_front_door_one_lock_left",
+      "voice": "level3/front_door_one_lock_left.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_front_door_opens",
+      "voice": "level3/front_door_opens.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hold_door_key",
+      "voice": "level3/hold_door_key.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_hold_gate_key",
+      "voice": "level3/hold_gate_key.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_letter_blank_without_visor",
+      "voice": "level3/letter_blank_without_visor.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_lock_already_open",
+      "voice": "level3/lock_already_open.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_mirror",
+      "voice": "level3/mirror_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_mirror",
+      "voice": "level3/mirror_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_mirror",
+      "voice": "level3/mirror_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_mirror",
+      "voice": "level3/mirror_4.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_mirror",
+      "voice": "level3/mirror_5.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_mirror",
+      "voice": "level3/mirror_6.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_mirror_without_visor",
+      "voice": "level3/mirror_without_visor.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_pickup_gate_key",
+      "voice": "level3/pickup_gate_key_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_pickup_gate_key",
+      "voice": "level3/pickup_gate_key_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_porch_fence",
+      "voice": "level3/porch_fence_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_porch_fence",
+      "voice": "level3/porch_fence_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_porch_gate_locked",
+      "voice": "level3/porch_gate_locked_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_porch_gate_locked",
+      "voice": "level3/porch_gate_locked_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_portrait_fourth",
+      "voice": "level3/portrait_fourth_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_portrait_fourth",
+      "voice": "level3/portrait_fourth_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_portrait_fourth",
+      "voice": "level3/portrait_fourth_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_portrait_with_visor",
+      "voice": "level3/portrait_with_visor.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_portrait_without_visor",
+      "voice": "level3/portrait_without_visor.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_realisation",
+      "voice": "level3/realisation_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_realisation",
+      "voice": "level3/realisation_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_realisation",
+      "voice": "level3/realisation_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_realisation",
+      "voice": "level3/realisation_4.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_realisation",
+      "voice": "level3/realisation_5.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_shadow_wrong",
+      "voice": "level3/shadow_wrong_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_shadow_wrong",
+      "voice": "level3/shadow_wrong_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_shadow_wrong",
+      "voice": "level3/shadow_wrong_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_shadow_wrong",
+      "voice": "level3/shadow_wrong_4.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_study_arrival",
+      "voice": "level3/study_arrival_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_study_arrival",
+      "voice": "level3/study_arrival_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_study_blackout_hunt",
+      "voice": "level3/study_blackout_hunt.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_study_blackout_teaser",
+      "voice": "level3/study_blackout_teaser.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_study_books_full",
+      "voice": "level3/study_books_full.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_study_bottle_carried",
+      "voice": "level3/study_bottle_carried.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_study_breaker_thought",
+      "voice": "level3/study_breaker_thought.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_study_come_round",
+      "voice": "level3/study_come_round.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_study_come_round_again",
+      "voice": "level3/study_come_round_again.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_study_fuse_thought",
+      "voice": "level3/study_fuse_thought.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_study_letter_dark",
+      "voice": "level3/study_letter_dark.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_study_letter_read_it",
+      "voice": "level3/study_letter_read_it.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_study_mirror_dark",
+      "voice": "level3/study_mirror_dark.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_study_power_back_hunt",
+      "voice": "level3/study_power_back_hunt.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_study_power_back_teaser",
+      "voice": "level3/study_power_back_teaser.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_tape_1",
+      "voice": "level3/tape_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_tape_2",
+      "voice": "level3/tape_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_tape_3",
+      "voice": "level3/tape_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_tape_4",
+      "voice": "level3/tape_4.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_the_choice",
+      "voice": "level3/the_choice_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_the_choice",
+      "voice": "level3/the_choice_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_third_lock_needs_visor",
+      "voice": "level3/third_lock_needs_visor_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_third_lock_needs_visor",
+      "voice": "level3/third_lock_needs_visor_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_third_lock_no_visor",
+      "voice": "level3/third_lock_no_visor.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_third_lock_opened",
+      "voice": "level3/third_lock_opened.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_third_lock_visor_off",
+      "voice": "level3/third_lock_visor_off.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_visor_first_worn",
+      "voice": "level3/visor_first_worn_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_visor_first_worn",
+      "voice": "level3/visor_first_worn_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_visor_first_worn",
+      "voice": "level3/visor_first_worn_3.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_visor_found",
+      "voice": "level3/visor_found_1.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_visor_found",
+      "voice": "level3/visor_found_2.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_visor_not_carried",
+      "voice": "level3/visor_not_carried.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    },
+    {
+      "key": "dialog_visor_removed",
+      "voice": "level3/visor_removed.m4a",
+      "status": "existing text-only placeholder; no shipped recording"
+    }
+  ],
+  "unreferencedAudio": [
+    "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_mark_reveal_06_someones_there.mp3",
+    "src/assets/audio/endings-contained/l3_hollow_claw.wav",
+    "src/assets/audio/endings-contained/l3_hollow_rush.wav"
+  ],
+  "mappings": [
+    {
+      "id": "l3_stealth_01",
+      "voice": "mark/LEVEL 3/l3_stealth_01_blackout.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_stealth_01_blackout.mp3",
+      "container": "MPEG audio",
+      "duration": 4.153469387755097
+    },
+    {
+      "id": "l3_stealth_02",
+      "voice": "mark/LEVEL 3/l3_stealth_02_hide.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_stealth_02_hide.mp3",
+      "container": "MPEG audio",
+      "duration": 3.6832653061224434
+    },
+    {
+      "id": "l3_stealth_03",
+      "voice": "mark/LEVEL 3/l3_stealth_03_hiding_spot.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_stealth_03_hiding_spot.mp3",
+      "container": "MPEG audio",
+      "duration": 3.9183673469387688
+    },
+    {
+      "id": "l3_stealth_04",
+      "voice": "mark/LEVEL 3/l3_stealth_04_distraction.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_stealth_04_distraction.mp3",
+      "container": "MPEG audio",
+      "duration": 3.8399999999999936
+    },
+    {
+      "id": "l3_stealth_05",
+      "voice": "mark/LEVEL 3/l3_stealth_05_breaker_upstairs.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_stealth_05_breaker_upstairs.mp3",
+      "container": "MPEG audio",
+      "duration": 4.231836734693873
+    },
+    {
+      "id": "l3_stealth_07",
+      "voice": "mark/LEVEL 3/l3_stealth_07_power_restored.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_stealth_07_power_restored.mp3",
+      "container": "MPEG audio",
+      "duration": 5.198367346938783
+    },
+    {
+      "id": "l2_hint_find_cassette",
+      "voice": "mark/LEVEL 2/l2_hint_01_find_cassette.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_hint_01_find_cassette.mp3",
+      "container": "MPEG audio",
+      "duration": 3.6832653061224434
+    },
+    {
+      "id": "l2_hint_play_cassette",
+      "voice": "mark/LEVEL 2/l2_hint_02_play_cassette.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_hint_02_play_cassette.mp3",
+      "container": "MPEG audio",
+      "duration": 5.198367346938783
+    },
+    {
+      "id": "l2_20",
+      "voice": "mark/LEVEL 2/l2_thought_20_initial_power.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_20_initial_power.mp3",
+      "container": "MPEG audio",
+      "duration": 4.466938775510203
+    },
+    {
+      "id": "l2_21",
+      "voice": "mark/LEVEL 2/l2_thought_21_power_failed_again.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_21_power_failed_again.mp3",
+      "container": "MPEG audio",
+      "duration": 3.3436734693877512
+    },
+    {
+      "id": "l2_22",
+      "voice": "mark/LEVEL 2/l2_thought_22_find_generator.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_22_find_generator.mp3",
+      "container": "MPEG audio",
+      "duration": 3.186938775510201
+    },
+    {
+      "id": "l2_23",
+      "voice": "mark/LEVEL 2/l2_thought_23_flip_breaker.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_23_flip_breaker.mp3",
+      "container": "MPEG audio",
+      "duration": 4.388571428571426
+    },
+    {
+      "id": "l2_24",
+      "voice": "mark/LEVEL 2/l2_thought_24_check_computer.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_24_check_computer.mp3",
+      "container": "MPEG audio",
+      "duration": 3.5787755102040766
+    },
+    {
+      "id": "l2_25",
+      "voice": "mark/LEVEL 2/l2_thought_25_behind_me.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_25_behind_me.mp3",
+      "container": "MPEG audio",
+      "duration": 2.0636734693877576
+    },
+    {
+      "id": "backrooms_08",
+      "voice": "mark/BACKROOMS/backrooms_thought_08_sprinting_alerts_it.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_thought_08_sprinting_alerts_it.mp3",
+      "container": "MPEG audio",
+      "duration": 2.7167346938775503
+    },
+    {
+      "id": "backrooms_09",
+      "voice": "mark/BACKROOMS/backrooms_thought_09_stop_running.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_thought_09_stop_running.mp3",
+      "container": "MPEG audio",
+      "duration": 2.7951020408163254
+    },
+    {
+      "id": "backrooms_10",
+      "voice": "mark/BACKROOMS/backrooms_thought_10_dont_let_it_hear_me.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_thought_10_dont_let_it_hear_me.mp3",
+      "container": "MPEG audio",
+      "duration": 3.3436734693877512
+    },
+    {
+      "id": "backrooms_11",
+      "voice": "mark/BACKROOMS/backrooms_thought_11_running_gives_me_away.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_thought_11_running_gives_me_away.mp3",
+      "container": "MPEG audio",
+      "duration": 2.7951020408163254
+    },
+    {
+      "id": "l1_01",
+      "voice": "mark/LEVEL 1/l1_thought_01_wakeup.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_thought_01_wakeup.mp3",
+      "container": "MPEG audio",
+      "duration": 3.4220408163265263
+    },
+    {
+      "id": "l1_02",
+      "voice": "mark/LEVEL 1/l1_thought_02_chained.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_thought_02_chained.mp3",
+      "container": "MPEG audio",
+      "duration": 2.56
+    },
+    {
+      "id": "l1_03",
+      "voice": "mark/LEVEL 1/l1_thought_03_paperclip.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_thought_03_paperclip.mp3",
+      "container": "MPEG audio",
+      "duration": 2.298775510204083
+    },
+    {
+      "id": "l1_04",
+      "voice": "mark/LEVEL 1/l1_thought_04_cuff_open.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_thought_04_cuff_open.mp3",
+      "container": "MPEG audio",
+      "duration": 3.7616326530612185
+    },
+    {
+      "id": "l1_05",
+      "voice": "mark/LEVEL 1/l1_thought_05_light_blows.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_thought_05_light_blows.mp3",
+      "container": "MPEG audio",
+      "duration": 2.638367346938775
+    },
+    {
+      "id": "l1_06",
+      "voice": "mark/LEVEL 1/l1_thought_06_flashlight.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_thought_06_flashlight.mp3",
+      "container": "MPEG audio",
+      "duration": 2.56
+    },
+    {
+      "id": "l1_07",
+      "voice": "mark/LEVEL 1/l1_thought_07_dont_let_it_out.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_thought_07_dont_let_it_out.mp3",
+      "container": "MPEG audio",
+      "duration": 2.298775510204083
+    },
+    {
+      "id": "l1_08",
+      "voice": "mark/LEVEL 1/l1_thought_08_scratch_marks.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_thought_08_scratch_marks.mp3",
+      "container": "MPEG audio",
+      "duration": 3.108571428571426
+    },
+    {
+      "id": "l1_09",
+      "voice": "mark/LEVEL 1/l1_thought_09_familiar_place.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_thought_09_familiar_place.mp3",
+      "container": "MPEG audio",
+      "duration": 3.265306122448976
+    },
+    {
+      "id": "l1_10",
+      "voice": "mark/LEVEL 1/l1_thought_10_something_outside.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_thought_10_something_outside.mp3",
+      "container": "MPEG audio",
+      "duration": 2.298775510204083
+    },
+    {
+      "id": "l1_11",
+      "voice": "mark/LEVEL 1/l1_thought_11_the_hollow.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_thought_11_the_hollow.mp3",
+      "container": "MPEG audio",
+      "duration": 3.7616326530612185
+    },
+    {
+      "id": "l1_12",
+      "voice": "mark/LEVEL 1/l1_thought_12_lamp_pattern.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_thought_12_lamp_pattern.mp3",
+      "container": "MPEG audio",
+      "duration": 3.3436734693877512
+    },
+    {
+      "id": "l1_13",
+      "voice": "mark/LEVEL 1/l1_thought_13_code_315.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_thought_13_code_315.mp3",
+      "container": "MPEG audio",
+      "duration": 3.4220408163265263
+    },
+    {
+      "id": "l1_14",
+      "voice": "mark/LEVEL 1/l1_thought_14_project_hollow.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_thought_14_project_hollow.mp3",
+      "container": "MPEG audio",
+      "duration": 4.07510204081632
+    },
+    {
+      "id": "l1_15",
+      "voice": "mark/LEVEL 1/l1_thought_15_hidden_cubby.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_thought_15_hidden_cubby.mp3",
+      "container": "MPEG audio",
+      "duration": 3.0302040816326508
+    },
+    {
+      "id": "l1_16",
+      "voice": "mark/LEVEL 1/l1_thought_16_crowbar.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_thought_16_crowbar.mp3",
+      "container": "MPEG audio",
+      "duration": 2.56
+    },
+    {
+      "id": "l1_17",
+      "voice": "mark/LEVEL 1/l1_thought_17_loose_floorboard.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_thought_17_loose_floorboard.mp3",
+      "container": "MPEG audio",
+      "duration": 3.186938775510201
+    },
+    {
+      "id": "l1_18",
+      "voice": "mark/LEVEL 1/l1_thought_18_found_key.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_thought_18_found_key.mp3",
+      "container": "MPEG audio",
+      "duration": 2.8734693877551005
+    },
+    {
+      "id": "l1_19",
+      "voice": "mark/LEVEL 1/l1_thought_19_almost_out.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_thought_19_almost_out.mp3",
+      "container": "MPEG audio",
+      "duration": 2.220408163265308
+    },
+    {
+      "id": "hallway_01",
+      "voice": "mark/HALLWAY/hallway_thought_01_enter.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/HALLWAY/hallway_thought_01_enter.mp3",
+      "container": "MPEG audio",
+      "duration": 2.8734693877551005
+    },
+    {
+      "id": "hallway_02",
+      "voice": "mark/HALLWAY/hallway_thought_02_creature_seen.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/HALLWAY/hallway_thought_02_creature_seen.mp3",
+      "container": "MPEG audio",
+      "duration": 1.7502040816326552
+    },
+    {
+      "id": "hallway_03",
+      "voice": "mark/HALLWAY/hallway_thought_03_hollow_assumption.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/HALLWAY/hallway_thought_03_hollow_assumption.mp3",
+      "container": "MPEG audio",
+      "duration": 3.186938775510201
+    },
+    {
+      "id": "hallway_04",
+      "voice": "mark/HALLWAY/hallway_thought_04_go_downstairs.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/HALLWAY/hallway_thought_04_go_downstairs.mp3",
+      "container": "MPEG audio",
+      "duration": 3.4220408163265263
+    },
+    {
+      "id": "l2_01",
+      "voice": "mark/LEVEL 2/l2_thought_01_enter_lab.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_01_enter_lab.mp3",
+      "container": "MPEG audio",
+      "duration": 3.6832653061224434
+    },
+    {
+      "id": "l2_02",
+      "voice": "mark/LEVEL 2/l2_thought_02_restraints.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_02_restraints.mp3",
+      "container": "MPEG audio",
+      "duration": 3.0302040816326508
+    },
+    {
+      "id": "l2_03",
+      "voice": "mark/LEVEL 2/l2_thought_03_violent_aftermath.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_03_violent_aftermath.mp3",
+      "container": "MPEG audio",
+      "duration": 4.07510204081632
+    },
+    {
+      "id": "l2_04",
+      "voice": "mark/LEVEL 2/l2_thought_04_memory_distortion.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_04_memory_distortion.mp3",
+      "container": "MPEG audio",
+      "duration": 5.903673469387771
+    },
+    {
+      "id": "l2_05",
+      "voice": "mark/LEVEL 2/l2_thought_05_no_power.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_05_no_power.mp3",
+      "container": "MPEG audio",
+      "duration": 3.9183673469387688
+    },
+    {
+      "id": "l2_06",
+      "voice": "mark/LEVEL 2/l2_thought_06_expected_failure.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_06_expected_failure.mp3",
+      "container": "MPEG audio",
+      "duration": 3.7616326530612185
+    },
+    {
+      "id": "l2_07",
+      "voice": "mark/LEVEL 2/l2_thought_07_power_restored.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_07_power_restored.mp3",
+      "container": "MPEG audio",
+      "duration": 3.996734693877544
+    },
+    {
+      "id": "l2_08",
+      "voice": "mark/LEVEL 2/l2_thought_08_cctv_online.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_08_cctv_online.mp3",
+      "container": "MPEG audio",
+      "duration": 4.153469387755097
+    },
+    {
+      "id": "l2_09",
+      "voice": "mark/LEVEL 2/l2_thought_09_creature_on_camera.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_09_creature_on_camera.mp3",
+      "container": "MPEG audio",
+      "duration": 1.9853061224489825
+    },
+    {
+      "id": "l2_10",
+      "voice": "mark/LEVEL 2/l2_thought_10_this_room.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_10_this_room.mp3",
+      "container": "MPEG audio",
+      "duration": 2.7167346938775503
+    },
+    {
+      "id": "l2_11",
+      "voice": "mark/LEVEL 2/l2_thought_11_cant_be_right.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_11_cant_be_right.mp3",
+      "container": "MPEG audio",
+      "duration": 3.186938775510201
+    },
+    {
+      "id": "l2_12",
+      "voice": "mark/LEVEL 2/l2_thought_12_hollow_is_project.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_12_hollow_is_project.mp3",
+      "container": "MPEG audio",
+      "duration": 4.702040816326532
+    },
+    {
+      "id": "l2_13",
+      "voice": "mark/LEVEL 2/l2_thought_13_human_subject.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_13_human_subject.mp3",
+      "container": "MPEG audio",
+      "duration": 2.9518367346938756
+    },
+    {
+      "id": "l2_14",
+      "voice": "mark/LEVEL 2/l2_thought_14_mark_subject.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_14_mark_subject.mp3",
+      "container": "MPEG audio",
+      "duration": 3.9183673469387688
+    },
+    {
+      "id": "l2_15",
+      "voice": "mark/LEVEL 2/l2_thought_15_girl_knew_him.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_15_girl_knew_him.mp3",
+      "container": "MPEG audio",
+      "duration": 2.56
+    },
+    {
+      "id": "l2_16",
+      "voice": "mark/LEVEL 2/l2_thought_16_started_with_him.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_16_started_with_him.mp3",
+      "container": "MPEG audio",
+      "duration": 3.9183673469387688
+    },
+    {
+      "id": "l2_17",
+      "voice": "mark/LEVEL 2/l2_thought_17_not_attacking.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_17_not_attacking.mp3",
+      "container": "MPEG audio",
+      "duration": 2.638367346938775
+    },
+    {
+      "id": "l2_18",
+      "voice": "mark/LEVEL 2/l2_thought_18_creature_hurt.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_18_creature_hurt.mp3",
+      "container": "MPEG audio",
+      "duration": 2.0636734693877576
+    },
+    {
+      "id": "l2_19",
+      "voice": "mark/LEVEL 2/l2_thought_19_route_forward.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 2/l2_thought_19_route_forward.mp3",
+      "container": "MPEG audio",
+      "duration": 3.0302040816326508
+    },
+    {
+      "id": "backrooms_01",
+      "voice": "mark/BACKROOMS/backrooms_thought_01_enter.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_thought_01_enter.mp3",
+      "container": "MPEG audio",
+      "duration": 2.9518367346938756
+    },
+    {
+      "id": "backrooms_02",
+      "voice": "mark/BACKROOMS/backrooms_thought_02_looping.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_thought_02_looping.mp3",
+      "container": "MPEG audio",
+      "duration": 3.7616326530612185
+    },
+    {
+      "id": "backrooms_03",
+      "voice": "mark/BACKROOMS/backrooms_thought_03_place_wrong.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_thought_03_place_wrong.mp3",
+      "container": "MPEG audio",
+      "duration": 2.9518367346938756
+    },
+    {
+      "id": "backrooms_04",
+      "voice": "mark/BACKROOMS/backrooms_thought_04_with_me.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_thought_04_with_me.mp3",
+      "container": "MPEG audio",
+      "duration": 2.8734693877551005
+    },
+    {
+      "id": "backrooms_05",
+      "voice": "mark/BACKROOMS/backrooms_thought_05_familiar.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_thought_05_familiar.mp3",
+      "container": "MPEG audio",
+      "duration": 3.7616326530612185
+    },
+    {
+      "id": "backrooms_06",
+      "voice": "mark/BACKROOMS/backrooms_thought_06_the_study.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_thought_06_the_study.mp3",
+      "container": "MPEG audio",
+      "duration": 2.7167346938775503
+    },
+    {
+      "id": "backrooms_07",
+      "voice": "mark/BACKROOMS/backrooms_thought_07_why_know_it.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_thought_07_why_know_it.mp3",
+      "container": "MPEG audio",
+      "duration": 2.298775510204083
+    },
+    {
+      "id": "l3_01",
+      "voice": "mark/LEVEL 3/l3_thought_01_clock_familiar.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_thought_01_clock_familiar.mp3",
+      "container": "MPEG audio",
+      "duration": 3.9183673469387688
+    },
+    {
+      "id": "l3_02",
+      "voice": "mark/LEVEL 3/l3_thought_02_clock_solved.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_thought_02_clock_solved.mp3",
+      "container": "MPEG audio",
+      "duration": 3.9183673469387688
+    },
+    {
+      "id": "l3_03",
+      "voice": "mark/LEVEL 3/l3_thought_03_sigil.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_thought_03_sigil.mp3",
+      "container": "MPEG audio",
+      "duration": 3.7616326530612185
+    },
+    {
+      "id": "l3_04",
+      "voice": "mark/LEVEL 3/l3_thought_04_visor_found.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_thought_04_visor_found.mp3",
+      "container": "MPEG audio",
+      "duration": 4.545306122448979
+    },
+    {
+      "id": "l3_05",
+      "voice": "mark/LEVEL 3/l3_thought_05_visor_truth.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_thought_05_visor_truth.mp3",
+      "container": "MPEG audio",
+      "duration": 4.153469387755097
+    },
+    {
+      "id": "l3_06",
+      "voice": "mark/LEVEL 3/l3_thought_06_blood.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_thought_06_blood.mp3",
+      "container": "MPEG audio",
+      "duration": 3.5004081632653015
+    },
+    {
+      "id": "l3_07",
+      "voice": "mark/LEVEL 3/l3_thought_07_records.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_thought_07_records.mp3",
+      "container": "MPEG audio",
+      "duration": 4.07510204081632
+    },
+    {
+      "id": "l3_08",
+      "voice": "mark/LEVEL 3/l3_thought_08_letter.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_thought_08_letter.mp3",
+      "container": "MPEG audio",
+      "duration": 2.0636734693877576
+    },
+    {
+      "id": "l3_hint_clock",
+      "voice": "mark/LEVEL 3/l3_hint_clock_01_session.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_hint_clock_01_session.mp3",
+      "container": "MPEG audio",
+      "duration": 4.07510204081632
+    },
+    {
+      "id": "l3_hint_shadow",
+      "voice": "mark/LEVEL 3/l3_hint_shadow_01.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_hint_shadow_01.mp3",
+      "container": "MPEG audio",
+      "duration": 4.780408163265308
+    },
+    {
+      "id": "descent",
+      "voice": "mark/LEVEL 3/l3_mark_reveal_01_descent.mp3",
+      "owner": "reveal",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_mark_reveal_01_descent.mp3",
+      "container": "MPEG audio",
+      "duration": 3.5004081632653015
+    },
+    {
+      "id": "memory",
+      "voice": "mark/LEVEL 3/l3_mark_reveal_02_memory_panic.mp3",
+      "owner": "reveal",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_mark_reveal_02_memory_panic.mp3",
+      "container": "MPEG audio",
+      "duration": 3.0302040816326508
+    },
+    {
+      "id": "mirror-no",
+      "voice": "mark/LEVEL 3/l3_mark_reveal_03_mirror_reaction.mp3",
+      "owner": "reveal",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_mark_reveal_03_mirror_reaction.mp3",
+      "container": "MPEG audio",
+      "duration": 4.780408163265308
+    },
+    {
+      "id": "please",
+      "voice": "mark/LEVEL 3/l3_annabelle_reveal_01_recognition.mp3",
+      "owner": "reveal",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_annabelle_reveal_01_recognition.mp3",
+      "container": "MPEG audio",
+      "duration": 3.8399999999999936
+    },
+    {
+      "id": "no",
+      "voice": "mark/LEVEL 3/l3_mark_reveal_04_accusation.mp3",
+      "owner": "reveal",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_mark_reveal_04_accusation.mp3",
+      "container": "MPEG audio",
+      "duration": 4.31020408163265
+    },
+    {
+      "id": "tried",
+      "voice": "mark/LEVEL 3/l3_annabelle_reveal_02_promise.mp3",
+      "owner": "reveal",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_annabelle_reveal_02_promise.mp3",
+      "container": "MPEG audio",
+      "duration": 5.746938775510218
+    },
+    {
+      "id": "remember",
+      "voice": "mark/LEVEL 3/l3_mark_reveal_05_dont_remember.mp3",
+      "owner": "reveal",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_mark_reveal_05_dont_remember.mp3",
+      "container": "MPEG audio",
+      "duration": 2.7167346938775503
+    },
+    {
+      "id": "know",
+      "voice": "mark/LEVEL 3/l3_annabelle_reveal_03_truth.mp3",
+      "owner": "reveal",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_annabelle_reveal_03_truth.mp3",
+      "container": "MPEG audio",
+      "duration": 6.400000000000022
+    },
+    {
+      "id": "override",
+      "voice": "mark/LEVEL 3/l3_annabelle_reveal_04_override.mp3",
+      "owner": "reveal",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_annabelle_reveal_04_override.mp3",
+      "container": "MP4/AAC",
+      "duration": 3.626
+    },
+    {
+      "id": "release",
+      "voice": "mark/LEVEL 3/l3_annabelle_ending_release.mp3",
+      "owner": "ending",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_annabelle_ending_release.mp3",
+      "container": "MPEG audio",
+      "duration": 5.355102040816336
+    },
+    {
+      "id": "reseal",
+      "voice": "mark/LEVEL 3/l3_annabelle_ending_reseal.mp3",
+      "owner": "ending",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_annabelle_ending_reseal.mp3",
+      "container": "MPEG audio",
+      "duration": 4.545306122448979
+    },
+    {
+      "id": "release",
+      "voice": "l3_news_release.mp3",
+      "owner": "news",
+      "file": "src/assets/audio/l3_news_release.mp3",
+      "container": "MPEG audio",
+      "duration": 20.062040816326714
+    },
+    {
+      "id": "reseal",
+      "voice": "l3_news_contained.mp3",
+      "owner": "news",
+      "file": "src/assets/audio/l3_news_contained.mp3",
+      "container": "MPEG audio",
+      "duration": 16.71836734693892
+    },
+    {
+      "id": "letter",
+      "voice": "mark/LEVEL 3/anabelle_reading_letter.mp3",
+      "owner": "document",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/anabelle_reading_letter.mp3",
+      "container": "MP4/AAC",
+      "duration": 156.94
+    },
+    {
+      "id": "opening-news",
+      "voice": "audio/news_intro.MP3",
+      "owner": "opening",
+      "file": "src/assets/audio/news_intro.MP3",
+      "container": "MPEG audio",
+      "duration": 72.38530612244979
+    },
+    {
+      "id": "session-1",
+      "voice": "level2/tape_01_man.m4a",
+      "owner": "tape",
+      "file": "src/assets/voice/level2/tape_01_man.m4a",
+      "container": "MP4/AAC",
+      "duration": 6.385
+    },
+    {
+      "id": "session-2",
+      "voice": "level2/tape_02_man.m4a",
+      "owner": "tape",
+      "file": "src/assets/voice/level2/tape_02_man.m4a",
+      "container": "MP4/AAC",
+      "duration": 9.009
+    },
+    {
+      "id": "session-3",
+      "voice": "level2/tape_03_man.m4a",
+      "owner": "tape",
+      "file": "src/assets/voice/level2/tape_03_man.m4a",
+      "container": "MP4/AAC",
+      "duration": 4.969
+    },
+    {
+      "id": "session-4",
+      "voice": "level2/tape_04_girl.m4a",
+      "owner": "tape",
+      "file": "src/assets/voice/level2/tape_04_girl.m4a",
+      "container": "MP4/AAC",
+      "duration": 0.929
+    },
+    {
+      "id": "session-5",
+      "voice": "level2/tape_05_man.m4a",
+      "owner": "tape",
+      "file": "src/assets/voice/level2/tape_05_man.m4a",
+      "container": "MP4/AAC",
+      "duration": 2.67
+    },
+    {
+      "id": "session-6",
+      "voice": "level2/tape_06_man.m4a",
+      "owner": "tape",
+      "file": "src/assets/voice/level2/tape_06_man.m4a",
+      "container": "MP4/AAC",
+      "duration": 1.625
+    },
+    {
+      "id": "session-7",
+      "voice": "level2/tape_07_girl.m4a",
+      "owner": "tape",
+      "file": "src/assets/voice/level2/tape_07_girl.m4a",
+      "container": "MP4/AAC",
+      "duration": 2.182
+    },
+    {
+      "id": "session-8",
+      "voice": "level2/tape_08_man.m4a",
+      "owner": "tape",
+      "file": "src/assets/voice/level2/tape_08_man.m4a",
+      "container": "MP4/AAC",
+      "duration": 1.555
+    },
+    {
+      "id": "session-9",
+      "voice": "level2/tape_09_girl.m4a",
+      "owner": "tape",
+      "file": "src/assets/voice/level2/tape_09_girl.m4a",
+      "container": "MP4/AAC",
+      "duration": 2.716
+    },
+    {
+      "id": "session-10",
+      "voice": "level2/tape_10_girl.m4a",
+      "owner": "tape",
+      "file": "src/assets/voice/level2/tape_10_girl.m4a",
+      "container": "MP4/AAC",
+      "duration": 0.882
+    }
+  ]
+}

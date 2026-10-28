@@ -63,6 +63,20 @@ audio.playVoice=(key,callbacks)=>{pending=callbacks;return true;};
 open();advance(400);assert(prompt.hidden);const beforeStop=stops;ui.close({complete:false});assert(stops>beforeStop);
 pending.onStarted({duration:140});pending.onEnded();assert(prompt.hidden&&!ui.isOpen);
 audio.playVoice=normalPlay;
+// The real letter opening has a short Mark prelude. It must complete once before narration,
+// and interruption at either point must never start the other recording later.
+let introCaption=0,introCleared=0,introCurrent=null;const introPlays=[];
+const introAudio={preloadVoice:async()=>({duration:2}),duck(){},
+  stopVoice(){const old=introCurrent;introCurrent=null;old?.onInterrupted?.();},
+  playVoice(key,callbacks){this.stopVoice();introPlays.push(key);introCurrent=callbacks;callbacks.onStarted({duration:2});return true;}};
+const withIntro=createLetterNarration({audio:introAudio,intro:{voice:'mark/LEVEL 3/l3_thought_08_letter.mp3'},
+  onIntro:()=>introCaption++,onIntroEnd:()=>introCleared++,
+  setTimer(fn){fn();return null;},clearTimer(){}});
+withIntro.start();assert.equal(introCaption,1);const markIntro=introCurrent;introCurrent=null;markIntro.onEnded();
+assert.deepEqual(introPlays,['mark/LEVEL 3/l3_thought_08_letter.mp3',ANNABELLE_LETTER_VOICE]);assert.equal(introCleared,1);
+withIntro.stop();const beforeRestart=introPlays.length;markIntro.onEnded();assert.equal(introPlays.length,beforeRestart);
+withIntro.start();const staleIntro=introCurrent;withIntro.stop();const afterSkip=introPlays.length;
+staleIntro.onEnded();assert.equal(introPlays.length,afterSkip);assert.equal(introCleared,2);
 assert(ducks.some(d=>d.db===-2.5&&d.release===.4));
 const main=fs.readFileSync(new URL('../src/main.js',import.meta.url),'utf8');
 assert(main.includes('!annabelleLetterNarration?.ownsVoice &&'));

@@ -26,18 +26,34 @@ for a few frames, back into a sixteen-year-old girl.
 in her chair's corner, still in the dark, with everything he had done
 still done.
 
-**The storm causes both blackouts, by coincidence.** Annabelle didn't cut
+**The storm causes the blackout, by coincidence.** Annabelle didn't cut
 the power. She uses the dark.
 
-## The two blackouts
+## The single crest-key encounter
 
-| | Blackout 1, the teaser | Blackout 2, the hunt |
-|---|---|---|
-| Fires when | the shadow crest is solved | the visor is lifted out of the archive |
-| She comes from | the entry door, toward the crest (the latch she heard) | her chair corner, up the stair toward the archive (the compartment she heard) |
-| Her senses | softer: shorter sight, slower, gives up sooner, rarely opens a hide spot | the full difficulty tuning |
-| Ends when | Mark throws the **loft breaker** (it teaches where it is) | the strike **blew the breaker's fuse**: the spare is in a tin on the floor by the desk's right-hand end, downstairs. Fit it, then throw the breaker |
-| Afterwards | she withdraws into the dark and is gone | the same; the letter and the mirror can be used again |
+The encounter starts once, when Mark **collects the Archive Key exposed by the
+crest puzzle**. Solving the crest alone does not start it. It retains the
+existing first encounter: the storm cuts the lights, the creature enters through
+the study entry, and Mark can hide or use thrown distractions while reaching the
+loft breaker. Throwing the breaker ends the encounter and cancels any pending
+entrance or post-catch resume. Taking the visor never starts another hunt.
+
+Six unchanged whisper recordings use the shared MARK voice/caption owner:
+
+| File | Encounter event |
+|---|---|
+| `l3_stealth_01_blackout.mp3` | The blackout begins |
+| `l3_stealth_02_hide.mp3` | Creature entry, after 01 completes |
+| `l3_stealth_03_hiding_spot.mp3` | First approach to any valid hide spot or cover; ?I could hide in there... just stay quiet.? |
+| `l3_stealth_04_distraction.mp3` | First successful book/bottle pickup |
+| `l3_stealth_05_breaker_upstairs.mp3` | After the introduction, toward the loft breaker |
+| `l3_stealth_07_power_restored.mp3` | Successful breaker restoration |
+
+There is no line 06. These cues cannot run during ordinary exploration, another
+level, or the Backrooms. They wait for an occupied voice bus, use actual audio
+completion for captions, and play once per encounter. Catches, cutscenes,
+restoration, restarts and level changes discard pending cues; they never control
+the seeker or wait before advancing gameplay.
 
 The letter and the mirror refuse during a blackout ("Not in the dark."), so
 the reveal cutscene can never start with her in the room.

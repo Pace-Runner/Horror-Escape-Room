@@ -490,21 +490,6 @@ const CCTV_FEED_NOISE_STRENGTH = 0.35;
 const CCTV_FEED_STATIC_MIX = 0.18;
 
 /**
- * How long the fuse's lit window lasts before someone throws the main anyway,
- * in seconds, from the moment the fuse goes in. Going for the door or the CCTV
- * desk throws it sooner -- see triggerBlackout.
- */
-const BLACKOUT_TIMER_IN_SECONDS = 20;
-
-/**
- * The volume in front of the CCTV desk that throws the main while the lab is
- * on the fuse alone: as wide as the desk plus this much either side, and this
- * deep out into the room from its front edge, in metres.
- */
-const DESK_APPROACH_SIDE_MARGIN_IN_METRES = 0.4;
-const DESK_APPROACH_DEPTH_IN_METRES = 1.4;
-
-/**
  * The crates. `stackY` is the height of the crate's underside, so 0 sits on
  * the floor and CRATE_SIZE sits squarely on one that does.
  *
@@ -538,9 +523,8 @@ const FUSE_CRATE = CRATE_LAYOUT.reduce((a, b) => (b.stackY > a.stackY ? b : a));
  *
  * The objective is a chain of four electrical puzzles, tracked by
  * `powerStage`. Seat the right fuse (30A among four) to light the lab -- and
- * only the lab: not the CCTV desk, not the door, which is the point. Then
- * someone throws the main on you, after 20 s or the moment you go for the
- * door or the desk, whichever comes first. Restart the generator in the order on its plate to
+ * the lab lights and cassette deck. After the tape and Mark's response,
+ * someone throws the main. Restart the generator in the order on its plate to
  * get current back to the breaker panel, then route the panel's 60A across
  * the three circuits that matter without tripping it. Only that last step
  * feeds the door bolts.
@@ -548,9 +532,8 @@ const FUSE_CRATE = CRATE_LAYOUT.reduce((a, b) => (b.stackY > a.stackY ? b : a));
  * The camera feeds are sightings rather than a puzzle; the storyline's
  * "code from the CCTV" minigame is still unbuilt.
  *
- * Full reasoning -- why the blackout is caused rather than timed, why the
- * trigger volume is a box the width of the doorway, and every tuned number
- * -- is in docs/LEVEL2_POWER_CHAIN.md.
+ * The cassette aftermath owns the one-shot blackout; there are no proximity or timer trips.
+ * The power chain is documented in docs/LEVEL2_POWER_CHAIN.md.
  *
  * Hierarchy notes:
  *  - the CCTV monitor mesh and its screen-glow point light are children
@@ -1918,6 +1901,10 @@ export function createHallwayBasementLevel({
   function isCctvPowered() {
     return isCircuitLive('cctv');
   }
+  /** The first fuse powers the cassette; the CCTV still needs the routed panel. */
+  function isTapePowered() {
+    return powerStage === POWER_STAGE.LIT || isCctvPowered();
+  }
 
   /**
    * Whether the metal door's bolts have been fed. Only the final stage does
@@ -2419,7 +2406,6 @@ export function createHallwayBasementLevel({
 
       if (installed === CORRECT_FUSE_AMPS) {
         powerStage = POWER_STAGE.LIT;
-        startBlackoutTimer();
         puzzleState.slotFuse = CORRECT_FUSE_AMPS;
         showCaption(line('dialog_fuse_clicks_in'));
         fuseBox.userData.interact.label = 'Fuse seated (30A)';
@@ -3880,7 +3866,7 @@ export function createHallwayBasementLevel({
   function updateSessionTape(deltaTimeInSeconds) {
     if (!deckPlaying) return;
     if (tapeSource.hasFailed) { stopTape(); return; }
-    if (!isCctvPowered()) {
+    if (!isTapePowered()) {
       stopTape();
       return;
     }
@@ -4415,7 +4401,7 @@ export function createHallwayBasementLevel({
   function pressPlay() {
     pressDeckButton(deckParts.play);
     onSfx('switch_click');
-    if (!isCctvPowered()) {
+    if (!isTapePowered()) {
       showCaption(line('dialog_deck_no_power', { button: 'PLAY' }));
       return;
     }
@@ -4442,7 +4428,7 @@ export function createHallwayBasementLevel({
   function pressEject() {
     pressDeckButton(deckParts.eject);
     onSfx('switch_click');
-    if (!isCctvPowered()) {
+    if (!isTapePowered()) {
       showCaption(line('dialog_deck_no_power', { button: 'STOP/EJECT' }));
       return;
     }
@@ -4559,7 +4545,7 @@ export function createHallwayBasementLevel({
         if (!down) deckPress.button = null;
       }
       // The lamp and the counter follow the desk's power.
-      const powered = isCctvPowered();
+      const powered = isTapePowered();
       if (deckParts.lampMat) {
         deckParts.lampMat.emissive.setHex(0xff2a14);
         deckParts.lampMat.emissiveIntensity = powered ? 2.2 : 0;
@@ -4843,19 +4829,6 @@ export function createHallwayBasementLevel({
   metalDoor.userData.interact = {
     label: DOOR_LABELS[POWER_STAGE.DEAD],
     onInteract: () => {
-      /**
-       * Reaching for the door counts as going for it, exactly like walking
-       * into the lane does.
-       *
-       * Without this there is a hole: the interaction raycast reaches 3.2 m,
-       * so a player standing off to one side -- past the lane, which is only
-       * as wide as the doorway -- can look at the door and press E from
-       * outside the trigger volume, and the blackout never fires.
-       */
-      if (powerStage === POWER_STAGE.LIT) {
-        triggerBlackout('door');
-        return;
-      }
       if (!isDoorPowered()) {
         showCaption(line('dialog_door_bolts_unpowered'));
         return;
@@ -4999,133 +4972,11 @@ export function createHallwayBasementLevel({
   interactables.push(doorNote);
   lab.add(doorNote);
 
-  /**
-   * The volume in front of the metal door that trips the blackout.
-   *
-   * A BOX, not a radius, and no wider than the doorway itself. The CCTV desk
-   * stands about 2 m from the door, so any sphere large enough to catch a
-   * player walking up to the door also catches one standing at the monitor --
-   * which would fire the blackout in the middle of the camera sightings, the
-   * best thing in the level. Half the door's width plus the player's own body
-   * radius is the narrowest volume they cannot walk through without their
-   * shoulders crossing the doorway, so it only ever fires on someone actually
-   * going for the exit.
-   */
-  const PLAYER_BODY_RADIUS_IN_METRES = 0.35;
-  const DOOR_APPROACH_HALF_WIDTH_IN_METRES =
-    DOOR_WIDTH_IN_METRES / 2 + PLAYER_BODY_RADIUS_IN_METRES;
-  const DOOR_APPROACH_DEPTH_IN_METRES = 1.6;
-  const doorWorldZ = LAB_Z + metalDoor.position.z;
-
-  /**
-   * Whether the player is standing in the door's approach lane.
-   *
-   * @param {THREE.Vector3} playerPosition - the player's WORLD position; the
-   *   lane is stored in world coordinates for exactly this reason, since
-   *   everything else in this file is written in lab-local ones.
-   * @returns {boolean} true while they are in front of the door and within the
-   *   doorway's own width. Height is ignored -- the player never leaves the floor.
-   */
-  function isPlayerAtDoor(playerPosition) {
-    return (
-      Math.abs(playerPosition.x) <= DOOR_APPROACH_HALF_WIDTH_IN_METRES &&
-      playerPosition.z >= doorWorldZ - DOOR_APPROACH_DEPTH_IN_METRES
-    );
-  }
-
-  /**
-   * The volume in front of the CCTV desk that throws the main, the same way
-   * the door's lane does: the desk's width plus a margin either side, out into
-   * the room from its front edge. The desk has no power before the panel is
-   * routed, so all it can show the player in the lit window is that someone
-   * does not want them at it.
-   */
-  const DESK_HALF_WIDTH_IN_METRES = DESK_TOP_SIZE.width / 2 + 0.05;
-  const deskWorldFrontZ = LAB_Z + desk.position.z - DESK_TOP_SIZE.depth / 2;
-
-  /**
-   * Whether the player is standing at the CCTV desk.
-   *
-   * @param {THREE.Vector3} playerPosition - the player's WORLD position.
-   * @returns {boolean} true inside the box in front of the desk.
-   */
-  function isPlayerAtDesk(playerPosition) {
-    return (
-      Math.abs(playerPosition.x - desk.position.x) <= DESK_HALF_WIDTH_IN_METRES + DESK_APPROACH_SIDE_MARGIN_IN_METRES &&
-      playerPosition.z >= deskWorldFrontZ - DESK_APPROACH_DEPTH_IN_METRES
-    );
-  }
-
-  /**
-   * Reaching for anything on the desk counts as going for it, for the same
-   * reason the door's own click does: the interaction ray reaches 3.2 m, past
-   * the edge of the volume. Every click target that belongs to the desk -- the
-   * monitor, its buttons, the remote, the deck, the tapes, the note -- throws
-   * the main first while the lab is on the fuse alone, then does what it does.
-   */
-  for (const target of interactables) {
-    let onDesk = false;
-    target.traverseAncestors((ancestor) => { if (ancestor === desk) onDesk = true; });
-    if (!onDesk) continue;
-    const interact = target.userData.interact;
-    const use = interact.onInteract;
-    interact.onInteract = () => {
-      if (powerStage === POWER_STAGE.LIT) triggerBlackout('desk');
-      use();
-    };
-  }
-
-  /**
-   * Seconds left of the fuse's lit window, from BLACKOUT_TIMER_IN_SECONDS,
-   * counting only while the lab is LIT.
-   */
-  let blackoutTimerSecondsLeft = 0;
-
-  /** Starts the lit window's clock. The fuse calls this as it seats. */
-  function startBlackoutTimer() {
-    blackoutTimerSecondsLeft = BLACKOUT_TIMER_IN_SECONDS;
-  }
-
-  /**
-   * Throws the main if the player has gone for the door or the desk, or the lit
-   * window has run out. Once a frame; only while the lab is on the fuse alone.
-   *
-   * @param {number} deltaTimeInSeconds - frame time.
-   * @param {THREE.Vector3} [playerPosition] - the player's world position.
-   */
-  function updateBlackoutTriggers(deltaTimeInSeconds, playerPosition) {
-    if (powerStage !== POWER_STAGE.LIT) return;
-    if (playerPosition && isPlayerAtDoor(playerPosition)) {
-      triggerBlackout('door');
-      return;
-    }
-    if (playerPosition && isPlayerAtDesk(playerPosition)) {
-      triggerBlackout('desk');
-      return;
-    }
-    blackoutTimerSecondsLeft -= deltaTimeInSeconds;
-    if (blackoutTimerSecondsLeft <= 0) triggerBlackout('timer');
-  }
-
-  /**
-   * Kills the lab: the main is thrown, by hand, at the far wall.
-   *
-   * Three things throw it, all only out of LIT, so it can never happen before
-   * the 30A fuse is in (there would be nothing to take away) and never twice:
-   * going for the door ('door'), going for the CCTV desk ('desk'), or simply
-   * the lit window running out ('timer'). See "Puzzle 2 -- the blackout" in
-   * docs/LEVEL2_POWER_CHAIN.md for why it is all three.
-   *
-   * The lights are dropped to zero HERE rather than left to the ramp in
-   * updateLabLighting, because a hand pulling a main breaker is not a fade.
-   * The ramp then simply holds them down.
-   *
-   * @param {'door'|'desk'|'timer'} cause - what threw it, passed on to the host.
-   */
+  /** One-shot second outage, requested after the cassette and Mark's reaction. */
   function triggerBlackout(cause) {
+    if(powerStage!==POWER_STAGE.LIT||!tapeWatchedToEnd)return;
     powerStage = POWER_STAGE.BLACKOUT;
     powerLevel = 0;
-    blackoutTimerSecondsLeft = 0;
 
     // Whoever threw the main took every breaker down with it. The player
     // finds the panel this way, having seen it all up on the way in.
@@ -5509,7 +5360,7 @@ export function createHallwayBasementLevel({
   operatingTableHit.position.set(OPERATING_TABLE.x, OPERATING_TABLE.padTop - 0.03, OPERATING_TABLE.z);
   operatingTableHit.userData.interact = {
     label: 'Examine the table',
-    onInteract: () => { onThought('l2_02', { replayable: true }); onThought('l2_13'); showCaption(line('dialog_operating_table')); }
+    onInteract: () => { onThought('l2_02', { replayable: true, onEnded:()=>onThought('l2_13') }); showCaption(line('dialog_operating_table')); }
   };
   interactables.push(operatingTableHit);
   lab.add(operatingTableHit);
@@ -5983,10 +5834,16 @@ export function createHallwayBasementLevel({
       get powerLevel() { return powerLevel; },
       /** The session tape's sound and clock, for the host's voices and subtitles. */
       sessionTape: tapeSource,
+      stopSessionTape: stopTape,
       /** Resolves with the tape's model: the template for the one in the player's hand. */
       tapeModelReady: cassetteModelPromise,
       /** True once the tape has been heard to its end this run. */
       get tapeWatched() { return tapeWatchedToEnd; },
+      /** Called only after the complete post-cassette Mark reaction. */
+      completeTapeAftermath() {
+        if(!tapeWatchedToEnd||powerStage!==POWER_STAGE.LIT)return false;
+        triggerBlackout('tape');return true;
+      },
       /** Where the tape is: 'recorder', 'carried' or 'deck'. */
       get tapePlace() { return tapePlace; },
       /**
@@ -6020,7 +5877,6 @@ export function createHallwayBasementLevel({
      */
     reset() {
       powerStage = POWER_STAGE.DEAD;
-      blackoutTimerSecondsLeft = 0;
       resetLabDoors();
       puzzleState.slotFuse = null;
       puzzleState.overloaded = false;
@@ -6120,19 +5976,13 @@ export function createHallwayBasementLevel({
     /**
      * @param {number} dt - frame time in seconds.
      * @param {THREE.Vector3} [playerPosition] - the player's world position.
-     *   Optional, because the proximity trip is the only thing in this level
-     *   that needs it and a caller that does not pass it simply never fires it.
+     *   Used by the physical lab doors.
      */
     update(dt, playerPosition) {
       const elapsed = (this._t = (this._t ?? 0) + dt);
       dynamics.forEach((d) => d.update(dt, elapsed));
       updateLabDoors(dt, playerPosition);
       updateSessionTape(dt);
-
-      // The blackout: the door, the desk or the clock, whichever comes first.
-      // Gated on LIT inside, so it cannot fire before the 30A fuse has given
-      // the player something to lose, and cannot fire twice.
-      updateBlackoutTriggers(dt, playerPosition);
 
       // The scripted lightning. Fast up, slower down, with the intensity
       // jittered so it reads as a strike rather than a lamp being switched.
