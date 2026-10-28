@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import {releaseHingeDepth} from '../cutscenes/releaseDoorMotion.js';
+import {createStudyMinimap} from './studyMinimap.js';
+import {CHOICE_CONSEQUENCES} from '../core/ContextPanels.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { createVisorGallery } from './studyVisorGallery.js';
 import { createStudyDecor } from './studyDecor.js';
@@ -235,7 +238,7 @@ export function createStudyLevel({
   addDoorCasing(ROOM_W / 2 - 0.04, ENTRY_DOOR_Z, ENTRY_DOOR_W, ENTRY_DOOR_H, false);
 
   // A readable night floor; local sources carry the room instead of ceiling fills.
-  const ambient = new THREE.AmbientLight(0xa7adb6, .85);
+  const ambient = new THREE.AmbientLight(0xa7adb6, .38);
   ambient.name='Study_Ambient';group.add(ambient);
   // The existing desk lamp's shade sits 30cm above its desk-local .79m base.
   const lamp = new THREE.PointLight(0xffd7aa, 2.4, 3, 2);
@@ -276,6 +279,8 @@ export function createStudyLevel({
   const stairX = ROOM_W / 2 - stairWidth / 2;
   const stairTopZ = stairBottomZ - stairRun;
   const stairHalfWidth = stairWidth / 2;
+  const studyMinimap=createStudyMinimap(group,{width:ROOM_W,depth:ROOM_D,loftFrontZ,stairX,stairWidth,stairTopZ,stairBottomZ,
+    entryZ:ENTRY_DOOR_Z,entryWidth:ENTRY_DOOR_W,exitWidth:DOORWAY_W});
   // Join the mezzanine to both walls and leave a real opening over the flight.
   const loftMainRightX = stairX - stairHalfWidth;
   loft.geometry.dispose();
@@ -1989,24 +1994,25 @@ export function createStudyLevel({
 
   /** Eased open by update(), the same treatment the bedroom door gets. */
   const doorState = { open: false };
+  let releaseDoorControlled = false;
   const DOOR_OPEN_SWING = -Math.PI / 2.1;
   /**
-   * THE PIN IS ON THE LEAF'S PORCH-SIDE EDGE, not its centre line.
+   * THE PIN CLEARS THE LINING'S OUTER FACE, not just the leaf's outer face.
    *
    * Turning about the centre line swung the outer half of the 9 cm leaf back
    * past the pin as it opened -- 4.5 cm of door through the lining, the porch
    * reveal and the casing outside, every time. A door that opens outward is
-   * hung on its outside face, and turning about that corner keeps the whole
-   * leaf on the opening's side of the pin at every angle: the room-face corner
-   * moves in by 9 cm x sin(angle) and never out. The slab is offset back by the
-   * same half thickness, so the closed door stands exactly where it did.
+   * hung outside the lining as well. Both the barrel and rotating leaf now
+   * clear the jamb. The slab is offset back by the pin's full depth, keeping
+   * its closed position, panels and hardware exactly where they were.
    */
   const doorHinge = new THREE.Object3D();
   doorHinge.name = 'Final_Exit_Hinge';
-  doorHinge.position.set(-SLAB_W / 2, 0, SLAB_T / 2);
+  const hingeDepth = releaseHingeDepth(SLAB_T, frontZ - frontDoor.position.z);
+  doorHinge.position.set(-SLAB_W / 2, 0, hingeDepth);
   frontDoor.add(doorHinge);
   doorHinge.add(doorSlab);
-  doorSlab.position.set(SLAB_W / 2, LEAF_BOTTOM + SLAB_H / 2, -SLAB_T / 2);
+  doorSlab.position.set(SLAB_W / 2, LEAF_BOTTOM + SLAB_H / 2, -hingeDepth);
 
   /**
    * The door's panelling -- three rows of raised panels, and the security
@@ -2139,7 +2145,8 @@ export function createStudyLevel({
   function authorizeOverride(choice,socket) {
     if(overrideAuthorization!==null||puzzle.endingChoice!=='NONE'||gameState.endingChosen)return;
     if(!puzzle.mirrorRevealed||!gameState.inventory.has('hollowOverrideKey')){
-      showCaption('A PROJECT HOLLOW ACCESS KEYCARD is required.');return;
+      showCaption({text:puzzle.mirrorRevealed?`${CHOICE_CONSEQUENCES[choice]} This decision cannot be undone. A PROJECT HOLLOW ACCESS KEYCARD is required.`:
+        'A PROJECT HOLLOW ACCESS KEYCARD is required.',always:true});return;
     }
     overrideAuthorization=choice;onUseItem('hollowOverrideKey');
     socket.installedKey.visible=true;socket.insertProgress=0;
@@ -2147,7 +2154,7 @@ export function createStudyLevel({
     for(const {hit} of overrideSockets){const i=interactables.indexOf(hit);if(i>=0)interactables.splice(i,1);}
     if(!interactables.includes(socket.handleHit))interactables.push(socket.handleHit);
     onSfx('latch');updateOverrideLabels();
-    showCaption(choice==='RELEASE'?'Emergency release authorized. Turn the control to release.':'Manual reseal authorized. Turn the handle to lock.');
+    showCaption({text:`${choice==='RELEASE'?'Emergency release authorized. Turn the control to release.':'Manual reseal authorized. Turn the handle to lock.'} This decision cannot be undone.`,always:true});
   }
   function operateOverride(socket){
     if(overrideAuthorization!==socket.choice||socket.insertProgress<1||overrideTurning||puzzle.endingChoice!=='NONE'||gameState.endingChosen)return;
@@ -2232,6 +2239,7 @@ export function createStudyLevel({
       socketGroup.add(handleHit);
     }
     const socket = { choice,group:socketGroup,display,hit,installedKey,reader,handle,handleHit,cardY:installedKey.position.y,insertProgress:1,state:'ready' };
+    hit.userData.endingChoice=handleHit.userData.endingChoice=choice;
     hit.userData.interact = {
       get label() {
         const action = choice === 'RELEASE' ? 'Emergency Release' : 'Manual Reseal';
@@ -2369,6 +2377,7 @@ export function createStudyLevel({
     loftY: LOFT_Y,
     // Just inside the new right-side entry, looking across the desk toward
     // the open study and loft rather than into the wall or final exit.
+    minimap:studyMinimap,
     spawn: [6.9, 4.8],
     spawnYaw: Math.PI / 2,
     refs: {
@@ -2513,7 +2522,17 @@ export function createStudyLevel({
       },
       setReleaseDoorOpen(open){
         if(puzzle.endingChoice!=='RELEASE')return;
-        doorState.open=!!open;setDoorSolid(!open);
+        releaseDoorControlled=false;
+        doorState.open=!!open;
+        if(!open)setDoorSolid(true);
+      },
+      setReleaseDoorProgress(progress){
+        if(puzzle.endingChoice!=='RELEASE')return;
+        releaseDoorControlled=true;
+        const u=THREE.MathUtils.clamp(progress,0,1);
+        doorHinge.rotation.y=DOOR_OPEN_SWING*u;
+        doorState.open=u>0;
+        setDoorSolid(Math.abs(doorHinge.rotation.y)<1.05);
       },
       setReleaseConcern(weight){annabelleFigure.setEndingConcern(weight);},
       setReleaseReaction(point,weight,soften=false){
@@ -2583,6 +2602,7 @@ export function createStudyLevel({
       updateMemoryRecords();
       frontDoorSlabHit.userData.interact.label = 'The front door';
       doorState.open = false;
+      releaseDoorControlled = false;
       doorHinge.rotation.y = 0;
       setDoorSolid(true);
 
@@ -2729,7 +2749,10 @@ export function createStudyLevel({
       // After every hinge above has moved this frame; the candles feel it next frame.
       updateDoorDraughts();
       const doorTarget = doorState.open ? DOOR_OPEN_SWING : 0;
-      doorHinge.rotation.y += (doorTarget - doorHinge.rotation.y) * Math.min(1, dt * 2.6);
+      if(!releaseDoorControlled){
+        doorHinge.rotation.y += (doorTarget - doorHinge.rotation.y) * (1-Math.exp(-dt*2.6));
+        setDoorSolid(Math.abs(doorHinge.rotation.y)<1.05);
+      }
     }
   };
 }

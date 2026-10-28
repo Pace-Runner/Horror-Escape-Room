@@ -644,7 +644,7 @@ try {
       assert(night?.isDirectionalLight&&night.intensity===.55);
       assert.equal(shadows[0],night);assert.equal(night.shadow.mapSize.x,512);
       assert.equal(night.shadow.autoUpdate,false,'night shadow refreshes every frame');
-      assert.equal(level.refs.ambient.intensity,.85);
+      assert.equal(level.refs.ambient.intensity,.38);
       assert(level.refs.ambient.intensity<3.5*.5,'preview ambient remains');
       assert.equal(level.refs.lamp.intensity,2.4);assert.equal(level.refs.lamp.distance,3);
       assert.equal(level.refs.candles.lights.length,2);
@@ -664,7 +664,7 @@ try {
         assert(level.refs.candles.lights.some(light=>light.intensity>.2),'nearby candle pools remain dark');
         assert(level.refs.candles.lights.every(light=>light.intensity<1.5),'candle pool washes out room');
       }
-      console.log('PASS: study lighting budget 9 lights (including existing map wash) / 1 static 512px shadow; ambient .85; night .55; desk 2.4 at 3m; 2 candle pools; fire 6.5 +/-6.5%; unchanged fire geometry.');
+      console.log('PASS: study lighting budget 9 lights (including existing map wash) / 1 static 512px shadow; ambient .38; night .55; desk 2.4 at 3m; 2 candle pools; fire 6.5 +/-6.5%; unchanged fire geometry.');
     }
     assert(!level.refs.annabelle.visible);
     const standingHeight = new THREE.Box3().setFromObject(level.refs.annabelle).getSize(new THREE.Vector3()).y;
@@ -943,6 +943,16 @@ try {
       level.refs.setReleaseBarsProgress(1);assert(!steelBars.visible,'release left bars across doorway');
 
       assert(level.group.getObjectByName('Final_Exit_Hinge').rotation.y<-.8,'release failed to open current exit');
+      const exitHinge=level.group.getObjectByName('Final_Exit_Hinge');
+      assert(exitHinge.position.z-.008>.06,'outward hinge pin clips exterior lining');
+      level.refs.setReleaseDoorProgress(.5);
+      const halfDoorAngle=exitHinge.rotation.y;
+      level.update(.3);
+      assert.equal(exitHinge.rotation.y,halfDoorAngle,'level easing fights cinematic door clock');
+      level.refs.setReleaseDoorProgress(1);
+      assert(Math.abs(exitHinge.rotation.y+Math.PI/2.1)<1e-8);
+      level.refs.setReleaseDoorProgress(0);
+      assert(Math.abs(exitHinge.rotation.y)<1e-8);
       assert(!level.refs.puzzle.endingSequenceStarted,'Batch 1 started an ending cinematic');
       // A reset mid-turn cancels the pending hook and restores both choices.
       level.reset();assert(level.group.getObjectByName('Study_Containment_Bolts').visible,'reset failed to reinstall steel bars');level.refs.puzzle.mirrorRevealed=true;gameState.inventory.add('hollowOverrideKey');

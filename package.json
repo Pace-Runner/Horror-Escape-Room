@@ -14,6 +14,7 @@
     "check:voices": "node scripts/check-voice-inventory.mjs && node scripts/check-dialogue-triggers.mjs && node scripts/check-letter-narration.mjs && node scripts/check-mark-voice.mjs",
     "check:stealth-voice": "node scripts/check-study-stealth-voice.mjs",
     "check:cassette-reminders": "node scripts/check-cassette-reminders.mjs",
+    "check:leaderboard": "node scripts/check-leaderboard.mjs",
     "compress:assets": "node scripts/compress-assets.mjs",
     "check:assets": "node scripts/compress-assets.mjs --check",
     "preview": "vite preview"
@@ -23,6 +24,7 @@
     "@fontsource/old-standard-tt": "^5.3.0",
     "@fontsource/playfair-display": "^5.3.0",
     "@fontsource/unifrakturmaguntia": "^5.3.0",
+    "@supabase/supabase-js": "2.118.0",
     "three": "^0.169.0"
   },
   "devDependencies": {

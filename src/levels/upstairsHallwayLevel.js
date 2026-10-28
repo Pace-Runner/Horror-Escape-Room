@@ -601,11 +601,11 @@ export function createUpstairsHallwayLevel({
   };
 
   /** Reading a piece: the story text, and its picture if it has one. */
-  const inspect = (piece, pieceArt) => {
+  const inspect = (piece, pieceArt, fullscreen = false) => {
     const subject = piece.title.replace(/^An? /, 'the ');
     return {
       label: `Look at ${subject.charAt(0).toLowerCase()}${subject.slice(1)}`,
-      onInteract: () => onInspect({ title: piece.title, body: piece.body, art: pieceArt })
+      onInteract: () => onInspect({ title: piece.title, body: piece.body, art: pieceArt, fullscreen })
     };
   };
 
@@ -622,7 +622,7 @@ export function createUpstairsHallwayLevel({
   // The clipping, opposite, in a plain black frame.
   hangFrame(
     makeFrame({ innerW: 0.46, innerH: 0.626, border: 0.032, depth: 0.022, frameMaterial: blackFrameMat, picture: pictureMat(art.clipping.texture), glass: true }),
-    'right', 2.1, 1.62, inspect(HALLWAY.clipping, art.clipping)
+    'right', 2.1, 1.62, inspect(HALLWAY.clipping, art.clipping, true)
   );
 
   // The mirror: tall, gilt, struck. It sits on the dado rail rather than a cord.
@@ -679,7 +679,7 @@ export function createUpstairsHallwayLevel({
   // The blueprint, large, in a narrow oak frame.
   hangFrame(
     makeFrame({ innerW: 1.05, innerH: 0.735, border: 0.035, depth: 0.025, frameMaterial: trimMat, picture: pictureMat(art.blueprint.texture, 0.85), mount: 0.03, mountColour: 0xd9d2bf }),
-    'right', 6.95, 1.66, inspect(HALLWAY.blueprint, art.blueprint)
+    'right', 6.95, 1.66, inspect(HALLWAY.blueprint, art.blueprint, true)
   );
 
   // Where pictures used to hang, and one of them, face down below.
@@ -705,7 +705,7 @@ export function createUpstairsHallwayLevel({
     group.add(holder);
     const fallenHit = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.12, 0.7), HITBOX_MATERIAL);
     fallenHit.position.set(LEFT_X + 0.42, 0.06, 7.85);
-    fallenHit.userData.interact = inspect(HALLWAY.frameBack, art.frameBack);
+    fallenHit.userData.interact = inspect(HALLWAY.frameBack, art.frameBack, true);
     group.add(fallenHit);
     interactables.push(fallenHit);
   }

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import {keepHeldItemClear} from './HeldViewBounds.js';
 import { gameState, inventorySlots } from './GameState.js';
 import { HELD_MAGNIFICATION } from '../systems/hands/sockets.js';
 
@@ -260,8 +261,8 @@ export const HELD_ITEM_FRAMING = {
     anchorPose: 'hold-torch',
     aim: [-0.95, 0.25, -0.2],
     roll: deg(128),
-    offset: fromTorchGrip(0.035, 0.012, 0),
-    scale: 0.55
+    offset: fromTorchGrip(0.065, -0.025, -0.08),
+    scale: 0.5
   },
   // The session tape, held up by its bottom edge with its label to the camera,
   // the way you read what is written on one. Rolled a quarter turn, like the
@@ -540,6 +541,7 @@ export function createHeldItems({ hands, camera, itemMeshes, onChange = () => {}
     mesh.scale.setScalar(spec.scale ?? 1);
     if (!hands.attach(SIDE, mesh, spec.socket ?? 'grip')) return false;
     frame(spec);
+    keepHeldItemClear(camera,mesh,hands.root);
     hideGlove(mesh);
     equipped = id;
     equippedMesh = mesh;

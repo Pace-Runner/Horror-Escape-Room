@@ -198,31 +198,31 @@ export const dialog_study_fuse_thought = ["The fuse went with it. There were spa
 
 export const dialog_study_power_back_teaser = ["The power's back. Whatever that was, it's gone.", "level3/study_power_back_teaser.m4a"];
 
-export const dialog_study_power_back_hunt = ["Light. She's gone back into the dark.", "level3/study_power_back_hunt.m4a"];
+export const dialog_study_power_back_hunt = ["Light. The creature has gone back into the dark.", "level3/study_power_back_hunt.m4a"];
 
-export const dialog_study_whisper_1 = ["Mark...?"];
+export const dialog_study_whisper_1 = ["A faint whisper moves through the room."];
 
-export const dialog_study_whisper_2 = ["Mark, please. Come out."];
+export const dialog_study_whisper_2 = ["Something whispers beyond the furniture."];
 
 export const dialog_study_whisper_3 = ["I'm not going to hurt you."];
 
-export const dialog_study_whisper_4 = ["You're not well, Mark. Let me help you."];
+export const dialog_study_whisper_4 = ["A low whisper, too faint to understand."];
 
 export const dialog_study_whisper_5 = ["Where are you?"];
 
-export const dialog_study_whisper_chase_1 = ["Mark, stop!"];
+export const dialog_study_whisper_chase_1 = ["A sharp cry breaks the silence."];
 
 export const dialog_study_whisper_chase_2 = ["There you are."];
 
-export const dialog_study_whisper_lost_1 = ["...Mark?"];
+export const dialog_study_whisper_lost_1 = ["A distant whisper fades away."];
 
 export const dialog_study_whisper_lost_2 = ["I know you're in here."];
 
-export const dialog_study_sleep_mark = ["Sleep, Mark..."];
+export const dialog_study_sleep_mark = ["A whisper, then everything goes quiet."];
 
 export const dialog_study_come_round = ["My neck... something in my neck. Everything's slow.", "level3/study_come_round.m4a"];
 
-export const dialog_study_come_round_again = ["Again. She put me here again.", "level3/study_come_round_again.m4a"];
+export const dialog_study_come_round_again = ["Again. It put me here again.", "level3/study_come_round_again.m4a"];
 
 // ---- carrying the lures: three books, one bottle -----------------------------
 

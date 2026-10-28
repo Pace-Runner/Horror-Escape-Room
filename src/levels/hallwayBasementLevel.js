@@ -551,6 +551,7 @@ export function createHallwayBasementLevel({
   onExit = () => {},
   // The metal door swinging open, with its world position, just before onExit.
   onDoorOpening = () => {},
+  onLabDoorsClosed = () => {},
   onSpark = () => {},
   onGlare = () => {},  // called with 0..1 each frame so the host can drive a screen-space wash
   // Fired when the breaker goes in. The level changes its own lights and its
@@ -1257,6 +1258,7 @@ export function createHallwayBasementLevel({
   let labDoorHeavyHintShown = false;
   /** Seconds the doors are still being held open toward the hallway by the creature running through. */
   let labDoorBurst = 0;
+  let labDoorCreatureClosing = false;
   // Across the doorway while the doors are shut; parked out of the way while
   // they stand open far enough to walk through.
   const LAB_DOOR_COLLIDER_SHUT = { minZ: labDoorPivotZ - 0.06, maxZ: labDoorPivotZ + 0.06 };
@@ -1301,7 +1303,7 @@ export function createHallwayBasementLevel({
 
     const meanAngle = labLeaves.reduce((sum, leaf) => sum + leaf.angle, 0) / Math.max(1, labLeaves.length);
     // Forced far enough from the lab side, they give, and are held open.
-    if (labDoorHeld === 0 && labDoorPlayerSide > 0 && meanAngle < -swing.giveAngle) labDoorHeld = -1;
+    if (!labDoorCreatureClosing && labDoorBurst === 0 && labDoorHeld === 0 && labDoorPlayerSide > 0 && meanAngle < -swing.giveAngle) labDoorHeld = -1;
 
     let target = labDoorHeld * swing.openAngle;
     let stiffness = swing.stiffness;
@@ -1329,16 +1331,26 @@ export function createHallwayBasementLevel({
     const isHeavy = labDoorHeld === 0 && labDoorBurst === 0 && !inDoorway && labDoorPlayerSide > 0;
     const step = Math.min(dt, 1 / 30);
     for (const leaf of labLeaves) {
-      const heavy = isHeavy && leaf.angle <= 0;
+      const heavy = !labDoorCreatureClosing && isHeavy && leaf.angle <= 0;
       const k = heavy ? swing.heavyStiffness : stiffness;
       const c = heavy ? swing.heavyDamping : damping;
       leaf.speed += (-k * (leaf.angle - target) - c * leaf.speed) * step;
       leaf.angle += leaf.speed * step;
+      // Catch the returning leaves at the jamb, instead of oscillating through it.
+      if (labDoorCreatureClosing && labDoorBurst === 0 && !inDoorway && leaf.angle >= 0) {
+        leaf.angle = 0;
+        leaf.speed = 0;
+      }
       if (Math.abs(leaf.angle) > swing.maxAngle) {
         leaf.angle = Math.sign(leaf.angle) * swing.maxAngle;
         leaf.speed = 0;
       }
       leaf.node.rotation.y = leaf.rest + leaf.sign * leaf.angle;
+    }
+    if (labDoorCreatureClosing && labDoorBurst === 0 && !inDoorway
+      && labLeaves.length && labLeaves.every(leaf => leaf.angle === 0)) {
+      labDoorCreatureClosing = false;
+      onLabDoorsClosed({x:0,y:1.1,z:labDoorPivotZ});
     }
 
     const passable = labLeaves.length > 0 && labLeaves.every((leaf) => Math.abs(leaf.angle) > swing.passableAngle);
@@ -1351,11 +1363,14 @@ export function createHallwayBasementLevel({
 
   /** Throws the doors open toward the hallway, as something goes through them at a run. */
   function burstLabDoors(seconds) {
+    labDoorHeld = 0;
+    labDoorCreatureClosing = true;
     labDoorBurst = seconds;
     for (const leaf of labLeaves) leaf.speed = Math.min(leaf.speed, -6);
   }
 
   function resetLabDoors() {
+    labDoorCreatureClosing = false;
     labDoorHeld = 0;
     labDoorBurst = 0;
     labDoorHeavyHintShown = false;
@@ -1900,6 +1915,10 @@ export function createHallwayBasementLevel({
   /** @returns {boolean} whether the monitor, the remote and the feeds work. */
   function isCctvPowered() {
     return isCircuitLive('cctv');
+  }
+  /** Initial mains can run the CRT; routed CCTV is still required for feeds. */
+  function isMonitorPowered() {
+    return powerStage === POWER_STAGE.LIT || isCctvPowered();
   }
   /** The first fuse powers the cassette; the CCTV still needs the routed panel. */
   function isTapePowered() {
@@ -3459,6 +3478,7 @@ export function createHallwayBasementLevel({
   };
   interactables.push(loadChart);
   lab.add(loadChart);
+  for(const control of [breakerCoverHit,mainSwitch,loadChart,...Object.values(breakerMeshes)])control.userData.breakerControl=true;
 
   /**
    * Sanity, at build time. Two properties have to hold for this panel to be
@@ -4007,7 +4027,7 @@ export function createHallwayBasementLevel({
   let activeFeedId = FEED_IDS[0];
 
   function isMonitorShowing() {
-    return monitorSwitchedOn && isCctvPowered();
+    return monitorSwitchedOn && isMonitorPowered();
   }
 
   const POWER_GLOW_COLOR = 0x2bff52;
@@ -4074,7 +4094,7 @@ export function createHallwayBasementLevel({
     feedButtons.forEach(({ mesh, feedId }) => {
       mesh.material.emissive.setHex(showing && feedId === activeFeedId ? 0x2e6b3a : 0x000000);
     });
-    monitorBody.userData.interact.label = showing ? 'View camera feeds' : 'Examine the monitor';
+    monitorBody.userData.interact.label = showing ? (isCctvPowered() ? 'View camera feeds' : 'Examine the static') : 'Examine the monitor';
     powerButtonHit.userData.interact.label = monitorSwitchedOn ? 'Switch the monitor off' : 'Switch the monitor on';
   }
 
@@ -4082,9 +4102,8 @@ export function createHallwayBasementLevel({
     label: 'Switch the monitor on',
     onInteract: () => {
       onSfx('switch_click');
-      // The desk only ever has power once the panel is routed, so a dead
-      // button is always simply dead -- never "the power has gone again".
-      if (!isCctvPowered()) {
+      // The initial fuse runs the monitor with static, never the real feeds.
+      if (!isMonitorPowered()) {
         onThought('l2_05', { replayable: false });
         showCaption(line('dialog_monitor_button_no_power'));
         return;
@@ -4093,7 +4112,7 @@ export function createHallwayBasementLevel({
       syncMonitor();
       syncScreenSignal();
       if (monitorSwitchedOn) {
-        onThought('l2_08');
+        if (isCctvPowered()) onThought('l2_08');
         showCaption(line('dialog_monitor_switched_on'));
       }
     }
@@ -4121,8 +4140,7 @@ export function createHallwayBasementLevel({
     // inviting the player to view feeds that cannot exist yet.
     label: 'Examine the monitor',
     onInteract: () => {
-      if (!isCctvPowered()) {
-        // Dead until the panel is routed: the fuse never reached the desk.
+      if (!isMonitorPowered()) {
         onThought('l2_05', { replayable: false });
         showCaption(line('dialog_monitor_dead'));
         return;
@@ -4131,6 +4149,7 @@ export function createHallwayBasementLevel({
         showCaption(line('dialog_monitor_off'));
         return;
       }
+      if (!isCctvPowered()) { showCaption('Static. The camera systems still need power.'); return; }
       // Said "No power" even after the breaker was flipped, which told the
       // player their one objective had not worked.
       showCaption(line('dialog_monitor_feeds_live'));
@@ -4166,7 +4185,7 @@ export function createHallwayBasementLevel({
       label: FEED_LABELS[id],
       onInteract: () => {
         if (!isCctvPowered()) {
-          showCaption(line('dialog_remote_dead'));
+          showCaption(isMonitorShowing() ? 'Static. The camera systems still need power.' : line('dialog_remote_dead'));
           return;
         }
         if (!monitorSwitchedOn) {
@@ -5830,6 +5849,8 @@ export function createHallwayBasementLevel({
       /** True while its engine turns over -- every stage but the blackout. */
       get generatorRunning() { return isGeneratorRunning(); },
       get breakerCoverOpen() { return breakerCover.open; },
+      getBreakerStatus(){return {capacity:PANEL_CAPACITY_IN_AMPS,load:getTotalBreakerLoadInAmps(),tripped:breakerTripTimeRemainingInSeconds>0,
+        circuits:BREAKER_CIRCUITS.map(({id,label,loadInAmps})=>({id,label,loadInAmps,on:breakerIsOn[id]}))};},
       /** The lab lights' ramp, 0 dark to 1 lit, which the tubes' hum follows. */
       get powerLevel() { return powerLevel; },
       /** The session tape's sound and clock, for the host's voices and subtitles. */

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { mergeStaticMeshesByMaterial } from '../world/renderOptimizations.js';
+import {createDoorSoffitGeometry,createDecalOrdering} from '../world/backroomsSurfaces.js';
 import {
   createBackroomsWallpaperTexture,
   createBackroomsWallpaperNormalTexture,
@@ -532,6 +533,7 @@ export function createBackroomsLevel({
     roughness: 0.92
   }));
   const stainGeo = new THREE.PlaneGeometry(1, 1);
+  const orderDecal = createDecalOrdering();
 
   const runSeed = (axis, at, from, to) => {
     let h = axis === 'x' ? 0x9e3779b9 : 0x85ebca6b;
@@ -604,6 +606,7 @@ export function createBackroomsLevel({
       const gap = exitGapOn(axis, at, from, to);
       if (gap && along + w / 2 > gap.from && along - w / 2 < gap.to) continue;
       const stain = new THREE.Mesh(stainGeo, stainMats[Math.floor(rand() * stainMats.length)]);
+      orderDecal(stain, 100);
       // Rising damp: the quad sits ON the skirting, so the stain's dense end
       // is at the floor where the canvas puts it.
       stain.scale.set(w * (rand() < 0.5 ? -1 : 1), h, 1);
@@ -715,6 +718,7 @@ export function createBackroomsLevel({
   /** A quad lying flat at height y, face up or down. */
   const addFlat = (mat, x, y, z, size, spin, faceDown = false) => {
     const m = new THREE.Mesh(flatGeo, mat);
+    orderDecal(m, faceDown ? 100 : y >= 0.010 ? 300 : y >= 0.008 ? 200 : 100);
     m.position.set(x, y, z);
     m.rotation.set(faceDown ? Math.PI / 2 : -Math.PI / 2, 0, spin);
     m.scale.set(size, size, 1);
@@ -823,6 +827,7 @@ export function createBackroomsLevel({
       // with the blood running up out of nothing.
       const y = running ? HALL_H - 0.08 - h / 2 : 0.45 + rand() * 0.95;
       const mesh = new THREE.Mesh(flatGeo, pick(running ? bloodRunMats : bloodDryMats, rand));
+      orderDecal(mesh, 200);
       mesh.scale.set(w * (rand() < 0.5 ? -1 : 1), h, 1);
       if (axis === 'x') {
         mesh.position.set(at, y, along);
@@ -871,11 +876,7 @@ export function createBackroomsLevel({
     // the room's, measured along the neck's own axis -- derived by buildMaze(),
     // so moving a room cannot leave a soffit hanging in the corridor.
     const soffit = new THREE.Mesh(
-      new THREE.BoxGeometry(
-        L.axis === 'z' ? L.w : t1 - t0,
-        HALL_H - DOOR_H,
-        L.axis === 'z' ? t1 - t0 : L.w
-      ),
+      createDoorSoffitGeometry(L.axis, L.w, t1 - t0, HALL_H - DOOR_H),
       wallMatFor(t1 - t0)
     );
     soffit.position.set(
@@ -1527,7 +1528,6 @@ export function createBackroomsLevel({
           door.speed = EXIT_DOOR_SWING.unlatchSpeed;
           door.latchCollider.minX = door.latchCollider.maxX = -1000;
           onDoorOpening(slab.getWorldPosition(new THREE.Vector3()));
-          if(route?.to==='study')onThought('backrooms_06',{onEnded:()=>onThought('backrooms_07')});
           showCaption(line('dialog_exit_door_opens'));
           return;
         }

@@ -1291,7 +1291,7 @@ export class AudioEngine {
    *
    * @param {number} [seconds] - how long it lasts, end to end.
    */
-  growl(seconds = 2.4) {
+  growl(seconds = 2.4, position = null) {
     if (!this.ctx) return;
     const ctx = this.ctx;
     const now = ctx.currentTime;
@@ -1302,7 +1302,19 @@ export class AudioEngine {
     level.gain.exponentialRampToValueAtTime(0.85, now + seconds * 0.3);
     level.gain.setValueAtTime(0.85, now + seconds * 0.6);
     level.gain.exponentialRampToValueAtTime(0.0001, end);
-    level.connect(this.master);
+    let panner = null;
+    if (position) {
+      panner = ctx.createPanner();
+      panner.panningModel = 'HRTF';
+      panner.distanceModel = 'inverse';
+      panner.refDistance = 2;
+      panner.maxDistance = 30;
+      panner.rolloffFactor = .7;
+      panner.positionX.value = position.x;
+      panner.positionY.value = position.y;
+      panner.positionZ.value = position.z;
+      level.connect(panner).connect(this.master);
+    } else level.connect(this.master);
 
     // The throat.
     const throatFilter = ctx.createBiquadFilter();
@@ -1346,6 +1358,19 @@ export class AudioEngine {
       source.start(now);
       source.stop(end + 0.05);
     }
+    let ended = false;
+    sources.at(-1).onended = () => {
+      ended = true;
+      level.disconnect();
+      panner?.disconnect();
+    };
+    return {stop: () => {
+      if (ended) return;
+      const at = ctx.currentTime;
+      level.gain.cancelScheduledValues(at);
+      level.gain.setTargetAtTime(.0001, at, .015);
+      for (const source of sources) { try { source.stop(at + .06); } catch {} }
+    }};
   }
 
   /**

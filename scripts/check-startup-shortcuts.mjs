@@ -17,7 +17,7 @@ assert(begin.indexOf('clearStartupFrame();')<begin.indexOf("startScreen.classLis
 assert(source.includes('bootReady.then(() => {\n  clearStartupFrame();'));
 
 const shortcut=source.slice(source.indexOf('  // Instant level previews'),source.indexOf("  if (e.code === 'KeyG') {"));
-const handler=new Function('e','pinPadUI','photoBoardUI','documentUI','sceneManager','backrooms','activateLevel','abortTransition','TRANSITIONS',shortcut);
+const handler=new Function('e','pinPadUI','photoBoardUI','documentUI','sceneManager','backrooms','activateLevel','abortTransition','TRANSITIONS','const activeRun={invalidate(){}};'+shortcut);
 for(const [code,level] of [['Digit1','bedroom'],['Digit2','hallwayBasement'],['Digit3','study'],['Numpad3','study'],['Digit4','backrooms'],['KeyL','hallwayBasement']]){
   const calls=[];let aborted=false,prevented=false;
   const invoke=extra=>handler({code,preventDefault(){prevented=true;},...extra},{isOpen:false},{isOpen:false},{isOpen:false},
@@ -28,7 +28,7 @@ for(const [code,level] of [['Digit1','bedroom'],['Digit2','hallwayBasement'],['D
 console.log('PASS: startup canvas cleared before menu removal; render state restored; production/demo shortcuts 1–4, numpad and L; repeat/modifier/text-field guards. No browser launched.');
 
 const handoffKey=source.slice(source.indexOf("  if(e.code==='Digit9'"),source.indexOf('  if (!player.isLocked) return;',source.indexOf("  if(e.code==='Digit9'")));
-let jumps=0;const jump=new Function('e','gameStarted','prepareStudyHandoffTest',handoffKey);
+let jumps=0;const jump=new Function('e','gameStarted','prepareStudyHandoffTest','const activeRun={invalidate(){}};'+handoffKey);
 for(const code of ['Digit9','Numpad9']){
   jump({code,preventDefault(){}},true,()=>jumps++);
   for(const extra of [{repeat:true},{ctrlKey:true},{metaKey:true},{altKey:true},{target:{closest:()=>true}}]){

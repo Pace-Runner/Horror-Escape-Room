@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { hingeMotion } from './studyPuzzlePresentation.js';
 import { STUDY_RUG } from './studyHeroPresentation.js';
+import {ageStudySheets,gatherMiddleCurtain} from './studyVisualPolish.js';
 import { line } from '../dialogue/index.js';
 import chesterfieldUrl from '../assets/models/study/study_chesterfield.glb?url';
 import wardrobeUrl from '../assets/models/study/study_wardrobe.glb?url';
@@ -205,6 +206,7 @@ export function createStudyHideProps({
       // The model hangs along X; a quarter turn hangs it along the wall.
       place(curtainUrl, `Study_Curtain_${index}`, curtainX, 0, (z0 + z1) / 2, Math.PI / 2, {
         onModel: (model) => {
+          if(index===0)gatherMiddleCurtain(model);
           strips = [0, 1, 2, 3].map((i) => model.getObjectByName(`Strip_${i}`)).filter(Boolean);
         }
       });
@@ -233,7 +235,7 @@ export function createStudyHideProps({
   // low, one tall; two of them on the loft, where the second hunt begins.
   // Each faces into the room. The pooled hems are drawn, not collided with.
   function sheeted(name, cx, cz, floorY, w, d, h) {
-    place(sheetsUrl, `Study_${name}`, cx, floorY, cz, Math.PI, { pick: name });
+    place(sheetsUrl, `Study_${name}`, cx, floorY, cz, Math.PI, { pick: name, onModel:ageStudySheets });
     const hw = w * 0.56, hd = d * 0.56;
     solid(name, cx - hw, cx + hw, cz - hd, cz + hd, floorY, h);
   }
