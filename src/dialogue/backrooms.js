@@ -25,8 +25,8 @@ export const dialog_sealed_door = ["The wallpaper runs straight across it. No fr
 export const dialog_backrooms_roam = ["\"This room looks familiar. It reminds me of a movie I watched.\"", "backrooms/roam_10sec.m4a"];
 
 // The first three times the player gets a look at the thing in here.
-export const dialog_look_at_monster_1 = ["\"Hello? Who are you? Are you okay? ... Okay. It's a fucking ghost.\"", "backrooms/look_monster_1.m4a"];
-export const dialog_look_at_monster_2 = ["\"I feel like I'm losing my mind. I know it's there, but it just disappears.\"", "backrooms/look_monster_2.m4a"];
+export const dialog_look_at_monster_1 = ["\"Hello? Who are you? Are you okay? ... Okay. It's a fucking ghost.\"", "backrooms/look_monster_1.m4a", 6.8];
+export const dialog_look_at_monster_2 = ["\"I feel like I'm losing my mind. I know it's there, but it just disappears.\"", "backrooms/look_monster_2.m4a", 6.3];
 export const dialog_look_at_monster_3 = ["\"Who the fuck are you? Do you know my sister Annabelle? ... I'm losing it.\"", "backrooms/look_monster_3.m4a"];
 
 // Reaching the end of a corridor that goes nowhere. Picked at random.
