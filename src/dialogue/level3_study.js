@@ -184,3 +184,56 @@ export const dialog_fence_gate_opens = ["The padlock opens. The gate swings out 
 export const dialog_hold_door_key = ["The key from the desk drawer would turn this. You need it in your hand.", "level3/hold_door_key.m4a"];
 
 export const dialog_hold_gate_key = ["This padlock wants the gate key. You need it in your hand.", "level3/hold_gate_key.m4a"];
+
+// ---- the hide-and-seek (docs/LEVEL3_HIDE_AND_SEEK.md) ------------------------
+// Text only: the voice recordings were taken out, and these wait for new ones.
+
+export const dialog_study_blackout_teaser = ["The lights. All of them at once.", "level3/study_blackout_teaser.m4a"];
+
+export const dialog_study_blackout_hunt = ["No. Not again. Not now.", "level3/study_blackout_hunt.m4a"];
+
+export const dialog_study_breaker_thought = ["There was a breaker up on the loft. On the back wall.", "level3/study_breaker_thought.m4a"];
+
+export const dialog_study_fuse_thought = ["The fuse went with it. There were spares in a tin, by the desk.", "level3/study_fuse_thought.m4a"];
+
+export const dialog_study_power_back_teaser = ["The power's back. Whatever that was, it's gone.", "level3/study_power_back_teaser.m4a"];
+
+export const dialog_study_power_back_hunt = ["Light. She's gone back into the dark.", "level3/study_power_back_hunt.m4a"];
+
+export const dialog_study_whisper_1 = ["Mark...?"];
+
+export const dialog_study_whisper_2 = ["Mark, please. Come out."];
+
+export const dialog_study_whisper_3 = ["I'm not going to hurt you."];
+
+export const dialog_study_whisper_4 = ["You're not well, Mark. Let me help you."];
+
+export const dialog_study_whisper_5 = ["Where are you?"];
+
+export const dialog_study_whisper_chase_1 = ["Mark, stop!"];
+
+export const dialog_study_whisper_chase_2 = ["There you are."];
+
+export const dialog_study_whisper_lost_1 = ["...Mark?"];
+
+export const dialog_study_whisper_lost_2 = ["I know you're in here."];
+
+export const dialog_study_sleep_mark = ["Sleep, Mark..."];
+
+export const dialog_study_come_round = ["My neck... something in my neck. Everything's slow.", "level3/study_come_round.m4a"];
+
+export const dialog_study_come_round_again = ["Again. She put me here again.", "level3/study_come_round_again.m4a"];
+
+// ---- carrying the lures: three books, one bottle -----------------------------
+
+export const dialog_study_books_full = ["Three is all I can carry.", "level3/study_books_full.m4a"];
+
+export const dialog_study_bottle_carried = ["I already have a bottle.", "level3/study_bottle_carried.m4a"];
+
+// ---- the letter and the mirror refuse in a blackout, and the letter asks to be read
+
+export const dialog_study_letter_dark = ["I can't read it in this dark.", "level3/study_letter_dark.m4a"];
+
+export const dialog_study_mirror_dark = ["Not now. Not in the dark.", "level3/study_mirror_dark.m4a"];
+
+export const dialog_study_letter_read_it = ["I need to read this.", "level3/study_letter_read_it.m4a"];

@@ -5,6 +5,8 @@ import { createStudyDecor } from './studyDecor.js';
 import { createCandleFlames } from '../world/CandleFlames.js';
 import { createHearthFire } from '../world/HearthFire.js';
 import { createStudyFireplaceDressing } from './studyFireplace.js';
+import { createStudyBlackout } from './studyBlackout.js';
+import { createStudyHideProps, createStudyThrowables } from './studyHideProps.js';
 import { createBalustradeBuilder, railGeometry, RAIL_PROFILES } from './studyBalustrade.js';
 import { createStudySurfaces } from './studySurfaces.js';
 import { createAnnabelle } from './annabelleFigure.js';
@@ -35,7 +37,7 @@ import emergencyReleasePanelUrl from '../assets/models/study/emergency_release_p
 import manualResealPanelUrl from '../assets/models/study/manual_reseal_panel.glb?url';
 import { makeHandle } from '../world/trim.js';
 import { DOOR_PANEL_ROWS, getPanelSpans } from '../world/doorPanels.js';
-import { gameState } from '../core/GameState.js';
+import { gameState, canCarryMore } from '../core/GameState.js';
 import { line } from '../dialogue/index.js';
 import { ANNABELLE_FINAL_LETTER } from '../story/studyReveal.js';
 
@@ -55,6 +57,12 @@ export function createStudyLevel({
   // press that walks through it.
   onDoorOpening = () => {},
   onTakeVisor = () => {},
+  /** The crest is solved: the storm's first strike (main.js runs the teaser blackout). */
+  onCrestSolved = () => {},
+  /** E on a hide spot (the wardrobe): main.js puts Mark inside it. */
+  onEnterHideSpot = () => {},
+  /** The loft breaker thrown: the power is back. 'teaser' | 'hunt'. */
+  onBreakerThrown = () => {},
   onLookInMirror = () => {},
   onReadLetter = () => {},
   onResetLetter = () => {},
@@ -488,7 +496,12 @@ export function createStudyLevel({
     hasHollowOverrideKey: false,
     endingChoice: 'NONE',
     endingChoiceComplete: false,
-    endingSequenceStarted: false
+    endingSequenceStarted: false,
+    /**
+     * The hide-and-seek's two blackouts (studyBlackout.js, main.js):
+     * none -> teaser -> teaserDone -> hunt -> huntDone.
+     */
+    blackoutStage: 'none'
   };
   let mirrorRevealGeneration = 0;
 
@@ -802,6 +815,7 @@ export function createStudyLevel({
     onSfx('latch');
     showCaption('The shadows form one crest. A hidden compartment opens.');
     voiceProgress();
+    onCrestSolved();
   }
 
   [[1.05, 0.2], [0, 0.85], [-1.05, 0.2]].forEach(([x, y], index) => {
@@ -1009,6 +1023,21 @@ export function createStudyLevel({
   fireplace.add(fireplaceDressing.group);
   const hearthFire = createHearthFire();
   fireplace.add(hearthFire.group);
+  // The storm's two blackouts (studyBlackout.js): the moon and the lightning
+  // are made here, with every other light, so the warm-up sees all of them.
+  const blackout = createStudyBlackout({
+    // The desk lamp is the room's one electric light now (the ceiling fills
+    // went with main's 2026-10-28 lighting pass); the candles and the fire
+    // are the blackout's own business.
+    group, interactables, roomLights: [lamp], ambient,
+    candles: studyCandles, hearth: hearthFire, loftY: LOFT_Y,
+    loadBoard: loadStudyModel, loadFuse: loadModel,
+    showCaption, onSfx,
+    onBreakerThrown: (kind) => onBreakerThrown(kind),
+    hasFuse: () => gameState.inventory.has('studyFuse'),
+    onFuseTaken: () => { onSfx('metal_click'); onPickUpItem('studyFuse'); },
+    onFuseFitted: () => onUseItem('studyFuse')
+  });
   {
     const fender = fireplaceDressing.fenderBounds;
     colliders.push({
@@ -2217,10 +2246,14 @@ export function createStudyLevel({
 
   // The porch, its gate, the house front and everything outside: the yard,
   // the woods, the night sky and the rain. See studyExterior.js.
-  const { porch, gate, exterior, update: updateExterior } = createStudyExterior({
+  const { porch, gate, exterior, nightLights, windowLight, update: updateExterior } = createStudyExterior({
     roomW: ROOM_W, roomD: ROOM_D, roomH: ROOM_H, doorX: DOOR_X,
     doorwayW: DOORWAY_W, doorwayH: DOORWAY_H, colliders
   });
+  // The night outside lights the room too: a blackout turns it down with the rest.
+  blackout.setFills(nightLights, { flash: windowLight });
+  // The porch lamp and the map's picture light are on the house's power too.
+  blackout.addRoomLights([porch.getObjectByName('Study_Porch_Lamp'), group.getObjectByName('Project_Hollow_Map_Wash')]);
   group.add(porch, exterior);
 
   // Decorative meshes only: no interaction registrations, lights, physics or new colliders.
@@ -2312,11 +2345,26 @@ export function createStudyLevel({
           updateTruthRecords(gameState.visorWorn);updateOverrideLabels(gameState.visorWorn);
   }
 
+  // The hide-and-seek's cover, hide spots and throwables: placeholders until
+  // pass 2's models (studyHideProps.js, docs/LEVEL3_HIDE_AND_SEEK.md).
+  const hideProps = createStudyHideProps({
+    group, colliders, interactables, loftY: LOFT_Y,
+    loadModel: loadStudyModel,
+    onEnterHideSpot: (spot) => onEnterHideSpot(spot)
+  });
+  const throwables = createStudyThrowables({
+    group, interactables, loftY: LOFT_Y, loadModel: loadStudyModel,
+    canTake: (id) => canCarryMore(id),
+    onTake: (id) => { onSfx('cloth'); onPickUpItem(id); },
+    showCaption
+  });
+
   return {
     group,
     interactables,
     colliders,
     groundAt,
+    loftY: LOFT_Y,
     // Just inside the new right-side entry, looking across the desk toward
     // the open study and loft rather than into the wall or final exit.
     spawn: [6.9, 4.8],
@@ -2324,6 +2372,14 @@ export function createStudyLevel({
     refs: {
       lamp,ambient,
       lighting:{ambient,desk:lamp},
+      /** studyBlackout.js: the storm's power cuts, the moon, the lightning and the loft breaker. */
+      blackout,
+      /** studyHideProps.js: cover boxes, hide spots, the wardrobe. */
+      hideProps,
+      throwables,
+      /** For world/itemMeshes.js: the models the hand holds, as they load (main.js). */
+      hideAndSeekItemsReady: Promise.all([throwables.bookTemplate, throwables.glassTemplate, blackout.fuseTemplate])
+        .then(([studyBook, studyGlass, studyFuse]) => ({ studyBook, studyGlass, studyFuse })),
       /** world/CandleFlames.js: every flame in the room, and its light pool. */
       candles: studyCandles,
       entryDoor,
@@ -2594,6 +2650,11 @@ export function createStudyLevel({
       // lights released; the window draughts are part of the room and stay.
       studyCandles.reset();
       for (const door of doorDraughts) door.open = false;
+      // The power back on and every pile of books where it was.
+      blackout.reset();
+      throwables.reset();
+      hideProps.reset();
+      puzzle.blackoutStage = 'none';
     },
 
     update(dt) {
@@ -2606,7 +2667,7 @@ export function createStudyLevel({
           const limit = spokenPuzzle === 'letter' ? 60 : 55;
           if (stuckSeconds >= limit && !spokenHints.has(spokenPuzzle)) {
             spokenHints.add(spokenPuzzle);
-            if (spokenPuzzle === 'letter') showCaption('I need to read this.');
+            if (spokenPuzzle === 'letter') showCaption(line('dialog_study_letter_read_it'));
             else onThought(`l3_hint_${spokenPuzzle}`, { priority: 20 });
           }
         }
@@ -2655,6 +2716,8 @@ export function createStudyLevel({
       letterDoorMotion.update(dt, puzzle.truthRecordsSolved);
       clockMechanism.update(dt, puzzle.clockSolved);
       hearthFire.update(dt);
+      blackout.update(dt);
+      hideProps.update(dt);
       const crestTargetX = puzzle.crestSolved ? 2.05 : 0;
       const previousCrestTravel = crestCoverTravel;
       crestCoverTravel += (crestTargetX - crestCoverTravel) * Math.min(1, dt * 5);

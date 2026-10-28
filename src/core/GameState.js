@@ -70,12 +70,18 @@ function initialState() {
     // --- inventory ---------------------------------------------------------
     /** Ids of carried items, in pickup order. See ITEMS below for display info. */
     inventory: new Set(),
+    /** How many of each STACKS item is carried. Read it through itemCount(). */
+    itemCounts: new Map(),
     /**
      * Which hotbar slot each carried item sits in, left to right: ids, with
      * null for a gap. Read it through inventorySlots(), which keeps it in step
      * with `inventory`.
      */
-    inventorySlots: []
+    inventorySlots: [],
+
+    // --- tips --------------------------------------------------------------
+    /** The control tips already shown this run (main.js showControlTipOnce). */
+    tipsShown: new Set()
   };
 }
 
@@ -110,7 +116,11 @@ export const ITEMS = {
   // Level 3's: the sigil from the clock, the key behind the crest, the key by Annabelle.
   archiveToken: { label: 'Brass Sigil', name: 'brass sigil' },
   archiveKey: { label: 'Archive key', name: 'archive key' },
-  hollowOverrideKey: { label: 'HOLLOW access keycard', name: 'access keycard' }
+  hollowOverrideKey: { label: 'HOLLOW access keycard', name: 'access keycard' },
+  // The study hide-and-seek (docs/LEVEL3_HIDE_AND_SEEK.md): two lures and the breaker's spare.
+  studyBook: { label: 'Hardback book', name: 'book', hint: 'Left click to throw' },
+  studyGlass: { label: 'Glass bottle', name: 'bottle', hint: 'Left click to throw' },
+  studyFuse: { label: 'Spare fuse', name: 'spare fuse' }
 };
 
 /** The slots the inventory bar always shows; it only grows past this when they are all full. */
@@ -141,14 +151,43 @@ export function inventorySlots() {
   return slots;
 }
 
-/** Adds an item to the carried set. A no-op if it is already there. */
+/**
+ * Items carried as a stack rather than one of each, and the most of each: the
+ * study's books, three (Kiran, 2026-10-28). A stack takes one hotbar slot,
+ * with its count on it. Everything else is one of a kind.
+ */
+export const STACKS = Object.freeze({ studyBook: 3 });
+
+/** Adds an item to the carried set: one more on a stack, a no-op for anything already carried. */
 export function addItem(id) {
+  const most = STACKS[id];
+  if (most) gameState.itemCounts.set(id, Math.min(most, itemCount(id) + 1));
   gameState.inventory.add(id);
 }
 
-/** Removes an item once it is spent (e.g. the crowbar, after the planks) or dropped. */
+/**
+ * Removes an item once it is spent (e.g. the crowbar, after the planks) or
+ * dropped. A stack loses one, and is only gone with its last.
+ */
 export function removeItem(id) {
+  const left = STACKS[id] ? itemCount(id) - 1 : 0;
+  if (left > 0) {
+    gameState.itemCounts.set(id, left);
+    return;
+  }
+  gameState.itemCounts.delete(id);
   gameState.inventory.delete(id);
+}
+
+/** How many of `id` are carried: 0, 1, or a stack's count. */
+export function itemCount(id) {
+  if (!gameState.inventory.has(id)) return 0;
+  return STACKS[id] ? (gameState.itemCounts.get(id) ?? 1) : 1;
+}
+
+/** Whether one more `id` can be carried: none of it yet, or a stack with room on it. */
+export function canCarryMore(id) {
+  return itemCount(id) < (STACKS[id] ?? 1);
 }
 
 /**

@@ -2369,7 +2369,7 @@ export function createBedroomLevel({
       paperclipHitbox.visible = false;
       const idx = interactables.indexOf(paperclipHitbox);
       if (idx >= 0) interactables.splice(idx, 1);
-      if (!interactables.includes(cuffLockHitbox)) interactables.push(cuffLockHitbox);
+      for (const hit of cuffLockHits) if (!interactables.includes(hit)) interactables.push(hit);
       onPaperclipPicked();
       showCaption(line('dialog_pickup_paperclip'));
     }
@@ -2378,31 +2378,28 @@ export function createBedroomLevel({
   group.add(paperclipHitbox);
 
   /**
-   * The cuff's lock, which the paperclip is used ON.
+   * The cuff's lock, which the paperclip is used ON: the chain and the cuff
+   * themselves, so it is picked where it is (Kiran, 2026-10-28).
    *
-   * NOT AT THE CUFF, and that is measured rather than lazy. The cuff ring really
-   * sits at about (2.15, 0.82, -1.54) -- bed-local (0.495, 0.82, 0.36), the
-   * chain's run end -- which is some 74 degrees to the right of the restrained
-   * view's forward axis. BEDROOM_RESTRAINED_LOOK_BOUNDS in main.js lets the
-   * chained player turn at most about 3 degrees right of -Z, and Interaction
-   * casts from the centre of the screen, so a hitbox on the cuff could never be
-   * aimed at; the same goes for every link of the run back to the headboard.
-   * (The "(1.90, 0.98, -2.35)" quoted for the cuff above the paperclip is from
-   * an older chain layout.)
-   *
-   * So it sits where the paperclip was: in the middle of the bounded view, at
-   * exactly the spot the player is already looking at when they pick the clip
-   * up -- the prompt simply changes under the crosshair from "Pick up
-   * paperclip" to "Pick the cuff lock". A little larger than the clip's own
-   * hitbox, since there is nothing small left there to aim at.
+   * The cuff ring sits at about (2.15, 0.82, -1.54) -- bed-local (0.495, 0.82,
+   * 0.36), the chain's run end -- some 74 degrees to the right of the
+   * restrained view's forward axis. That view used to stop about 3 degrees
+   * right of -Z, so the lock was a hitbox where the paperclip had been, in the
+   * middle of the view. BEDROOM_RESTRAINED_LOOK_BOUNDS in main.js now turns
+   * from one side of the bed to the other, so these are on the chain: one
+   * along its run from the headboard rail, one round the cuff. Interaction
+   * casts from the centre of the screen at its targets alone (not their
+   * children), so they are two targets with one interaction, and children of
+   * the chain group, so they are wherever it is.
    */
-  const cuffLockHitbox = new THREE.Mesh(
-    new THREE.SphereGeometry(0.16, 8, 8),
-    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
-  );
-  cuffLockHitbox.name = 'CuffLockInteraction';
-  cuffLockHitbox.position.copy(paperclip.position);
-  cuffLockHitbox.userData.interact = {
+  const cuffLockMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+  const cuffLockHitbox = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), cuffLockMaterial);
+  cuffLockHitbox.position.copy(chainRunEnd);
+  const cuffChainHitbox = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, chainRunEnd.length(), 8), cuffLockMaterial);
+  cuffChainHitbox.position.copy(chainRunEnd).multiplyScalar(0.5);
+  cuffChainHitbox.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), chainRunEnd.clone().normalize());
+  const cuffLockHits = [cuffLockHitbox, cuffChainHitbox];
+  const cuffLockInteract = {
     label: 'Pick the cuff lock',
     onInteract: () => {
       // Once only: E spammed through the 900 ms below must not restart it.
@@ -2413,8 +2410,10 @@ export function createBedroomLevel({
       }
       onPaperclipUsed();
       showCaption(line('dialog_paperclip_unlocks_cuff'));
-      const idx = interactables.indexOf(cuffLockHitbox);
-      if (idx >= 0) interactables.splice(idx, 1);
+      for (const hit of cuffLockHits) {
+        const idx = interactables.indexOf(hit);
+        if (idx >= 0) interactables.splice(idx, 1);
+      }
       chain.visible = false;
       restraintRemnant.visible = true;
       // TRACKED, like the door's exit timer below. A bare setTimeout here
@@ -2429,9 +2428,13 @@ export function createBedroomLevel({
       }, 900);
     }
   };
+  for (const hit of cuffLockHits) {
+    hit.name = 'CuffLockInteraction';
+    hit.userData.interact = cuffLockInteract;
+    chain.add(hit);
+  }
   // Registered by the paperclip pickup above, not here: before then there is
-  // nothing to pick the lock with, and the clip's own prompt owns this spot.
-  group.add(cuffLockHitbox);
+  // nothing to pick the lock with.
 
   /**
    * The fallen chair -- which had no legs.
@@ -3393,7 +3396,7 @@ export function createBedroomLevel({
 
   // Hint context is metadata only; interaction and completion stay with each puzzle.
   for (const [target, key] of [
-    [paperclipHitbox, 'l1_cuff'], [cuffLockHitbox, 'l1_cuff'],
+    [paperclipHitbox, 'l1_cuff'], [cuffLockHitbox, 'l1_cuff'], [cuffChainHitbox, 'l1_cuff'],
     [flashlightHitbox, 'l1_flashlight'], [photoAreaHitbox, 'l1_polaroids'],
     [floorPhotoHitbox, 'l1_polaroids'], [windowPhotoHitbox, 'l1_polaroids'],
     [lampHit, 'l1_lamp_code'], [lampDrawerHitbox, 'l1_locked_drawer'],
@@ -3510,8 +3513,10 @@ export function createBedroomLevel({
       if (!interactables.includes(paperclipHitbox)) interactables.push(paperclipHitbox);
       // Back to "nothing to pick the lock with": the cuff only offers itself
       // once the paperclip is in hand again.
-      const cuffLockIndex = interactables.indexOf(cuffLockHitbox);
-      if (cuffLockIndex >= 0) interactables.splice(cuffLockIndex, 1);
+      for (const hit of cuffLockHits) {
+        const cuffLockIndex = interactables.indexOf(hit);
+        if (cuffLockIndex >= 0) interactables.splice(cuffLockIndex, 1);
+      }
       chain.visible = true;
       restraintRemnant.visible = false;
 

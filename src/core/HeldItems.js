@@ -298,7 +298,19 @@ export const HELD_ITEM_FRAMING = {
     offset: fromTorchGrip(-0.01, 0, 0),
     scale: 0.8
   },
-  hollowOverrideKey: { ...PHOTO_FRAMING, scale: 1 }
+  hollowOverrideKey: { ...PHOTO_FRAMING, scale: 1 },
+  // The study hide-and-seek: a book held by its spine, a bottle by the neck,
+  // the spare fuse like Level 2's.
+  studyBook: { ...PHOTO_FRAMING, scale: 1 },
+  studyGlass: {
+    pose: 'grip-cylinder',
+    anchorPose: 'hold-torch',
+    aim: [-0.1, 0.97, -0.2],
+    roll: 0,
+    offset: fromTorchGrip(0, -0.02, 0),
+    scale: 1
+  },
+  studyFuse: FUSE_FRAMING
 };
 
 /** For an id the table has no row for: the torch's spot, pointing up. */

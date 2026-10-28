@@ -9,6 +9,7 @@
     "build": "vite build",
     "check:maze": "node scripts/check-maze.mjs",
     "check:okabe": "node scripts/check-okabe.mjs",
+    "check:seeker": "node scripts/check-study-seeker.mjs",
     "check:audio": "node scripts/check-audio.mjs",
     "compress:assets": "node scripts/compress-assets.mjs",
     "check:assets": "node scripts/compress-assets.mjs --check",

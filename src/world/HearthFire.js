@@ -308,18 +308,35 @@ export function createHearthFire() {
   group.add(light);
 
   let time = 0;
+  // How much fire is left, 0 (cold grate) to 1 (as built). Eased toward its
+  // target so a blackout's gust visibly drowns it rather than switching it off.
+  let level = 1;
+  let targetLevel = 1;
   return {
     group,
     light,
+    /** The fire dying (0) or back (1). `instant` snaps it, for a restart. */
+    setLevel(value, { instant = false } = {}) {
+      targetLevel = THREE.MathUtils.clamp(Number.isFinite(value) ? value : 1, 0, 1);
+      if (instant) level = targetLevel;
+    },
+    get level() { return level; },
     update(dt) {
-      time += Math.min(Math.max(dt, 0), 0.05);
-      const flicker = 0.84 + 0.09 * Math.sin(time * 7.7) + 0.05 * Math.sin(time * 13.3 + 1.7)
-        + 0.04 * Math.sin(time * 29.1 + 0.4);
+      const step = Math.min(Math.max(dt, 0), 0.05);
+      time += step;
+      level += (targetLevel - level) * Math.min(1, step * 2.4);
+      // Only the meshes hide when it is out; the light stays and goes to 0.
+      flames.visible = sparks.visible = level > 0.02;
+      const flicker = level * (0.84 + 0.09 * Math.sin(time * 7.7) + 0.05 * Math.sin(time * 13.3 + 1.7)
+        + 0.04 * Math.sin(time * 29.1 + 0.4));
       uniforms.uTime.value = time;
       uniforms.uIntensity.value = flicker;
-      light.intensity = BASE_INTENSITY * (1+.04*Math.sin(time*.85)+.025*Math.sin(time*1.43+.7));
+      // Steady, not flickering with the flames: a slow sway -- and down with the
+      // fire when a blackout puts it out (setLevel).
+      light.intensity = BASE_INTENSITY * level * (1+.04*Math.sin(time*.85)+.025*Math.sin(time*1.43+.7));
 
-      logMaterial.emissiveIntensity = 0.75 + 0.45 * flicker;
+      // A dead fire keeps a faint ember glow in the cracks.
+      logMaterial.emissiveIntensity = 0.08 + level * 0.67 + 0.45 * flicker;
       backGlow.material.uniforms.uIntensity.value = backGlow.strength * flicker;
       hearthGlow.material.uniforms.uIntensity.value = hearthGlow.strength * flicker;
     }

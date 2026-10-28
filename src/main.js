@@ -30,7 +30,8 @@ import { ROOM_FLOORS } from './levels/annabelleRooms.js';
 import { DOORWAYS, drawMonsterStart, roomInteriors } from './levels/backroomsMaze.js';
 import { createUpstairsHallwayLevel } from './levels/upstairsHallwayLevel.js';
 import { createScreenFade, wait } from './core/ScreenFade.js';
-import { gameState, resetState, addItem, removeItem, ITEMS, HOTBAR_SLOTS, inventorySlots } from './core/GameState.js';
+import { gameState, resetState, addItem, removeItem, itemCount, canCarryMore, STACKS, ITEMS, HOTBAR_SLOTS, inventorySlots } from './core/GameState.js';
+import { createItemInspect } from './core/ItemInspect.js';
 import { createHeldItems } from './core/HeldItems.js';
 import { createLeftTorch } from './core/LeftTorch.js';
 import { createItemMeshes, ITEM_MESH_IDS } from './world/itemMeshes.js';
@@ -62,11 +63,14 @@ import { FreeCamera } from './core/FreeCamera.js';
 import { createScriptRunner } from './core/Script.js';
 import { createOkabeCreature } from './systems/OkabeCreature.js';
 import { createCreatureAI } from './systems/CreatureAI.js';
+import { createStudySeeker, STUDY_CATCH_RESPAWN } from './systems/StudySeeker.js';
+import { createAnnabelle } from './levels/annabelleFigure.js';
 import { createBackroomsHunter } from './systems/BackroomsHunter.js';
 import { createAudioDirector } from './systems/AudioDirector.js';
 import { createBackroomsBarks } from './systems/BackroomsBarks.js';
 import { createVisor } from './core/Visor.js';
 import { DOCUMENTS } from './story/lines.js';
+import { ITEM_NOTES } from './story/itemNotes.js';
 import { SESSION_TAPE_SUBTITLES, SESSION_TAPE_PLACEHOLDER_SOUNDS } from './story/sessionTape.js';
 import { line, linePicker } from './dialogue/index.js';
 import { installUnloadGuard } from './core/KeyboardGuard.js';
@@ -91,6 +95,20 @@ const loadingBarFill = document.getElementById('loading-bar-fill');
 const loadingHintEl = document.getElementById('loading-hint');
 const thirdPersonBtn = document.getElementById('third-person-toggle');
 const startScreen = document.getElementById('start-screen');
+/**
+ * The main menu's stills, one per level -- the bedroom, the basement lab, the
+ * study -- each held MENU_STILL_SECONDS and then crossfaded to the next (the
+ * fade is #menu-stills in style.css). Only while the menu is up.
+ */
+const MENU_STILL_SECONDS = 15;
+const menuStills = [...document.querySelectorAll('#menu-stills .menu-still')];
+let menuStillShown = 0;
+setInterval(() => {
+  if (menuStills.length < 2 || startScreen.classList.contains('hidden')) return;
+  menuStills[menuStillShown].classList.remove('is-shown');
+  menuStillShown = (menuStillShown + 1) % menuStills.length;
+  menuStills[menuStillShown].classList.add('is-shown');
+}, MENU_STILL_SECONDS * 1000);
 const mainMenu = document.getElementById('main-menu');
 const legacyStartControls = document.getElementById('legacy-start-controls');
 const menuMainActions = document.getElementById('menu-main-actions');
@@ -422,7 +440,8 @@ scene.environment = buildDimEnvironment(renderer);
 // always comes up with it. 0.5 buys most of the metal back while keeping the
 // rooms within the deliberately low exposure the levels were tuned to. Turn it
 // DOWN first if the mood ever feels lifted.
-scene.environmentIntensity = 0.5;
+const ENVIRONMENT_INTENSITY = 0.5;
+scene.environmentIntensity = ENVIRONMENT_INTENSITY;
 const worldRoot = new THREE.Group();
 scene.add(worldRoot);
 
@@ -450,6 +469,14 @@ const camera = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.
  * to the real one.
  */
 const thirdCam = new THREE.PerspectiveCamera(BASE_FOV, window.innerWidth / window.innerHeight, 0.05, 100);
+// The player's camera's layers (MAIN_ONLY is enabled on it below). Three
+// gathers a frame's LIGHTS by layer as well, and the candle pools and the
+// hearth light live on MAIN_ONLY: from a camera without it they were simply
+// not there, so every shader in view was rebuilt for the smaller set of lights
+// -- an 8-second freeze the first time T was pressed in the bedroom, two more
+// on the way back (measured 2026-10-28) -- and the flames, sconces and rain
+// were missing from the shot.
+thirdCam.layers.enable(MAIN_ONLY);
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -496,11 +523,13 @@ player.onLand = (landingSpeed) => {
 };
 
 // The opening restraint is a presentation beat, not a frozen cutscene: the
-// player can inspect the bedding and headboard but cannot turn toward the room.
+// player can look from one side of the bed to the other -- the chain and the
+// cuff on the right, which is where the lock is picked (bedroomLevel.js
+// cuffLockHitbox) -- and down the bed, but cannot turn round to the room.
 const BEDROOM_RESTRAINED_LOOK_BOUNDS = Object.freeze({
-  minYaw: -0.05,
-  maxYaw: 0.95,
-  minPitch: -0.95,
+  minYaw: -1.75,
+  maxYaw: 1.75,
+  minPitch: -1.1,
   maxPitch: 0.15
 });
 
@@ -756,6 +785,7 @@ function pickUpItem(id, { animate = true } = {}) {
   if (id === 'visor') visor.take();
   heldItems.take(id, { animate });
   refreshInventoryUI();
+  if (THROWN_ITEMS[id]) showControlTipOnce(`throw_${id}`, 'Left click', 'Throw it. She goes to look where it lands.');
 }
 
 /**
@@ -797,6 +827,10 @@ function refreshInventoryUI() {
     }
     slot.classList.toggle('filled', id !== '');
     slot.classList.toggle('selected', id !== '' && id === selected);
+    // A stack's count on its slot (style.css .hotbar-slot[data-count]).
+    const stack = id ? itemCount(id) : 0;
+    if (stack > 1) slot.dataset.count = String(stack);
+    else delete slot.dataset.count;
   });
 }
 // The empty bar, from the first frame.
@@ -888,6 +922,8 @@ const _dropProbe = new THREE.Vector3();
  * once dropped it is not carried, and picking it up deletes the entry.
  */
 const droppedItems = new Map();
+/** Numbers a stack copy's key in droppedItems ('studyBook#3'). */
+let droppedSerial = 0;
 
 /**
  * Q: lets go of whatever is in the hand.
@@ -897,6 +933,41 @@ const droppedItems = new Map();
  * movementEnabled, lookEnabled or the interaction gate is already off, plus the
  * flags that guard the beats that set those.
  */
+/**
+ * The hand once an item has gone to the floor: the next one of a stack is
+ * taken up (the books), and anything else is gone and the hand moves on.
+ */
+function afterRelease(id) {
+  if (gameState.inventory.has(id)) heldItems.take(id);
+  else heldItems.itemRemoved(id);
+  refreshInventoryUI();
+}
+
+/**
+ * I: the item in the hand, flat on the screen in the document reader -- the
+ * way the upstairs hall's framed pieces open (upstairsHallway's onInspect) --
+ * for everything the game has: its own model photographed from above
+ * (core/ItemInspect.js) and a line about it (story/itemNotes.js).
+ */
+const itemInspect = createItemInspect({ itemMeshes });
+function inspectHeldItem() {
+  if (player.cinematic || documentUI.isOpen || !interaction.enabled) return;
+  const id = heldItems.selected;
+  if (!id || !gameState.inventory.has(id)) {
+    showCaption(line('dialog_inspect_empty_hand'));
+    return;
+  }
+  const label = ITEMS[id]?.label ?? id;
+  const count = itemCount(id);
+  player.unlock();
+  documentUI.open({
+    title: count > 1 ? `${label} (${count})` : label,
+    body: ITEM_NOTES[id] ?? '',
+    image: itemInspect.picture(id),
+    variant: 'exhibit'
+  });
+}
+
 function dropHeldItem() {
   if (!player.movementEnabled || !player.lookEnabled || player.cinematic) return;
   if (transitionInFlight || caughtInFlight || endingInFlight || !interaction.enabled) return;
@@ -908,9 +979,89 @@ function dropHeldItem() {
     removeItem(releasedId);
     // V must not put on a visor that is lying on the floor.
     if (releasedId === 'visor') gameState.hasVisor = false;
-    heldItems.itemRemoved(releasedId);
-    refreshInventoryUI();
+    afterRelease(releasedId);
   });
+}
+
+/**
+ * THROWING, for the study hide-and-seek's lures (docs/LEVEL3_HIDE_AND_SEEK.md).
+ * Left click with a book or a bottle in hand throws it where the crosshair is,
+ * as far as THROW_REACH: the same placeDroppedItem() as Q, given a target, and
+ * the same DropPhysics, given a real launch. Where it LANDS is a noise, and
+ * the study's seeker goes to it -- see onThrownLanding(). Glass breaks there.
+ */
+const THROWN_ITEMS = {
+  studyBook: { radius: 6.5, shatter: false },
+  studyGlass: { radius: 14, shatter: true }
+};
+const THROW_REACH = 8;
+const _throwDir = new THREE.Vector3();
+const throwRay = new THREE.Raycaster();
+
+/** True if the held item was thrown (or is on its way out of the hand). */
+function throwHeldItem() {
+  if (!player.movementEnabled || !player.lookEnabled || player.cinematic) return false;
+  if (transitionInFlight || caughtInFlight || endingInFlight || !interaction.enabled) return false;
+  const id = heldItems.held;
+  const spec = THROWN_ITEMS[id];
+  const level = sceneManager.active;
+  if (!spec || !level || !itemMeshes.has(id)) return false;
+  camera.getWorldDirection(_throwDir);
+  throwRay.set(camera.position, _throwDir);
+  throwRay.far = THROW_REACH;
+  let landing = null;
+  for (const hit of throwRay.intersectObject(level.group, true)) {
+    if (isDropSurface(hit.object, level.group)) { landing = hit.point.clone(); break; }
+  }
+  landing ??= camera.position.clone().addScaledVector(_throwDir, THROW_REACH);
+  // Back off whatever it hit, so it falls in front of the wall rather than into it.
+  landing.addScaledVector(_throwDir, -0.3);
+  // The floor it comes down on is whatever is under that point, read off the
+  // geometry -- not groundAt(), which on the stair answers for whichever FLOOR
+  // the height it is given is nearer: a book thrown onto the treads was put on
+  // the boards under the stair, inside it, and never seen again (Kiran, 2026-10-28).
+  const floorY = surfaceBelow(level.group, landing.x, landing.z, landing.y + 0.3)
+    ?? (level.groundAt ? level.groundAt(landing.x, landing.z, landing.y) : DROP_FLOOR_Y);
+  heldItems.drop((releasedId) => {
+    if (!placeDroppedItem(releasedId, { throwTo: { x: landing.x, z: landing.z, floorY }, noise: spec })) return;
+    removeItem(releasedId);
+    afterRelease(releasedId);
+  });
+  return true;
+}
+
+const surfaceRay = new THREE.Raycaster();
+const _surfaceFrom = new THREE.Vector3();
+/**
+ * The first surface something falling would land on, straight down from
+ * (x, fromY, z) -- a stair tread, the loft, the boards, a table top -- or
+ * null if there is none.
+ */
+function surfaceBelow(levelGroup, x, z, fromY) {
+  surfaceRay.set(_surfaceFrom.set(x, fromY, z), DOWN);
+  surfaceRay.far = fromY - DROP_FLOOR_Y + 1;
+  for (const hit of surfaceRay.intersectObject(levelGroup, true)) {
+    if (isDropSurface(hit.object, levelGroup)) return hit.point.y;
+  }
+  return null;
+}
+
+/**
+ * Where a thrown item can come to rest: the target, or the nearest clear point
+ * back along the line toward the thrower. Against the colliders of the floor
+ * it lands on only -- the loft's shelves do not stop a book on the boards below.
+ */
+function findThrowSpot(target, px, pz, hx, hz, boxes) {
+  const dx = target.x - px, dz = target.z - pz;
+  const length = Math.hypot(dx, dz);
+  const floorBoxes = boxes.filter((box) => (box.minY === undefined || box.minY < target.floorY + 0.3)
+    && (box.maxY === undefined || box.maxY > target.floorY + 0.05));
+  for (let back = 0; back <= length; back += 0.15) {
+    const k = length > 0 ? (length - back) / length : 0;
+    const x = px + dx * k, z = pz + dz * k;
+    if (!footprintBlocked(x, z, hx, hz, floorBoxes)) return [x, z];
+  }
+  return null;
 }
 
 /** Does a box of half-size (hx, hz) centred on (x, z) overlap any collider? */
@@ -934,15 +1085,16 @@ function footprintBlocked(x, z, hx, hz, boxes) {
  * invisible interaction hitboxes (opacity 0), and other dropped props, so one
  * item is never balanced on another that could then be picked up from under it.
  */
-function dropSurfaceY(levelGroup, x, z, yaw, across, along) {
+function dropSurfaceY(levelGroup, x, z, yaw, across, along, base = DROP_FLOOR_Y) {
   const rx = Math.cos(yaw), rz = -Math.sin(yaw);
   const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
-  let top = DROP_FLOOR_Y;
+  // `base` is the floor under it: 0, or the study's loft for an item dropped up there.
+  let top = base;
   dropRay.far = DROP_SURFACE_PROBE_Y - DROP_FLOOR_Y + 0.01;
   for (const [sr, sf] of [[0, 0], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
     const ox = rx * sr * across + fx * sf * along;
     const oz = rz * sr * across + fz * sf * along;
-    dropRay.set(_dropProbe.set(x + ox, DROP_SURFACE_PROBE_Y, z + oz), DOWN);
+    dropRay.set(_dropProbe.set(x + ox, base + DROP_SURFACE_PROBE_Y, z + oz), DOWN);
     for (const hit of dropRay.intersectObject(levelGroup, true)) {
       if (hit.point.y <= top) break;
       if (isDropSurface(hit.object, levelGroup)) { top = hit.point.y; break; }
@@ -992,12 +1144,14 @@ function findDropSpot(px, pz, yaw, hx, hz, boxes) {
  * Parented to the LEVEL's group, so it hides with the room. Levels sit at the
  * world origin, so the player's world position is also the level-space one.
  */
-function placeDroppedItem(id) {
+function placeDroppedItem(id, { throwTo = null, noise = null } = {}) {
   // An item is in one place at a time: a stale floor copy of this id (one the
   // player was handed a fresh copy of) goes, rather than being orphaned by the
   // Map entry below -- left in the room with a prompt that does nothing, and
-  // out of reach of clearDroppedItems().
-  removeDroppedProp(id);
+  // out of reach of clearDroppedItems(). A stack's copies are each their own,
+  // under a key of their own: three books can lie about the room at once.
+  const key = STACKS[id] ? `${id}#${++droppedSerial}` : id;
+  if (key === id) removeDroppedProp(id);
   const level = sceneManager.active;
   const prop = level ? itemMeshes.build(id, 'world') : null;
   if (!prop) return false;
@@ -1026,13 +1180,19 @@ function placeDroppedItem(id) {
   // other). The holder is then shifted so the footprint is centred on the spot.
   holder.updateMatrixWorld(true);
   const bounds = new THREE.Box3().setFromObject(holder);
-  const [x, z] = findDropSpot(px, pz, yaw,
-    (bounds.max.x - bounds.min.x) / 2 + DROP_WALL_MARGIN,
-    (bounds.max.z - bounds.min.z) / 2 + DROP_WALL_MARGIN,
-    level.colliders ?? []);
+  const halfX = (bounds.max.x - bounds.min.x) / 2 + DROP_WALL_MARGIN;
+  const halfZ = (bounds.max.z - bounds.min.z) / 2 + DROP_WALL_MARGIN;
+  const thrownTo = throwTo ? findThrowSpot(throwTo, px, pz, halfX, halfZ, level.colliders ?? []) : null;
+  const [x, z] = thrownTo ?? findDropSpot(px, pz, yaw, halfX, halfZ, level.colliders ?? []);
+  // The floor it is over: the study's loft is a second one (its groundAt). A
+  // throw pulled back toward the thrower (findThrowSpot) may be over a lower
+  // tread than the one it was aimed at, so its floor is read again there.
+  const base = thrownTo
+    ? surfaceBelow(level.group, x, z, throwTo.floorY + 0.3) ?? throwTo.floorY
+    : (level.groundAt ? level.groundAt(x, z, player.groundY) : DROP_FLOOR_Y);
   // Probed before the holder is parented, so it can never find itself.
   const floorY = dropSurfaceY(level.group, x, z, yaw,
-    (own.max.x - own.min.x) / 2, (own.max.z - own.min.z) / 2);
+    (own.max.x - own.min.x) / 2, (own.max.z - own.min.z) / 2, base);
   holder.position.set(
     x - (bounds.min.x + bounds.max.x) / 2,
     floorY + DROP_FLOOR_LIFT - bounds.min.y,
@@ -1051,19 +1211,23 @@ function placeDroppedItem(id) {
   hitbox.position.copy(sphere.center);
   hitbox.userData.interact = {
     label: `Pick up ${ITEMS[id]?.name ?? id}`,
-    onInteract: () => pickUpDroppedItem(id)
+    onInteract: () => pickUpDroppedItem(key)
   };
   level.group.add(hitbox);
   // The level's own array, which Interaction holds by reference -- so the
   // prompt works the moment the item lands, with no setTargets() call.
   level.interactables.push(hitbox);
-  droppedItems.set(id, { levelKey: sceneManager.activeKey, level, holder, hitbox });
+  droppedItems.set(key, { id, levelKey: sceneManager.activeKey, level, holder, hitbox });
+  // A thrown lure: its landing is a noise (onThrownLanding).
+  if (thrownTo && noise) holder.userData.thrown = { id, key, ...noise };
   // Everything above decided where it ends up; now it falls there from the hand.
   camera.getWorldDirection(_dropRelease);
   _dropRelease.y = 0;
   _dropRelease.normalize().multiplyScalar(DROP_RELEASE_FORWARD_IN_METRES).add(camera.position);
   _dropRelease.y -= DROP_RELEASE_BELOW_EYE_IN_METRES;
-  dropPhysics.drop(holder, _dropRelease);
+  // A throw is lobbed: the further, the higher, so it reads as an arc.
+  const lift = thrownTo ? 2.2 + 0.35 * Math.hypot(x - px, z - pz) : undefined;
+  dropPhysics.drop(holder, _dropRelease, { lift });
   return true;
 }
 
@@ -1078,17 +1242,18 @@ const _dropRelease = new THREE.Vector3();
 const DROP_THUMP_MAX_LEVEL = 0.32;
 const DROP_THUMP_FULL_SPEED_IN_METRES_PER_SECOND = 4;
 const dropPhysics = createDropPhysics({
-  onImpact: (impactSpeed) => {
+  onImpact: (impactSpeed, holder, impactIndex) => {
+    if (impactIndex === 0 && holder?.userData.thrown) { onThrownLanding(holder); return; }
     const level = DROP_THUMP_MAX_LEVEL * Math.min(1, impactSpeed / DROP_THUMP_FULL_SPEED_IN_METRES_PER_SECOND);
     if (level > 0.02) audio.thump(level);
   }
 });
 
-/** Takes a dropped prop and its hitbox out of the world. Does not touch the inventory. */
-function removeDroppedProp(id) {
-  const entry = droppedItems.get(id);
+/** Takes a dropped prop (by its key: the id, or a stack copy's) and its hitbox out of the world. Does not touch the inventory. */
+function removeDroppedProp(key) {
+  const entry = droppedItems.get(key);
   if (!entry) return;
-  droppedItems.delete(id);
+  droppedItems.delete(key);
   entry.holder.removeFromParent();
   entry.hitbox.removeFromParent();
   const index = entry.level.interactables.indexOf(entry.hitbox);
@@ -1099,11 +1264,17 @@ function removeDroppedProp(id) {
   entry.hitbox.material.dispose();
 }
 
-function pickUpDroppedItem(id) {
+function pickUpDroppedItem(key) {
   // Interaction can stay latched on the hitbox for a frame after it goes.
-  if (!droppedItems.has(id)) return;
-  removeDroppedProp(id);
-  pickUpItem(id);
+  const entry = droppedItems.get(key);
+  if (!entry) return;
+  // A full stack leaves this one where it is.
+  if (!canCarryMore(entry.id)) {
+    if (entry.id === 'studyBook') showCaption(line('dialog_study_books_full'));
+    return;
+  }
+  removeDroppedProp(key);
+  pickUpItem(entry.id);
 }
 
 /**
@@ -1117,12 +1288,12 @@ function pickUpDroppedItem(id) {
  */
 function returnDroppedItems(keepKey) {
   let returned = null;
-  for (const [id, entry] of droppedItems) {
+  for (const [key, entry] of droppedItems) {
     if (entry.levelKey === keepKey) continue;
-    removeDroppedProp(id);
-    addItem(id);
-    if (id === 'visor') visor.take();
-    returned ??= id;
+    removeDroppedProp(key);
+    addItem(entry.id);
+    if (entry.id === 'visor') visor.take();
+    returned ??= entry.id;
   }
   if (!returned) return;
   // An empty hand gets the first of them back; a full one keeps what it has.
@@ -1178,6 +1349,29 @@ captions.onLineStart = (line) => {
 captions.isVoiced = (line) => line?.recorded || audio.hasVoice(line?.voice);
 function showCaption(text) {
   interaction.showCaption(text);
+}
+
+// ---------- control tips ----------
+/**
+ * A key, and what it does now, shown over the hotbar for a few seconds (#control-tip):
+ * sprinting, once Level 2 allows it; throwing, when a book or a bottle is first
+ * picked up. Each once a run -- gameState.tipsShown, which resetState() empties.
+ */
+const controlTipEl = document.getElementById('control-tip');
+let controlTipTimer = null;
+function showControlTip(key, text, seconds = 6) {
+  if (!controlTipEl) return;
+  const kbd = document.createElement('kbd');
+  kbd.textContent = key;
+  controlTipEl.replaceChildren(kbd, document.createTextNode(` ${text}`));
+  controlTipEl.classList.add('visible');
+  clearTimeout(controlTipTimer);
+  controlTipTimer = setTimeout(() => controlTipEl.classList.remove('visible'), seconds * 1000);
+}
+function showControlTipOnce(name, key, text, seconds) {
+  if (gameState.tipsShown.has(name)) return;
+  gameState.tipsShown.add(name);
+  showControlTip(key, text, seconds);
 }
 
 // ---------- levels ----------
@@ -1527,6 +1721,12 @@ freeCamera.camera.layers.enable(MAIN_ONLY);
 
 /** Shown by a cutscene that wants the player in its shot (showPlayerBody). Cleared at every hand-back. */
 let cutsceneBodyShown = false;
+/**
+ * Lent to a catch's jump scare (the study's dragged-by-the-ankle lays it on
+ * the boards under the lens): while it is, nothing here moves it or decides
+ * whether it shows -- the scare does both, and puts it back.
+ */
+let playerBodyBorrowed = false;
 
 /**
  * The view model -- hands, held item, dust motes -- is parented to the
@@ -1548,6 +1748,7 @@ function applyViewVisibility() {
   // inside the body's head, so third person must not leave it showing there.
   // The free camera, watching from outside, goes back to its own B.
   const sceneFilming = cutscene.isRunning && !freeCamera.isActive;
+  if (playerBodyBorrowed) return;
   playerBody.visible = sceneFilming
     ? cutsceneBodyShown
     : thirdPerson || (freeCamera.isActive && freeCamera.isPlayerBodyVisible);
@@ -1595,17 +1796,18 @@ const SCENES = {
    * the fall down the hallway stairs, and after being caught. Framed off their
    * spawn, so it ends on exactly the view play starts from.
    */
-  comeRound: ({ seconds } = {}) => {
+  comeRound: ({ seconds, lampAt = null } = {}) => {
     const yaw = player.yaw;
     const fx = -Math.sin(yaw);
     const fz = -Math.cos(yaw);
     const { x, z } = camera.position;
-    // The crossing hangs a fixture just in front of where it puts you down.
+    // The crossing hangs a fixture just in front of where it puts you down;
+    // the study passes its own light (the candle by Annabelle's chair).
     const lampY = (backrooms.refs.ceilingHeight ?? 2.35) - 0.1;
     return comeRound({
       spawn: { x, z, yaw },
       eyeHeight: player.eyeHeight,
-      lampAt: [x + fx * 0.4, lampY, z + fz * 0.4],
+      lampAt: lampAt ?? [x + fx * 0.4, lampY, z + fz * 0.4],
       baseFov: BASE_FOV,
       seconds
     });
@@ -1701,6 +1903,8 @@ function playCutscene(name, params) {
  */
 function updateThirdPerson(dt) {
   thirdAmount += ((thirdPerson ? 1 : 0) - thirdAmount) * (1 - Math.exp(-dt / TP_BLEND_TAU));
+  // A catch's scare has the body on the floor: leave it there until it hands it back.
+  if (playerBodyBorrowed) return;
 
   // The body tracks the player whether or not it is being drawn, so toggling
   // in never shows it catching up from wherever it was last seen.
@@ -1894,8 +2098,9 @@ const bedroom = createDeferredLevel(() => createBedroomLevel({
     // it is a loop, so nothing ever fires hands:clip-end for it), so being
     // freed is what stops it.
     hands.stop('right');
-    // The cuff opens and its chain drops off the bed frame.
-    sfx('chain_drop');
+    // No chain_drop here: that clip is a steady 2.4 s rattle at full level,
+    // which plays as a hiss ("psssshhh") rather than a chain falling (Kiran,
+    // 2026-10-28). The lockpick's own clicks are the cuff opening.
     // Used up, like the brass key and the crowbar: the clip stays in the
     // cuff's lock. Kept, it sat first in the hotbar for the whole run as a dead
     // wheel stop, and was what the hand fell back to when the bedroom key went
@@ -2927,8 +3132,13 @@ const study = createDeferredLevel(() => createStudyLevel({
     visor.take();
     pickUpItem('visor');
     objectiveEl.textContent = 'Put the visor on. [V]';
-
+    // The second strike: the hunt (the hide-and-seek block, below).
+    startStudyBlackout('hunt');
   },
+  // The first strike: the teaser blackout, as the crest's shadows lock.
+  onCrestSolved: () => startStudyBlackout('teaser'),
+  onEnterHideSpot: (spot) => enterStudyHideSpot(spot),
+  onBreakerThrown: (kind) => onStudyBreakerThrown(kind),
   onTakeDoorKey: () => {
     sfx('keys_pickup');
     pickUpItem('doorKey');
@@ -2939,6 +3149,8 @@ const study = createDeferredLevel(() => createStudyLevel({
   onResetLetter:()=>{annabelleLetterNarration.stop();documentUI.close({complete:false});},
   onReadLetter: ({ body, onFinished } = {}) => {
     if (!body || documentUI.isOpen || cutscene.isRunning) return;
+    // Not by moonlight, with her in the room: the letter waits for the power.
+    if (study.refs.blackout?.isOut) { showCaption(line('dialog_study_letter_dark')); return; }
     const letterLevel = sceneManager.active;
     player.clearKeys();
     player.unlock();
@@ -2968,6 +3180,7 @@ const study = createDeferredLevel(() => createStudyLevel({
   // hand-back. Both cameras follow the same routed first-person eye positions.
   onLookInMirror: async () => {
     if (cutscene.isRunning || !study.refs.puzzle.mirrorUnlocked) return Promise.resolve(false);
+    if (study.refs.blackout?.isOut) { showCaption(line('dialog_study_mirror_dark')); return Promise.resolve(false); }
     const refs = study.refs;
     const wasVisorWorn=gameState.visorWorn;
     visor.set(false);refs.syncRevealVisor?.();refs.initializeRevealVisor?.();
@@ -3046,7 +3259,10 @@ const study = createDeferredLevel(() => createStudyLevel({
 }), (level) => {
   installMirrorReflection(level.refs.mirror);
   const reflection=createStudyMirrorReflection({glass:level.refs.mirrorGlass,body:playerBody,hollow:creature,
-    getCamera:()=>cutscene.isRunning?cutscene.camera:thirdPerson?thirdCam:camera,
+    // Not during a catch: the reflection re-poses both figures for its own
+    // pass and puts them back with update(0), which wipes the pose the scare
+    // has them in. The glass holds its last picture until the scare is over.
+    getCamera:()=>jumpScareRunning?null:cutscene.isRunning?cutscene.camera:thirdPerson?thirdCam:camera,
     getActorPose:()=>({position:(cutscene.isRunning?cutscene.camera:camera).position,yaw:cutscene.isRunning?undefined:player.yaw,
       cinematic:cutscene.isRunning,heldItem:heldItems.held,leftHeldItem:leftTorch.carried?'flashlight':null,
       floorY:player.groundY+(cutscene.isRunning?0:player.jumpHeight),hasVisor:gameState.hasVisor}),
@@ -3057,6 +3273,10 @@ const study = createDeferredLevel(() => createStudyLevel({
   itemMeshes.setTemplate('archiveToken', level.refs.archiveToken);
   itemMeshes.setTemplate('archiveKey', level.refs.archiveKey);
   itemMeshes.setTemplate('hollowOverrideKey', level.refs.hollowOverrideKey);
+  // The hide-and-seek's book and spare fuse, once their models are in.
+  level.refs.hideAndSeekItemsReady.then((templates) => {
+    for (const [id, template] of Object.entries(templates)) itemMeshes.setTemplate(id, template);
+  }).catch(() => {});
 });
 sceneManager.register('study', study);
 
@@ -3862,6 +4082,461 @@ function onHunterCaught({ sprintContributed = false } = {}) {
 let jumpScareRunning = false;
 const jumpScare = createJumpScare({ camera, fade, postFX, audio, playScream: () => audioDirector.scream() });
 
+// ---------------------------------------------------------------------------
+// LEVEL 3 HIDE-AND-SEEK -- docs/LEVEL3_HIDE_AND_SEEK.md
+//
+// The storm takes the study's power twice (levels/studyBlackout.js): once as
+// the crest is solved -- the teaser -- and once as the visor comes out of the
+// archive -- the hunt. Annabelle uses the dark to find Mark and sedate him
+// (systems/StudySeeker.js says why that is still her keeping him in, not a
+// monster hunting him). The loft breaker brings the power back each time; the
+// second time its fuse has blown, and the spare is downstairs.
+//
+// This block owns the seeker, the wardrobe, the visor's glimpse of who she is,
+// a thrown lure's landing, and the catch. It runs on its own script runner so
+// a caption sequence elsewhere (script.run cancels whatever came before) can
+// never cut a blackout or a catch in half.
+// ---------------------------------------------------------------------------
+
+const STUDY_COME_ROUND_AT = STUDY_CATCH_RESPAWN;
+const STUDY_COME_ROUND_LAMP = STUDY_CATCH_RESPAWN.lamp;
+/** How long after he comes round before she is looking again. */
+const STUDY_RESUME_SECONDS = 4;
+/** The archive compartment, the noise that brings her up the stair in the hunt. */
+const STUDY_ARCHIVE_NOISE = { x: -5.4, z: -5.6 };
+const STUDY_WHISPERS = {
+  search: ['dialog_study_whisper_1', 'dialog_study_whisper_2', 'dialog_study_whisper_3', 'dialog_study_whisper_4', 'dialog_study_whisper_5'],
+  chase: ['dialog_study_whisper_chase_1', 'dialog_study_whisper_chase_2'],
+  'found-nothing': ['dialog_study_whisper_lost_1', 'dialog_study_whisper_lost_2']
+};
+
+const studyScript = createScriptRunner({ captions });
+let studySeeker = null;
+let studyStalk = null;
+/** The hide spot Mark is in (the wardrobe), or null. */
+let studyHidden = null;
+let studyHiddenAt = 0;
+let studyCaughtTimes = 0;
+/** The objective that was up before the lights went, to put back after. */
+let studyObjectiveBefore = '';
+/** A glass bottle's pieces, where it broke. Cleared with the hunt. */
+const studyShards = [];
+/** Who she really is, for the visor's glimpse: a second Annabelle, never the mirror's. */
+let studyTrueSelf = null;
+let studyTrueSelfLoaded = false;
+let studyGlimpseIn = 3;
+let studyGlimpseLeft = 0;
+const _studyLook = new THREE.Vector3();
+const _studyCreatureAt = new THREE.Vector3();
+const _studyLanding = new THREE.Vector3();
+
+function getStudySeeker() {
+  if (studySeeker) return studySeeker;
+  const refs = study.refs;
+  studySeeker = createStudySeeker({
+    creature,
+    getPlayer: () => {
+      camera.getWorldDirection(_studyLook);
+      return {
+        x: camera.position.x,
+        z: camera.position.z,
+        groundY: player.groundY,
+        eyeY: camera.position.y,
+        crouching: player.crouch > 0.5,
+        // player.sprint is a 0..1 blend (see the backrooms hunter's wiring).
+        sprinting: player.sprint > 0.5 && player.moving > 0.3,
+        walking: player.moving > 0.5,
+        torchOn: flashlightOn,
+        lookX: _studyLook.x,
+        lookZ: _studyLook.z,
+        hiddenIn: studyHidden
+      };
+    },
+    colliders: study.colliders,
+    // The curtains hide you without stopping you: sight, not collision.
+    sightOnly: refs.hideProps.cover.filter((box) => box.name.startsWith('curtain')),
+    hideSpots: refs.hideProps.hideSpots,
+    groundAt: study.groundAt,
+    loftY: study.loftY,
+    isLit: (x, y, z) => refs.blackout.isLit(x, y, z),
+    difficulty: () => currentDifficulty,
+    onCaught: (context) => onStudyCaught(context),
+    onWhisper: (kind) => studyWhisper(kind),
+    // Her opening the wardrobe, pulling back the curtain.
+    onCheckSpot: (spot) => spot.disturb?.(1),
+    onBreathing: (level) => { if (!endingInFlight && !gameState.endingChosen) audio.setBreathing(level); }
+  });
+  return studySeeker;
+}
+
+/** Her world position, for the stalk cue to follow: the figure's group carries the loft's height. */
+function studyCreaturePosition() {
+  return _studyCreatureAt.set(creature.position.x, creature.group.position.y, creature.position.z);
+}
+
+function startStudyStalk() {
+  audioDirector.endStalk(studyStalk, 0.3);
+  studyStalk = audioDirector.startStalk({ follow: studyCreaturePosition, linger: null });
+}
+
+function endStudyStalk() {
+  audioDirector.endStalk(studyStalk);
+  studyStalk = null;
+}
+
+function studyWhisper(kind) {
+  if (cutscene.isRunning || caughtInFlight || !study.refs.blackout.isOut) return;
+  const keys = STUDY_WHISPERS[kind] ?? STUDY_WHISPERS.search;
+  captions.play(line(keys[Math.floor(Math.random() * keys.length)]));
+}
+
+/**
+ * The storm's strike. 'teaser' after the crest; 'hunt' as the visor is taken.
+ * The state changes happen at once, so nothing can leave the room half dark;
+ * only the beats around them wait.
+ */
+function startStudyBlackout(kind) {
+  if (sceneManager.activeKey !== 'study') return;
+  const refs = study.refs;
+  const puzzle = refs.puzzle;
+  if (refs.blackout.isOut) return;
+  if (kind === 'teaser' && puzzle.blackoutStage !== 'none') return;
+  if (kind === 'hunt' && (puzzle.blackoutStage === 'hunt' || puzzle.blackoutStage === 'huntDone')) return;
+  puzzle.blackoutStage = kind;
+  studyObjectiveBefore = objectiveEl.textContent;
+  studyScript.run(async (s) => {
+    // The latch (or the compartment) first, then the strike: cause, then effect.
+    if (!await s.wait(kind === 'teaser' ? 1.4 : 1.0)) return;
+    s.do(() => {
+      refs.blackout.strike({ strength: 1.3 });
+      thunder();
+    });
+    if (!await s.wait(0.15)) return;
+    s.do(() => {
+      refs.blackout.setOut(true, { kind });
+      sfx('power_down');
+      objectiveEl.textContent = kind === 'teaser'
+        ? 'Hide. Get to the breaker on the loft.'
+        : 'Find the spare fuse downstairs. Get back to the breaker.';
+      captions.play(line(kind === 'teaser' ? 'dialog_study_blackout_teaser' : 'dialog_study_blackout_hunt'));
+    });
+    if (!await s.wait(kind === 'teaser' ? 3.2 : 2.4)) return;
+    s.do(() => {
+      const seeker = getStudySeeker();
+      if (kind === 'teaser') {
+        // In through the door Mark came in by.
+        audioDirector.door(new THREE.Vector3(7.9, 1, 4.8));
+        seeker.start({ mode: 'teaser', at: 'g_entry' });
+      } else {
+        // Up out of her corner, toward the sound of the archive.
+        seeker.start({ mode: 'hunt', at: 'g_hearth', investigate: { ...STUDY_ARCHIVE_NOISE, y: study.loftY } });
+      }
+      startStudyStalk();
+    });
+    if (!await s.wait(4)) return;
+    s.do(() => {
+      if (!refs.blackout.isOut || caughtInFlight) return;
+      captions.play(line(kind === 'teaser' ? 'dialog_study_breaker_thought' : 'dialog_study_fuse_thought'));
+    });
+  });
+}
+
+/** The loft breaker is thrown: the power is back, and she goes back into the dark. */
+function onStudyBreakerThrown(kind) {
+  const refs = study.refs;
+  refs.puzzle.blackoutStage = kind === 'hunt' ? 'huntDone' : 'teaserDone';
+  studySeeker?.withdraw();
+  endStudyStalk();
+  clearStudyShards();
+  objectiveEl.textContent = studyObjectiveBefore;
+  captions.play(line(kind === 'hunt' ? 'dialog_study_power_back_hunt' : 'dialog_study_power_back_teaser'));
+}
+
+// ---- the wardrobe
+function enterStudyHideSpot(spot) {
+  if (studyHidden || caughtInFlight || cutscene.isRunning || !player.movementEnabled) return;
+  studyHidden = spot;
+  studyHiddenAt = performance.now();
+  player.clearKeys();
+  player.movementEnabled = false;
+  interaction.setEnabled(false);
+  hands.setVisible(false);
+  player.groundY = spot.floorY;
+  player.spawn(spot.eye[0], spot.eye[2], spot.yaw, 0);
+  // A narrow look: out through the gap between the doors and no further.
+  player.setLookBounds({ minYaw: spot.yaw - 0.4, maxYaw: spot.yaw + 0.4, minPitch: -0.45, maxPitch: 0.3 });
+  // The doors part for him and close behind.
+  spot.disturb?.(0.4);
+  sfx('creak');
+  showCaption('[E] Step out');
+}
+
+function exitStudyHideSpot({ quiet = false } = {}) {
+  const spot = studyHidden;
+  if (!spot) return;
+  studyHidden = null;
+  player.setLookBounds(null);
+  player.spawn(spot.exitAt[0], spot.exitAt[1], player.yaw, player.pitch);
+  player.movementEnabled = true;
+  interaction.setEnabled(true);
+  hands.setVisible(true);
+  if (!quiet) {
+    spot.disturb?.(0.5);
+    sfx('creak');
+  }
+}
+
+// ---- a thrown lure lands
+function onThrownLanding(holder) {
+  const thrown = holder.userData.thrown;
+  delete holder.userData.thrown;
+  holder.getWorldPosition(_studyLanding);
+  const at = { x: _studyLanding.x, y: _studyLanding.y, z: _studyLanding.z };
+  if (thrown.shatter) {
+    audio.tapeSound('glass');
+    removeDroppedProp(thrown.key ?? thrown.id);
+    leaveStudyShards(at);
+  } else {
+    audio.thump(0.55);
+    // A book lands and its cover flops open (blender/study/build_books.py's hinge).
+    let cover = null;
+    holder.traverse((o) => { if (!cover && o.name.startsWith('FrontCover')) cover = o; });
+    if (cover) studyBookFlops.push({ cover, t: 0 });
+  }
+  if (sceneManager.activeKey === 'study' && study.isPrepared) {
+    studySeeker?.noise({ ...at, radius: thrown.radius });
+  }
+}
+
+/** Landed books whose covers are falling open: { cover, t }. */
+const studyBookFlops = [];
+/** How far a landed book's cover falls open (radians), and how quickly. */
+const BOOK_FLOP_ANGLE = 2.75;
+const BOOK_FLOP_SECONDS = 0.45;
+function updateStudyBookFlops(dt) {
+  for (let i = studyBookFlops.length - 1; i >= 0; i--) {
+    const flop = studyBookFlops[i];
+    flop.t = Math.min(BOOK_FLOP_SECONDS, flop.t + dt);
+    const k = flop.t / BOOK_FLOP_SECONDS;
+    // Falling, so it speeds up, with a little bounce as it lands open.
+    flop.cover.rotation.y = BOOK_FLOP_ANGLE * (k * k) - 0.12 * Math.sin(k * Math.PI) * k;
+    if (flop.t >= BOOK_FLOP_SECONDS) studyBookFlops.splice(i, 1);
+  }
+}
+
+/** The curtain Mark is behind, so stepping in or out sways it once. */
+let studyCurtainIn = null;
+function updateStudyCurtains() {
+  if (sceneManager.activeKey !== 'study' || !study.isPrepared || studyHidden) return;
+  const { x, z } = camera.position;
+  const inside = study.refs.hideProps.hideSpots.find((spot) => spot.kind === 'curtain'
+    && spot.contains(x, z, player.groundY)) ?? null;
+  if (inside !== studyCurtainIn) {
+    (inside ?? studyCurtainIn)?.disturb?.(0.6);
+    studyCurtainIn = inside;
+  }
+}
+
+const studyShardMaterial = new THREE.MeshStandardMaterial({ color: 0x2e5a3a, roughness: 0.15, metalness: 0.1 });
+const studyShardGeometry = new THREE.CircleGeometry(0.025, 3).rotateX(-Math.PI / 2);
+function leaveStudyShards(at) {
+  const level = sceneManager.active;
+  if (!level) return;
+  const floorY = level.groundAt ? level.groundAt(at.x, at.z, at.y) : 0;
+  for (let i = 0; i < 9; i++) {
+    const shard = new THREE.Mesh(studyShardGeometry, studyShardMaterial);
+    const r = Math.random() * 0.35, a = Math.random() * Math.PI * 2;
+    // 6 mm up and staggered, so no two shards share a plane with the boards or each other.
+    shard.position.set(at.x + Math.cos(a) * r, floorY + 0.006 + i * 0.0006, at.z + Math.sin(a) * r);
+    shard.rotation.y = Math.random() * Math.PI;
+    shard.scale.setScalar(0.6 + Math.random() * 0.9);
+    level.group.add(shard);
+    studyShards.push(shard);
+  }
+}
+function clearStudyShards() {
+  for (const shard of studyShards) shard.removeFromParent();
+  studyShards.length = 0;
+}
+
+// ---- the visor's glimpse of who she is
+/**
+ * With the visor on, the thing hunting him flickers -- a few frames every few
+ * seconds -- into a sixteen-year-old girl in a flannel shirt. Not long enough to
+ * be sure. The mirror (studyReveal) is where he sees it properly.
+ */
+function updateStudyTrueSelf(dt) {
+  const hunting = studySeeker && studySeeker.state !== 'stopped' && studySeeker.state !== 'caught'
+    && sceneManager.activeKey === 'study' && !jumpScareRunning;
+  if (!hunting || !gameState.visorWorn) {
+    if (studyTrueSelf) studyTrueSelf.root.visible = false;
+    if (hunting) creature.group.visible = creature.visible;
+    studyGlimpseLeft = 0;
+    return;
+  }
+  if (!studyTrueSelf) {
+    studyTrueSelf = createAnnabelle();
+    studyTrueSelf.root.visible = false;
+    studyTrueSelf.setCorrectedSight(true);
+    study.group.add(studyTrueSelf.root);
+    // Until her model is in, the glimpse would only hide the monster.
+    studyTrueSelf.ready.then(() => { studyTrueSelfLoaded = true; }, () => {});
+  }
+  studyGlimpseIn -= dt;
+  if (studyGlimpseIn <= 0 && studyGlimpseLeft <= 0) {
+    studyGlimpseLeft = 0.16 + Math.random() * 0.1;
+    studyGlimpseIn = 3.5 + Math.random() * 3;
+  }
+  const showing = studyGlimpseLeft > 0;
+  studyGlimpseLeft = Math.max(0, studyGlimpseLeft - dt);
+  // Two cuts inside the glimpse, not one smooth swap: the eye is not sure.
+  const her = showing && studyTrueSelfLoaded && Math.floor(studyGlimpseLeft / 0.05) % 3 !== 1;
+  studyTrueSelf.root.visible = her;
+  creature.group.visible = creature.visible && !her;
+  if (her) {
+    studyTrueSelf.root.position.set(creature.position.x, creature.group.position.y, creature.position.z);
+    // The monster's yaw looks down -Z at 0; her model faces +Z.
+    studyTrueSelf.root.rotation.y = creature.yaw + Math.PI;
+    studyTrueSelf.update(dt, camera.position);
+  }
+}
+
+// ---- the catch
+/**
+ * She has him. Never a kill (StudySeeker.js): one of the three study scares,
+ * at random and never the same twice running (core/jumpScares/), then he comes
+ * round by her chair, still in the dark, and after a few seconds she is
+ * looking again. Whatever he had done stays done.
+ */
+function onStudyCaught(context = null) {
+  if (caughtInFlight || transitionInFlight || endingInFlight || gameState.endingChosen || cutscene.isRunning) {
+    studySeeker?.release();
+    return;
+  }
+  caughtInFlight = true;
+  audioDirector.caught({ where: 'study' });
+  // A whisper still on screen must not sit over her face.
+  captions.cancel();
+  const kind = studySeeker?.mode ?? 'hunt';
+  // Found in the wardrobe: she has flung the doors wide, and they stay so through the scare.
+  const foundIn = context?.spot ?? null;
+  foundIn?.holdOpen?.(true);
+  studyScript.run(async (s) => {
+    const wasThirdPerson = thirdPerson;
+    try {
+      s.do(() => {
+        if (studyHidden) exitStudyHideSpot({ quiet: true });
+        player.clearKeys();
+        player.movementEnabled = false;
+        player.lookEnabled = false;
+        interaction.setEnabled(false);
+        studySeeker.stop();
+        endStudyStalk();
+        if (studyTrueSelf) studyTrueSelf.root.visible = false;
+        if (thirdPerson) setThirdPerson(false);
+        hands.setVisible(false);
+        player.cinematic = true;
+        jumpScareRunning = true;
+        // The figure on the floor he is standing on: the loft is 3.1 m up.
+        creature.group.position.y = player.groundY;
+        creature.group.visible = true;
+      });
+      const floorY = player.groundY;
+      // Mark's own body, for the scare that shows it: his leg in her hands.
+      playerBodyBorrowed = true;
+      await jumpScare.run({
+        creature,
+        body: playerBody,
+        isAlive: s.alive,
+        // A harness can name one (__game.onStudyCaught({ scare: 'dragged' })).
+        kind: context?.scare ?? 'random',
+        pool: 'study',
+        // Caught in the blackout: she is lit like the dark room, by the moon
+        // and the lightning, not by a bright lamp under the lens.
+        dark: study.refs.blackout.isOut ? { scale: 0.2, color: 0x8ea6d6 } : null,
+        colliders: study.colliders.filter((box) => (box.minY === undefined || floorY + 1.6 > box.minY)
+          && (box.maxY === undefined || floorY < box.maxY)),
+        onCue: (name) => {
+          if (name === 'whisper') captions.play(line('dialog_study_sleep_mark'));
+          if (name === 'lightning') study.refs.blackout.strike({ strength: 1.6 });
+        }
+      });
+      jumpScareRunning = false;
+      playerBodyBorrowed = false;
+      applyViewVisibility();
+      creature.group.position.y = 0;
+      if (!s.alive()) return;
+      if (!await s.wait(0.9)) return;
+      s.do(() => {
+        player.cinematic = false;
+        hands.setVisible(true);
+        if (wasThirdPerson) setThirdPerson(true);
+        // Down to the ground floor first: spawn() keeps the floor it is on.
+        player.groundY = 0;
+        player.spawn(STUDY_COME_ROUND_AT.x, STUDY_COME_ROUND_AT.z, STUDY_COME_ROUND_AT.yaw);
+      });
+      studyCaughtTimes++;
+      foundIn?.holdOpen?.(false);
+      await playCutscene('comeRound', {
+        seconds: studyCaughtTimes > 1 ? CAUGHT_COME_ROUND_AGAIN : CAUGHT_COME_ROUND,
+        lampAt: STUDY_COME_ROUND_LAMP
+      });
+      if (!s.alive()) return;
+      s.do(() => {
+        player.lookEnabled = true;
+        player.movementEnabled = true;
+        interaction.setEnabled(true);
+        captions.play(line(studyCaughtTimes > 1 ? 'dialog_study_come_round_again' : 'dialog_study_come_round'));
+      });
+      if (!await s.wait(STUDY_RESUME_SECONDS)) return;
+      s.do(() => {
+        if (!study.refs.blackout.isOut) return;
+        // From the far side of the room, so coming round is not caught again.
+        getStudySeeker().start({ mode: kind, at: kind === 'teaser' ? 'g_entry' : 'l_stairhead' });
+        startStudyStalk();
+      });
+    } finally {
+      caughtInFlight = false;
+      if (playerBodyBorrowed) {
+        playerBodyBorrowed = false;
+        applyViewVisibility();
+      }
+      if (jumpScareRunning || player.cinematic) {
+        jumpScareRunning = false;
+        player.cinematic = false;
+        hands.setVisible(true);
+      }
+    }
+  });
+}
+
+/** Everything the hide-and-seek holds, let go: a level change, a restart. */
+function stopStudyHideAndSeek() {
+  studyScript.cancel();
+  if (studyHidden) {
+    studyHidden = null;
+    player.setLookBounds(null);
+    player.movementEnabled = true;
+    interaction.setEnabled(true);
+    hands.setVisible(true);
+  }
+  studySeeker?.reset();
+  endStudyStalk();
+  clearStudyShards();
+  studyBookFlops.length = 0;
+  studyCurtainIn = null;
+  if (study.isPrepared) study.refs.hideProps?.wardrobe?.holdOpen(false);
+  if (studyTrueSelf) studyTrueSelf.root.visible = false;
+  creature.group.position.y = 0;
+  creature.group.visible = creature.visible;
+  // Left mid-blackout (a level key): the room comes back with its power on.
+  if (study.isPrepared && study.refs.blackout?.isOut) {
+    const puzzle = study.refs.puzzle;
+    study.refs.blackout.reset();
+    puzzle.blackoutStage = puzzle.blackoutStage === 'hunt' ? 'huntDone' : puzzle.blackoutStage === 'teaser' ? 'teaserDone' : puzzle.blackoutStage;
+  }
+}
+
 /**
  * Drops the player out of third person for a beat that has to be seen from
  * their own eyes, snapping rather than easing so it does not open on a swing.
@@ -4023,6 +4698,8 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   // Otherwise a second run flicks to camera two and nothing crosses it.
   cctvSeen.clear();
   creatureStanding = false;
+  // Before creatureAI.reset() hides the body: the study's seeker shares it.
+  stopStudyHideAndSeek();
   creatureAI.reset();
   resetBackroomsShadow();
   backroomsHunter.reset();
@@ -4309,6 +4986,7 @@ function resetGame() {
   pickCaughtLine.reset();
   pickRespawnLine.reset();
   caughtTimes = 0;
+  studyCaughtTimes = 0;
   sprintCatchLessonPlayed = false;
   sprintCatchReminderIndex = 0;
   sprintCatchNextAt = 0;
@@ -4377,7 +5055,7 @@ function debugOpenBedroomDoor({ carryThrough = true } = {}) {
  * Restart, credits and the level jumps are NOT here: each cancels the scene
  * properly, which is what they are for.
  */
-const KEYS_HELD_BY_CUTSCENES = new Set(['KeyF', 'KeyQ', 'KeyV', 'KeyT', 'KeyH', 'KeyG']);
+const KEYS_HELD_BY_CUTSCENES = new Set(['KeyF', 'KeyQ', 'KeyV', 'KeyT', 'KeyH', 'KeyG', 'KeyI']);
 
 window.addEventListener('keydown', (e) => {
   if (openingSequenceActive) return;
@@ -4396,6 +5074,16 @@ window.addEventListener('keydown', (e) => {
   // A cutscene owns the view and the hand, so nothing that acts through either
   // reaches the game until it hands back -- see KEYS_HELD_BY_CUTSCENES.
   if (cutscene.isRunning && KEYS_HELD_BY_CUTSCENES.has(e.code)) return;
+  if (e.code === 'KeyI' && !e.repeat) {
+    inspectHeldItem();
+    return;
+  }
+  // Out of the wardrobe. Not on the same press that put him in it: Interaction
+  // hears E first, so its own handler has just run.
+  if (studyHidden && e.code === 'KeyE' && !e.repeat && performance.now() - studyHiddenAt > 250) {
+    exitStudyHideSpot();
+    return;
+  }
   // Instant level previews remain available in demo and production builds.
   const levelShortcut = /^(?:Digit|Numpad)([1-4])$/.exec(e.code)?.[1]
     ?? (e.code === 'KeyL' ? '2' : null);
@@ -4485,6 +5173,13 @@ window.addEventListener('mousedown', (e) => {
   if (e.button !== 2 || !player.isLocked || freeCamera.isActive || newspaperView.isOpen) return;
   e.preventDefault();
   interaction.interact();
+});
+// ---------- left-click = throw ----------
+// A book or a bottle in hand goes where the crosshair is (throwHeldItem).
+// Anything else in hand ignores the left button, as it always has.
+window.addEventListener('mousedown', (e) => {
+  if (e.button !== 0 || !player.isLocked || freeCamera.isActive || newspaperView.isOpen) return;
+  if (throwHeldItem()) e.preventDefault();
 });
 // No browser right-click menu over the game itself.
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -4863,6 +5558,7 @@ const CREDIT_SECTIONS = [
       ['First-person hands', '"First Person hands rigged" by davidfischer, via Sketchfab. CC BY 4.0 (creativecommons.org/licenses/by/4.0). Modified: left arm removed, wrist re-aligned, re-rigged for this project.'],
       ['The creature and the player’s body', '"Okabe" MikuMikuDance model by mmddls (DeviantArt), of Rintaro Okabe from Steins;Gate (5pb. / Nitroplus), from an FBX conversion of it. Used under the uploader’s terms. Modified: merged materials, a monster shape key and new textures, reworked in Blender into the monster and the man it was.'],
       ['Annabelle', '"Casual NPC Woman | Free Low-Poly 3D Model" by Stan (Stas_SayHallo), via Sketchfab. CC BY 4.0 (creativecommons.org/licenses/by/4.0). Modified: teenage proportions, bag removed, worn clothing, mud and scratches; posed on the existing Mixamo rig.'],
+      ['The study’s Chesterfield and wine bottle', '"Sofa 02" by Kirill Sannikov and "Wine Bottles 01" by Jurita Burger and Rico Cilliers, from Poly Haven (polyhaven.com), CC0. Modified: rescaled, decimated, the glass made opaque.'],
       ['Photographed surfaces', 'Concrete, steel and tile materials from ambientCG (ambientcg.com), CC0. Rust and grunge overlays from Texture Labs (texturelabs.org).'],
       ['Generated images', 'The opening news photographs, the bedroom photographs, its wallpapers, plaster and floorboards, the claw-mark decals, the bed’s tapestry duvet, the pinboard and vanity textures, the observation map and the menu background were generated with ChatGPT image generation (OpenAI) and edited for the game.'],
       ['Everything else', 'The remaining models, the textures drawn in code and the rusted keys were made for this project by the team. The Blender scripts and sources are in the blender/ folder.']
@@ -5424,6 +6120,12 @@ if (import.meta.env.DEV) {
     stairsScare,
     // Every jump scare on demand: jumpScare.run({ creature: okabe, kind }).
     jumpScare,
+    // The study hide-and-seek (docs/LEVEL3_HIDE_AND_SEEK.md): its seeker, a
+    // blackout, a throw and a catch, without the puzzle chain or pointer lock.
+    get studySeeker() { return studySeeker; },
+    startStudyBlackout,
+    throwHeldItem,
+    onStudyCaught,
     stairsFall,
     backrooms,
     // Camera five normally needs the whole power chain and the CCTV desk.
@@ -6228,6 +6930,20 @@ function tick() {
     }
   }
   creatureAI.update(dt);
+  // The study's seeker owns the house figure while it is out; the catch's scare borrows it.
+  if (sceneManager.activeKey === 'study' && studySeeker && !jumpScareRunning) studySeeker.update(dt);
+  // The study's blackout takes the environment's fill down with its lights
+  // (studyBlackout.js BLACKOUT_FILL); everywhere else it is as tuned.
+  scene.environmentIntensity = ENVIRONMENT_INTENSITY
+    * (sceneManager.activeKey === 'study' ? (study.refs?.blackout?.fill ?? 1) : 1);
+  // Level 2 is where running is allowed (SPRINTLESS_LEVELS): say so, once,
+  // as soon as the player has the controls.
+  if (sceneManager.activeKey === 'hallwayBasement' && player.sprintEnabled && player.movementEnabled && !player.cinematic) {
+    showControlTipOnce('sprint', 'Shift', 'Hold to sprint. You can run now.');
+  }
+  updateStudyTrueSelf(dt);
+  updateStudyBookFlops(dt);
+  updateStudyCurtains();
   if (sceneManager.activeKey === 'backrooms') {
     // Never both: one rig, and the hunter owns it outright while it is running.
     // The scare borrows the same figure: leave it alone while that runs.

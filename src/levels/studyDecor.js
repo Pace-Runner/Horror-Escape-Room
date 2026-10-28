@@ -281,7 +281,8 @@ export function createStudyDecor({ woodMaterial, brassMaterial, candles = null }
       [-6.84, loft, back, 0, 1.9],            // between the loft bookcase (x -7.46) and the memory archive (-6.22)
       [-3.74, loft, back, 0, 2.2],            // between the memory archive (-4.58) and the gallery bookcase (-2.955)
       [3.14, loft, back, 0, 2.7],             // between the gallery bookcase (2.755) and the restricted archive (3.58)
-      [5.86, loft, back, 0, 1.9],             // between the restricted archive (5.22) and the landing
+      // (None at 5.86, between the restricted archive and the landing: it sat
+      // right over the loft breaker, studyBlackout.js -- Kiran, 2026-10-28.)
       // Loft, right wall, where the stair arrives.
       [right, loft, -2.65, -Math.PI / 2, 2.0]  // past the loft bookcase (ends -3.345), 0.8 m from the stair head
     ]) {

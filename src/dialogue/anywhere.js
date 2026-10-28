@@ -17,3 +17,7 @@ export const dialog_wrong_code_2 = ["\"Maybe there is a clue around the room.\""
 export const dialog_wrong_code_3 = ["\"This isn't right.\"", "all/wrong_code_3.m4a"];
 export const dialog_wrong_code_4 = ["\"I am missing something.\"", "all/wrong_code_4.m4a"];
 export const dialog_wrong_code_5 = ["\"I need some sort of hint for this puzzle.\"", "all/wrong_code_5.m4a"];
+
+// ---- I with nothing in the hand ----------------------------------------------
+
+export const dialog_inspect_empty_hand = ["I'm not holding anything.", "all/inspect_empty_hand.m4a"];

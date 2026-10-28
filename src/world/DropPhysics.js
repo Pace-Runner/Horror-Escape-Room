@@ -56,15 +56,19 @@ const _axis = new THREE.Vector3();
  * Plans one fall: every flight's duration and vertical launch speed, and the
  * horizontal speed that makes the whole sequence end on the target.
  *
- * @param {number} dropHeightInMetres - release height above the rest height (>= 0).
+ * @param {number} dropHeightInMetres - release height above the rest height. Negative
+ *   for a throw UP onto something higher than the hand (the study's loft).
  * @param {number} horizontalDistanceInMetres - from release to rest, across the floor.
+ * @param {number} [liftInMetresPerSecond] - the release's upward speed: a toss
+ *   by default, more for a throw. Raised if it could not reach a higher rest.
  * @returns {{ flights: { seconds: number, launchSpeed: number, horizontalShare: number }[], horizontalSpeed: number }}
  */
-function planFall(dropHeightInMetres, horizontalDistanceInMetres) {
+function planFall(dropHeightInMetres, horizontalDistanceInMetres, liftInMetresPerSecond = RELEASE_LIFT_IN_METRES_PER_SECOND) {
   const g = GRAVITY_IN_METRES_PER_SECOND_SQUARED;
-  const lift = RELEASE_LIFT_IN_METRES_PER_SECOND;
-  // First flight: solve y0 + lift t - g t^2 / 2 = 0 for the positive root.
-  const firstSeconds = (lift + Math.sqrt(lift * lift + 2 * g * Math.max(0, dropHeightInMetres))) / g;
+  const climb = Math.max(0, -dropHeightInMetres);
+  const lift = Math.max(liftInMetresPerSecond, climb > 0 ? Math.sqrt(2 * g * climb) + 0.6 : 0);
+  // First flight: solve y0 + lift t - g t^2 / 2 = 0 for the later (falling) root.
+  const firstSeconds = (lift + Math.sqrt(lift * lift + 2 * g * dropHeightInMetres)) / g;
   const flights = [{ seconds: firstSeconds, launchSpeed: lift, horizontalShare: 1 }];
   let impactSpeed = g * firstSeconds - lift;
   let share = 1;
@@ -82,9 +86,10 @@ function planFall(dropHeightInMetres, horizontalDistanceInMetres) {
 
 /**
  * @param {object} [options]
- * @param {(impactSpeedInMetresPerSecond: number) => void} [options.onImpact] - each time it hits the floor.
+ * @param {(impactSpeedInMetresPerSecond: number, holder: THREE.Object3D, impactIndex: number) => void} [options.onImpact]
+ *   - each time it hits the floor; `impactIndex` 0 is the landing, then each bounce.
  * @returns {{
- *   drop: (holder: THREE.Object3D, releaseWorldPosition: THREE.Vector3) => void,
+ *   drop: (holder: THREE.Object3D, releaseWorldPosition: THREE.Vector3, options?: { lift?: number }) => void,
  *   update: (dtInSeconds: number) => void,
  *   isFalling: (holder: THREE.Object3D) => boolean,
  *   clear: () => void
@@ -104,7 +109,8 @@ export function createDropPhysics({ onImpact = () => {} } = {}) {
     const along = record.distance > 0 ? travelled / record.distance : 1;
     record.holder.position.set(
       record.start.x + (record.rest.x - record.start.x) * along,
-      record.rest.y + Math.max(0, height),
+      // A throw up to a higher floor starts BELOW its rest: only the bounces clamp.
+      record.rest.y + (record.flightIndex === 0 ? height : Math.max(0, height)),
       record.start.z + (record.rest.z - record.start.z) * along
     );
     // Energy left, 1 at release to 0 on the last landing: how far from rest the pose still is.
@@ -120,21 +126,23 @@ export function createDropPhysics({ onImpact = () => {} } = {}) {
   return {
     /**
      * Starts `holder` falling from `releaseWorldPosition` to where it already
-     * is. Call AFTER the caller has placed it at its resting spot.
+     * is. Call AFTER the caller has placed it at its resting spot. `lift` is
+     * the release's upward speed: leave it for a drop, raise it for a throw.
      */
-    drop(holder, releaseWorldPosition) {
+    drop(holder, releaseWorldPosition, { lift = RELEASE_LIFT_IN_METRES_PER_SECOND } = {}) {
       const rest = holder.position.clone();
       const start = releaseWorldPosition.clone();
       if (holder.parent) holder.parent.worldToLocal(start);
       const distance = Math.hypot(rest.x - start.x, rest.z - start.z);
-      const dropHeight = Math.max(0, start.y - rest.y);
+      // Signed, for a throw up onto a higher floor; a drop is always >= 0 here.
+      const dropHeight = lift > RELEASE_LIFT_IN_METRES_PER_SECOND ? start.y - rest.y : Math.max(0, start.y - rest.y);
       _restQuaternion.copy(holder.quaternion);
       // A random tumble axis, roughly horizontal, so it rolls rather than twirls.
       const tiltAxis = new THREE.Vector3(Math.random() - 0.5, 0.2, Math.random() - 0.5).normalize();
       falling.push({
         holder, start, rest, distance, dropHeight, tiltAxis,
         restQuaternion: _restQuaternion.clone(),
-        plan: planFall(dropHeight, distance),
+        plan: planFall(dropHeight, distance, lift),
         flightIndex: 0, elapsed: 0, travelledBefore: 0, secondsBefore: 0
       });
       applyFlight(falling[falling.length - 1]);
@@ -151,7 +159,7 @@ export function createDropPhysics({ onImpact = () => {} } = {}) {
         while (record.elapsed >= flight.seconds) {
           const g = GRAVITY_IN_METRES_PER_SECOND_SQUARED;
           const impactSpeed = g * flight.seconds - flight.launchSpeed;
-          onImpact(impactSpeed);
+          onImpact(impactSpeed, record.holder, record.flightIndex);
           record.elapsed -= flight.seconds;
           record.secondsBefore += flight.seconds;
           record.travelledBefore += record.plan.horizontalSpeed * flight.horizontalShare * flight.seconds;

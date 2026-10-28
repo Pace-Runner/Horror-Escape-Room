@@ -188,12 +188,17 @@ export function createHallwayBlinks({
       creature.setPosition(x, z);
       creature.setYaw(Math.atan2(-(eye.x - x), -(eye.z - z)));
     }
+    // Gone completely while the lights are out -- not a dark shape with eyes
+    // in it moving up the hall (Kiran, 2026-10-28). It is moved in the dark and
+    // only shown again with the light, where it now stands.
+    creature.visible = false;
     cocked = !!b.cocked;
     if (b.steps) audio.footsteps({ count: b.steps, spacing: STEP_SPACING_SECONDS, pan: 0, level: STEP_LEVEL + STEP_LEVEL_RISE * index });
     // In the dark the head finds where it will be, so the light comes back on it.
     const turn = turnTo(aimAt(x, AIM_HEIGHT_METRES, z));
     if (!await animate(b.darkSeconds, isAlive, (t, elapsed) => { sputter(elapsed); turn(t); })) return false;
     lightsOn();
+    creature.visible = true;
     return animate(b.litSeconds, isAlive);
   }
 

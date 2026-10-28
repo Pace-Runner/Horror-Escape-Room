@@ -143,6 +143,10 @@ export const HINTS = {
   "l3_restricted": ["The archive itself doesn't contain the whole answer.", "Look around the room for matching markers or symbols.", "Read the restricted records in order: CONSENT -> PROCEDURE -> OUTCOME."],
   "l3_visor": ["The visor changes more than the way the room looks.", "Compare the same objects with the visor on and off.", "Trust what is visible through the visor. It is correcting Mark's distorted perception."],
   "l3_trail": ["There is something on the floor worth following.", "The trail becomes clearer when viewed through the visor.", "Turn the visor on and follow the corrected trail upstairs to its destination."],
+  "l3_breaker": ["The power went somewhere. Somewhere you can bring it back.", "There is a breaker on the loft's back wall, by the one candle still burning.", "Get up the stair to the breaker by the lit candle on the loft and throw it. Crouch: she cannot hear you crouched."],
+  "l3_fuse": ["The breaker will not take without a fuse.", "Spare fuses were kept downstairs, in a tin.", "The tin is on the floor by the right-hand end of the desk. Take the fuse back up to the breaker."],
+  "l3_hide": ["She cannot find what she cannot see.", "Crouch behind the furniture, or get into the wardrobe, or behind a curtain.", "Crouch-walking is silent. In the dark she only sees you close up, or if you are lit -- the torch, a candle, the lightning."],
+  "l3_throw": ["She goes to sounds, not to you.", "Pick up a book or a bottle and left-click to throw it.", "Throw a book (quiet) or a bottle (loud) away from where you want to go, then move while she checks it."],
   "l3_letter": ["There is one record left that Mark has not confronted.", "Annabelle's letter explains why she stayed.", "Read Annabelle's letter. Its final instruction tells Mark exactly what to do next."],
   "l3_choice": ["The Override Keycard can only be committed once. Check the Emergency Release and Manual Reseal controls."]
 };
