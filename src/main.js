@@ -5,6 +5,8 @@ import { buildStudyReleaseEnding, RELEASE_TIMING } from './cutscenes/studyReleas
 import { buildStudyResealEnding, RESEAL_TIMING } from './cutscenes/studyResealEnding.js';
 import { createEndingBodyPresentation } from './cutscenes/endingBodyPresentation.js';
 import { createReleaseEndingScreen } from './core/ReleaseEndingScreen.js';
+import {createEndingCinema} from './core/EndingCinema.js';
+import '@fontsource/playfair-display/latin-400.css';
 import { createMarkThoughts } from './systems/MarkThoughts.js';
 import { createSessionTapeFocus } from './cutscenes/session14.js';
 import * as THREE from 'three';
@@ -527,8 +529,9 @@ player.onLand = (landingSpeed) => {
 // cuff on the right, which is where the lock is picked (bedroomLevel.js
 // cuffLockHitbox) -- and down the bed, but cannot turn round to the room.
 const BEDROOM_RESTRAINED_LOOK_BOUNDS = Object.freeze({
-  minYaw: -1.75,
-  maxYaw: 1.75,
+  // Keep the real cuff (~-1.30 rad) reachable without turning behind the bed.
+  minYaw: -1.4,
+  maxYaw: 0.95,
   minPitch: -1.1,
   maxPitch: 0.15
 });
@@ -4673,7 +4676,6 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   creatureStalkToken = null;
   labCreatureExit = null;
   const isBedroomRestraintActive = key === 'bedroom' && !level.refs.puzzleState.chainsEscaped;
-  player.setLookBounds(isBedroomRestraintActive ? BEDROOM_RESTRAINED_LOOK_BOUNDS : null);
   interaction.setTargets(level.interactables);
   // Again per level: GLB props stream in after the boot-time pass, and any flat
   // decal among them should get the same single-pass draw.
@@ -4731,6 +4733,8 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   if (key === 'bedroom') audio.setBreathing(LEVEL_ONE_BREATHING_BASE);
   if (key === 'hallwayBasement') audio.setBreathing(LEVEL_TWO_BREATHING.base);
   player.movementEnabled = !lockMovement;
+  // Apply after old-room cleanup: leaving a study hiding spot clears its bounds.
+  player.setLookBounds(isBedroomRestraintActive ? BEDROOM_RESTRAINED_LOOK_BOUNDS : null);
   player.sprintEnabled = !SPRINTLESS_LEVELS.has(key);
   // postFX.reset() above zeroes the visor dial, and the level just activated has
   // never been told what the player can see. Without this, walking into a room
@@ -5281,6 +5285,7 @@ const resealEndingScreen=createReleaseEndingScreen({root:document.getElementById
   onMenu:()=>{fade.clear();showMainMenu();},
   onCredits:()=>{buildCredits();toggleCredits(true);}
 });
+const endingCinema=createEndingCinema({root:document.getElementById('ending-cinema'),teamSource:document.querySelector('#credits-panel .credits-team')});
 window.addEventListener('study:reseal-chosen',()=>{void startStudyResealEnding();});
 
 
@@ -5304,7 +5309,7 @@ async function startStudyReleaseEnding(){
     const ending=buildStudyReleaseEnding({camera,player,refs:study.refs,visor,fade,timing:endingAudio.timing,
       stopChatter(){markThoughts.clear();captions.cancel();audio.stopVoice();},
       // The bounded audio timeline replaces the old independent one-shots/loops.
-      updateAudio:t=>endingAudio.update(t),stopAudio:()=>endingAudio.dispose(),
+      updateAudio:t=>{endingAudio.update(t);endingCinema.update(t,endingAudio.timing);},stopAudio:()=>endingAudio.dispose(),
       showIdentity:(identity,pose)=>{
         bodyPresentation.show(identity,pose);
         document.getElementById('ending-glitch').style.opacity=String(pose?.glitch??0);
@@ -5318,6 +5323,7 @@ async function startStudyReleaseEnding(){
         if(distort)document.getElementById('ending-glitch').style.opacity='.4';
       }
     });
+    ending.advanceTime=(t,dt)=>endingAudio.advanceTime(t,dt);
     const done=await cutscene.playScene(ending);
     if(!done||token!==releaseEndingGeneration||gameState.endingChosen!=='released')return false;
     interaction.setEnabled(false);player.movementEnabled=false;player.lookEnabled=false;
@@ -5326,6 +5332,7 @@ async function startStudyReleaseEnding(){
     releaseEndingScreen.show();if(player.isLocked)player.unlock();fade.clear();
     return true;
   }finally{
+    endingCinema.hide();
     endingAudio.dispose();if(activeEndingAudio===endingAudio)activeEndingAudio=null;
     canvas.style.filter=endingCanvasStyle.filter;canvas.style.transform=endingCanvasStyle.transform;
     document.getElementById('ending-claw-scratch').style.opacity='0';
@@ -5347,6 +5354,7 @@ async function startStudyResealEnding(){
   const bodyPresentation=createEndingBodyPresentation({human:playerBody,hollow:creature,visorTemplate:study.refs.visorGroup,setBodyShown:on=>{cutsceneBodyShown=on;}});
   const endingAudio=createStudyEndingAudio(audio,{branch:'reseal',timing:RESEAL_TIMING,urls:endingAudioUrls,captions,onDialogueActive:on=>document.body.classList.toggle('ending-dialogue',on),cancelThoughts(){markThoughts.clear();captions.cancel();}});
   activeEndingAudio=endingAudio;
+  const endingFaceLight=new THREE.PointLight(0xaab9d2,0,3.8,2);worldRoot.add(endingFaceLight);
   let contactSeen=false,contactEffectFrames=0;
   const endingCanvasStyle={filter:canvas.style.filter,transform:canvas.style.transform};
   try{
@@ -5354,11 +5362,16 @@ async function startStudyResealEnding(){
     if(token!==resealEndingGeneration||sceneManager.activeKey!=='study'||gameState.endingChosen!=='contained')return false;
     const ending=buildStudyResealEnding({camera,player,refs:study.refs,visor,fade,timing:endingAudio.timing,
       stopChatter(){markThoughts.clear();captions.cancel();audio.stopVoice();},
-      updateAudio:t=>endingAudio.update(t),stopAudio:()=>endingAudio.dispose(),
+      updateAudio:t=>{endingAudio.update(t);endingCinema.update(t,endingAudio.timing);},stopAudio:()=>endingAudio.dispose(),
       muffleNight(progress=1){endingAudio.setAmbienceBase(-5*progress);audio.setMuffle(.24*Math.min(1,progress),1.2);},
       restoreNight(){audio.duck(['amb'],0,{attack:.4,hold:0,release:0});audio.setMuffle(0,.4);},
       showIdentity:(identity,pose)=>{
         bodyPresentation.show(identity,pose);
+        endingFaceLight.intensity=identity?1.1*(pose.containedPerformance?.notice??0):0;
+        if(identity){
+          const eyes=creature.getEyePosition(new THREE.Vector3());
+          endingFaceLight.position.copy(eyes).lerp(new THREE.Vector3(...pose.position),.28);endingFaceLight.position.y+=.45;
+        }
         document.getElementById('ending-glitch').style.opacity=String(pose?.glitch??0);
         const scratch=document.getElementById('ending-claw-scratch');
         scratch.style.opacity=pose?.scratch>0?'1':'0';
@@ -5367,9 +5380,10 @@ async function startStudyResealEnding(){
         if(pose?.contactHit&&!contactSeen){contactSeen=true;contactEffectFrames=2;}
         const distort=contactEffectFrames>0;if(distort)contactEffectFrames--;
         canvas.style.transform=distort?'translate(2px,-1px) skewX(.6deg)':endingCanvasStyle.transform;
-        if(distort)document.getElementById('ending-glitch').style.opacity='.4';
+
       }
     });
+    ending.advanceTime=(t,dt)=>endingAudio.advanceTime(t,dt);
     const done=await cutscene.playScene(ending);
     if(!done||token!==resealEndingGeneration||gameState.endingChosen!=='contained')return false;
     interaction.setEnabled(false);player.movementEnabled=false;player.lookEnabled=false;
@@ -5378,6 +5392,8 @@ async function startStudyResealEnding(){
     resealEndingScreen.show();if(player.isLocked)player.unlock();fade.clear();
     return true;
   }finally{
+    endingCinema.hide();
+    endingFaceLight.removeFromParent();endingFaceLight.dispose();
     endingAudio.dispose();if(activeEndingAudio===endingAudio)activeEndingAudio=null;
     canvas.style.filter=endingCanvasStyle.filter;canvas.style.transform=endingCanvasStyle.transform;
     document.getElementById('ending-glitch').style.opacity='0';
@@ -5579,6 +5595,7 @@ const CREDIT_SECTIONS = [
       ['Annabelle singing', '"Daisy Bell But I Made It Even More Unsettling" by LARA\'S HORROR SOUNDS (YouTube). CC BY (creativecommons.org/licenses/by/3.0). Trimmed, mono, filtered in game.'],
       ['Hunter footsteps', '"CREEPY FOOTSTEPS (& RUNNING), HORROR SOUND EFFECT" by DARKLIT STUDIO (YouTube). CC BY.'],
       ['CRT static', '"TV STATIC (4K 60FPS)" by The Fowl Owl (YouTube). CC BY.'],
+      ['Ending creature and cinematic sound', 'Mixkit Sound Effects Free License (mixkit.co/license/modal/sfxFree/). Edited excerpts: Terrifying Creature Breath, Monster calm growl, Aggressive beast roar, Sword blade swish, Swift Sword Strike, Sword cutting flesh, Cinematic suspense ambience and Cinematic suspense swell.'],
       ['Monster breathing', '"Scary Sound Effect #3" by Best Sound Effects (YouTube), using "Cthulhu growl" by cyclon8472 from freesound.org. Creative Commons 4.0 according to the upload.'],
       ['Breathing', '"Sound Effect - Man Freezing Breathing" by FUNBOON (YouTube). Licence not stated.'],
       ['Distant laughter', '"Evil Laughing Woman Sound - Woman Laugh Sound Effect | Ver. 1" by Distorted Room (YouTube). The author asks for approval before use.'],

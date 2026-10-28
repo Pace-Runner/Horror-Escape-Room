@@ -2504,6 +2504,7 @@ export function createStudyLevel({
         annabelleFigure.setEndingSeated(w);annabelleFigure.setLocomotion(0,0);
       },
       setResealReaction(point,weight){annabelleFigure.setAttention(point,weight);},
+      getEndingFocus(){return annabelleFigure.getPoseAnchors().head??annabelle.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(0,.98,0));},
       setResealResignation(weight){annabelleFigure.setEndingResignation(weight);},
       setReleaseBarsProgress(progress){
         if(puzzle.endingChoice==='RELEASE')setContainmentBars(progress);

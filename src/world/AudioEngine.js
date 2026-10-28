@@ -63,6 +63,10 @@ const MARK_VOICE_FILES=import.meta.glob('../assets/audio/Dont Let it out Mark vo
 for(const [path,url] of Object.entries(MARK_VOICE_FILES)){
   VOICE_URLS['mark/'+path.split('Dont Let it out Mark voice/')[1]]=url;
 }
+const ENDING_NEWS_FILES=import.meta.glob('../assets/audio/l3_news_*.mp3',{
+  query:'?url',import:'default',eager:true
+});
+for(const [path,url] of Object.entries(ENDING_NEWS_FILES))VOICE_URLS[path.split('/').pop()]=url;
 
 /**
  * The same key a dialogue file wrote, however it was written: tolerant of a
@@ -892,8 +896,9 @@ export class AudioEngine {
   #startVoice(buffer,options={}) {
     if(!this.ctx||!this.voiceGain)return;
     const ctx=this.ctx,src=ctx.createBufferSource(),fade=ctx.createGain();
+    const startAt=Math.max(ctx.currentTime,options.startAt??ctx.currentTime);
     src.buffer=buffer;fade.gain.setValueAtTime(0,ctx.currentTime);
-    fade.gain.linearRampToValueAtTime(1,ctx.currentTime+.05);
+    fade.gain.setValueAtTime(0,startAt);fade.gain.linearRampToValueAtTime(1,startAt+.05);
     src.connect(fade).connect(this.voiceGain);src.__fade=fade;
     src.__onInterrupted=options.onInterrupted;
     src.onended=()=>{
@@ -901,7 +906,7 @@ export class AudioEngine {
       if(this.voiceSource===src)this.voiceSource=null;
       if(!src.__interrupted)options.onEnded?.();
     };
-    this.voiceSource=src;src.start();options.onStarted?.(buffer,src);
+    this.voiceSource=src;src.start(startAt);options.onStarted?.(buffer,src);
   }
 
   #noiseBuffer(seconds = 2) {

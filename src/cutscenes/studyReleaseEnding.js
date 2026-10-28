@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import {createEndingTiming} from './studyEndingDialogue.js';
 import {endingTransformation} from './endingTransformation.js';
 import {sampleEndingAttack} from './endingAttackShot.js';
+import {sampleEndingCatchPerformance} from './containedEndingPerformance.js';
 
 export const RELEASE_TIMING=createEndingTiming('release');
 const ease=u=>THREE.MathUtils.smoothstep(u,0,1);
@@ -24,11 +25,16 @@ export function buildStudyReleaseEnding({camera,player,refs,visor,fade,stopChatt
     const q=initial.clone().slerp(annabelleLook,ease((t-T.look)/T.lookDuration));
     q.slerp(exitLook,ease((t-T.turn)/T.turnDuration));
     const pose=endingTransformation({position:p.toArray(),quaternion:q.toArray(),fov},t,
-      {start:T.human,body:[0,0,7.55],yaw:Math.PI,clawAt:Infinity,distance:1.42,targetFov:70,cameraHeight:2.05,targetHeight:1.36});
+      {start:T.human,body:[0,0,7.55],yaw:Math.PI,clawAt:Infinity,distance:1.42,targetFov:70,cameraHeight:1.45,targetHeight:1.36});
     pose.visorWorn=false;
     const glitchAge=t-(T.hollow-.24);
     pose.glitch=glitchAge>=0&&glitchAge<.48?(.35+.35*Math.sin(glitchAge*85)**2)*Math.sin(Math.PI*glitchAge/.48):0;
-    return sampleEndingAttack(pose,t,T);
+    const shot=sampleEndingAttack(pose,t,T);
+    if(t>=T.hollow){
+      shot.containedPerformance=sampleEndingCatchPerformance(shot,t,T);
+      shot.jump=0; // The shared catch plants its weight and reaches; no rigid airborne leap.
+    }
+    return shot;
   }
   return {name:'studyEnding_released',letterbox:false,skippable:false,restoreBeam:false,
     timing:T,sample,shots:[{seconds:T.end,pose:u=>sample(u*T.end)}],
@@ -46,7 +52,7 @@ export function buildStudyReleaseEnding({camera,player,refs,visor,fade,stopChatt
       {t:T.remove,run(){visor.set(false);playMechanical('visor_off',[0,1.5,7.55]);}},
       {t:T.hollow,run:()=>playMechanical('cloth',[0,1.3,7.55])},
       {t:T.claw,run:()=>playMechanical('roar',[0,1.5,7.55])},
-      {t:T.fade,run:()=>fade.fadeOut(450)}
+      {t:T.fade,run:()=>fade.fadeOut(140)}
     ],
     onFrame(_ctx,t){
       updateAudio(t);

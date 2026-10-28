@@ -15,12 +15,12 @@ for(const cancelAt of [null,.2,2,8.25,9.8,19.6]){
   const interaction={enabled:true,setEnabled(on){this.enabled=on;}};
   const calls=[],identity=[],visor=[],reactions=[],seated=[];let elapsed=0,night=false,stopped=0;
   const refs={setEndingSeated:w=>seated.push(w),setReleaseDoorOpen:on=>calls.push({on,t:elapsed}),setReleaseReaction:(point,weight,soften)=>reactions.push({point,weight,soften})};
-  const fade={fadeOut(ms){assert.equal(ms,450);calls.push({fade:true,t:elapsed});},clear(){calls.push({clear:true});}};
+  const fade={fadeOut(ms){assert.equal(ms,140);calls.push({fade:true,t:elapsed});},clear(){calls.push({clear:true});}};
   const scene=buildStudyReleaseEnding({camera,player,refs,fade,visor:{set:on=>visor.push({on,t:elapsed})},
     stopChatter(){stopped++;},playMechanical:(key,position)=>calls.push({key,position}),startNight(){night=true;},stopNight(){night=false;},
     showIdentity:(who,pose)=>identity.push({who,t:elapsed,pose})});
   const runner=createCutsceneRunner({camera,player,interaction});
-  assert.equal(scene.letterbox,false);assert(T.end>=15&&T.end<=26);
+  assert.equal(scene.letterbox,false);assert(T.black>=15&&T.black<=26);
   const promise=runner.playScene(scene);
   assert(!document.body.classList.contains('cutscene-letterbox'));
   assert(!player.movementEnabled&&!player.lookEnabled&&!interaction.enabled);
@@ -51,6 +51,7 @@ for(const cancelAt of [null,.2,2,8.25,9.8,19.6]){
   const chest=new THREE.Vector3(...external.bodyPosition).add(new THREE.Vector3(0,1.3,0)).project(lens);
   assert(Math.abs(chest.x)<.1&&Math.abs(chest.y)<.1&&Math.abs(chest.z)<1,'third-person camera faces away from actual body');
   assert(external.position[2]<9.05,'external camera crossed the porch gate');
+  assert(external.position[1]>1.4&&external.position[1]<1.5,'escape reveal camera must stay at the lowered eye level');
   assert(external.glitch>0&&!external.visorWorn,'release swap needs its own glitch with goggles off');
   assert(scene.sample(T.walkEnd).position[2]>7.5,'camera did not leave the house');
   assert.deepEqual(visor.map(v=>v.on),[true,false]);
@@ -59,12 +60,12 @@ for(const cancelAt of [null,.2,2,8.25,9.8,19.6]){
   assert.equal(visible[0].who,'human');assert(visible.some(p=>p.who==='hollow'));
   assert(Math.abs(T.claw-T.still-2.25)<1e-8);
   assert(Math.abs(T.contact-T.claw-.9)<1e-8);
-  assert(Math.abs(T.black-T.contact-.45)<1e-8);
+  assert(Math.abs(T.black-T.contact-.14)<1e-8);
   const attack=scene.sample(T.claw+.65),hit=scene.sample(T.contact+.02);
-  assert(attack.jump>.2&&attack.lunge>.3&&attack.blur>0&&attack.fov>70,'release did not inherit refined accelerating attack');
+  assert(attack.jump===0&&attack.containedPerformance.rush>.3&&attack.containedPerformance.strike>=0,'release did not inherit the shared planted catch/slash');
   assert(hit.slash>.99&&hit.scratch>0&&hit.contactHit&&hit.distortion===1,'release gashes/impact effects missing');
   assert(scene.sample(T.black).scratch===0,'release overlay persists over black');
-  assert(calls.some(c=>c.fade&&Math.abs(c.t-T.fade)<.02));assert(Math.abs(T.news-T.black-1.25)<1e-8);
+  assert(calls.some(c=>c.fade&&Math.abs(c.t-T.fade)<.02));assert(T.black<T.title&&T.title<T.credits&&T.credits<T.news&&T.newsEnd<T.creditsEnd);
 }
 
 // End card/menu/credits actions and delayed-button cleanup use real screen controller.
@@ -90,4 +91,4 @@ for(const selector of ['#hud','#crosshair','#fps-counter'])assert(css.includes('
 const html=fs.readFileSync(new URL('../index.html',import.meta.url),'utf8');
 for(const text of ['ENDING: RELEASED','Return to Main Menu'])assert(html.includes(text));
 for(const text of ['Annabelle lived.','HOLLOW got out.'])assert(!html.includes(text));
-console.log('PASS: release once; current-camera control lock; physical locks/door; restrained Annabelle reaction; duration-driven full-frame ending; Annabelle-facing concern beat; 6.2s walk outside; porch-gate-safe third-person Human/monster glitch and claw; 450ms impact fade + 1.25s black; end card/menu/credits; cancellation/reset cleanup; polished release regression.');
+console.log('PASS: release once; current-camera control lock; physical locks/door; restrained Annabelle reaction; duration-driven full-frame ending; Annabelle-facing concern beat; 6.2s walk outside; porch-gate-safe third-person Human/monster glitch and claw; 140ms contact fade; movie title and flat credits over Released news; end card/menu/credits; cancellation/reset cleanup; polished release regression.');

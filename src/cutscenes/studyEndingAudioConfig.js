@@ -9,17 +9,26 @@ export const ENDING_SFX=Object.freeze({
   lunge:{file:'l3_end_lunge.wav',sourceDuration:9.568,offset:2.2,duration:1.05,gain:.20,fadeIn:.02,fadeOut:.07},
   impact:{file:'l3_end_claw_impact.wav',sourceDuration:3.329,offset:.251,duration:.44,gain:.50,fadeIn:.004,fadeOut:.16},
   static:{file:'l3_news_static.wav',sourceDuration:25.763,offset:4.05,duration:.90,gain:.065,fadeIn:.12,fadeOut:.16,lowpass:6000},
-  // Reserved under the future news voice; never starts without a news recording.
+  // Reserved; the report plays dry over black, with static only after speech.
   newsBed:{file:'l3_news_bed.wav',sourceDuration:10.983,offset:1.2,duration:5.5,gain:.045,fadeIn:.4,fadeOut:.7}
+});
+/** Curated cuts of new licensed recordings; original source/cut details live beside the assets. */
+export const CONTAINED_SFX=Object.freeze({
+  creditsMusic:{file:'l3_credits_score.wav',sourceDuration:14.2,offset:0,duration:14,gain:.32,fadeIn:2,fadeOut:2,lowpass:7200},
+  tension:{file:'l3_contained_tension.wav',sourceDuration:15,offset:0,duration:14.9,gain:.11,fadeIn:1.6,fadeOut:.06,lowpass:4200},
+  rise:{file:'l3_contained_rise.wav',sourceDuration:3.2,offset:0,duration:3.15,gain:.19,fadeIn:.45,fadeOut:.04},
+  cinematicHit:{file:'l3_contained_hit.wav',sourceDuration:3.6,offset:0,duration:3.5,gain:.31,fadeIn:.003,fadeOut:1.2,lowpass:5500},
+  aftermath:{file:'l3_contained_aftermath.wav',sourceDuration:2.2,offset:0,duration:2.15,gain:.045,fadeIn:.035,fadeOut:1.5,lowpass:2300},
+  tune:{file:'l3_contained_radio_tune.wav',sourceDuration:1.9,offset:0,duration:1.85,gain:.065,fadeIn:.35,fadeOut:.5,lowpass:3800},
+  hollowBreath:{file:'l3_hollow_breath.wav',sourceDuration:1.25,offset:0,duration:1.2,gain:.055,fadeIn:.12,fadeOut:.25,lowpass:2300},
+  hollowGrowl:{file:'l3_hollow_growl.wav',sourceDuration:1.2,offset:0,duration:1.15,gain:.13,fadeIn:.1,fadeOut:.12,lowpass:2900},
+  hollowRoar:{file:'l3_hollow_roar.wav',sourceDuration:1.12,offset:0,duration:1.05,gain:.23,fadeIn:.025,fadeOut:.08,lowpass:6500},
+  hollowClaw:{file:'l3_hollow_slash.wav',sourceDuration:.64,offset:0,duration:.60,gain:.44,fadeIn:.003,fadeOut:.18},
+  hollowRush:{file:'l3_hollow_swipe.wav',sourceDuration:.47,offset:.03,duration:.40,gain:.20,fadeIn:.015,fadeOut:.04}
 });
 const event=(t,key,options={})=>({t,key,...options});
 export function createEndingAudioTimeline(branch,T){
   const contact=T.contact??T.fade;
-  const common=[
-    event(contact,'impact',{group:'impact'}),
-    event(contact+.045,'impact',{offset:.85,duration:.32,gain:.055,lowpass:500,fadeIn:.025,fadeOut:.15,group:'aftermath'}),
-    event(T.news,'static',{group:'news'})
-  ];
   const release=[
     event(0,'rumble',{offset:35.5,duration:8,gain:.035}),
     event(.3,'alarm',{duration:5.7}),
@@ -29,20 +38,36 @@ export function createEndingAudioTimeline(branch,T){
     event(T.door,'seal',{position:[0,1.3,6.45],gain:.15}),
     event(T.door,'rain',{duration:contact-T.door,gain:.18,fadeIn:1.3,fadeOut:.2}),
     event(T.still,'rumble',{offset:37.5,duration:T.claw-T.still,gain:.055,fadeIn:.5,fadeOut:.12}),
-    event(T.claw-.5,'roar',{duration:.75,gain:.15}),
-    event(T.claw,'lunge',{duration:contact-T.claw})
+    event(T.still-.4,'tension',{offset:3,duration:contact-T.still+.4,gain:.11,fadeIn:.8})
   ];
   const reseal=[
-    event(0,'rumble'),event(.25,'alarm',{duration:4.4,gain:.065}),
-    event(.02,'mechanism',{position:[0,.7,6.45],gain:.20}),event(.85,'lock',{position:[0,1.7,6.45]}),
-    event(2.8,'mechanism',{position:[-4,2,-2],gain:.16}),event(4.5,'lock',{position:[-5,2,-4],gain:.17}),
-    event(T.lastMechanism,'mechanism',{position:[4,4,-2],gain:.18}),event(T.seal,'seal',{position:[0,1.3,6.45]}),
-    event(T.windDown,'mechanism',{offset:1.1,duration:Math.min(1.35,T.finalLock-.3-T.windDown),gain:.06,lowpass:650,fadeIn:.25,fadeOut:.7}),
-    event(T.finalLock,'seal',{position:[0,1.2,6.45],gain:.26}),
-    event(T.finalLock+.12,'mechanism',{offset:.14,duration:.85,gain:.13,lowpass:900,fadeOut:.4}),
-    event(T.still,'rumble',{offset:37.5,duration:T.claw-T.still,gain:.055,fadeIn:.5,fadeOut:.12}),
-    event(T.claw-.5,'roar',{duration:.75,gain:.15}),
-    event(T.claw,'lunge',{duration:contact-T.claw})
+    // A tonal suspense bed and one rising phrase replace the alarm/roar collage.
+    event(0,'tension',{duration:contact}),
+    event(.02,'mechanism',{position:[0,.7,6.45],gain:.075,lowpass:1400}),
+    event(.85,'lock',{position:[0,1.7,6.45],gain:.065}),
+    event(T.lastMechanism,'mechanism',{position:[4,3,-2],gain:.09,lowpass:1800}),
+    event(T.finalLock,'seal',{position:[0,1.2,6.45],gain:.18}),
   ];
-  return [...(branch==='release'?release:reseal),...common].map(e=>({group:'scene',...e})).sort((a,b)=>a.t-b.t);
+  const finish=[
+    event(contact-3.15,'rise',{gain:.13}),
+    event(T.still+.12,'hollowBreath'),
+    event(T.claw-.9,'hollowGrowl',{duration:1.28,playbackRate:.88}),
+    event(T.claw-.1,'hollowRoar',{duration:contact-T.claw+.1,playbackRate:.92}),
+    event(contact-.40,'hollowRush'),
+    event(contact,'hollowClaw',{group:'impact'}),
+    // The musical impact and muffled resonance are allowed to decay across black.
+    event(contact,'cinematicHit',{gain:.20,group:'bridge'}),
+    event(contact+.08,'aftermath',{group:'bridge'}),
+    // Let the hit settle before a receiver finds the broadcast. The final 250ms overlaps speech.
+    event(T.news-.6,'tune',{duration:.85,gain:.018,fadeIn:.25,fadeOut:.4,group:'news'})
+  ];
+  for(let at=T.news;at<T.newsEnd;at+=5.6){
+    finish.push(event(at,'static',{offset:5.2,duration:Math.min(6,T.newsEnd-at),gain:.003,lowpass:2600,fadeIn:.3,fadeOut:.35,group:'news'}));
+  }
+  // Bounded overlapping phrases continue under the report and thank-you hold.
+  for(let at=T.credits;at<T.end-2;at+=12){
+    finish.push(event(at,'creditsMusic',{duration:Math.min(14,T.end-at),group:'credits'}));
+  }
+
+  return [...(branch==='release'?release:reseal),...finish].map(e=>({group:'scene',...e})).sort((a,b)=>a.t-b.t);
 }
