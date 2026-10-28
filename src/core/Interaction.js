@@ -39,7 +39,9 @@ export class Interaction {
    * (wired in main.js, which knows when the mouse belongs to the game).
    */
   interact() {
-    if (!this.enabled || !this.current) return;
+    if (!this.enabled) return;
+    if (this.beforeInteract?.()) return;
+    if (!this.current) return;
     this.current.userData.interact.onInteract?.();
   }
 
@@ -76,6 +78,13 @@ export class Interaction {
 
   update() {
     if (!this.enabled) return;
+    const overridePrompt = this.getOverridePrompt?.();
+    if (overridePrompt) {
+      this.current = null;
+      this.promptEl.textContent = `[E] ${overridePrompt}`;
+      this.promptEl.style.display = 'block';
+      return;
+    }
     this.raycaster.setFromCamera(RAY_ORIGIN, this.camera);
     const hits = this.raycaster.intersectObjects(this.targets, false);
     // Most interactions keep nearest-hit behaviour. A child target may opt

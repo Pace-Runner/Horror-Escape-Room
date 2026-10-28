@@ -144,3 +144,13 @@ play and how loud is `SFX` and the loop specs in `src/systems/AudioDirector.js`.
 ## Contained ending suspense and broadcast transition
 
 Five new curated sound-effect excerpts, their source cuts and licence record: [Contained ending sources](endings-contained/SOURCES.md). These are owned by the ending controller and do not enter the ambient cue pool.
+
+## Main menu ambience
+
+- File: `menu_ambient_horror.ogg` (original OGG, unmodified, seamless 48-second loop).
+- Track: **Ambient Horror Track 01**, by **Cleyton Kauffman**.
+- Source: https://opengameart.org/content/ambient-horror-track-01
+- Download: https://opengameart.org/sites/default/files/ambient_horror_track_01_0.zip
+- Licence: **CC0** (confirmed on the source page and included readme).
+- Artist: https://soundcloud.com/cleytonkauffman
+- Playback: quiet launch-menu loop with fade-in/out, follows master volume.

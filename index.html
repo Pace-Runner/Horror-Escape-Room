@@ -71,7 +71,8 @@
   <div id="fps-counter" aria-hidden="true"></div>
 
   <div id="hud">
-    <div id="objective"></div>
+    <div id="objective" role="status" aria-live="polite"></div>
+    <aside id="context-panel" hidden aria-live="polite"></aside>
     <!-- Time left in this room, on every difficulty. See src/core/Difficulty.js. -->
     <div id="run-timer" aria-label="Time left"><span class="run-timer-label">Time left</span><span class="run-timer-value">0:00</span></div>
     <div id="interact-prompt"></div>
@@ -290,6 +291,8 @@
       <div class="menu-actions" id="menu-main-actions" role="menu">
         <button class="menu-option is-selected" id="menu-start" type="button" role="menuitem">Start Game</button>
         <button class="menu-option" id="menu-settings" type="button" role="menuitem">Settings</button>
+        <button class="menu-option" id="menu-leaderboard" type="button" role="menuitem">Leaderboard</button>
+        <button class="menu-option" id="menu-controls" type="button" role="menuitem">Controls</button>
         <button class="menu-option" id="menu-credits" type="button" role="menuitem">Credits</button>
         <button class="menu-option" id="menu-quit" type="button" role="menuitem">Quit</button>
       </div>
@@ -304,6 +307,19 @@
       </div>
     </div>
 
+    <p id="menu-headphones-note" class="menu-headphones">Best experienced with headphones.</p>
+    <div id="headphones-screen" class="hidden" role="dialog" aria-modal="true" aria-labelledby="headphones-message" tabindex="-1">
+      <div class="headphones-content">
+        <svg class="headphones-icon" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 36v-8a20 20 0 0 1 40 0v8"/>
+          <rect x="9" y="31" width="10" height="20" rx="4"/>
+          <rect x="45" y="31" width="10" height="20" rx="4"/>
+        </svg>
+        <p id="headphones-message">For the best experience,<br>play with headphones.</p>
+        <p class="headphones-continue">Click or press any button to continue</p>
+      </div>
+    </div>
+
     <!-- The existing pause/end controls remain available after play begins.
          They are deliberately separate from the launch menu so the initial
          menu contains only Start Game, Credits and Quit. -->
@@ -312,11 +328,43 @@
       <div id="start-sub">Project HOLLOW &mdash; June 1987</div>
       <button id="start-button">Click to begin</button>
       <button id="settings-button">Settings</button>
+      <button id="pause-controls" class="pause-option">Controls</button>
       <button id="restart-button" class="hidden">Restart</button>
-      <div id="start-controls">
-        WASD move &middot; SPACE jump &middot; SHIFT sprint &middot; C crouch &middot; mouse look &middot; E or right-click interact &middot; Scroll switch item &middot; Q drop &middot; I inspect &middot; H hint &middot; F flashlight &middot; V visor &middot; T 1st/3rd person &middot; R restart &middot; K credits
-        <br>ESC pauses.
+      <button id="pause-main-menu" class="pause-option">Back to Main Menu</button>
+      <p class="pause-note">Returning to the main menu ends the current run.</p>
+    </div>
+  </div>
+
+  <div id="controls-screen" class="score-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="controls-title">
+    <div class="leaderboard-panel controls-panel">
+      <h2 id="controls-title">Controls</h2>
+      <div class="controls-groups">
+        <section><h3>Movement</h3><dl>
+          <div><dt><kbd>W A S D</kbd></dt><dd>Move</dd></div>
+          <div><dt><kbd>Mouse</kbd></dt><dd>Look around</dd></div>
+          <div><dt><kbd>Space</kbd></dt><dd>Jump</dd></div>
+          <div><dt><kbd>Shift</kbd></dt><dd>Hold to sprint, when available</dd></div>
+          <div><dt><kbd>C</kbd></dt><dd>Crouch</dd></div>
+        </dl></section>
+        <section><h3>Interaction &amp; Items</h3><dl>
+          <div><dt><kbd>E</kbd> / <kbd>Right-click</kbd></dt><dd>Interact</dd></div>
+          <div><dt><kbd>Scroll</kbd></dt><dd>Switch held item</dd></div>
+          <div><dt><kbd>Q</kbd></dt><dd>Drop held item</dd></div>
+          <div><dt><kbd>I</kbd></dt><dd>Inspect held item</dd></div>
+        </dl></section>
+        <section><h3>Tools &amp; Help</h3><dl>
+          <div><dt><kbd>F</kbd></dt><dd>Toggle flashlight</dd></div>
+          <div><dt><kbd>V</kbd></dt><dd>Toggle visor, when found</dd></div>
+          <div><dt><kbd>H</kbd></dt><dd>Request a hint</dd></div>
+          <div><dt><kbd>T</kbd></dt><dd>Switch first / third person</dd></div>
+        </dl></section>
+        <section><h3>Game</h3><dl>
+          <div><dt><kbd>Esc</kbd></dt><dd>Pause / close menu panel</dd></div>
+          <div><dt><kbd>R</kbd></dt><dd>Restart confirmation</dd></div>
+          <div><dt><kbd>K</kbd></dt><dd>View credits</dd></div>
+        </dl></section>
       </div>
+      <button id="controls-close" class="menu-option" type="button">Back</button>
     </div>
   </div>
 
@@ -388,10 +436,10 @@
       </div>
 
       <div class="settings-row settings-row-toggle">
-        <label for="settings-captions">Captions</label>
+        <label for="settings-captions">Descriptive Captions</label>
         <input type="checkbox" id="settings-captions">
       </div>
-      <div id="settings-captions-hint">Subtitles for spoken lines. Lines without a recording, and hints (H), always show.</div>
+      <div id="settings-captions-hint">Show environmental descriptions. Spoken subtitles, interaction prompts and requested hints always remain available.</div>
 
       <div class="settings-row">
         <label for="settings-brightness">Brightness</label>
@@ -451,6 +499,29 @@
         <button class="menu-option" data-release-menu type="button">Return to Main Menu</button>
         <button class="menu-option" data-release-credits type="button">Credits</button>
       </div>
+    </div>
+  </section>
+  <section id="leaderboard-screen" class="hidden score-overlay" role="dialog" aria-modal="true" aria-labelledby="leaderboard-title">
+    <div class="leaderboard-panel">
+      <div class="menu-ornament" aria-hidden="true">✦</div>
+      <h2 id="leaderboard-title">The Fastest Escapes</h2>
+      <p class="score-note">Top 10 · All difficulties · One personal best per player</p>
+      <div class="score-table-scroll"><table><thead><tr><th scope="col">Rank</th><th scope="col">Nickname</th><th scope="col">Time</th><th scope="col">Difficulty</th></tr></thead><tbody></tbody></table></div>
+      <p class="score-status" data-board-status role="status" aria-live="polite"></p>
+      <div class="score-actions"><button class="menu-option" data-board-retry type="button">Refresh</button><button class="menu-option" data-board-close type="button">Back to Menu</button></div>
+    </div>
+  </section>
+  <section id="score-prompt" class="hidden score-overlay" role="dialog" aria-modal="true" aria-labelledby="score-title">
+    <div class="leaderboard-panel score-submit-panel">
+      <div class="menu-ornament" aria-hidden="true">✦</div>
+      <h2 id="score-title">Record Your Escape</h2>
+      <p class="score-time" data-score-time></p>
+      <form>
+        <label for="score-nickname">Your nickname</label>
+        <input id="score-nickname" name="nickname" type="text" minlength="2" maxlength="18" required autocomplete="nickname" placeholder="2–18 characters" aria-describedby="score-status">
+        <p class="score-status" id="score-status" data-score-status role="status" aria-live="polite"></p>
+        <div class="score-actions"><button class="menu-option" type="submit">Submit Score</button><button class="menu-option" data-score-skip type="button">Skip</button></div>
+      </form>
     </div>
   </section>
   <div id="credits-screen" class="hidden">

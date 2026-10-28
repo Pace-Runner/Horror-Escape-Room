@@ -8,8 +8,17 @@ import { createReleaseEndingScreen } from './core/ReleaseEndingScreen.js';
 import {createEndingCinema} from './core/EndingCinema.js';
 import '@fontsource/playfair-display/latin-400.css';
 import { createMarkThoughts } from './systems/MarkThoughts.js';
+import {createActiveRun} from './core/ActiveRun.js';
+import {createMenuMusic,createHeadphonesScreen} from './core/MenuPresentation.js';
+import {createContextPanels} from './core/ContextPanels.js';
+import menuMusicUrl from './assets/audio/menu_ambient_horror.ogg?url';
+import {createLeaderboardUI} from './core/LeaderboardUI.js';
+import {createLeaderboardService} from './services/leaderboard.js';
+import {supabase} from './services/supabaseClient.js';
 import {createStudyStealthVoice,nearStudyHidingSpot} from './systems/StudyStealthVoice.js';
 import {createCassetteReminders} from './systems/CassetteReminders.js';
+import {hasDirectCreatureSight} from './systems/labCreatureSight.js';
+import {createStudyArrivalVoice} from './systems/StudyArrivalVoice.js';
 import {MARK_THOUGHTS} from './story/markThoughts.js';
 import { createSessionTapeFocus } from './cutscenes/session14.js';
 import * as THREE from 'three';
@@ -80,7 +89,7 @@ import { DOCUMENTS } from './story/lines.js';
 import { ITEM_NOTES } from './story/itemNotes.js';
 import { SESSION_TAPE_SUBTITLES, SESSION_TAPE_PLACEHOLDER_SOUNDS } from './story/sessionTape.js';
 import { line, linePicker } from './dialogue/index.js';
-import { installUnloadGuard } from './core/KeyboardGuard.js';
+import { installUnloadGuard, enterImmersive } from './core/KeyboardGuard.js';
 import { Hands } from './systems/hands/hands.js';
 import { setHandAssetUrl } from './systems/hands/hand-mesh.js';
 import handsModelUrl from './assets/models/hands.glb?url';
@@ -132,6 +141,7 @@ const startSub = document.getElementById('start-sub');
 const hud = document.getElementById('hud');
 const crosshair = document.getElementById('crosshair');
 const objectiveEl = document.getElementById('objective');
+const contextPanels=createContextPanels(document.getElementById('context-panel'));
 const promptEl = document.getElementById('interact-prompt');
 const captionEl = document.getElementById('caption-box');
 const hintKeyEl = document.getElementById('hint-key');
@@ -186,7 +196,7 @@ const newspaperView = createNewspaper({
 // Only replaces the opening prologue. The Newspaper controller above remains
 // responsible for every paper shown after Level 1.
 const openingNewsCutscene = createOpeningNewsCutscene({
-  root: document.getElementById('opening-news-cutscene'),captionsEnabled:()=>captions.enabled
+  root: document.getElementById('opening-news-cutscene')
 });
 
 /**
@@ -196,6 +206,11 @@ const openingNewsCutscene = createOpeningNewsCutscene({
  * player is playing. Up here so it exists before any room is activated.
  */
 const runTimer = createRunTimer({ el: runTimerEl, onExpire: () => playOutOfTime() });
+const activeRun=createActiveRun();
+const leaderboardUI=createLeaderboardUI({root:document.getElementById('leaderboard-screen'),prompt:document.getElementById('score-prompt'),
+  service:createLeaderboardService(supabase),onClose:()=>showMainMenu()});
+document.addEventListener('visibilitychange',()=>activeRun.suspend());
+window.addEventListener('blur',()=>activeRun.suspend());
 
 // ---------- launch menu ----------
 // This state belongs only to the DOM launch menu. It deliberately does not
@@ -203,6 +218,29 @@ const runTimer = createRunTimer({ el: runTimerEl, onExpire: () => playOutOfTime(
 // controls below after pointer lock has been released.
 let menuOverlayState = 'main';
 let selectedMenuOptionIndex = 0;
+const menuMusic = createMenuMusic({source:menuMusicUrl});
+const headphonesNote = document.getElementById('menu-headphones-note');
+const headphonesScreen = createHeadphonesScreen({root:document.getElementById('headphones-screen'), onContinue:()=>{
+  menuOverlayState = 'game';
+  startButton.click();
+}});
+const controlsScreen = document.getElementById('controls-screen');
+let controlsReturnState = 'main';
+function showControls() {
+  controlsReturnState = menuOverlayState;
+  menuOverlayState = 'controls';
+  controlsScreen.classList.remove('hidden');
+  document.getElementById('controls-close').focus({preventScroll:true});
+}
+function closeControls() {
+  controlsScreen.classList.add('hidden');
+  menuOverlayState = controlsReturnState;
+  if (menuOverlayState === 'main') selectMenuOption(readVisibleMenuButtons().findIndex(button=>button.id==='menu-controls'));
+  else document.getElementById('pause-controls').focus({preventScroll:true});
+}
+document.getElementById('controls-close').addEventListener('click', closeControls);
+document.getElementById('menu-controls').addEventListener('click', showControls);
+document.getElementById('pause-controls').addEventListener('click', showControls);
 
 /** The buttons of whichever menu panel is showing: the main list, or difficulty. */
 function readVisibleMenuButtons() {
@@ -237,6 +275,13 @@ function showDifficultyChoice(show) {
 let currentDifficulty = DEFAULT_DIFFICULTY;
 
 function showMainMenu() {
+  studyArrival.cancel();
+  tapeBlackoutAt = null;
+  controlsScreen.classList.add('hidden');
+  headphonesScreen.close();
+  headphonesNote.classList.remove('hidden');
+  menuMusic.setActive(true);
+  activeRun.cancel();leaderboardUI.reset();
   cassetteReminders.cancel();
   studyStealthVoice.cancel();
   if(openingNewsCutscene.isOpen){openingNewsCutscene.skip();void openingNewsCutscene.close();}
@@ -290,6 +335,8 @@ function requestQuit() {
 }
 
 function showLegacyStartScreen() {
+  headphonesScreen.close();
+  headphonesNote.classList.add('hidden');
   mainMenu.classList.add('hidden');
   legacyStartControls.classList.remove('hidden');
 }
@@ -311,23 +358,37 @@ menuDifficulty.querySelectorAll('[data-difficulty]').forEach((button) => {
     currentDifficulty = button.dataset.difficulty;
     settings.difficulty = currentDifficulty;
     saveSettings(settings);
-    menuOverlayState = 'game';
+    menuOverlayState = 'headphones';
     mainMenu.classList.add('hidden');
-    // Keep this synchronous with the click so Pointer Lock retains the browser
-    // user gesture that the existing Level 1 flow requires.
-    startButton.click();
+    headphonesScreen.open();
   });
 });
 
-menuStartButton.addEventListener('click', () => showDifficultyChoice(true));
+menuStartButton.addEventListener('click', () => {
+  enterImmersive();
+  showDifficultyChoice(true);
+});
 menuDifficultyBack.addEventListener('click', () => showDifficultyChoice(false));
 menuCreditsButton.addEventListener('click', showMenuCredits);
 menuSettingsButton.addEventListener('click', showMenuSettings);
+document.getElementById('menu-leaderboard').addEventListener('click',()=>{
+  menuOverlayState='leaderboard';mainMenu.classList.add('hidden');leaderboardUI.open();
+});
 menuQuitButton.addEventListener('click', requestQuit);
 quitBackButton.addEventListener('click', showMainMenu);
 
 window.addEventListener('keydown', (event) => {
-  if (menuOverlayState === 'credits' || menuOverlayState === 'quit' || menuOverlayState === 'settings') {
+  if (menuOverlayState === 'controls') {
+    if (event.code === 'Escape') { event.preventDefault(); closeControls(); }
+    return;
+  }
+  if (menuOverlayState === 'game' && !settingsScreen.classList.contains('hidden') && event.code === 'Escape') {
+    event.preventDefault();
+    settingsScreen.classList.add('hidden');
+    settingsButton.focus({preventScroll:true});
+    return;
+  }
+  if (menuOverlayState === 'credits' || menuOverlayState === 'quit' || menuOverlayState === 'settings' || menuOverlayState==='leaderboard') {
     if (event.code === 'Escape') {
       event.preventDefault();
       settingsScreen.classList.add('hidden');
@@ -535,14 +596,12 @@ player.onLand = (landingSpeed) => {
 };
 
 // The opening restraint is a presentation beat, not a frozen cutscene: the
-// player can look from one side of the bed to the other -- the chain and the
-// cuff on the right, which is where the lock is picked (bedroomLevel.js
-// cuffLockHitbox) -- and down the bed, but cannot turn round to the room.
+// player can look down the bed, but cannot turn far enough right to expose
+// the gap between the fixed chain and the hand. The held clip works without aiming.
 const BEDROOM_RESTRAINED_LOOK_BOUNDS = Object.freeze({
-  // Keep the real cuff (~-1.30 rad) reachable without turning behind the bed.
-  minYaw: -1.4,
-  maxYaw: 0.95,
-  minPitch: -1.1,
+  minYaw: -0.28,
+  maxYaw: 0.65,
+  minPitch: -0.78,
   maxPitch: 0.15
 });
 
@@ -1346,6 +1405,11 @@ const markThoughts = createMarkThoughts(audio, { captions,
   canPlay: entry => !gameState.endingChosen && !annabelleLetterNarration?.ownsVoice && (!cutscene.isRunning || entry.cutscene === cutscene.name) && !tapePlaying && (!documentUI.isOpen || entry.document)
 });
 const thought = (key, options) => markThoughts.play(key, options);
+const studyArrival=createStudyArrivalVoice({thoughts:markThoughts,
+  isCurrent:()=>sceneManager.activeKey==='study'&&!gameState.endingChosen,
+  isReady:()=>!transitionInFlight&&!cutscene.isRunning&&!caughtInFlight&&!openingSequenceActive
+    &&player.isLocked&&player.lookEnabled&&!documentUI.isOpen&&!markThoughts.currentKey
+    &&!audio.voiceSource&&!audio.voiceRequest&&!captions.isPlaying});
 const interaction = new Interaction(camera, promptEl, captions);
 // Voice follows the caption rather than the other way round: the caption is
 // the primary channel and always exists, the clip may not. A line with no
@@ -1430,8 +1494,17 @@ const pinPadUI = createPinPadUI({
 
 // The reading surface for every letter, note, file and transcript in the game.
 // Same unlock-to-interact / re-lock-on-close contract as the two above.
+let inspectionView = null;
 const documentUI = createDocumentUI({
-  onClose: () => player.lock()
+  onOpen: () => {
+    if (sceneManager.activeKey !== 'upstairsHallway') return;
+    inspectionView ??= player.holdInspectionView();
+  },
+  onClose: () => {
+    inspectionView?.(sceneManager.activeKey === 'upstairsHallway');
+    inspectionView = null;
+    player.lock();
+  }
 });
 annabelleLetterNarration=createLetterNarration({audio,cancelThoughts:()=>markThoughts.clear(),
   intro:{voice:'mark/'+MARK_THOUGHTS.l3_08[0],text:MARK_THOUGHTS.l3_08[1]},
@@ -1447,6 +1520,17 @@ annabelleLetterNarration=createLetterNarration({audio,cancelThoughts:()=>markTho
 const tapeSubtitles = createTapeSubtitles({ subtitles: SESSION_TAPE_SUBTITLES });
 /** The deck is running the tape, so its voices and stand-in sounds are due as its clock reaches them. */
 let tapePlaying = false;
+let tapeBlackoutAt = null;
+function updateTapeAftermath() {
+  if (tapeBlackoutAt === null) return;
+  if (sceneManager.activeKey !== 'hallwayBasement' || !hallwayBasement.refs.tapeWatched) {
+    tapeBlackoutAt = null;
+    return;
+  }
+  if ((audio.ctx?.currentTime ?? 0) < tapeBlackoutAt) return;
+  tapeBlackoutAt = null;
+  hallwayBasement.refs.completeTapeAftermath();
+}
 
 /**
  * Everything the host started for the tape, stopped: the stand-in's sounds,
@@ -2276,11 +2360,16 @@ const bedroom = createDeferredLevel(() => createBedroomLevel({
   },
   onFloorboardOpened: () => {
     sfx('creak');
-    runBedroomHorrorEvent('key-footsteps-retreat', async (s) => {
+    runBedroomHorrorEvent('key-door-running', async (s) => {
       if (!await s.wait(0.18)) return;
       s.do(() => {
-        bedroom.refs.playDoorPass();
-        audio.footsteps({ count: 4, spacing: 0.32, pan: 0.55, panTo: -0.85, level: 0.42 });
+        audio.footsteps({ count: 7, spacing: 0.14, pan: 0.55, panTo: 0.15, level: 0.5 });
+      });
+      if (!await s.wait(0.78)) return;
+      s.do(() => {
+        bedroom.refs.rattleDoor();
+        sfx('door_locked_rattle');
+        audio.thump();
       });
     });
   },
@@ -2387,14 +2476,17 @@ sceneManager.register('bedroom', bedroom);
 
 // ---------- the upstairs hallway (between Level 1 and Level 2) ----------
 // The bedroom door opens onto it, and its stairs lead down to the basement --
-// see TRANSITIONS. Its framed pieces open full size in the document reader, so
-// they read whether captions are on or off.
+// see TRANSITIONS. Written exhibits open in the reader; small observations
+// stay in-world, without releasing the pointer or moving the player's camera.
 const upstairsHallway = createDeferredLevel(() => createUpstairsHallwayLevel({
   showCaption,
   // Built onto the bedroom's door: the two are one space, walked between.
   origin: bedroom.refs.doorway,
-  onInspect: async ({ title, body, art }) => {
+  onInspect: async ({ title, body, art, fullscreen }) => {
+    if (!fullscreen) { showCaption(body); return; }
+    const level = sceneManager.activeKey;
     const image = art ? await art.toImageUrl() : null;
+    if (sceneManager.activeKey !== level || !player.isLocked) return;
     player.unlock();
     documentUI.open({ title, body, image, variant: 'exhibit' });
   },
@@ -2410,6 +2502,17 @@ const upstairsHallway = createDeferredLevel(() => createUpstairsHallwayLevel({
   }
 }));
 sceneManager.register('upstairsHallway', upstairsHallway);
+interaction.beforeInteract = () => {
+  if (!player.isLocked || player.cinematic || cutscene.isRunning || sceneManager.activeKey !== 'bedroom'
+    || bedroom.refs.puzzleState.chainsEscaped || heldItems.selected !== 'paperclip') return false;
+  bedroom.refs.unlockCuff();
+  return true;
+};
+interaction.getOverridePrompt = () => {
+  if (!player.isLocked || player.cinematic || cutscene.isRunning || sceneManager.activeKey !== 'bedroom'
+    || bedroom.refs.puzzleState.chainsEscaped || heldItems.selected !== 'paperclip') return null;
+  return 'Pick lock';
+};
 
 // ---------- contextual H-key hints ----------
 const contextualHints = createContextualHints();
@@ -2757,10 +2860,10 @@ function startHallwayBlinks() {
  */
 function playCameraFiveSighting() {
   const finishTurnCue = (speak=true) => {
+    if (labCreatureExit?.phase !== 'stare') return;
     if (labCreatureExit?.phase === 'stare') {
       labCreatureExit.cueFinished = true;
-      labCreatureExit.t = 0;
-      labCreatureExit.seenAt = null;
+      labCreatureExit.cueEndedAt = labCreatureExit.t;
     }
     if(speak)thought('l2_11');
   };
@@ -2790,7 +2893,8 @@ function playCameraFiveSighting() {
       // lab if the room is ever resized again.
       const CORNER = hallwayBasement.refs.creatureCorner;
       showCreatureAt({ x: CORNER[0], z: CORNER[1], linger: null });
-      labCreatureExit = { phase: 'stare', t: 0, seenAt: null, leg: 0, doorsBurst: false, cueFinished: false };
+      labCreatureExit = { phase: 'stare', t: 0, seenAt: null, leg: 0, doorsBurst: false, cueFinished: false,
+        growl: audio.growl(1.25, {x:CORNER[0],y:1.3,z:CORNER[1]}) };
       audio.setBreathing(LEVEL_TWO_BREATHING.cctvBasement);
       creak();
     });
@@ -2812,15 +2916,10 @@ function playCameraFiveSighting() {
  * black pool where it stood. The user asked for it to be quick -- it used to
  * stand there through two whole caption sequences.
  *
- * The stare is LAB_CREATURE_STARE_AFTER_SEEN once the player has turned to it,
- * but never less than _MIN nor more than _MAX, so a player who never turns
- * round still hears it go.
+ * A direct sighting ends the stare immediately, regardless of the voice cue.
+ * The maximum remains a fallback for a player who never turns around.
  */
-const LAB_CREATURE_STARE_MIN = 2.5;
 const LAB_CREATURE_STARE_MAX = 5;
-const LAB_CREATURE_STARE_AFTER_SEEN = 1.5;
-/** Within this angle of the view's centre, it counts as looked at. */
-const LAB_CREATURE_SEEN_RADIANS = THREE.MathUtils.degToRad(35);
 const LAB_CREATURE_RUN_SPEED = 5;
 /** How fast it turns from the player to the way out, in radians a second. */
 const LAB_CREATURE_TURN_RATE = 9;
@@ -2830,7 +2929,6 @@ const LAB_CREATURE_DOOR_REACH = 1.4;
 const LAB_CREATURE_DOOR_HOLD = 1.1;
 /** null, or { phase: 'stare' | 'run', t, seenAt, leg, doorsBurst }. */
 let labCreatureExit = null;
-const _labCreatureView = new THREE.Vector3();
 
 /** Once it has gone, camera five holds the empty room this long, then breaks up into static. */
 const LAB_CREATURE_FEED_STATIC_AFTER = 0.8;
@@ -2839,34 +2937,28 @@ function updateLabCreatureExit(dt) {
   const exit = labCreatureExit;
   if (!exit) return;
   if (sceneManager.activeKey !== 'hallwayBasement') {
+    exit.growl?.stop();
     labCreatureExit = null;
     hideCreature();
     return;
   }
+  if (!player.isLocked || documentUI.isOpen || dt <= 0) return;
   exit.t += dt;
   const p = creature.position;
   // Camera five shows it where it is, standing or running, and only while it
   // is in the room.
   hallwayBasement.refs.setCameraFiveFigure(p, { running: exit.phase === 'run' });
   if (exit.phase === 'stare') {
-    // Keep the real creature available until the spoken turn-around cue ends.
-    if (!exit.cueFinished) return;
-    if (exit.seenAt === null) {
-      camera.getWorldDirection(_labCreatureView);
-      const toX = p.x - camera.position.x;
-      const toZ = p.z - camera.position.z;
-      const cos = (_labCreatureView.x * toX + _labCreatureView.z * toZ)
-        / (Math.hypot(_labCreatureView.x, _labCreatureView.z) * Math.hypot(toX, toZ) || 1);
-      if (cos > Math.cos(LAB_CREATURE_SEEN_RADIANS)) {
-        exit.seenAt = exit.t;
-        thought('l2_17');
-      }
-    }
-    const due = exit.seenAt === null
-      ? LAB_CREATURE_STARE_MAX
-      : Math.min(LAB_CREATURE_STARE_MAX, Math.max(LAB_CREATURE_STARE_MIN, exit.seenAt + LAB_CREATURE_STARE_AFTER_SEEN));
-    if (exit.t < due) return;
+    const seen = hasDirectCreatureSight(camera, p, hallwayBasement.group);
+    if (!seen && !(exit.cueFinished && exit.t - exit.cueEndedAt >= LAB_CREATURE_STARE_MAX)) return;
     exit.phase = 'run';
+    // Escape owns this beat even if a camera-five thought is still speaking.
+    exit.growl?.stop();
+    script.cancel();
+    markThoughts.clear();
+    captions.cancel();
+    audio.stopVoice();
+    sfx('gasp');
     // It was standing in it.
     hallwayBasement.refs.revealPool();
     audio.footsteps({ count: 9, spacing: 0.24, pan: 0, level: 0.6 });
@@ -2886,6 +2978,19 @@ function updateLabCreatureExit(dt) {
       hideCreature();
       hallwayBasement.refs.setCameraFiveFigure(null);
       hallwayBasement.refs.feeds.loseBasementSignal(LAB_CREATURE_FEED_STATIC_AFTER);
+      audio.setBreathing(LEVEL_TWO_BREATHING.settled);
+      script.run(async s => {
+        if (!await s.wait(.6)) return;
+        // Keep the existing reaction, after the escape rather than delaying it.
+        let continued=false;
+        const pool=()=>{
+          if(continued||!s.alive())return;
+          continued=true;
+          void s.play(line('dialog_black_pool'));
+        };
+        if(!thought('l2_17',{priority:true,onEnded:pool,onFailed:pool,
+          when:()=>sceneManager.activeKey==='hallwayBasement'}))pool();
+      });
     }
     return;
   }
@@ -2925,6 +3030,10 @@ const hallwayBasement = createDeferredLevel(() => createHallwayBasementLevel({
   onDoorOpening: (position) => {
     if (transitionInFlight) return;
     if (!sfx('metal_door_open', { position: { x: position.x, y: 1.1, z: position.z }, spans: true })) audioDirector.door(position);
+  },
+  onLabDoorsClosed: (position) => {
+    audio.thump(0.55);
+    sfx('latch', {position});
   },
   onSpark: () => spark(),
   onTrolleyRoll: (level) => audio.setTrolleyRattle(level),
@@ -2980,7 +3089,7 @@ const hallwayBasement = createDeferredLevel(() => createHallwayBasementLevel({
       markThoughts.setBlocked(false);
       markThoughts.playSequence(['l2_12','l2_14','l2_15','l2_16'], { priority: true,
         when:()=>sceneManager.activeKey==='hallwayBasement'&&hallwayBasement.refs.tapeWatched,
-        onEnded:()=>{if(sceneManager.activeKey==='hallwayBasement')hallwayBasement.refs.completeTapeAftermath();} });
+        onEnded:()=>{if(sceneManager.activeKey==='hallwayBasement')tapeBlackoutAt=(audio.ctx?.currentTime??0)+1.5;} });
       captions.play(line('dialog_tape_after'));
     });
   },
@@ -3276,7 +3385,7 @@ const study = createDeferredLevel(() => createStudyLevel({
           revealAudio.dispose();
           tintStrength.value = previousTint;
           fade.clear();
-          if (completed) objectiveEl.textContent = "Take the Project HOLLOW access keycard from Annabelle's hand.";
+          if (completed) objectiveEl.textContent = 'MAKE YOUR CHOICE — RELEASE OR RESEAL CONTAINMENT';
           else if (sceneManager.activeKey === 'study' && refs.puzzle.mirrorRevealInProgress) {
             visor.set(wasVisorWorn);
             refs.cancelRevealPresentation();
@@ -3900,7 +4009,7 @@ const LEVEL_OBJECTIVES = {
   bedroom: 'You wake up chained to the bed frame. Find a way free.',
   upstairsHallway: 'Find a way downstairs.',
   hallwayBasement: 'Restore power in the basement, then get through the locked door.',
-  study: 'Preview: the study and front door (Level 3 blockout).',
+  study: 'Explore the study.',
   backrooms: 'Find the way through.'
 };
 
@@ -4928,7 +5037,11 @@ const stairsFall = createStairsFall({
   fade,
   setHouseLightsOut,
   torch: scareTorch,
-  forceFirstPerson
+  forceFirstPerson,
+  prepareHands: () => {
+    hands.stop('right');
+    hands.blendToPose('right', 'relaxed', 0.2);
+  }
 });
 
 /** Plays the stairs scare, once, when the hallway says the player has reached the top step. */
@@ -4942,6 +5055,12 @@ function playStairsScare() {
 }
 
 function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
+  studyArrival.cancel();
+  tapeBlackoutAt = null;
+  const previousKey = sceneManager.activeKey;
+  // A transition owns its spawn, even when re-entering the same hallway.
+  inspectionView?.(false);
+  inspectionView = null;
   if(key!=='hallwayBasement')cassetteReminders.cancel();
   if(openingNewsCutscene.isOpen){openingNewsCutscene.skip();void openingNewsCutscene.close();}
   if(activeEndingAudio){
@@ -4964,6 +5083,12 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   // Anything the player left on the floor of another level comes with them --
   // see returnDroppedItems() for why a drop must never be able to softlock.
   returnDroppedItems(key);
+  if (previousKey === 'bedroom' && key !== 'bedroom') {
+    // Recover the flashlight first, including a dropped one, then leave all
+    // bedroom puzzle items behind. They cannot reappear on a later transition.
+    for (const id of [...gameState.inventory]) if (id !== 'flashlight') consumeItem(id);
+    for (const [id, entry] of droppedItems) if (entry.levelKey === 'bedroom' && entry.id !== 'flashlight') removeDroppedProp(id);
+  }
   setGlare(0); // the basement's overload wash must not follow the player into another level
   audio.setTrolleyRattle(0); // nor a trolley still rolling as they left
   // Level 2 walks on metal; everywhere else on the default recording.
@@ -4975,6 +5100,7 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   // below hides the body; the director has already cut its aura.
   creatureLinger = null;
   creatureStalkToken = null;
+  labCreatureExit?.growl?.stop();
   labCreatureExit = null;
   const isBedroomRestraintActive = key === 'bedroom' && !level.refs.puzzleState.chainsEscaped;
   interaction.setTargets(level.interactables);
@@ -5172,6 +5298,7 @@ async function transitionTo(key, {
       transitionInFlight = false;
       unfreezePlayerAfterTransition();
       player.movementEnabled = !lockMovement;
+      if(key==='study')studyArrival.arm();
     }
   }
 }
@@ -5224,6 +5351,11 @@ const INTERLUDES = {
 
 // ---------- game reset (restart without page refresh) ----------
 function resetGame() {
+  studyArrival.reset();
+  tapeBlackoutAt = null;
+  menuMusic.setActive(false);
+  headphonesScreen.close();
+  leaderboardUI.reset();activeRun.start(currentDifficulty);
   cassetteReminders.reset();
   if(openingNewsCutscene.isOpen){openingNewsCutscene.skip();void openingNewsCutscene.close();}
   document.body.classList.remove('ending-cinematic');
@@ -5375,13 +5507,13 @@ window.addEventListener('keydown', (e) => {
   if(e.code==='Digit9'||e.code==='Numpad9'){
     if(!gameStarted||e.repeat||e.ctrlKey||e.metaKey||e.altKey
       ||e.target?.closest?.('input, textarea, select, [contenteditable], [role="textbox"]'))return;
-    e.preventDefault();void prepareStudyHandoffTest();return;
+    activeRun.invalidate();e.preventDefault();void prepareStudyHandoffTest();return;
   }
   if (!player.isLocked) return;
   if (import.meta.env.DEV && (e.code === 'Digit5' || e.code === 'Digit6')) {
     if(e.repeat||e.ctrlKey||e.metaKey||e.altKey
       ||e.target?.closest?.('input, textarea, select, [contenteditable], [role="textbox"]'))return;
-    e.preventDefault();void window.__game.prepareStudyRevealTest(e.code === 'Digit6');return;
+    activeRun.invalidate();e.preventDefault();void window.__game.prepareStudyRevealTest(e.code === 'Digit6');return;
   }
   // A cutscene owns the view and the hand, so nothing that acts through either
   // reaches the game until it hands back -- see KEYS_HELD_BY_CUTSCENES.
@@ -5404,6 +5536,7 @@ window.addEventListener('keydown', (e) => {
       || pinPadUI.isOpen || photoBoardUI.isOpen || documentUI.isOpen
       || e.target?.closest?.('input, textarea, select, [contenteditable], [role="textbox"]')) return;
     e.preventDefault();
+    activeRun.invalidate();
     abortTransition();
     if (levelShortcut === '4') {
       const route = TRANSITIONS[sceneManager.activeKey] ?? { to: 'hallwayBasement' };
@@ -5415,6 +5548,7 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (e.code === 'KeyG') {
+    activeRun.invalidate();
     // Debug: skip the whole Level 1 puzzle chain and take the REAL exit.
     //
     // This drives the actual door -> hinge swing -> fade -> corridor path, so
@@ -5586,12 +5720,14 @@ let endingInFlight = false;
 let activeEndingAudio=null;
 let releaseEndingGeneration=0;
 const releaseEndingScreen=createReleaseEndingScreen({root:document.getElementById('release-ending-screen'),
+  onReady:()=>leaderboardUI.offer(activeRun.result),
   onMenu:()=>{fade.clear();showMainMenu();},
   onCredits:()=>{buildCredits();toggleCredits(true);}
 });
 window.addEventListener('study:release-chosen',()=>{void startStudyReleaseEnding();});
 let resealEndingGeneration=0;
 const resealEndingScreen=createReleaseEndingScreen({root:document.getElementById('reseal-ending-screen'),
+  onReady:()=>leaderboardUI.offer(activeRun.result),
   onMenu:()=>{fade.clear();showMainMenu();},
   onCredits:()=>{buildCredits();toggleCredits(true);}
 });
@@ -5603,6 +5739,7 @@ async function startStudyReleaseEnding(){
   if(sceneManager.activeKey!=='study'||endingInFlight||gameState.endingChosen||cutscene.isRunning
     ||study.refs.puzzle.endingChoice!=='RELEASE'||!study.refs.puzzle.endingChoiceComplete)return false;
   const token=++releaseEndingGeneration;
+  activeRun.finish('released',performance.now());
   endingInFlight=true;gameState.endingChosen='released';
   markThoughts.clear();captions.cancel();audio.stopVoice();player.clearKeys();
   interaction.setEnabled(false);player.movementEnabled=false;player.lookEnabled=false;
@@ -5656,6 +5793,7 @@ async function startStudyResealEnding(){
   if(sceneManager.activeKey!=='study'||endingInFlight||gameState.endingChosen||cutscene.isRunning
     ||study.refs.puzzle.endingChoice!=='RESEALED'||!study.refs.puzzle.endingChoiceComplete)return false;
   const token=++resealEndingGeneration;
+  activeRun.finish('contained',performance.now());
   endingInFlight=true;gameState.endingChosen='contained';
   markThoughts.clear();captions.cancel();audio.stopVoice();player.clearKeys();
   interaction.setEnabled(false);player.movementEnabled=false;player.lookEnabled=false;
@@ -5721,6 +5859,7 @@ async function startStudyResealEnding(){
  */
 async function playOutOfTime() {
   if (endingInFlight || gameState.endingChosen) return;
+  activeRun.cancel();
   endingInFlight = true;
   gameState.endingChosen = 'timeout';
   try {
@@ -5902,6 +6041,7 @@ const CREDIT_SECTIONS = [
     title: 'Recordings',
     note: 'Every file, with its link, cut and processing, is listed in src/assets/audio/SOURCES.md. Licences are as stated by each uploader.',
     rows: [
+      ['Main menu music', '"Ambient Horror Track 01" by Cleyton Kauffman, via OpenGameArt.org/content/ambient-horror-track-01. CC0.'],
       ['Annabelle singing', '"Daisy Bell But I Made It Even More Unsettling" by LARA\'S HORROR SOUNDS (YouTube). CC BY (creativecommons.org/licenses/by/3.0). Trimmed, mono, filtered in game.'],
       ['Hunter footsteps', '"CREEPY FOOTSTEPS (& RUNNING), HORROR SOUND EFFECT" by DARKLIT STUDIO (YouTube). CC BY.'],
       ['CRT static', '"TV STATIC (4K 60FPS)" by The Fowl Owl (YouTube). CC BY.'],
@@ -6065,6 +6205,7 @@ function saveSettings(settings) {
 
 function applySettings(settings) {
   audio.setMasterVolume(settings.volume / 100);
+  menuMusic.setVolume(settings.volume / 100);
   player.setSensitivity(settings.sensitivity / 100);
   captions.setEnabled(settings.captions);
   postFX.setBrightness(settings.brightness / 100);
@@ -6124,6 +6265,7 @@ volumeInput.addEventListener('input', () => {
   settings.volume = Number(volumeInput.value);
   volumeValueEl.textContent = `${settings.volume}%`;
   audio.setMasterVolume(settings.volume / 100);
+  menuMusic.setVolume(settings.volume / 100);
   saveSettings(settings);
 });
 
@@ -6181,6 +6323,9 @@ function clearStartupFrame() {
 }
 
 function beginGame() {
+  menuMusic.setActive(false);
+  headphonesScreen.close();
+  leaderboardUI.reset();activeRun.start(currentDifficulty);
   cassetteReminders.reset();
   document.body.classList.remove('ending-cinematic');
   releaseEndingGeneration++;releaseEndingScreen.hide();endingInFlight=false;
@@ -6204,6 +6349,8 @@ function beginGame() {
   player.lookEnabled = false;
   interaction.setEnabled(false);
   audio.start();
+  audio.resume();
+  captions.setPaused(false);
   runTimer.configure(currentDifficulty);
   backroomsHunter.setReady(true);
 
@@ -6326,6 +6473,18 @@ restartButton.addEventListener('click', () => {
   player.lock();
 });
 
+function returnToMainMenu() {
+  // Reuse the complete restart cleanup so no room scripts or puzzle state survive.
+  resetGame();
+  gameStarted = false;
+  player.movementEnabled = false;
+  player.lookEnabled = false;
+  interaction.setEnabled(false);
+  audio.pause();
+  showMainMenu();
+}
+document.getElementById('pause-main-menu').addEventListener('click', returnToMainMenu);
+
 player.controls.addEventListener('lock', () => {
   audio.resume();
   if (tapePlaying) hallwayBasement.refs.sessionTape.setPaused(false);
@@ -6388,7 +6547,7 @@ async function prepareStudyHandoffTest(){
     player.setLookBounds(null);player.crouch=0;player.lookEnabled=true;player.movementEnabled=true;
     interaction.setEnabled(true);captions.setPaused(false);audio.resume();
     hud.style.display='block';crosshair.style.display='block';
-    objectiveEl.textContent="Take the Project HOLLOW access keycard from Annabelle's hand.";
+    objectiveEl.textContent='MAKE YOUR CHOICE — RELEASE OR RESEAL CONTAINMENT';
     showCaption("Level 3 test: take Annabelle's keycard.");
   }finally{studyHandoffTestBusy=false;}
 }
@@ -7206,7 +7365,13 @@ let elapsed = 0;
 function tick() {
   frameRateCounter.recordFrame();
   const realDt = Math.min(clock.getDelta(), 0.05);
-  if (!sceneManager.activeKey || openingSequenceActive) {
+  if(freeCamera.isActive)activeRun.invalidate();
+  activeRun.sample(performance.now(),gameStarted&&!openingSequenceActive&&!gameState.endingChosen&&!endingInFlight
+    &&!transitionInFlight&&!cutscene.isRunning&&!player.cinematic&&player.lookEnabled&&!jumpScareRunning&&!restartConfirmOpen
+    &&!captions.paused&&!document.hidden&&document.hasFocus()&&!freeCamera.isActive&&!freeCamera.isWorldFrozen
+    &&startScreen.classList.contains('hidden')&&settingsScreen.classList.contains('hidden')&&creditsScreen.classList.contains('hidden')
+    &&(player.isLocked||documentUI.isOpen||photoBoardUI.isOpen||pinPadUI.isOpen),sceneManager.activeKey);
+  if (!gameStarted || !sceneManager.activeKey || openingSequenceActive) {
     requestAnimationFrame(tick);
     return;
   }
@@ -7301,6 +7466,7 @@ function tick() {
   handMotion.bobPhase = player.bobPhase;
   handMotion.speed = player.moving;
   handMotion.crouching = player.crouch > 0.5;
+  handMotion.torchShake = stairsFall.isRunning ? 1 : 0;
 
   /**
    * THE SPRINT FOV KICK -- the project's first FOV animation, and the reason
@@ -7434,6 +7600,14 @@ function tick() {
     }
   }
   cassetteReminders.update();
+  const contextTarget=player.isLocked&&!cutscene.isRunning&&!transitionInFlight?interaction.current:null;
+  contextPanels.update({
+    breaker:sceneManager.activeKey==='hallwayBasement'&&contextTarget?.userData.breakerControl?hallwayBasement.refs.getBreakerStatus():null,
+    choice:sceneManager.activeKey==='study'&&study.refs.puzzle.mirrorRevealed&&study.refs.puzzle.endingChoice==='NONE'
+      ?contextTarget?.userData.endingChoice??null:null
+  });
+  studyArrival.update();
+  updateTapeAftermath();
   studyStealthVoice.update();
   markThoughts.update({ blocked: transitionInFlight || caughtInFlight || tapePlaying
     || (cutscene.isRunning && cutscene.name !== 'wakeUp') || jumpScareRunning || labCreatureExit?.phase === 'run' || (!player.isLocked && !documentUI.isOpen)

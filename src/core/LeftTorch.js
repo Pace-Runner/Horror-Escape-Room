@@ -27,9 +27,9 @@ const deg = THREE.MathUtils.degToRad;
 
 export const LEFT_TORCH_FRAMING = {
   /** Camera-space metres of the grip: left of, below and in front of the lens. */
-  position: [-0.2, -0.2, -0.42],
+  position: [-0.27, -0.26, -0.52],
   /** Camera-space direction the beam leaves along: forward, a touch up and inward. */
-  aim: [0.3, 0.42, -0.85],
+  aim: [0.24, 0.30, -0.92],
   /** Radians spun about the beam: which face of the barrel the camera sees. */
   roll: deg(-20),
   scale: HELD_MAGNIFICATION
@@ -75,6 +75,7 @@ export function createLeftTorch({ camera, itemMeshes }) {
   const shake = { drop: 0, tilt: 0, roll: 0 };
   /** Shown while carried even with the hands hidden: a scene that clears the right hand but keeps the torch. */
   let pinned = false;
+  let nervous = 0;
 
   function ensureMesh() {
     if (mesh) return true;
@@ -167,6 +168,12 @@ export function createLeftTorch({ camera, itemMeshes }) {
       lagY += (THREE.MathUtils.clamp(-motion.lookDeltaY * 0.0012, -0.08, 0.08) - lagY) * follow;
 
       applyFraming(bobX, bobY, lagX, lagY);
+      // A nervous wrist, only requested by the passage/fall cinematic.
+      nervous += ((motion.torchShake || 0) - nervous) * (1 - Math.exp(-dt * 12));
+      group.position.y += Math.sin(clock * 19) * 0.009 * nervous;
+      group.position.x += Math.sin(clock * 13) * 0.004 * nervous;
+      group.rotateX(Math.sin(clock * 17) * 0.035 * nervous);
+      group.rotateZ(Math.sin(clock * 13 + 0.8) * 0.025 * nervous);
     },
 
     reset() {
@@ -176,6 +183,7 @@ export function createLeftTorch({ camera, itemMeshes }) {
       swap = 1;
       shake.drop = shake.tilt = shake.roll = 0;
       pinned = false;
+      nervous = 0;
       group.visible = false;
     }
   };

@@ -18,6 +18,8 @@
 //   * Dates line up with the newspapers: Mark is 17 in June 1979, Annabelle 14.
 // =============================================================================
 
+import {HOUSE_PHOTOGRAPH} from './housePhotograph.js';
+
 export const HALLWAY = {
   /** The newspaper clipping, framed beside the hall table. */
   clipping: {
@@ -140,7 +142,7 @@ export const HALLWAY = {
   /** The house, in a gilt frame, with a brass plate. */
   house: {
     title: 'A photograph of the house',
-    body: 'The house you are standing in, from the lane, years ago. The plate on the frame reads RAVENSMOOR HOUSE, 1891.',
-    plaque: 'RAVENSMOOR HOUSE · 1891'
+    body: HOUSE_PHOTOGRAPH.body,
+    plaque: HOUSE_PHOTOGRAPH.plaque
   }
 };

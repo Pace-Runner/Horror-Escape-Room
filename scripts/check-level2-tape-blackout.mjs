@@ -19,17 +19,19 @@ const audio={ctx:{currentTime:0},hasVoice:()=>true,preloadVoice:async()=>({durat
   stopVoice(){const old=current;current=null;this.voiceSource=null;old?.opts.onInterrupted?.();}};
 const thoughts=createMarkThoughts(audio),sceneManager={activeKey:'hallwayBasement'};
 const context=vm.createContext({onTapeEnded:()=>{},onBlackout:e=>events.push(e.cause),
+  audio,
   setAllBreakers(){},setMainLever(){},updateGeneratorControlLights(){},syncScreenSignal(){},syncMonitor(){},syncFeedRoomPower(){},
   metalDoor:{userData:{interact:{}}},DOOR_LABELS:{blackout:'Locked'},showCaption(){},line:k=>k,
   silenceTape(){},tapeFocus:{finish:fn=>fn()},markThoughts:thoughts,sceneManager,captions:{play(){}}});
 vm.runInContext(`const POWER_STAGE={DEAD:'dead',LIT:'lit',BLACKOUT:'blackout',RUNNING:'running',ROUTED:'routed'};
-let powerStage='dead',powerLevel=0,tapeWatchedToEnd=false,deckPlaying=false,tapeRanOut=false,generatorStepsCompleted=0,starterPulls=0;
+let powerStage='dead',powerLevel=0,tapeWatchedToEnd=false,deckPlaying=false,tapeRanOut=false,generatorStepsCompleted=0,starterPulls=0,tapeBlackoutAt=null;
 const breakerIsOn={cctv:true};
 ${['isCircuitLive','isCctvPowered','isTapePowered','isDoorPowered','triggerBlackout','finishTape'].map(fn).join('\n')}
 function completeTapeAftermath()${source.slice(complete.body.start,complete.body.end)}
 function useDoor()${source.slice(doorUse.body.start,doorUse.body.end)}
+${main.slice(mainAst.find(n=>n.type==='FunctionDeclaration'&&n.id.name==='updateTapeAftermath').start,mainAst.find(n=>n.type==='FunctionDeclaration'&&n.id.name==='updateTapeAftermath').end)}
 globalThis.api={get stage(){return powerStage;},get watched(){return tapeWatchedToEnd;},
-  setStage(s){powerStage=s;},reset(){powerStage='lit';tapeWatchedToEnd=false;},isTapePowered,isCctvPowered,finishTape,completeTapeAftermath,useDoor};`,context);
+  setStage(s){powerStage=s;},reset(){powerStage='lit';tapeWatchedToEnd=false;tapeBlackoutAt=null;},updateTapeAftermath,isTapePowered,isCctvPowered,finishTape,completeTapeAftermath,useDoor};`,context);
 context.hallwayBasement={refs:{get tapeWatched(){return context.api.watched;},completeTapeAftermath:()=>context.api.completeTapeAftermath()}};
 context.onTapeEnded=vm.runInContext('('+main.slice(aftermath.start,aftermath.end)+')',context);
 assert(!context.api.isTapePowered());context.api.setStage('lit');assert(context.api.isTapePowered());assert(!context.api.isCctvPowered());
@@ -41,10 +43,13 @@ for(let i=0;i<4;i++){
   assert(current.key.includes(expected[i]));assert.equal(context.api.stage,'lit');
   const old=current;current=null;audio.voiceSource=null;audio.ctx.currentTime+=2;old.opts.onEnded();
 }
+assert.equal(context.api.stage,'lit','blackout must wait after final audio');
+audio.ctx.currentTime+=1.499;context.api.updateTapeAftermath();assert.equal(context.api.stage,'lit');
+audio.ctx.currentTime+=.001;context.api.updateTapeAftermath();
 assert.equal(context.api.stage,'blackout');assert.deepEqual(events,['tape']);assert(!context.api.isTapePowered());
 context.api.completeTapeAftermath();assert.equal(events.length,1,'blackout repeated');
 thoughts.clear({reset:true});context.api.reset();context.api.finishTape();const stale=current;
 thoughts.clear({reset:true});context.api.reset();stale.opts.onEnded();assert.equal(context.api.stage,'lit','cancelled aftermath tripped a new run');
 assert.equal(current,null);assert.equal(events.length,1);
 context.api.setStage('routed');assert(context.api.isTapePowered()&&context.api.isCctvPowered());
-console.log('PASS: first fuse powers cassette without CCTV; exit cannot trip power; tape and all four Mark lines finish before one blackout; generator stage entered; cancelled/reset dialogue cannot trip a new run.');
+console.log('PASS: cassette and all four actual Mark recordings finish, then 1.5s on the pausable audio clock before one blackout; exit cannot trip power; generator stage entered; reset/cancel cannot trip a new run.');

@@ -53,6 +53,7 @@ import floorMessageUrl from '../assets/textures/bedroom/floor_message.webp?url';
 import floorMessageNormalUrl from '../assets/textures/bedroom/floor_message_normal.webp?url';
 import bedroomCeilingUrl from '../assets/textures/bedroom/grimy_cracked_plaster_texture.webp?url';
 import hauntedMansionSepiaUrl from '../assets/textures/bedroom/haunted_victorian_mansion_sepia.webp?url';
+import {HOUSE_PHOTOGRAPH} from '../story/housePhotograph.js';
 import photo1984Url from '../assets/textures/bedroom/level_1_1984_pic.webp?url';
 import photo1985Url from '../assets/textures/bedroom/level_1_1985_pic.webp?url';
 import photo1986Url from '../assets/textures/bedroom/level_1_1986_pic.webp?url';
@@ -1202,6 +1203,11 @@ export function createBedroomLevel({
     mansionPhoto.name = 'Level1HauntedMansionPhotograph';
     mansionPhoto.position.set(0, mansionFrameCenterYMetres, 0.015);
     shelfFrameGroup.add(mansionPhoto);
+    mansionPhoto.userData.interact = {
+      label: 'Look at the house photograph',
+      onInteract: () => showCaption(HOUSE_PHOTOGRAPH.body)
+    };
+    interactables.push(mansionPhoto);
   }).catch((err) => {
     console.error('Failed to load bed.glb, bed frame will be missing:', err);
   });
@@ -2364,7 +2370,8 @@ export function createBedroomLevel({
     label: 'Pick up paperclip',
     onInteract: () => {
       // Into the inventory, and into the hand -- it is not used yet. Using it is
-      // a second, deliberate press on the cuff, which only exists from here on.
+      // a second deliberate interaction while holding it; aiming at the cuff
+      // is optional so the chained view can stay tightly constrained.
       paperclip.visible = false;
       paperclipHitbox.visible = false;
       const idx = interactables.indexOf(paperclipHitbox);
@@ -2378,19 +2385,9 @@ export function createBedroomLevel({
   group.add(paperclipHitbox);
 
   /**
-   * The cuff's lock, which the paperclip is used ON: the chain and the cuff
-   * themselves, so it is picked where it is (Kiran, 2026-10-28).
-   *
-   * The cuff ring sits at about (2.15, 0.82, -1.54) -- bed-local (0.495, 0.82,
-   * 0.36), the chain's run end -- some 74 degrees to the right of the
-   * restrained view's forward axis. That view used to stop about 3 degrees
-   * right of -Z, so the lock was a hitbox where the paperclip had been, in the
-   * middle of the view. BEDROOM_RESTRAINED_LOOK_BOUNDS in main.js now turns
-   * from one side of the bed to the other, so these are on the chain: one
-   * along its run from the headboard rail, one round the cuff. Interaction
-   * casts from the centre of the screen at its targets alone (not their
-   * children), so they are two targets with one interaction, and children of
-   * the chain group, so they are wherever it is.
+   * Both optional cuff/chain targets share the same once-only unlock action.
+   * main.js also invokes it for E/right-click while the clip is held, without
+   * requiring the wide right turn that exposes the fixed chain/hand gap.
    */
   const cuffLockMaterial = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
   const cuffLockHitbox = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), cuffLockMaterial);
@@ -3481,6 +3478,7 @@ export function createBedroomLevel({
         return doorPass.duration;
       },
       doorPass,
+      unlockCuff: () => cuffLockInteract.onInteract(),
       messagePlane: message,
       ambient,
       glassMaterial,

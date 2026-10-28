@@ -56,6 +56,8 @@ const FADE = 0.4;
  */
 const SWAP_FADE = 0.16;
 const SWAP_GAP = 0.06;
+// Input errors, item requirements and puzzle status remain functional feedback.
+const FUNCTIONAL_KEY = /(?:^|_)(?:hint|wrong|invalid|full|need|needs|hold|required|missing|blocked|unpowered|locked|no_power|not_ready|taken|insert|load|trip|trips|tripped|already|pickup)(?:_|$)/;
 
 export function readingTime(text) {
   return Math.min(READ_MAX, Math.max(READ_MIN, READ_FIXED + text.length * READ_PER_CHAR));
@@ -76,7 +78,7 @@ export class CaptionSequencer {
     this.paused = false;
     // The settings-menu captions toggle. Deliberately does not touch the
     // timing state machine below or onLineStart (which is what fires the
-    // voice clip) -- turning captions off hides the text, it does not change
+    // voice clip) -- turning descriptions off never hides spoken subtitles or changes
     // how long a beat takes or mute a recorded line. See setEnabled().
     this.enabled = true;
 
@@ -100,15 +102,11 @@ export class CaptionSequencer {
     this.onLineCancel = null;
     /**
      * Whether a line has a recording that will actually play. main.js wires it
-     * to the audio engine. The captions setting is SUBTITLES for spoken lines:
-     * a line nobody has recorded yet has no other way to reach the player, so
-     * it shows whatever the setting says. Before this, captions off (the
-     * default) hid every unrecorded line -- every examine caption, every
-     * pickup message and the whole Level 3 reveal -- and the player saw
-     * nothing. Defaults to "voiced" so a sequencer nobody has wired keeps the
-     * old behaviour.
+     * to the audio engine. Recorded speech always has subtitles; the setting
+     * controls only unvoiced descriptions. Functional feedback and requested
+     * hints can opt into `always` independently of this setting.
      */
-    this.isVoiced = () => true;
+    this.isVoiced = line => Boolean(line?.recorded || line?.voice);
   }
 
   get isPlaying() {
@@ -153,9 +151,8 @@ export class CaptionSequencer {
     if (duration != null) line.duration = duration;
     if (this._preservesThought(line)) return false;
     if (this._sequence) {
-      // With captions off a VOICED story line is invisible, so a hint the
-      // player asked for has nothing to wait for. It is drawn on top while the
-      // hidden sequence carries on timing underneath. A line on screen wins.
+      // Requested help may use the box while a hidden description advances.
+      // Visible dialogue keeps ownership of its subtitle surface.
       if (this._shows(this._line) || !line.always) return false;
       this._showAside(toLine(line));
       return true;
@@ -265,12 +262,10 @@ export class CaptionSequencer {
   /**
    * The settings-menu captions toggle.
    *
-   * Turning off just stops the box from being shown -- the reading-time clock
+   * Turning descriptions off leaves their reading-time clock
    * in update() keeps running underneath exactly as if it were visible, so a
    * story script awaiting captions.play() still waits the same real seconds
-   * either way. Most lines in this game have no recorded voice clip, so
-   * captions off means those beats pass by silently; onLineStart still fires
-   * for the ones that do.
+   * either way. Spoken subtitles and explicitly functional lines always show.
    */
   setEnabled(enabled) {
     this.enabled = enabled;
@@ -287,7 +282,8 @@ export class CaptionSequencer {
    * for with H) is help, not dialogue, and shows even with captions off.
    */
   _shows(line) {
-    return !line?.voicePending&&(this.enabled || Boolean(line?.always) || !this.isVoiced(line));
+    return !line?.voicePending&&(this.enabled || Boolean(line?.always || line?.hint || line?.functional || line?.recorded)
+      || FUNCTIONAL_KEY.test(line?.key??'') || this.isVoiced(line));
   }
 
   update(dt) {
@@ -341,6 +337,8 @@ export class CaptionSequencer {
       // transition it is about to start rather than the previous one.
       this.el.style.transitionDuration = `${isSequence ? SWAP_FADE : FADE}s`;
       this.el.classList.add('visible');
+    } else if (!this._aside) {
+      this.el.classList.remove('visible');
     }
     this.onLineStart?.(line);
   }

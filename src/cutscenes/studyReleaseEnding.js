@@ -3,6 +3,7 @@ import {createEndingTiming} from './studyEndingDialogue.js';
 import {endingTransformation} from './endingTransformation.js';
 import {sampleEndingAttack} from './endingAttackShot.js';
 import {sampleEndingCatchPerformance} from './containedEndingPerformance.js';
+import {releaseDoorProgress} from './releaseDoorMotion.js';
 
 export const RELEASE_TIMING=createEndingTiming('release');
 const ease=u=>THREE.MathUtils.smoothstep(u,0,1);
@@ -60,6 +61,7 @@ export function buildStudyReleaseEnding({camera,player,refs,visor,fade,stopChatt
       player.groundY=0;
       refs.setEndingSeated?.(ease(t/2.4));
       refs.setReleaseBarsProgress?.(ease((t-(T.door-1.8))/1.8));
+      refs.setReleaseDoorProgress?.(releaseDoorProgress(t,T));
       showIdentity(t>=T.human+.9&&t<T.black?(t>=T.hollow||(t>T.hollow-.18&&Math.sin(t*100)>0)?'hollow':'human'):null,pose);
     },
     onEnd(_ctx,completed){

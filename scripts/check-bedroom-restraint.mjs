@@ -18,12 +18,13 @@ for(let run=0;run<2;run++){
   sweep(30000);assert.equal(player.yaw,bounds.minYaw);
   sweep(-30000);assert.equal(player.yaw,bounds.maxYaw);
   assert(bounds.minYaw>-Math.PI/2&&bounds.maxYaw<Math.PI/2,'chained player can turn behind the bed');
-  // Both real puzzle targets remain centre-ray reachable from the restrained eye.
-  for(const target of [[1.636,.75,-2.33],[2.145,.82,-1.54]]){
+  // The paperclip stays reachable; the cuff no longer requires aiming to unlock.
+  for(const target of [[1.636,.75,-2.33]]){
     const dx=target[0]-1.65,dz=target[2]+1.4;
     const yaw=Math.atan2(-dx,-dz),pitch=Math.atan2(target[1]-1.6,Math.hypot(dx,dz));
     player.aim(yaw,pitch);assert(Math.abs(player.yaw-yaw)<1e-8);assert(Math.abs(player.pitch-pitch)<1e-8);
   }
+  assert(bounds.minYaw>=-.3,'right turn exposes the fixed chain/hand gap');
   player.setLookBounds(null);sweep(-30000);assert(player.yaw>Math.PI,'freed player remains restrained');
 }
 const activate=main.slice(main.indexOf('function activateLevel('),main.indexOf('// ---------- level transitions'));
@@ -31,4 +32,4 @@ assert(activate.indexOf('player.setLookBounds(isBedroomRestraintActive')>activat
 const freed=main.slice(main.indexOf('  onFreed: () => {'),main.indexOf('    consumeItem(\'paperclip\');'));
 assert(freed.includes('player.setLookBounds(null)'));
 player.controls.dispose();
-console.log('PASS: chained mouse sweeps stop at both sides; paperclip and real cuff remain reachable; freeing restores full rotation; restart reapplies bounds after old-room cleanup.');
+console.log('PASS: chained mouse sweeps stop at both sides with tighter right arc; paperclip stays reachable; freeing restores full rotation; restart reapplies bounds after old-room cleanup.');

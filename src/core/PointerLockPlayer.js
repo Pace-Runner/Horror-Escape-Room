@@ -478,6 +478,29 @@ export class PointerLockPlayer {
     this.#applyLook();
   }
 
+  /** Hold a reader's exact entry view, including crouch/bob height and heading. */
+  holdInspectionView() {
+    const position = this.object.position.clone();
+    const quaternion = this.camera.quaternion.clone();
+    const yaw = this._yaw, pitch = this._pitch, fov = this.camera.fov;
+    this.inspectionHeld = true;
+    this._pendingYaw = this._pendingPitch = 0;
+    this.lookDeltaX = this.lookDeltaY = 0;
+    let released = false;
+    return (restore = true) => {
+      if (released) return;
+      released = true;
+      this.inspectionHeld = false;
+      if (!restore) return;
+      this.object.position.copy(position);
+      this.camera.quaternion.copy(quaternion);
+      this._yaw = yaw; this._pitch = pitch;
+      this._pendingYaw = this._pendingPitch = 0;
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    };
+  }
+
   /** Kept for callers that only want to move without re-aiming. */
   teleport(x, z) {
     this.#resetJump();
@@ -625,7 +648,7 @@ export class PointerLockPlayer {
     // The caller is responsible for handing it back: set cinematic = false and
     // then spawn(), so the yaw/pitch this class owns agree with wherever the
     // camera was actually left.
-    if (this.cinematic) return;
+    if (this.cinematic || this.inspectionHeld) return;
 
     this._t += dt;
 

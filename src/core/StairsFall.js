@@ -52,7 +52,7 @@ const angleBetween = (from, to) => Math.atan2(Math.sin(to - from), Math.cos(to -
  * @param {object} deps.torch - setPower(0..1)
  * @param {() => () => void} deps.forceFirstPerson
  */
-export function createStairsFall({ camera, player, hands, audio, sfx, fade, setHouseLightsOut, torch, forceFirstPerson }) {
+export function createStairsFall({ camera, player, hands, audio, sfx, fade, setHouseLightsOut, torch, forceFirstPerson, prepareHands = () => {} }) {
   const clock = createFrameClock();
   const look = new THREE.Euler(0, 0, 0, 'YXZ');
   let running = false;
@@ -86,6 +86,8 @@ export function createStairsFall({ camera, player, hands, audio, sfx, fade, setH
       player.movementEnabled = false;
       player.lookEnabled = false;
       const restoreView = forceFirstPerson();
+      prepareHands();
+      torch.bringOut?.();
       const from = camera.position.clone();
       const fromYaw = player.yaw;
       const fromPitch = player.pitch;

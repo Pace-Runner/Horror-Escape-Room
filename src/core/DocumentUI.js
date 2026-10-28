@@ -24,7 +24,7 @@
 /** Slack in px for "scrolled to the bottom": sub-pixel layout never lands exactly. */
 const BOTTOM_EPSILON = 6;
 
-export function createDocumentUI({ onClose = () => {} } = {}) {
+export function createDocumentUI({ onOpen = () => {}, onClose = () => {} } = {}) {
   const view = document.getElementById('document-view');
   const panel = document.getElementById('document-panel');
   const titleEl = document.getElementById('document-title');
@@ -159,6 +159,7 @@ export function createDocumentUI({ onClose = () => {} } = {}) {
     openedAtMilliseconds = performance.now();
     isRightPressSinceOpen = false;
     open = true;
+    onOpen();
     view.classList.remove('hidden');
     narrationSession?.start(playing=>{if(narrationPrompt)narrationPrompt.hidden=!playing;});
     // After layout, so scrollHeight is real: a short document has no scrollbar
