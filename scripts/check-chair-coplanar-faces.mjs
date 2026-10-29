@@ -31,4 +31,3 @@ for(const [file,nodeName]of [['src/assets/models/study/annabelle_wingback_chair.
 }
 if(!process.argv.includes('--write'))assert.equal(total,0,'chair assets contain coplanar overlapping faces; run with --write to repair');
 console.log(process.argv.includes('--write')?'Repaired chair overlaps without moving exterior surfaces.':'PASS: wingback and covered armchair contain no positive-area same-facing coplanar overlaps.');
-
