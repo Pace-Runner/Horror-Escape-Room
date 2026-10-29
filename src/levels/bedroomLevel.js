@@ -278,6 +278,8 @@ const BIN_POSITION_Z = -2.25;
 export function createBedroomLevel({
   showCaption = () => {},
   onThought = () => {},
+  /** One of Mark's lines, in his voice where it has a recording (main.js markSays). */
+  markSays = (key) => showCaption(line(key)),
   onFreed = () => {},
   // Fired the instant the paperclip goes into the lock, not when onFreed
   // fires 900ms later -- main.js uses the gap between the two to time a hand
@@ -2840,16 +2842,16 @@ export function createBedroomLevel({
           showCaption(line('dialog_door_planks_pried_off'));
         } else {
           onSfx('door_locked_rattle');
-          showCaption(line(lockedTries.planks++ === 0
+          markSays(lockedTries.planks++ === 0
             ? 'dialog_door_planks_examine'
-            : pickLockedLine(['dialog_open_door_locked_1', 'dialog_open_door_locked_2'])));
+            : pickLockedLine(['dialog_open_door_locked_1', 'dialog_open_door_locked_2']));
         }
       } else if (!puzzleState.doorUnlocked) {
         if (!puzzleState.hasBedroomKey) {
           onSfx('door_locked_rattle');
-          showCaption(line(lockedTries.key++ === 0
+          markSays(lockedTries.key++ === 0
             ? 'dialog_door_locked_needs_key'
-            : pickLockedLine(['dialog_open_door_locked_1', 'dialog_open_door_locked_3'])));
+            : pickLockedLine(['dialog_open_door_locked_1', 'dialog_open_door_locked_3']));
           return;
         }
         if (!isHolding('bedroomKey')) {

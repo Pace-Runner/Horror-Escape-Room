@@ -54,6 +54,8 @@ const LOFT_D = 5.8;
 export function createStudyLevel({
   showCaption = () => {},
   onThought = () => {},
+  /** One of Mark's lines, in his voice where it has a recording (main.js markSays). */
+  markSays = (key) => showCaption(line(key)),
   onVoiceProgress = () => {},
   canAutoThought = () => true,
   // The front door starting to swing, with its world position. Not the later
@@ -2366,7 +2368,8 @@ export function createStudyLevel({
     group, interactables, loftY: LOFT_Y, loadModel: loadStudyModel,
     canTake: (id) => canCarryMore(id),
     onTake: (id) => { onSfx('cloth'); onPickUpItem(id); },
-    showCaption
+    showCaption,
+    markSays
   });
 
   return {

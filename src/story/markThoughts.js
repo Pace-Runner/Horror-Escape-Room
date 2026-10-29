@@ -218,6 +218,28 @@ export const MARK_THOUGHTS = {
   "l3_07": ["LEVEL 3/l3_thought_07_records.mp3", "The same subject keeps appearing in every record."],
   "l3_08": ["LEVEL 3/l3_thought_08_letter.mp3", "Annabelle..."],
   "l3_hint_clock": ["LEVEL 3/l3_hint_clock_01_session.mp3", "Session fourteen... they noted the time."],
-  "l3_hint_shadow": ["LEVEL 3/l3_hint_shadow_01.mp3", "The centre stays true... the outer two turn away."]
+  "l3_hint_shadow": ["LEVEL 3/l3_hint_shadow_01.mp3", "The centre stays true... the outer two turn away."],
+  // Mark's own lines in src/dialogue/ that have a recording (docs/MARK_VOICE_LINES.md).
+  // main.js MARK_SPOKEN plays each one for its dialogue key, through markSays().
+  any_wrong_code_1: ["ALL LEVELS/line_wrong_code_1.mp3", "I can't guess randomly. There are too many combinations."],
+  any_wrong_code_2: ["ALL LEVELS/line_wrong_code_2.mp3", "Maybe there is a clue around the room."],
+  any_wrong_code_3: ["ALL LEVELS/line_wrong_code_3.mp3", "This isn't right."],
+  any_wrong_code_4: ["ALL LEVELS/line_wrong_code_4.mp3", "I am missing something."],
+  any_wrong_code_5: ["ALL LEVELS/line_wrong_code_5.mp3", "I need some sort of hint for this puzzle."],
+  any_empty_hand: ["ALL LEVELS/line_inspect_empty_hand.mp3", "I'm not holding anything."],
+  l1_door_locked_1: ["LEVEL 1/l1_line_door_locked_1.mp3", "I need to unlock this door so I can find Annabelle."],
+  l1_door_locked_2: ["LEVEL 1/l1_line_door_locked_2.mp3", "I need to find something to break down these planks of wood."],
+  l1_door_locked_3: ["LEVEL 1/l1_line_door_locked_3.mp3", "It is still locked. The key might be hidden."],
+  backrooms_roam: ["BACKROOMS/backrooms_line_roam.mp3", "This room looks familiar. It reminds me of a movie I watched."],
+  backrooms_dead_end_1: ["BACKROOMS/backrooms_line_dead_end_1.mp3", "A dead end. I'll try another way."],
+  backrooms_dead_end_2: ["BACKROOMS/backrooms_line_dead_end_2.mp3", "This isn't the way out."],
+  backrooms_dead_end_3: ["BACKROOMS/backrooms_line_dead_end_3.mp3", "I should go back to another room."],
+  backrooms_look_1: ["BACKROOMS/backrooms_line_look_1.mp3", "Hello? Who are you? Are you okay? ... Okay. It's a fucking ghost."],
+  backrooms_look_2: ["BACKROOMS/backrooms_line_look_2.mp3", "I feel like I'm losing my mind. I know it's there, but it just disappears."],
+  backrooms_look_3: ["BACKROOMS/backrooms_line_look_3.mp3", "Who the fuck are you? Do you know my sister Annabelle? ... I'm losing it."],
+  l3_come_round: ["LEVEL 3/l3_line_come_round.mp3", "My neck... something in my neck. Everything's slow."],
+  l3_books_full: ["LEVEL 3/l3_line_books_full.mp3", "Three is all I can carry."],
+  l3_bottle_carried: ["LEVEL 3/l3_line_bottle_carried.mp3", "I already have a bottle."],
+  l3_letter_dark: ["LEVEL 3/l3_line_letter_dark.mp3", "I can't read it in this dark."],
+  l3_mirror_dark: ["LEVEL 3/l3_line_mirror_dark.mp3", "Not now. Not in the dark."]
 };
-

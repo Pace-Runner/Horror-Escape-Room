@@ -276,7 +276,9 @@ export function createStudyHideProps({
  * having to agree with it.
  */
 export function createStudyThrowables({ group, interactables, loftY,
-  loadModel = () => new Promise(() => {}), canTake = () => true, onTake = () => {}, showCaption = () => {} }) {
+  loadModel = () => new Promise(() => {}), canTake = () => true, onTake = () => {}, showCaption = () => {},
+  /** One of Mark's lines, in his voice where it has a recording (main.js markSays). */
+  markSays = (key) => showCaption(line(key)) }) {
   const root = new THREE.Group();
   root.name = 'Study_Throwables';
   group.add(root);
@@ -332,7 +334,7 @@ export function createStudyThrowables({ group, interactables, loftY,
         if (left.length === 0) return;
         // Three books (GameState STACKS), one bottle.
         if (!canTake(id)) {
-          showCaption(line(kind === 'book' ? 'dialog_study_books_full' : 'dialog_study_bottle_carried'));
+          markSays(kind === 'book' ? 'dialog_study_books_full' : 'dialog_study_bottle_carried');
           return;
         }
         left[left.length - 1].visible = false;

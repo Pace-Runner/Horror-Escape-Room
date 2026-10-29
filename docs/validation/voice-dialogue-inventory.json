@@ -1,6 +1,6 @@
 {
-  "recordingCount": 185,
-  "mappedVoiceCount": 102,
+  "recordingCount": 206,
+  "mappedVoiceCount": 123,
   "missingShippedVoiceFiles": [],
   "unusedVoice": [
     "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_mark_reveal_06_someones_there.mp3"
@@ -2166,6 +2166,174 @@
       "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_hint_shadow_01.mp3",
       "container": "MPEG audio",
       "duration": 4.780408163265308
+    },
+    {
+      "id": "any_wrong_code_1",
+      "voice": "mark/ALL LEVELS/line_wrong_code_1.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/ALL LEVELS/line_wrong_code_1.mp3",
+      "container": "MPEG audio",
+      "duration": 4.257959183673465
+    },
+    {
+      "id": "any_wrong_code_2",
+      "voice": "mark/ALL LEVELS/line_wrong_code_2.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/ALL LEVELS/line_wrong_code_2.mp3",
+      "container": "MPEG audio",
+      "duration": 2.9779591836734673
+    },
+    {
+      "id": "any_wrong_code_3",
+      "voice": "mark/ALL LEVELS/line_wrong_code_3.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/ALL LEVELS/line_wrong_code_3.mp3",
+      "container": "MPEG audio",
+      "duration": 2.0897959183673493
+    },
+    {
+      "id": "any_wrong_code_4",
+      "voice": "mark/ALL LEVELS/line_wrong_code_4.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/ALL LEVELS/line_wrong_code_4.mp3",
+      "container": "MPEG audio",
+      "duration": 2.5077551020408166
+    },
+    {
+      "id": "any_wrong_code_5",
+      "voice": "mark/ALL LEVELS/line_wrong_code_5.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/ALL LEVELS/line_wrong_code_5.mp3",
+      "container": "MPEG audio",
+      "duration": 3.369795918367343
+    },
+    {
+      "id": "any_empty_hand",
+      "voice": "mark/ALL LEVELS/line_inspect_empty_hand.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/ALL LEVELS/line_inspect_empty_hand.mp3",
+      "container": "MPEG audio",
+      "duration": 2.2465306122448996
+    },
+    {
+      "id": "l1_door_locked_1",
+      "voice": "mark/LEVEL 1/l1_line_door_locked_1.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_line_door_locked_1.mp3",
+      "container": "MPEG audio",
+      "duration": 3.7616326530612185
+    },
+    {
+      "id": "l1_door_locked_2",
+      "voice": "mark/LEVEL 1/l1_line_door_locked_2.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_line_door_locked_2.mp3",
+      "container": "MPEG audio",
+      "duration": 3.9183673469387688
+    },
+    {
+      "id": "l1_door_locked_3",
+      "voice": "mark/LEVEL 1/l1_line_door_locked_3.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_line_door_locked_3.mp3",
+      "container": "MPEG audio",
+      "duration": 3.7616326530612185
+    },
+    {
+      "id": "backrooms_roam",
+      "voice": "mark/BACKROOMS/backrooms_line_roam.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_roam.mp3",
+      "container": "MPEG audio",
+      "duration": 4.6236734693877555
+    },
+    {
+      "id": "backrooms_dead_end_1",
+      "voice": "mark/BACKROOMS/backrooms_line_dead_end_1.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_dead_end_1.mp3",
+      "container": "MPEG audio",
+      "duration": 3.108571428571426
+    },
+    {
+      "id": "backrooms_dead_end_2",
+      "voice": "mark/BACKROOMS/backrooms_line_dead_end_2.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_dead_end_2.mp3",
+      "container": "MPEG audio",
+      "duration": 2.481632653061225
+    },
+    {
+      "id": "backrooms_dead_end_3",
+      "voice": "mark/BACKROOMS/backrooms_line_dead_end_3.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_dead_end_3.mp3",
+      "container": "MPEG audio",
+      "duration": 2.56
+    },
+    {
+      "id": "backrooms_look_1",
+      "voice": "mark/BACKROOMS/backrooms_line_look_1.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_look_1.mp3",
+      "container": "MPEG audio",
+      "duration": 6.7134693877551275
+    },
+    {
+      "id": "backrooms_look_2",
+      "voice": "mark/BACKROOMS/backrooms_line_look_2.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_look_2.mp3",
+      "container": "MPEG audio",
+      "duration": 6.243265306122469
+    },
+    {
+      "id": "backrooms_look_3",
+      "voice": "mark/BACKROOMS/backrooms_line_look_3.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_look_3.mp3",
+      "container": "MPEG audio",
+      "duration": 5.511836734693889
+    },
+    {
+      "id": "l3_come_round",
+      "voice": "mark/LEVEL 3/l3_line_come_round.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_line_come_round.mp3",
+      "container": "MPEG audio",
+      "duration": 5.511836734693889
+    },
+    {
+      "id": "l3_books_full",
+      "voice": "mark/LEVEL 3/l3_line_books_full.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_line_books_full.mp3",
+      "container": "MPEG audio",
+      "duration": 2.742857142857142
+    },
+    {
+      "id": "l3_bottle_carried",
+      "voice": "mark/LEVEL 3/l3_line_bottle_carried.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_line_bottle_carried.mp3",
+      "container": "MPEG audio",
+      "duration": 2.298775510204083
+    },
+    {
+      "id": "l3_letter_dark",
+      "voice": "mark/LEVEL 3/l3_line_letter_dark.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_line_letter_dark.mp3",
+      "container": "MPEG audio",
+      "duration": 2.638367346938775
+    },
+    {
+      "id": "l3_mirror_dark",
+      "voice": "mark/LEVEL 3/l3_line_mirror_dark.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_line_mirror_dark.mp3",
+      "container": "MPEG audio",
+      "duration": 3.108571428571426
     },
     {
       "id": "descent",

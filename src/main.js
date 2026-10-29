@@ -1026,7 +1026,7 @@ function inspectHeldItem() {
   if (player.cinematic || documentUI.isOpen || !interaction.enabled) return;
   const id = heldItems.selected;
   if (!id || !gameState.inventory.has(id)) {
-    showCaption(line('dialog_inspect_empty_hand'));
+    markSays('dialog_inspect_empty_hand');
     return;
   }
   const label = ITEMS[id]?.label ?? id;
@@ -1342,7 +1342,7 @@ function pickUpDroppedItem(key) {
   if (!entry) return;
   // A full stack leaves this one where it is.
   if (!canCarryMore(entry.id)) {
-    if (entry.id === 'studyBook') showCaption(line('dialog_study_books_full'));
+    if (entry.id === 'studyBook') markSays('dialog_study_books_full');
     return;
   }
   removeDroppedProp(key);
@@ -1405,6 +1405,44 @@ const markThoughts = createMarkThoughts(audio, { captions,
   canPlay: entry => !gameState.endingChosen && !annabelleLetterNarration?.ownsVoice && (!cutscene.isRunning || entry.cutscene === cutscene.name) && !tapePlaying && (!documentUI.isOpen || entry.document)
 });
 const thought = (key, options) => markThoughts.play(key, options);
+/**
+ * Mark's own lines in src/dialogue/ that have a recording, by the thought that
+ * plays it (story/markThoughts.js; docs/MARK_VOICE_LINES.md). They are spoken
+ * as his thoughts are, and keep their old caption-only form for a moment his
+ * voice can't take (another voice, a story line, a document, a cutscene).
+ */
+const MARK_SPOKEN = {
+  dialog_wrong_code_1: 'any_wrong_code_1',
+  dialog_wrong_code_2: 'any_wrong_code_2',
+  dialog_wrong_code_3: 'any_wrong_code_3',
+  dialog_wrong_code_4: 'any_wrong_code_4',
+  dialog_wrong_code_5: 'any_wrong_code_5',
+  dialog_inspect_empty_hand: 'any_empty_hand',
+  dialog_open_door_locked_1: 'l1_door_locked_1',
+  dialog_open_door_locked_2: 'l1_door_locked_2',
+  dialog_open_door_locked_3: 'l1_door_locked_3',
+  dialog_backrooms_roam: 'backrooms_roam',
+  dialog_dead_end_1: 'backrooms_dead_end_1',
+  dialog_dead_end_2: 'backrooms_dead_end_2',
+  dialog_dead_end_3: 'backrooms_dead_end_3',
+  dialog_look_at_monster_1: 'backrooms_look_1',
+  dialog_look_at_monster_2: 'backrooms_look_2',
+  dialog_look_at_monster_3: 'backrooms_look_3',
+  dialog_study_come_round: 'l3_come_round',
+  dialog_study_books_full: 'l3_books_full',
+  dialog_study_bottle_carried: 'l3_bottle_carried',
+  dialog_study_letter_dark: 'l3_letter_dark',
+  dialog_study_mirror_dark: 'l3_mirror_dark'
+};
+/**
+ * Says one of Mark's dialogue lines: his recorded voice if it has one, otherwise
+ * `show(line(key))`, as every line was before. Repeatable, like the examine
+ * lines these are. Returns what the voice or `show` returned.
+ */
+function markSays(key, show = showCaption) {
+  const id = MARK_SPOKEN[key];
+  return (id && thought(id, { replayable: true })) || show(line(key));
+}
 const studyArrival=createStudyArrivalVoice({thoughts:markThoughts,
   isCurrent:()=>sceneManager.activeKey==='study'&&!gameState.endingChosen,
   isReady:()=>!transitionInFlight&&!cutscene.isRunning&&!caughtInFlight&&!openingSequenceActive
@@ -1486,7 +1524,7 @@ const pinPadUI = createPinPadUI({
   // into a story line that happens to be running.
   onWrong: () => {
     sfx('keypad_wrong');
-    captions.say(line(pickWrongCode()));
+    markSays(pickWrongCode(), (lines) => captions.say(lines));
   },
   onKey: () => sfx('keypad_press'),
   onGranted: () => sfx('keypad_accept')
@@ -2177,6 +2215,7 @@ const BULB_BLOW_DELAY_AFTER_CUFF_UNLOCK_SECONDS = 3;
 const bedroom = createDeferredLevel(() => createBedroomLevel({
   showCaption,
   onThought: thought,
+  markSays,
   // Every item puzzle in the room asks the hand, not just the inventory.
   isHolding: (id) => heldItems.isHolding(id),
   isCarrying: (id) => gameState.inventory.has(id),
@@ -3236,6 +3275,7 @@ const STUDY_LOCK_SFX = { deadbolt: 'deadbolt_open', combination: 'padlock_open',
 const study = createDeferredLevel(() => createStudyLevel({
   showCaption,
   onThought: thought,
+  markSays,
   onVoiceProgress: () => { markThoughts.cancel('l3_hint_clock'); markThoughts.cancel('l3_hint_shadow'); },
   canAutoThought: () => player.isLocked && !documentUI.isOpen && !cutscene.isRunning && !tapePlaying && !transitionInFlight,
   getPlayerPosition: () => camera.position,
@@ -3296,7 +3336,7 @@ const study = createDeferredLevel(() => createStudyLevel({
   onReadLetter: ({ body, onFinished } = {}) => {
     if (!body || documentUI.isOpen || cutscene.isRunning) return;
     // Not by moonlight, with her in the room: the letter waits for the power.
-    if (study.refs.blackout?.isOut) { showCaption(line('dialog_study_letter_dark')); return; }
+    if (study.refs.blackout?.isOut) { markSays('dialog_study_letter_dark'); return; }
     const letterLevel = sceneManager.active;
     player.clearKeys();
     player.unlock();
@@ -3326,7 +3366,7 @@ const study = createDeferredLevel(() => createStudyLevel({
   // hand-back. Both cameras follow the same routed first-person eye positions.
   onLookInMirror: async () => {
     if (cutscene.isRunning || !study.refs.puzzle.mirrorUnlocked) return Promise.resolve(false);
-    if (study.refs.blackout?.isOut) { showCaption(line('dialog_study_mirror_dark')); return Promise.resolve(false); }
+    if (study.refs.blackout?.isOut) { markSays('dialog_study_mirror_dark'); return Promise.resolve(false); }
     const refs = study.refs;
     const wasVisorWorn=gameState.visorWorn;
     visor.set(false);refs.syncRevealVisor?.();refs.initializeRevealVisor?.();
@@ -3645,7 +3685,7 @@ const backroomsBarks = createBackroomsBarks({
   // Never over a story line; an examine caption can give way.
   say: (key) => {
     if (captions.isPlaying) return false;
-    captions.play(line(key));
+    markSays(key, (lines) => captions.play(lines));
     return true;
   },
   getPlayer: () => {
@@ -4640,7 +4680,8 @@ function onStudyCaught(context = null) {
         player.lookEnabled = true;
         player.movementEnabled = true;
         interaction.setEnabled(true);
-        captions.play(line(studyCaughtTimes > 1 ? 'dialog_study_come_round_again' : 'dialog_study_come_round'));
+        // The second line has no take that matches it yet: caption-only.
+        markSays(studyCaughtTimes > 1 ? 'dialog_study_come_round_again' : 'dialog_study_come_round', (lines) => captions.play(lines));
       });
       if (!await s.wait(STUDY_RESUME_SECONDS)) return;
       s.do(() => {

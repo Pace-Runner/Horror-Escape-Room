@@ -1,16 +1,38 @@
 # Mark's voice lines
 
-All 29 of Mark's spoken lines have recordings as of 2026-10-28. They were
-generated with ElevenLabs in the voice Daniel set up for Mark, and each one
-plays with its caption, with no code change (see `src/dialogue/README.md`).
+Mark's 29 lines in `src/dialogue/` all have recordings, made 2026-10-28 with
+ElevenLabs in the voice Daniel set up for Mark. 21 of them play in the game,
+spoken as Mark's thoughts are. The other 8 are kept in
+`audio-source/mark-voice-takes/`, and the tables below say why.
 
-- **Mark's thoughts** were already recorded. All 69 in
-  `src/story/markThoughts.js` have their clip in
+- **Mark's thoughts** were recorded before these: the entries in
+  `src/story/markThoughts.js`, with their clips in
   `src/assets/audio/Dont Let it out Mark voice/`.
 - **The 29 lines below** are Mark speaking or thinking out loud in
   `src/dialogue/`. They were the only lines in his voice with no recording.
 - **The other 340 captions** in `src/dialogue/` aren't Mark (see the end), so
   they stay caption-only.
+
+## How a take plays
+
+Mark has one voice in the game: `systems/MarkThoughts.js`, which plays the
+entries of `MARK_THOUGHTS` (one line at a time, by priority). A line from
+`src/dialogue/` gets his voice like this:
+
+1. **The file:** the take goes in `src/assets/audio/Dont Let it out Mark
+   voice/`, in its level's folder (`ALL LEVELS/` for lines that can come
+   anywhere).
+2. **The thought:** an entry in `MARK_THOUGHTS`, `id: [file, text]`, with
+   the line's text as the caption.
+3. **The link:** `dialog_key: 'id'` in `MARK_SPOKEN` in `src/main.js`.
+4. **The call:** the call site says the line with `markSays(key)` (levels get
+   it as a callback, as they get `onThought`). It plays the thought,
+   repeatable. When his voice can't take it right then (another of his
+   lines, a story caption, a document, a cutscene), it shows the old
+   caption-only line instead, as every line did before.
+5. **The check:** `npm run check:voices`. It fails on a recording in that
+   folder that no thought maps, and on a thought nothing triggers. It also
+   fails on any recording left in `src/assets/voice/` that nothing maps.
 
 ## How they were made
 
@@ -44,61 +66,59 @@ ElevenLabs **Text to Speech** page with these settings:
   the same settings. ElevenLabs started refusing flow runs as "too many
   requests" after a few, so the Text to Speech page is the quicker way.
 
-The paths in the File columns are under `audio-source/mark-voice-takes/`.
-The takes are not in the game yet. They were made for the dialogue lines
-below, but Mark's voice now plays through `src/story/markThoughts.js`, with
-its recordings in `src/assets/audio/Dont Let it out Mark voice/`, and
-`npm run check:voices` refuses any recording in `src/assets/voice/` that
-nothing maps. To use a take, add it there and map it the same way.
+In the tables, the File column is under `src/assets/audio/Dont Let it out
+Mark voice/` for the lines that play, and the thought that plays them is
+named after it. The lines that don't play give their take's place in
+`audio-source/mark-voice-takes/` and the reason.
 
 ## Anywhere (`src/dialogue/anywhere.js`)
 
 | Line | Mark says | Plays when | File |
 |---|---|---|---|
-| `dialog_wrong_code_1` | "I can't guess randomly. There are too many combinations." | A wrong code on any keypad (one of five, at random) | `all/wrong_code_1.mp3` |
-| `dialog_wrong_code_2` | "Maybe there is a clue around the room." | " | `all/wrong_code_2.mp3` |
-| `dialog_wrong_code_3` | "This isn't right." | " | `all/wrong_code_3.mp3` |
-| `dialog_wrong_code_4` | "I am missing something." | " | `all/wrong_code_4.mp3` |
-| `dialog_wrong_code_5` | "I need some sort of hint for this puzzle." | " | `all/wrong_code_5.mp3` |
-| `dialog_inspect_empty_hand` | "I'm not holding anything." | I (inspect) with an empty hand | `all/inspect_empty_hand.mp3` |
+| `dialog_wrong_code_1` | "I can't guess randomly. There are too many combinations." | A wrong code on any keypad (one of five, at random) | `ALL LEVELS/line_wrong_code_1.mp3` (thought `any_wrong_code_1`) |
+| `dialog_wrong_code_2` | "Maybe there is a clue around the room." | " | `ALL LEVELS/line_wrong_code_2.mp3` (thought `any_wrong_code_2`) |
+| `dialog_wrong_code_3` | "This isn't right." | " | `ALL LEVELS/line_wrong_code_3.mp3` (thought `any_wrong_code_3`) |
+| `dialog_wrong_code_4` | "I am missing something." | " | `ALL LEVELS/line_wrong_code_4.mp3` (thought `any_wrong_code_4`) |
+| `dialog_wrong_code_5` | "I need some sort of hint for this puzzle." | " | `ALL LEVELS/line_wrong_code_5.mp3` (thought `any_wrong_code_5`) |
+| `dialog_inspect_empty_hand` | "I'm not holding anything." | I (inspect) with an empty hand | `ALL LEVELS/line_inspect_empty_hand.mp3` (thought `any_empty_hand`) |
 
 ## Level 1, the bedroom (`src/dialogue/level1_bedroom.js`)
 
 | Line | Mark says | Plays when | File |
 |---|---|---|---|
-| `dialog_open_door_locked_1` | "I need to unlock this door so I can find Annabelle." | Trying the boarded or locked door | `level1/open_door_locked_1.mp3` |
-| `dialog_open_door_locked_2` | "I need to find something to break down these planks of wood." | Trying the door while it's still boarded | `level1/open_door_locked_2.mp3` |
-| `dialog_open_door_locked_3` | "It is still locked. The key might be hidden." | Trying the door once the planks are off | `level1/open_door_locked_3.mp3` |
+| `dialog_open_door_locked_1` | "I need to unlock this door so I can find Annabelle." | Trying the boarded or locked door | `LEVEL 1/l1_line_door_locked_1.mp3` (thought `l1_door_locked_1`) |
+| `dialog_open_door_locked_2` | "I need to find something to break down these planks of wood." | Trying the door while it's still boarded | `LEVEL 1/l1_line_door_locked_2.mp3` (thought `l1_door_locked_2`) |
+| `dialog_open_door_locked_3` | "It is still locked. The key might be hidden." | Trying the door once the planks are off | `LEVEL 1/l1_line_door_locked_3.mp3` (thought `l1_door_locked_3`) |
 
 ## The backrooms (`src/dialogue/backrooms.js`)
 
 | Line | Mark says | Plays when | File |
 |---|---|---|---|
-| `dialog_backrooms_roam` | "This room looks familiar. It reminds me of a movie I watched." | After wandering the maze a while | `backrooms/roam_10sec.mp3` |
-| `dialog_dead_end_1` | "A dead end. I'll try another way." | At a dead end (one of three) | `backrooms/dead_end_1.mp3` |
-| `dialog_dead_end_2` | "This isn't the way out." | " | `backrooms/dead_end_2.mp3` |
-| `dialog_dead_end_3` | "I should go back to another room." | " | `backrooms/dead_end_3.mp3` |
-| `dialog_look_at_monster_1` | "Hello? Who are you? Are you okay? ... Okay. It's a fucking ghost." | Looking at the hunter (one of three) | `backrooms/look_monster_1.mp3` |
-| `dialog_look_at_monster_2` | "I feel like I'm losing my mind. I know it's there, but it just disappears." | " | `backrooms/look_monster_2.mp3` |
-| `dialog_look_at_monster_3` | "Who the fuck are you? Do you know my sister Annabelle? ... I'm losing it." | " | `backrooms/look_monster_3.mp3` |
+| `dialog_backrooms_roam` | "This room looks familiar. It reminds me of a movie I watched." | After wandering the maze a while | `BACKROOMS/backrooms_line_roam.mp3` (thought `backrooms_roam`) |
+| `dialog_dead_end_1` | "A dead end. I'll try another way." | At a dead end (one of three) | `BACKROOMS/backrooms_line_dead_end_1.mp3` (thought `backrooms_dead_end_1`) |
+| `dialog_dead_end_2` | "This isn't the way out." | " | `BACKROOMS/backrooms_line_dead_end_2.mp3` (thought `backrooms_dead_end_2`) |
+| `dialog_dead_end_3` | "I should go back to another room." | " | `BACKROOMS/backrooms_line_dead_end_3.mp3` (thought `backrooms_dead_end_3`) |
+| `dialog_look_at_monster_1` | "Hello? Who are you? Are you okay? ... Okay. It's a fucking ghost." | Looking at the hunter (one of three) | `BACKROOMS/backrooms_line_look_1.mp3` (thought `backrooms_look_1`) |
+| `dialog_look_at_monster_2` | "I feel like I'm losing my mind. I know it's there, but it just disappears." | " | `BACKROOMS/backrooms_line_look_2.mp3` (thought `backrooms_look_2`) |
+| `dialog_look_at_monster_3` | "Who the fuck are you? Do you know my sister Annabelle? ... I'm losing it." | " | `BACKROOMS/backrooms_line_look_3.mp3` (thought `backrooms_look_3`) |
 
 ## Level 3, the study (`src/dialogue/level3_study.js`)
 
 | Line | Mark says | Plays when | File |
 |---|---|---|---|
-| `dialog_study_blackout_teaser` | "The lights. All of them at once." | The first blackout (the crest is solved) | `level3/study_blackout_teaser.mp3` |
-| `dialog_study_blackout_hunt` | "No. Not again. Not now." | The second blackout (the visor is taken) | `level3/study_blackout_hunt.mp3` |
-| `dialog_study_breaker_thought` | "There was a breaker up on the loft. On the back wall." | A few seconds into the first blackout | `level3/study_breaker_thought.mp3` |
-| `dialog_study_fuse_thought` | "The fuse went with it. There were spares in a tin, by the desk." | A few seconds into the second blackout | `level3/study_fuse_thought.mp3` |
-| `dialog_study_power_back_teaser` | "The power's back. Whatever that was, it's gone." | The breaker thrown, first blackout | `level3/study_power_back_teaser.mp3` |
-| `dialog_study_power_back_hunt` | "Light. She's gone back into the dark." | The breaker thrown, second blackout | `level3/study_power_back_hunt.mp3` |
-| `dialog_study_come_round` | "My neck... something in my neck. Everything's slow." | Coming round after the first catch | `level3/study_come_round.mp3` |
-| `dialog_study_come_round_again` | "Again. She put me here again." | Coming round after any later catch | `level3/study_come_round_again.mp3` |
-| `dialog_study_books_full` | "Three is all I can carry." | Taking a fourth book | `level3/study_books_full.mp3` |
-| `dialog_study_bottle_carried` | "I already have a bottle." | Taking a second bottle | `level3/study_bottle_carried.mp3` |
-| `dialog_study_letter_dark` | "I can't read it in this dark." | The letter during a blackout | `level3/study_letter_dark.mp3` |
-| `dialog_study_mirror_dark` | "Not now. Not in the dark." | The mirror during a blackout | `level3/study_mirror_dark.mp3` |
-| `dialog_study_letter_read_it` | "I need to read this." | The study's prompt toward the letter | `level3/study_letter_read_it.mp3` |
+| `dialog_study_blackout_teaser` | "The lights. All of them at once." | The first blackout (the crest is solved) | `level3/study_blackout_teaser.mp3`. Not played: Daniel's recorded whisper `l3_stealth_01` says it at the same moment. |
+| `dialog_study_blackout_hunt` | "No. Not again. Not now." | The second blackout (the visor is taken) | `level3/study_blackout_hunt.mp3`. Not played: the second blackout is gone (one encounter now). |
+| `dialog_study_breaker_thought` | "There was a breaker up on the loft. On the back wall." | A few seconds into the first blackout | `level3/study_breaker_thought.mp3`. Not played: the whisper `l3_stealth_05` says it. |
+| `dialog_study_fuse_thought` | "The fuse went with it. There were spares in a tin, by the desk." | A few seconds into the second blackout | `level3/study_fuse_thought.mp3`. Not played: the second blackout is gone. |
+| `dialog_study_power_back_teaser` | "The power's back. Whatever that was, it's gone." | The breaker thrown, first blackout | `level3/study_power_back_teaser.mp3`. Not played: the whisper `l3_stealth_07` says it. |
+| `dialog_study_power_back_hunt` | "Light. She's gone back into the dark." | The breaker thrown, second blackout | `level3/study_power_back_hunt.mp3`. Not played: the second blackout is gone; its text changed too. |
+| `dialog_study_come_round` | "My neck... something in my neck. Everything's slow." | Coming round after the first catch | `LEVEL 3/l3_line_come_round.mp3` (thought `l3_come_round`) |
+| `dialog_study_come_round_again` | "Again. She put me here again." | Coming round after any later catch | `level3/study_come_round_again.mp3`. Not played: the line now says "It put me here again"; the take says "She". Caption-only until a new take. |
+| `dialog_study_books_full` | "Three is all I can carry." | Taking a fourth book | `LEVEL 3/l3_line_books_full.mp3` (thought `l3_books_full`) |
+| `dialog_study_bottle_carried` | "I already have a bottle." | Taking a second bottle | `LEVEL 3/l3_line_bottle_carried.mp3` (thought `l3_bottle_carried`) |
+| `dialog_study_letter_dark` | "I can't read it in this dark." | The letter during a blackout | `LEVEL 3/l3_line_letter_dark.mp3` (thought `l3_letter_dark`) |
+| `dialog_study_mirror_dark` | "Not now. Not in the dark." | The mirror during a blackout | `LEVEL 3/l3_line_mirror_dark.mp3` (thought `l3_mirror_dark`) |
+| `dialog_study_letter_read_it` | "I need to read this." | The study's prompt toward the letter | `level3/study_letter_read_it.mp3`. Not played: an unprompted hint, and spoken hints come only with H (studyLevel.js). |
 
 ## In the files but never played
 
