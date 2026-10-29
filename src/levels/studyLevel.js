@@ -64,6 +64,8 @@ export function createStudyLevel({
   onTakeVisor = () => {},
   /** The crest is solved and exposes its reward; collecting it is a separate event. */
   onCrestSolved = () => {},
+  /** The grandfather clock set to 11:15. */
+  onClockSolved = () => {},
   /** The physical crest reward was collected, not merely revealed. */
   onCrestKeyTaken = () => {},
   /** E on a hide spot (the wardrobe): main.js puts Mark inside it. */
@@ -616,6 +618,7 @@ export function createStudyLevel({
   function trySolveClock() {
     if (puzzle.clockSolved || puzzle.clockHour !== 11 || puzzle.clockMinute !== 15) return;
     puzzle.clockSolved = true;
+    onClockSolved();
     archiveToken.visible = !puzzle.hasArchiveToken;
     archiveTokenHitbox.visible = !puzzle.hasArchiveToken;
     if (!puzzle.hasArchiveToken && !interactables.includes(archiveTokenHitbox)) {

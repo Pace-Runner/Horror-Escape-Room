@@ -174,7 +174,9 @@ export function createBackroomsLevel({
   // The exit door starting to swing, with its world position.
   onDoorOpening = () => {},
   // A sound effect by name (AudioDirector's SFX), with its world `position`.
-  onSfx = () => {}
+  onSfx = () => {},
+  // A room of the maze walked into, by its leg name ('room_BL', ...).
+  onRoomEnter = () => {}
 } = {}) {
   const group = new THREE.Group();
   group.name = 'Level0_Backrooms';
@@ -343,6 +345,7 @@ export function createBackroomsLevel({
         onThought('backrooms_03',{priority:40,onEnded:()=>onThought('backrooms_04')});
       }
       if (LEGS[name].kind === 'room' && thoughtCorridors.size >= 8) onThought('backrooms_05');
+      if (LEGS[name].kind === 'room') onRoomEnter(name);
     }
     if (hereQuad) hereQuad.material = minimapFloorMat;
     hereQuad = here;

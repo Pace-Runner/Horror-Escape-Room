@@ -66,18 +66,19 @@ vm.runInContext(main.slice(start.start,start.end),context);
 context.startStudyBlackout('teaser');assert.equal(starts,0,'crest solution started encounter before key pickup');
 puzzle.hasArchiveKey=true;context.startStudyBlackout('teaser');assert.equal(starts,1);
 context.startStudyBlackout('teaser');context.startStudyBlackout('hunt');assert.equal(starts,1);
-puzzle.blackoutStage='teaserDone';context.startStudyBlackout('teaser');context.startStudyBlackout('hunt');assert.equal(starts,1);
-context.sceneManager.activeKey='backrooms';puzzle.blackoutStage='none';context.startStudyBlackout('teaser');assert.equal(starts,1);
+puzzle.blackoutStage='teaserDone';context.startStudyBlackout('teaser');context.startStudyBlackout('hunt');assert.equal(starts,2,'the visor hunt must follow the teaser');
+context.startStudyBlackout('hunt');assert.equal(starts,2,'the hunt runs once');
+context.sceneManager.activeKey='backrooms';puzzle.blackoutStage='none';context.startStudyBlackout('teaser');assert.equal(starts,2);
 const restore=all.find(n=>n.type==='FunctionDeclaration'&&n.id.name==='onStudyBreakerThrown');
 let cancelled=0,restored=0;
-Object.assign(context,{studySeeker:null,studyScript:{cancel(){cancelled++;}},endStudyStalk(){},clearStudyShards(){},captions:{play(){}},line:()=>[],studyStealthVoice:{restored(){restored++;}}});
+Object.assign(context,{showHuntBanner(){},studySeeker:null,studyScript:{cancel(){cancelled++;}},endStudyStalk(){},clearStudyShards(){},captions:{play(){}},line:()=>[],studyStealthVoice:{restored(){restored++;}}});
 vm.runInContext(main.slice(restore.start,restore.end),context);puzzle.blackoutStage='teaser';
 context.onStudyBreakerThrown('teaser');context.onStudyBreakerThrown('teaser');
 assert.equal(cancelled,1,'breaker did not cancel pending entrance/resume script');assert.equal(restored,1);assert.equal(puzzle.blackoutStage,'teaserDone');
 const studySource=fs.readFileSync('src/levels/studyLevel.js','utf8');
 assert(studySource.slice(studySource.indexOf("label: 'Take the Archive Key'"),studySource.indexOf('shadowCrest.add(archiveKeyHit)')).includes('onCrestKeyTaken()'));
-const visor=all.find(n=>n.type==='Property'&&n.key.name==='onTakeVisor');assert(!main.slice(visor.start,visor.end).includes('startStudyBlackout'));
+const visor=all.find(n=>n.type==='Property'&&n.key.name==='onTakeVisor');assert(main.slice(visor.start,visor.end).includes("startStudyBlackout('hunt')"));
 for(const name of ['onStudyCaught','stopStudyHideAndSeek','freezePlayerForTransition']){
   const fn=all.find(n=>n.type==='FunctionDeclaration'&&n.id.name===name);assert(main.slice(fn.start,fn.end).includes('studyStealthVoice.'),'missing voice cleanup '+name);
 }
-console.log('PASS: six exact assets/no 06; shared MARK/audio-ended captions; 01→02→05 ordering; event-only hide/pickup once; no important-voice interruption; immediate 07; catch/cutscene/scene/reset cancellation; real key-only once-per-run guard; no visor restart.');
+console.log('PASS: six exact assets/no 06; shared MARK/audio-ended captions; 01→02→05 ordering; event-only hide/pickup once; no important-voice interruption; immediate 07; catch/cutscene/scene/reset cancellation; real key-only once-per-run guard; one harder visor hunt after it.');

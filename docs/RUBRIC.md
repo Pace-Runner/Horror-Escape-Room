@@ -97,6 +97,11 @@ that the others do not?*"
 - **Win and lose**: two endings; every difficulty has a per-room clock
   (Easy 30 min, Medium 15, Hard 8) and running out ends the run.
   `src/core/Difficulty.js`. Being caught by the hunter sets you back.
+- **Chapters and discoveries:** the main menu's Chapters panel replays only
+  the rooms a player has reached, and lists achievements (backrooms rooms,
+  cutscenes, the fuse right first time, times caught, endings), saved in
+  localStorage. `src/core/Progress.js`, `src/core/achievements.js`,
+  `src/core/ChapterSelect.js`; hooks listed in `docs/ACHIEVEMENTS.md`.
 
 ## 3D Effects (15%)
 

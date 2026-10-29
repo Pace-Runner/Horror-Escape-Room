@@ -11,8 +11,8 @@ import tinUrl from '../assets/models/study/study_fuse_tin.glb?url';
  * study's power by coincidence, and Annabelle uses the dark to find
  * Mark and sedate him. Almost everything goes out. What is left is the moon
  * through the three left-wall casements, the candle the gust missed, and the
- * lightning. The way out is the breaker up on the loft. The component retains
- * its legacy blown-fuse mode, but visor collection no longer starts a second encounter.
+ * lightning. The way out is the breaker up on the loft. The second strike (the
+ * hunt, as the visor is taken) blows its fuse; the spare is in a tin downstairs.
  *
  * LIGHTS ARE BAKED INTO SHADERS (CLAUDE.md). This file makes NO lights. The
  * room keeps a light budget (scripts/check-study-reveal.mjs), and main's

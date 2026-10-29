@@ -74,8 +74,8 @@ g.hands.root.visible = false;
 
 ## Level 3 hide-and-seek (pass 1 built, branch `level3-hide-and-seek`)
 
-Pass 1 is in: two storm blackouts (after the crest, and when the visor is
-taken), `systems/StudySeeker.js`, cover and hide spots, book and bottle
+Pass 1 is in: two storm blackouts (after the crest key, and a harder hunt
+when the visor is taken), `systems/StudySeeker.js`, cover and hide spots, book and bottle
 throwing, the loft breaker and spare fuse, and three random study catch scares.
 Pass 2 built the models in `blender/study/`: scripts for the wardrobe,
 screen, curtains, dust sheets, books, breaker board and fuse tin, and import

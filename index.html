@@ -72,6 +72,8 @@
 
   <div id="hud">
     <div id="objective" role="status" aria-live="polite"></div>
+    <!-- Shown as each study blackout starts (main.js showHuntBanner); timed by its CSS animation. -->
+    <div id="hunt-banner" aria-live="assertive">Flip The Breaker Upstairs To End Hunt</div>
     <aside id="context-panel" hidden aria-live="polite"></aside>
     <!-- Time left in this room, on every difficulty. See src/core/Difficulty.js. -->
     <div id="run-timer" aria-label="Time left"><span class="run-timer-label">Time left</span><span class="run-timer-value">0:00</span></div>
@@ -290,6 +292,7 @@
       <h1 id="menu-title"><span>DON'T</span><span>LET IT OUT</span></h1>
       <div class="menu-actions" id="menu-main-actions" role="menu">
         <button class="menu-option is-selected" id="menu-start" type="button" role="menuitem">Start Game</button>
+        <button class="menu-option" id="menu-chapters" type="button" role="menuitem">Chapters</button>
         <button class="menu-option" id="menu-settings" type="button" role="menuitem">Settings</button>
         <button class="menu-option" id="menu-leaderboard" type="button" role="menuitem">Leaderboard</button>
         <button class="menu-option" id="menu-controls" type="button" role="menuitem">Controls</button>
@@ -501,6 +504,19 @@
       </div>
     </div>
   </section>
+  <!-- Chapters and achievements: src/core/ChapterSelect.js, saved by core/Progress.js. -->
+  <section id="chapter-screen" class="hidden score-overlay" role="dialog" aria-modal="true" aria-labelledby="chapter-title">
+    <div class="leaderboard-panel chapter-panel">
+      <div class="menu-ornament" aria-hidden="true">✦</div>
+      <h2 id="chapter-title">Chapters</h2>
+      <p class="score-note">Only rooms you have already reached can be replayed.</p>
+      <div id="chapter-list"></div>
+      <h2 class="achievement-heading">Discoveries <span id="achievement-tally"></span></h2>
+      <div id="achievement-list"></div>
+      <div class="score-actions"><button class="menu-option" id="progress-reset" type="button">Reset progress</button><button class="menu-option" id="chapter-close" type="button">Back to Menu</button></div>
+    </div>
+  </section>
+  <div id="achievement-toast" aria-live="polite"><span class="achievement-toast-label">Discovered</span><span class="achievement-toast-title"></span></div>
   <section id="leaderboard-screen" class="hidden score-overlay" role="dialog" aria-modal="true" aria-labelledby="leaderboard-title">
     <div class="leaderboard-panel">
       <div class="menu-ornament" aria-hidden="true">✦</div>

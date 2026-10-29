@@ -73,6 +73,9 @@ import { createStairsScare } from './core/StairsScare.js';
 import { createHallwayBlinks } from './core/HallwayBlinks.js';
 import { createStairsFall } from './core/StairsFall.js';
 import { DIFFICULTIES, DEFAULT_DIFFICULTY, createRunTimer } from './core/Difficulty.js';
+import { createProgress } from './core/Progress.js';
+import { ACHIEVEMENTS, BACKROOMS_ROOM_IDS } from './core/achievements.js';
+import { createChapterSelect } from './core/ChapterSelect.js';
 import { FreeCamera } from './core/FreeCamera.js';
 import { createScriptRunner } from './core/Script.js';
 import { createOkabeCreature } from './systems/OkabeCreature.js';
@@ -207,6 +210,32 @@ const openingNewsCutscene = createOpeningNewsCutscene({
  */
 const runTimer = createRunTimer({ el: runTimerEl, onExpire: () => playOutOfTime() });
 const activeRun=createActiveRun();
+/**
+ * Levels reached and achievements earned, across page loads (core/Progress.js).
+ * achieve() is the one call every hook below makes; a new one shows a toast.
+ */
+const progress = createProgress();
+const achievementToast = document.getElementById('achievement-toast');
+progress.onUnlock((id) => {
+  const def = ACHIEVEMENTS.find((a) => a.id === id);
+  if (!def || !achievementToast) return;
+  achievementToast.querySelector('.achievement-toast-title').textContent = def.title;
+  // Restarting the CSS animation is what times the banner; no timer to cancel.
+  achievementToast.classList.remove('is-showing');
+  void achievementToast.offsetWidth;
+  achievementToast.classList.add('is-showing');
+});
+function achieve(id) {
+  if (!progress.unlock(id)) return;
+  if (BACKROOMS_ROOM_IDS.every((room) => progress.has(room))) progress.unlock('rooms_all');
+}
+/** Adds to a lifetime count and earns every counter achievement it reaches. */
+function achieveCount(counter) {
+  const n = progress.bump(counter);
+  for (const def of ACHIEVEMENTS) if (def.counter === counter && n >= def.target) achieve(def.id);
+}
+/** The first fuse seated this run, for "right first time". */
+let firstFuseSeated = null;
 const leaderboardUI=createLeaderboardUI({root:document.getElementById('leaderboard-screen'),prompt:document.getElementById('score-prompt'),
   service:createLeaderboardService(supabase),onClose:()=>showMainMenu()});
 document.addEventListener('visibilitychange',()=>activeRun.suspend());
@@ -220,10 +249,29 @@ let menuOverlayState = 'main';
 let selectedMenuOptionIndex = 0;
 const menuMusic = createMenuMusic({source:menuMusicUrl});
 const headphonesNote = document.getElementById('menu-headphones-note');
+/** The level a Chapters pick will start at, once difficulty and headphones are past. */
+let pendingChapter = null;
 const headphonesScreen = createHeadphonesScreen({root:document.getElementById('headphones-screen'), onContinue:()=>{
   menuOverlayState = 'game';
-  startButton.click();
+  const chapter = pendingChapter;
+  pendingChapter = null;
+  if (chapter && chapter !== 'bedroom' && !gameStarted) void startChapter(chapter);
+  else startButton.click();
 }});
+const chapterSelect = createChapterSelect({
+  root: document.getElementById('chapter-screen'),
+  progress,
+  // A pick goes through the same difficulty and headphones steps as Start Game.
+  onPick: (key) => {
+    chapterSelect.close();
+    pendingChapter = key;
+    menuOverlayState = 'main';
+    mainMenu.classList.remove('hidden');
+    enterImmersive();
+    showDifficultyChoice(true);
+  },
+  onClose: () => { chapterSelect.close(); showMainMenu(); }
+});
 const controlsScreen = document.getElementById('controls-screen');
 let controlsReturnState = 'main';
 function showControls() {
@@ -365,12 +413,18 @@ menuDifficulty.querySelectorAll('[data-difficulty]').forEach((button) => {
 });
 
 menuStartButton.addEventListener('click', () => {
+  pendingChapter = null;
   enterImmersive();
   showDifficultyChoice(true);
 });
 menuDifficultyBack.addEventListener('click', () => showDifficultyChoice(false));
 menuCreditsButton.addEventListener('click', showMenuCredits);
 menuSettingsButton.addEventListener('click', showMenuSettings);
+document.getElementById('menu-chapters').addEventListener('click', () => {
+  menuOverlayState = 'chapters';
+  mainMenu.classList.add('hidden');
+  chapterSelect.open();
+});
 document.getElementById('menu-leaderboard').addEventListener('click',()=>{
   menuOverlayState='leaderboard';mainMenu.classList.add('hidden');leaderboardUI.open();
 });
@@ -388,10 +442,11 @@ window.addEventListener('keydown', (event) => {
     settingsButton.focus({preventScroll:true});
     return;
   }
-  if (menuOverlayState === 'credits' || menuOverlayState === 'quit' || menuOverlayState === 'settings' || menuOverlayState==='leaderboard') {
+  if (menuOverlayState === 'credits' || menuOverlayState === 'quit' || menuOverlayState === 'settings' || menuOverlayState==='leaderboard' || menuOverlayState === 'chapters') {
     if (event.code === 'Escape') {
       event.preventDefault();
       settingsScreen.classList.add('hidden');
+      chapterSelect.close();
       showMainMenu();
     }
     return;
@@ -2040,6 +2095,7 @@ function playCutscene(name, params) {
     return Promise.resolve(false);
   }
   const done = cutscene.playScene(build(params), cutsceneContext);
+  achieve(`cut_${name}`);
   // The scene has taken the view: the body goes until the scene asks for it.
   applyViewVisibility();
   return done;
@@ -3092,7 +3148,11 @@ const hallwayBasement = createDeferredLevel(() => createHallwayBasementLevel({
   // The fuses go in the inventory too, and the box takes the one in the hand.
   isHolding: (id) => heldItems.isHolding(id),
   onFuseTaken: (id) => pickUpItem(id),
-  onFuseSeated: (id) => consumeItem(id),
+  onFuseSeated: (id) => {
+    firstFuseSeated ??= id;
+    if (id === 'fuse30' && firstFuseSeated === 'fuse30') achieve('power_first_try');
+    consumeItem(id);
+  },
   onFuseLeft: (id) => consumeItem(id),
   onTapeTaken: () => {pickUpItem('sessionTape');cassetteReminders.cassetteCollected();},
   onTapeInserted: () => consumeItem('sessionTape'),
@@ -3291,7 +3351,7 @@ const study = createDeferredLevel(() => createStudyLevel({
   },
   onExaminePinpad: ({ length, code, onSolved }) => {
     player.unlock();
-    pinPadUI.open({ length, code, onSolved });
+    pinPadUI.open({ length, code, onSolved: (...a) => { achieve('keypad'); return onSolved?.(...a); } });
   },
   onReadNote: () => {
     player.unlock();
@@ -3320,9 +3380,14 @@ const study = createDeferredLevel(() => createStudyLevel({
     visor.take();
     pickUpItem('visor');
     objectiveEl.textContent = 'Put the visor on. [V]';
+    // The second strike: the hunt, before the last puzzle upstairs. Harder than
+    // the crest's (StudySeeker.js HUNT), and the breaker's fuse goes with it.
+    startStudyBlackout('hunt');
   },
-  // Collecting the physical crest key starts the only hide-and-seek encounter.
+  // The first strike: the teaser, once the crest key is collected.
   onCrestKeyTaken: () => startStudyBlackout('teaser'),
+  onCrestSolved: () => achieve('crest'),
+  onClockSolved: () => achieve('clock'),
   onEnterHideSpot: (spot) => enterStudyHideSpot(spot),
   onBreakerThrown: (kind) => onStudyBreakerThrown(kind),
   onTakeDoorKey: () => {
@@ -3337,6 +3402,7 @@ const study = createDeferredLevel(() => createStudyLevel({
     if (!body || documentUI.isOpen || cutscene.isRunning) return;
     // Not by moonlight, with her in the room: the letter waits for the power.
     if (study.refs.blackout?.isOut) { markSays('dialog_study_letter_dark'); return; }
+    achieve('letter');
     const letterLevel = sceneManager.active;
     player.clearKeys();
     player.unlock();
@@ -3544,7 +3610,8 @@ const backrooms = createDeferredLevel(() => createBackroomsLevel({
   onThought: thought,
   onExit: (route) => transitionTo(route?.to ?? 'hallwayBasement'),
   onDoorOpening: (position) => audioDirector.door(position),
-  onSfx: (name, opts) => sfx(name, opts)
+  onSfx: (name, opts) => sfx(name, opts),
+  onRoomEnter: (leg) => achieve(leg)
 }));
 /**
  * The backrooms ceiling (backroomsLevel's HALL_H). A constant here, not read
@@ -4227,6 +4294,7 @@ function onHunterCaught({ sprintContributed = false } = {}) {
       // Coming round on the carpet where they went in, rather than a fade
       // back up: shorter each time, since they know where they are now.
       caughtTimes++;
+      achieveCount('backroomsCaught');
       await playCutscene('comeRound', { seconds: caughtTimes > 1 ? CAUGHT_COME_ROUND_AGAIN : CAUGHT_COME_ROUND });
       if (!s.alive()) return;
       s.do(() => {
@@ -4276,11 +4344,13 @@ const jumpScare = createJumpScare({ camera, fade, postFX, audio, playScream: () 
 // ---------------------------------------------------------------------------
 // LEVEL 3 HIDE-AND-SEEK -- docs/LEVEL3_HIDE_AND_SEEK.md
 //
-// The storm takes the study's power once, after the crest key is collected.
-// Annabelle uses the dark to find Mark and sedate him
-// (systems/StudySeeker.js says why that is still her keeping him in, not a
-// monster hunting him). The loft breaker ends the single crest-key encounter; the
-// visor pickup never starts another hunt.
+// The storm takes the study's power twice: once after the crest key is
+// collected (the teaser) and once as the visor comes out of the archive (the
+// hunt, harder: StudySeeker.js HUNT). Annabelle uses the dark to find Mark and
+// sedate him (systems/StudySeeker.js says why that is still her keeping him
+// in, not a monster hunting him). The loft breaker ends each one; the second
+// time its fuse has blown and the spare is downstairs. Catches add up across
+// both, so the hunt is where the fifth (the kept ending) usually comes.
 //
 // This block owns the seeker, the wardrobe, the visor's glimpse of who she is,
 // a thrown lure's landing, and the catch. It runs on its own script runner so
@@ -4385,8 +4455,22 @@ function studyWhisper(kind) {
   captions.play(line(keys[Math.floor(Math.random() * keys.length)]));
 }
 
+const huntBanner = document.getElementById('hunt-banner');
+/** The big title as a blackout starts. Restarting the CSS animation times it. */
+function showHuntBanner(on = true) {
+  if (!huntBanner) return;
+  huntBanner.classList.remove('is-showing');
+  if (!on) return;
+  void huntBanner.offsetWidth;
+  huntBanner.classList.add('is-showing');
+}
+
+/** Where the visor's compartment sounds: the archive on the loft, where the hunt sends her first. */
+const STUDY_ARCHIVE_NOISE = { x: -5.4, z: -5.6 };
+
 /**
- * The storm's one strike, after the crest key is collected.
+ * The storm's strike. 'teaser' once the crest key is collected; 'hunt' as the
+ * visor comes out of the archive, the second and harder hide-and-seek.
  * The state changes happen at once, so nothing can leave the room half dark;
  * only the beats around them wait.
  */
@@ -4394,12 +4478,16 @@ function startStudyBlackout(kind='teaser') {
   if (sceneManager.activeKey !== 'study') return;
   const refs = study.refs;
   const puzzle = refs.puzzle;
-  if(kind!=='teaser'||!puzzle.hasArchiveKey||refs.blackout.isOut||puzzle.blackoutStage!=='none')return;
+  if (refs.blackout.isOut) return;
+  if (kind === 'teaser' && (!puzzle.hasArchiveKey || puzzle.blackoutStage !== 'none')) return;
+  // The hunt waits for the teaser to be over; a run that skipped it (a debug
+  // jump) still gets it.
+  if (kind === 'hunt' && (puzzle.blackoutStage === 'teaser' || puzzle.blackoutStage === 'hunt' || puzzle.blackoutStage === 'huntDone')) return;
   puzzle.blackoutStage = kind;
   studyObjectiveBefore = objectiveEl.textContent;
   studyScript.run(async (s) => {
     // The latch (or the compartment) first, then the strike: cause, then effect.
-    if (!await s.wait(1.4)) return;
+    if (!await s.wait(kind === 'teaser' ? 1.4 : 1.0)) return;
     s.do(() => {
       refs.blackout.strike({ strength: 1.3 });
       thunder();
@@ -4407,25 +4495,40 @@ function startStudyBlackout(kind='teaser') {
     if (!await s.wait(0.15)) return;
     s.do(() => {
       refs.blackout.setOut(true, { kind });
-      studyStealthVoice.begin();
       sfx('power_down');
-      objectiveEl.textContent = 'Hide. Get to the breaker on the loft.';
-      captions.play(line('dialog_study_blackout_teaser'));
+      showHuntBanner();
+      if (kind === 'teaser') {
+        studyStealthVoice.begin();
+        objectiveEl.textContent = 'Hide. Get to the breaker on the loft.';
+        captions.play(line('dialog_study_blackout_teaser'));
+      } else {
+        objectiveEl.textContent = 'Hide. The breaker needs a fuse.';
+        captions.play(line('dialog_study_blackout_hunt'));
+      }
     });
-    if (!await s.wait(3.2)) return;
+    if (!await s.wait(kind === 'teaser' ? 3.2 : 2.4)) return;
     s.do(() => {
       const seeker = getStudySeeker();
-      // In through the door Mark came in by, using the existing first-encounter AI.
-      audioDirector.door(new THREE.Vector3(7.9, 1, 4.8));
-      seeker.start({ mode: 'teaser', at: 'g_entry' });
+      if (kind === 'teaser') {
+        // In through the door Mark came in by, using the existing first-encounter AI.
+        audioDirector.door(new THREE.Vector3(7.9, 1, 4.8));
+        seeker.start({ mode: 'teaser', at: 'g_entry' });
+        studyStealthVoice.creatureEntered();
+      } else {
+        // Out of her chair's corner, straight for the compartment she heard.
+        seeker.start({ mode: 'hunt', at: 'g_hearth', investigate: { ...STUDY_ARCHIVE_NOISE, y: study.loftY } });
+      }
       startStudyStalk();
-      studyStealthVoice.creatureEntered();
     });
     if (!await s.wait(4)) return;
     s.do(() => {
       if (!refs.blackout.isOut || caughtInFlight) return;
-      studyStealthVoice.breakerNeeded();
-      captions.play(line('dialog_study_breaker_thought'));
+      if (kind === 'teaser') {
+        studyStealthVoice.breakerNeeded();
+        captions.play(line('dialog_study_breaker_thought'));
+      } else {
+        captions.play(line('dialog_study_fuse_thought'));
+      }
     });
   });
 }
@@ -4433,13 +4536,18 @@ function startStudyBlackout(kind='teaser') {
 /** The loft breaker is thrown: the power is back, and she goes back into the dark. */
 function onStudyBreakerThrown(kind) {
   const refs = study.refs;
-  if(kind!=='teaser'||refs.puzzle.blackoutStage!=='teaser')return;
+  if (kind !== refs.puzzle.blackoutStage) return;
   studyScript.cancel();
-  refs.puzzle.blackoutStage = 'teaserDone';
+  showHuntBanner(false);
+  refs.puzzle.blackoutStage = kind === 'hunt' ? 'huntDone' : 'teaserDone';
   studySeeker?.withdraw();
   endStudyStalk();
   clearStudyShards();
   objectiveEl.textContent = studyObjectiveBefore;
+  if (kind === 'hunt') {
+    captions.play(line('dialog_study_power_back_hunt'));
+    return;
+  }
   captions.play(line('dialog_study_power_back_teaser'));
   studyStealthVoice.restored();
 }
@@ -4675,6 +4783,7 @@ function onStudyCaught(context = null) {
         player.spawn(STUDY_COME_ROUND_AT.x, STUDY_COME_ROUND_AT.z, STUDY_COME_ROUND_AT.yaw);
       });
       studyCaughtTimes++;
+      achieveCount('studyCaught');
       foundIn?.holdOpen?.(false);
       await playCutscene('comeRound', {
         seconds: studyCaughtTimes > 1 ? CAUGHT_COME_ROUND_AGAIN : CAUGHT_COME_ROUND,
@@ -4812,6 +4921,7 @@ function playKeptEnding() {
   if (endingInFlight || gameState.endingChosen) return false;
   endingInFlight = true;
   gameState.endingChosen = 'kept';
+  achieve('ending_kept');
   captions.cancel();
   keptScript.run(async (s) => {
     s.do(() => {
@@ -4952,6 +5062,7 @@ function chainedForGood() {
 /** Everything the hide-and-seek holds, let go: a level change, a restart. */
 function stopStudyHideAndSeek() {
   studyStealthVoice.cancel();
+  showHuntBanner(false);
   studyScript.cancel();
   if (studyHidden) {
     studyHidden = null;
@@ -5319,6 +5430,12 @@ async function transitionTo(key, {
     await warmLevelForTransition(key);
     if (mine !== transitionGeneration) return null;
     const level = activateLevel(key, { lockMovement: true });
+    if (level && key !== 'backrooms') {
+      // Only a real crossing unlocks a chapter: the debug jumps call
+      // activateLevel() directly and never come through here.
+      progress.markLevelReached(key);
+      achieve(`level_${key}`);
+    }
     if (!level) {
       // Fade back in rather than leaving a black screen: a bad route must never
       // be able to brick the run.
@@ -5396,7 +5513,7 @@ const INTERLUDES = {
 };
 
 // ---------- game reset (restart without page refresh) ----------
-function resetGame() {
+function resetGame({ startLevel = 'bedroom' } = {}) {
   studyArrival.reset();
   tapeBlackoutAt = null;
   menuMusic.setActive(false);
@@ -5475,13 +5592,25 @@ function resetGame() {
   pickRespawnLine.reset();
   caughtTimes = 0;
   studyCaughtTimes = 0;
+  firstFuseSeated = null;
   keptScript.cancel();
   if (keptAnnabelle) keptAnnabelle.visible = false;
   sprintCatchLessonPlayed = false;
   sprintCatchReminderIndex = 0;
   sprintCatchNextAt = 0;
   sprintCatchGeneration++;
-  activateLevel('bedroom', { lockMovement: true });
+  if (startLevel === 'bedroom') {
+    activateLevel('bedroom', { lockMovement: true });
+    return;
+  }
+  // A chapter start: a run that skipped rooms never posts a time (ActiveRun
+  // wants every level visited anyway), and the torch the bedroom would have
+  // given is the one thing the later rooms assume is carried.
+  activeRun.invalidate();
+  activateLevel(startLevel);
+  flashlightFound = true;
+  if (!gameState.inventory.has('flashlight')) pickUpItem('flashlight', { animate: false });
+  refreshInventoryUI();
 }
 
 // ---------- level preview switching (debug / mentor demo) ----------
@@ -5786,7 +5915,7 @@ async function startStudyReleaseEnding(){
     ||study.refs.puzzle.endingChoice!=='RELEASE'||!study.refs.puzzle.endingChoiceComplete)return false;
   const token=++releaseEndingGeneration;
   activeRun.finish('released',performance.now());
-  endingInFlight=true;gameState.endingChosen='released';
+  endingInFlight=true;gameState.endingChosen='released';achieve('ending_released');
   markThoughts.clear();captions.cancel();audio.stopVoice();player.clearKeys();
   interaction.setEnabled(false);player.movementEnabled=false;player.lookEnabled=false;
   script.cancel();creatureAI.stop();creatureStanding=false;setThirdPerson(false);
@@ -5840,7 +5969,7 @@ async function startStudyResealEnding(){
     ||study.refs.puzzle.endingChoice!=='RESEALED'||!study.refs.puzzle.endingChoiceComplete)return false;
   const token=++resealEndingGeneration;
   activeRun.finish('contained',performance.now());
-  endingInFlight=true;gameState.endingChosen='contained';
+  endingInFlight=true;gameState.endingChosen='contained';achieve('ending_contained');
   markThoughts.clear();captions.cancel();audio.stopVoice();player.clearKeys();
   interaction.setEnabled(false);player.movementEnabled=false;player.lookEnabled=false;
   script.cancel();creatureAI.stop();creatureStanding=false;setThirdPerson(false);
@@ -5908,6 +6037,7 @@ async function playOutOfTime() {
   activeRun.cancel();
   endingInFlight = true;
   gameState.endingChosen = 'timeout';
+  achieve('ending_timeout');
   try {
     // Stop whatever beat was playing (a catch, a sighting), so nothing hands
     // the controls back while the screen is going dark.
@@ -6436,6 +6566,7 @@ function beginGame() {
   run.then(async (continueToBedroom) => {
     if (!continueToBedroom) return;
     activateLevel('bedroom', { lockMovement: true });
+    achieve('level_bedroom');
     audio.startBreathing();
     interaction.setEnabled(true);
     player.lookEnabled = true;
@@ -6512,6 +6643,35 @@ startButton.addEventListener('click', () => {
     player.lock();
   }
 });
+
+/**
+ * The chapter select's start for a later level: the parts of beginGame() a run
+ * needs, without the opening report, then resetGame() into that room.
+ */
+async function startChapter(key) {
+  gameStarted = true;
+  menuMusic.setActive(false);
+  headphonesScreen.close();
+  clearStartupFrame();
+  buildCredits();
+  startTitle.textContent = "DON'T LET IT OUT";
+  startSub.textContent = 'Project HOLLOW -- June 1987';
+  startButton.textContent = 'Click to resume';
+  startScreen.classList.add('hidden');
+  audio.start();
+  audio.resume();
+  captions.setPaused(false);
+  backroomsHunter.setReady(true);
+  fade.fadeOut(0);
+  await warmLevelForTransition(key);
+  resetGame({ startLevel: key });
+  startButton.disabled = false;
+  interaction.setEnabled(true);
+  player.lookEnabled = true;
+  player.movementEnabled = true;
+  player.lock();
+  fade.fadeIn(900);
+}
 
 restartButton.addEventListener('click', () => {
   toggleCredits(false);

@@ -122,6 +122,12 @@ export const STUDY_SEEKER_TUNING = Object.freeze({
 });
 /** The first blackout is a lesson: she sees less, moves slower and gives up sooner. */
 const TEASER = { sightDark: 0.7, speed: 0.85, giveUp: 0.45, checkChance: 0.35 };
+/**
+ * The second blackout is the real one: she moves faster, hears further, keeps
+ * looking longer, opens more hide spots, and goes for a thrown lure at a run
+ * from further away. Her chase still stops at SPEED.chaseCap, under your sprint.
+ */
+const HUNT = { sightDark: 1.25, sightLit: 1.15, speed: 1.18, hear: 1.3, giveUp: 1.4, checkChance: 1.35, noiseRadius: 1.6 };
 
 /**
  * Where she can walk. `f` is the floor: g ground, l loft, s the stair. Edges
@@ -306,6 +312,18 @@ export function createStudySeeker({
 
   function tuning() {
     const base = STUDY_SEEKER_TUNING[difficulty()] ?? STUDY_SEEKER_TUNING.medium;
+    if (mode === 'hunt') {
+      return {
+        ...base,
+        hearSprint: base.hearSprint * HUNT.hear,
+        hearWalk: base.hearWalk * HUNT.hear,
+        sightDark: base.sightDark * HUNT.sightDark,
+        sightLit: base.sightLit * HUNT.sightLit,
+        speed: base.speed * HUNT.speed,
+        giveUp: base.giveUp * HUNT.giveUp,
+        checkChance: Math.min(0.95, base.checkChance * HUNT.checkChance)
+      };
+    }
     if (mode !== 'teaser') return base;
     return {
       ...base,
@@ -616,8 +634,10 @@ export function createStudySeeker({
       if (state === 'stopped' || state === 'withdraw' || state === 'caught' || state === 'chase') return false;
       const here = creature.position;
       const d = Math.hypot(x - here.x, z - here.z, (y - currentY) * 0.5);
-      if (d > radius) return false;
-      startInvestigating({ x, z, y: groundAt(x, z, y) }, { urgent: radius > 9 });
+      // In the hunt she hears a lure from further off and always runs to it.
+      const hunting = mode === 'hunt';
+      if (d > radius * (hunting ? HUNT.noiseRadius : 1)) return false;
+      startInvestigating({ x, z, y: groundAt(x, z, y) }, { urgent: hunting || radius > 9 });
       return true;
     },
 

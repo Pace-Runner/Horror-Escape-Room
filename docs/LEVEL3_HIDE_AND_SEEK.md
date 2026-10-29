@@ -39,17 +39,23 @@ run. The full beat-by-beat is in `docs/CUTSCENES.md`. Code: `playKeptEnding` in 
 `core/jumpScares/hauled.js`, `levels/annabelleDragger.js`. In dev:
 `__game.playKeptEnding()`.
 
-**The storm causes the blackout, by coincidence.** Annabelle didn't cut
+**The storm causes both blackouts, by coincidence.** Annabelle didn't cut
 the power. She uses the dark.
 
-## The single crest-key encounter
+## The two blackouts
 
-The encounter starts once, when Mark **collects the Archive Key exposed by the
-crest puzzle**. Solving the crest alone does not start it. It retains the
-existing first encounter: the storm cuts the lights, the creature enters through
-the study entry, and Mark can hide or use thrown distractions while reaching the
-loft breaker. Throwing the breaker ends the encounter and cancels any pending
-entrance or post-catch resume. Taking the visor never starts another hunt.
+| | Blackout 1, the teaser | Blackout 2, the hunt |
+|---|---|---|
+| Fires when | Mark collects the Archive Key the crest exposes | the visor is lifted out of the archive, before the last puzzle upstairs |
+| She comes from | the entry door | her chair corner, straight for the archive (the compartment she heard) |
+| Her senses | softer: shorter sight, slower, gives up sooner, rarely opens a hide spot | harder than the difficulty tuning (StudySeeker.js `HUNT`): faster, hears and sees further, searches longer, opens more hide spots, and runs to a thrown lure from 1.6x as far. Her chase still stays under your sprint |
+| Ends when | Mark throws the **loft breaker** | the strike **blew the breaker's fuse**: the spare is in a tin by the desk, downstairs. Fit it, then throw the breaker |
+
+Catches count across both blackouts; the fifth is the kept ending, so the
+hunt is where a careless player usually ends up having to restart.
+
+The whisper recordings below belong to the teaser only; the hunt uses the
+`dialog_study_blackout_hunt`, `_fuse_thought` and `_power_back_hunt` captions.
 
 Six unchanged whisper recordings use the shared MARK voice/caption owner:
 
