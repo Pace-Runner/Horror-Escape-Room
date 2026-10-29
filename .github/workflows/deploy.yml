@@ -44,7 +44,19 @@ jobs:
       # out with PNGs again -- several megabytes each -- and nothing else would
       # notice. Fails with the files to run `npm run compress:assets` on.
       - run: npm run check:assets
-      - run: npm run build
+      - run: npm run check:leaderboard
+      # Vite embeds these public settings at build time. Local .env is ignored.
+      - name: Build with leaderboard configuration
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL || secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ vars.VITE_SUPABASE_PUBLISHABLE_KEY || secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY || secrets.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$VITE_SUPABASE_URL" ] || { [ -z "$VITE_SUPABASE_PUBLISHABLE_KEY" ] && [ -z "$VITE_SUPABASE_ANON_KEY" ]; }; then
+            echo "::error::Missing leaderboard configuration. Set repository Actions variables VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY (or legacy VITE_SUPABASE_ANON_KEY)."
+            exit 1
+          fi
+          npm run build
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist

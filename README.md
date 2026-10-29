@@ -195,6 +195,19 @@ from 163 MB to about 62 MB.
 texture** -- an export comes out with PNGs again. CI runs
 `npm run check:assets` and fails the deploy, naming the files, if you forget.
 
+## GitHub Pages leaderboard configuration
+
+In repository **Settings > Secrets and variables > Actions > Variables**, set
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` to match the local
+`.env` values. Repository Actions secrets with the same names are also
+supported, as is `VITE_SUPABASE_ANON_KEY` for a legacy anon key. Use only a
+publishable or anon key here; Vite embeds these values in the public bundle.
+
+The ignored local `.env` is not uploaded to GitHub. These settings are read
+at build time, so rerun **Deploy to GitHub Pages** after changing them. The
+workflow fails when configuration is missing. The Supabase project also
+needs anonymous sign-ins enabled and the `leaderboard_scores` table configured.
+
 ## Deploying to the LAMP server
 
 `vite.config.js` already sets `base: './'` so a production build's
