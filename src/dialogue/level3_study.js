@@ -194,7 +194,7 @@ export const dialog_study_blackout_hunt = ["No. Not again. Not now.", "level3/st
 
 export const dialog_study_breaker_thought = ["There was a breaker up on the loft. On the back wall.", "level3/study_breaker_thought.m4a"];
 
-export const dialog_study_fuse_thought = ["The fuse went with it. There were spares in a tin, by the desk.", "level3/study_fuse_thought.m4a"];
+export const dialog_study_fuse_thought = ["The fuse went with it again. There was another one on the mantelpiece, by the fire.", "level3/study_fuse_thought.m4a"];
 
 export const dialog_study_power_back_teaser = ["The power's back. Whatever that was, it's gone.", "level3/study_power_back_teaser.m4a", 4.1];
 

@@ -89,6 +89,10 @@ try {
   blackout.reset();
   assert.equal(blackout.breakerState, 'on');
   assert.ok(Math.abs(blackout.power - 1) < 1e-6, 'reset brings the power straight back');
+  // The first blackout blows it too: each has its own spare (desk tin, then mantel).
+  blackout.setOut(true, { kind: 'teaser' });
+  assert.equal(blackout.breakerState, 'blown', 'the first blackout blows the fuse');
+  blackout.reset();
 
   // ---- a seeker over the real room
   const figure = standInFigure();
@@ -223,11 +227,13 @@ try {
   assert.equal(sightAcross(false), 'chase', 'standing behind the Chesterfield should be seen');
   assert.notEqual(sightAcross(true), 'chase', 'crouched behind the Chesterfield should be hidden');
 
-  // Her chase never beats a sprint, on any difficulty or in the teaser.
+  // Out of sight, her chase never beats a sprint, on any difficulty or in the teaser.
   for (const key of Object.keys(m.STUDY_SEEKER_TUNING)) {
     const pace = Math.min(m.SPEED.chase * m.STUDY_SEEKER_TUNING[key].speed, m.SPEED.chaseCap);
     assert.ok(pace < m.SPRINT_SPEED, `${key}: her chase ${pace} is not slower than a sprint ${m.SPRINT_SPEED}`);
   }
+  // In sight, and running to a lure, she is 15% faster than his sprint.
+  assert.ok(Math.abs(m.SPEED.alerted - m.SPRINT_SPEED * 1.15) < 1e-9, 'alerted should be 1.15 x the sprint');
 
   // Reached in the open: caught. In a curtain she opens: caught, by the spot.
   caught.length = 0;

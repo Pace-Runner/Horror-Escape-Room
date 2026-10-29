@@ -55,10 +55,13 @@ import { WALK_SPEED, SPRINT_SPEED } from '../core/MoveSpeeds.js';
  *
  * ----------------------------------------------------------------- speed
  *
- * Her chase is SLOWER THAN YOUR SPRINT, always, as the hunter's is (its
- * CHASE_RATIO), so breaking contact is always possible. The difficulty moves
- * her hearing, her speed, how long she keeps looking and how often she opens
- * a hide spot -- never the rule that you can outrun her.
+ * While she can SEE you, or is running to a thrown book or bottle, she is
+ * 15% FASTER THAN YOUR SPRINT (SPEED.alerted): you cannot outrun her in the
+ * open, only break her line of sight. Once she has lost sight of you, the
+ * chase she keeps up is slower than your sprint again (SPEED.chaseCap), so
+ * getting out of view is always enough. The difficulty moves her hearing,
+ * her other speeds, how long she keeps looking and how often she opens a
+ * hide spot.
  *
  * ---------------------------------------------------------------- floors
  *
@@ -107,7 +110,15 @@ export const SPEED = Object.freeze({
   /** Her chase, before the difficulty: the hunter's relation, sprint / 1.3. */
   chase: SPRINT_SPEED / 1.3,
   /** Whatever the difficulty says, never this close to your sprint. */
-  chaseCap: SPRINT_SPEED * 0.9
+  chaseCap: SPRINT_SPEED * 0.9,
+  /**
+   * Alerted: while she can SEE him, and running to a thrown book or bottle,
+   * she is 15% faster than his sprint, on every difficulty. Outrunning her in
+   * the open does not work; breaking her line of sight does. (Kiran's call,
+   * 2026-10-29: the old "always slower than a sprint" rule now holds only for
+   * the chase she keeps up after losing sight of him.)
+   */
+  alerted: SPRINT_SPEED * 1.15
 });
 
 /**
@@ -134,7 +145,7 @@ const TEASER = { sightDark: 0.7, speed: 0.85, giveUp: 0.45, checkChance: 0.35 };
 /**
  * The second blackout is the real one: she moves faster, hears further, keeps
  * looking longer, opens more hide spots, and goes for a thrown lure at a run
- * from further away. Her chase still stops at SPEED.chaseCap, under your sprint.
+ * from further away. Seeing him and running to a lure are SPEED.alerted in both modes.
  */
 const HUNT = { sightDark: 1.25, sightLit: 1.15, speed: 1.18, hear: 1.3, giveUp: 1.4, checkChance: 1.35, noiseRadius: 1.6 };
 
@@ -497,7 +508,8 @@ export function createStudySeeker({
     searchQueue = [];
     checking = null;
     const t = tuning();
-    goTo(point.x, point.z, point.y, (urgent ? SPEED.investigate * 1.15 : SPEED.investigate) * t.speed);
+    goTo(point.x, point.z, point.y, lure ? SPEED.alerted
+      : (urgent ? SPEED.investigate * 1.15 : SPEED.investigate) * t.speed);
     setState('investigate');
   }
 
@@ -773,7 +785,7 @@ export function createStudySeeker({
 
       // ---- move
       if (state === 'chase') {
-        pace = Math.min(SPEED.chase * t.speed, SPEED.chaseCap);
+        pace = sees ? SPEED.alerted : Math.min(SPEED.chase * t.speed, SPEED.chaseCap);
         if (outOfSight > LOSE_SIGHT_AFTER) {
           startInvestigating(lastKnown, { urgent: true, sawHim: true });
         } else if (lastKnown) {

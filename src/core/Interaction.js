@@ -86,7 +86,10 @@ export class Interaction {
       return;
     }
     this.raycaster.setFromCamera(RAY_ORIGIN, this.camera);
-    const hits = this.raycaster.intersectObjects(this.targets, false);
+    // `allow`, when set, narrows what can be used right now (main.js: only
+    // the hide-and-seek's own objects while the study is dark).
+    const hits = this.raycaster.intersectObjects(this.targets, false)
+      .filter((candidate) => !this.allow || this.allow(candidate.object));
     // Most interactions keep nearest-hit behaviour. A child target may opt
     // into a higher priority when a broad parent hitbox overlaps it, such as
     // an item inside an open drawer. This preserves aiming at the item rather

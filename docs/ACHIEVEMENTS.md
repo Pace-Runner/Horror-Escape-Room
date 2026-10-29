@@ -20,7 +20,7 @@ achievement. Both are saved in localStorage under `dontLetItOut.progress.v1`
 | `level_*` | `transitionTo()`; `level_bedroom` after the opening |
 | `room_BL/L/TR/R/C`, `rooms_all` | `backroomsLevel.js` `onRoomEnter` (room leg entered) |
 | `power_first_try` | main.js `onFuseSeated`: fuse30 is the first fuse seated this run |
-| `clock`, `crest`, `letter`, `keypad` | study `onClockSolved`, `onCrestSolved`, `onReadLetter`, the study pin pad |
+| `clock`, `crest`, `letter` | study `onClockSolved`, `onCrestSolved`, `onReadLetter` |
 | `cut_<scene>` | `playCutscene()` |
 | `caught_backrooms_*`, `caught_study_1` | the two catch handlers, counted for life |
 | `ending_*` | wherever `gameState.endingChosen` is set |

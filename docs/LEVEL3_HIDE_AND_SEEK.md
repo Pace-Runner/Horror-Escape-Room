@@ -48,8 +48,8 @@ the power. She uses the dark.
 |---|---|---|
 | Fires when | Mark collects the Archive Key the crest exposes | the visor is lifted out of the archive, before the last puzzle upstairs |
 | She comes from | the entry door | her chair corner, straight for the archive (the compartment she heard) |
-| Her senses | softer: shorter sight, slower, gives up sooner, rarely opens a hide spot | harder than the difficulty tuning (StudySeeker.js `HUNT`): faster, hears and sees further, searches longer, opens more hide spots, and runs to a thrown lure from 1.6x as far. Her chase still stays under your sprint |
-| Ends when | Mark throws the **loft breaker** | the strike **blew the breaker's fuse**: the spare is in a tin by the desk, downstairs. Fit it, then throw the breaker |
+| Her senses | softer: shorter sight, slower, gives up sooner, rarely opens a hide spot | harder than the difficulty tuning (StudySeeker.js `HUNT`): faster, hears and sees further, searches longer, opens more hide spots, and runs to a thrown lure from 1.6x as far. In both blackouts, while she can see you or is running to a lure, she moves 15% faster than your sprint; out of sight her chase is slower than it |
+| Ends when | the strike **blew the breaker's fuse**: the spare is in a tin by the desk. Fit it in the **loft breaker**, then throw it | blown again: the spare lies on the **fireplace mantel**, by her chair corner. Fit it, then throw the breaker |
 
 Catches count across both blackouts; the fifth is the kept ending, so the
 hunt is where a careless player usually ends up having to restart.

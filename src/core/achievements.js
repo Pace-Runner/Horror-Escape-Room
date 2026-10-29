@@ -29,7 +29,6 @@ export const ACHIEVEMENTS = [
   { id: 'clock', category: 'Puzzles', title: 'Quarter Past Eleven', description: 'Set the grandfather clock.' },
   { id: 'crest', category: 'Puzzles', title: 'Three Lights', description: 'Solve the shadow crest.' },
   { id: 'letter', category: 'Puzzles', title: 'Dear Mark', description: 'Read Annabelle\'s letter.', hidden: true },
-  { id: 'keypad', category: 'Puzzles', title: 'Count the Panels', description: 'Open a keypad in the study.' },
 
   { id: 'cut_wakeUp', category: 'Cutscenes', title: 'Wake Up', description: 'Open your eyes.' },
   { id: 'cut_comeRound', category: 'Cutscenes', title: 'Come Round', description: 'Wake up on the carpet.', hidden: true },

@@ -1336,6 +1336,8 @@ function placeDroppedItem(id, { throwTo = null, noise = null } = {}) {
   );
   hitbox.name = `dropped:${id}:hitbox`;
   hitbox.position.copy(sphere.center);
+  // A thrown book or bottle, or a spare fuse, can be picked up again in the dark.
+  hitbox.userData.hideAndSeek = id === 'studyBook' || id === 'studyGlass' || id === 'studyFuse';
   hitbox.userData.interact = {
     label: `Pick up ${ITEMS[id]?.name ?? id}`,
     onInteract: () => pickUpDroppedItem(key)
@@ -3362,7 +3364,7 @@ const study = createDeferredLevel(() => createStudyLevel({
   },
   onExaminePinpad: ({ length, code, onSolved }) => {
     player.unlock();
-    pinPadUI.open({ length, code, onSolved: (...a) => { achieve('keypad'); return onSolved?.(...a); } });
+    pinPadUI.open({ length, code, onSolved });
   },
   onReadNote: () => {
     player.unlock();
@@ -4515,10 +4517,10 @@ function startStudyBlackout(kind='teaser') {
       showHuntBanner();
       if (kind === 'teaser') {
         studyStealthVoice.begin();
-        objectiveEl.textContent = 'Hide. Get to the breaker on the loft.';
+        objectiveEl.textContent = 'Hide. Take the spare fuse by the desk to the breaker on the loft.';
         captions.play(line('dialog_study_blackout_teaser'));
       } else {
-        objectiveEl.textContent = 'Hide. The breaker needs a fuse.';
+        objectiveEl.textContent = 'Hide. Take the fuse off the mantel to the breaker on the loft.';
         captions.play(line('dialog_study_blackout_hunt'));
       }
     });
@@ -5277,6 +5279,11 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
   labCreatureExit = null;
   const isBedroomRestraintActive = key === 'bedroom' && !level.refs.puzzleState.chainsEscaped;
   interaction.setTargets(level.interactables);
+  // While the study is dark only the hide-and-seek's own things work: the
+  // breaker, the spare fuses, the wardrobe and the books and bottles. No
+  // clue, puzzle or other pickup can be used until the power is back.
+  interaction.allow = key !== 'study' ? null
+    : (object) => !study.refs.blackout.isOut || object.userData.hideAndSeek === true;
   // Again per level: GLB props stream in after the boot-time pass, and any flat
   // decal among them should get the same single-pass draw.
   enableSinglePassForFlatDecals(level.group);

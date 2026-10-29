@@ -11,8 +11,9 @@ import tinUrl from '../assets/models/study/study_fuse_tin.glb?url';
  * study's power by coincidence, and Annabelle uses the dark to find
  * Mark and sedate him. Almost everything goes out. What is left is the moon
  * through the three left-wall casements, the candle the gust missed, and the
- * lightning. The way out is the breaker up on the loft. The second strike (the
- * hunt, as the visor is taken) blows its fuse; the spare is in a tin downstairs.
+ * lightning. The way out is the breaker up on the loft, and each strike blows
+ * its fuse: the first blackout's spare is in a tin by the desk, the second's
+ * (the hunt, as the visor is taken) on the fireplace mantel.
  *
  * LIGHTS ARE BAKED INTO SHADERS (CLAUDE.md). This file makes NO lights. The
  * room keeps a light budget (scripts/check-study-reveal.mjs), and main's
@@ -57,8 +58,15 @@ const CANDLE_POOL = 1.8;
 /** The loft breaker, on the loft's back wall clear of the archive and the cabinet beside it. */
 const BREAKER_AT = new THREE.Vector3(6.15, 0, -6.44);
 const BREAKER_HEIGHT = 1.45;
-/** The spare fuse's tin, on the boards against the desk's right-hand end. */
+/** The first blackout's spare fuse: a tin on the boards against the desk's right-hand end. */
 const FUSE_TIN_AT = new THREE.Vector3(1.2, 0, 1.3);
+/**
+ * The second blackout's spare: lying on the fireplace mantel, between the
+ * right-hand vase and candlestick (studyDecor.js's garniture; the fireplace
+ * stands at (-5.3, -6.26), unturned, its shelf at 1.46). Right by her chair
+ * corner, where the hunt starts.
+ */
+const MANTEL_FUSE_AT = new THREE.Vector3(-5.3 + 0.59, 1.46, -6.26 + 0.07);
 
 /**
  * @param {object} deps
@@ -159,8 +167,8 @@ export function createStudyBlackout({
 
   /**
    * 'on'      the power is on; the breaker is just a breaker
-   * 'tripped' blackout 1: the lever is down, throw it back
-   * 'blown'   blackout 2: the fuse went with the strike; it needs the spare
+   * 'tripped' the lever is down, throw it back (no blackout uses it now)
+   * 'blown'   the fuse went with the strike; it needs that blackout's spare
    * 'fused'   the spare is in; throw the lever
    */
   let breakerState = 'on';
@@ -180,6 +188,7 @@ export function createStudyBlackout({
   }
 
   breakerHit.userData.hintKey = 'l3_breaker';
+  breakerHit.userData.hideAndSeek = true;
   breakerHit.userData.interact = {
     label: 'The breaker',
     onInteract: () => {
@@ -187,9 +196,10 @@ export function createStudyBlackout({
         showCaption("The power's on. For now.");
       } else if (breakerState === 'blown') {
         if (!hasFuse()) {
+          const atMantel = blackoutKind === 'hunt';
           showCaption(blownHinted
-            ? 'The fuse is black. The spare is in the tin by the desk.'
-            : 'The fuse has blown. There was a tin of spares down by the desk.');
+            ? (atMantel ? 'The fuse is black. There was a spare on the mantelpiece.' : 'The fuse is black. The spare is in the tin by the desk.')
+            : (atMantel ? 'Blown again. I saw another fuse on the mantelpiece, by the fire.' : 'The fuse has blown. There was a tin of spares down by the desk.'));
           blownHinted = true;
           onSfx('metal_click');
           return;
@@ -213,43 +223,61 @@ export function createStudyBlackout({
     if (breakerState === 'blown') setBreakerState('blown');
   }
 
-  // ----------------------------------------------------------- the spare fuse
-  // A battered tin on the floor by the desk, its printed lid off beside it
-  // (blender/study/build_fuse_tin.py). Its fuse only matters once the second
-  // strike has blown the one in the breaker; it lies inside the tin.
+  // ---------------------------------------------------------- the spare fuses
+  // Each strike blows the breaker's fuse, and each blackout has its own spare:
+  // the first in a battered tin on the floor by the desk, its printed lid off
+  // beside it (blender/study/build_fuse_tin.py); the second lying on the
+  // fireplace mantel. A spare can only be taken during its own blackout.
+  /** A fuse on its side at `at` under `parent`, takeable while `kind`'s blackout is on. */
+  function spareFuse(kind, parent, at, hitAt) {
+    const loose = new THREE.Group();
+    loose.rotation.set(0, 0.3, Math.PI / 2);
+    loose.position.copy(at);
+    parent.add(loose);
+    fuse.then((model) => loose.add(model.clone(true))).catch(() => {});
+    const hit = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), hitMat);
+    hit.position.copy(hitAt);
+    parent.add(hit);
+    hit.userData.hintKey = 'l3_fuse';
+    hit.userData.hideAndSeek = true;
+    const spare = { kind, loose, hit, taken: false };
+    hit.userData.interact = {
+      label: 'Take the spare fuse',
+      onInteract: () => {
+        if (spare.taken || breakerState !== 'blown' || blackoutKind !== kind) return;
+        spare.taken = true;
+        loose.visible = false;
+        const index = interactables.indexOf(hit);
+        if (index >= 0) interactables.splice(index, 1);
+        onFuseTaken();
+        refreshBreakerLabel();
+      }
+    };
+    return spare;
+  }
   const tin = new THREE.Group();
   tin.name = 'Study_Fuse_Tin';
   tin.position.copy(FUSE_TIN_AT);
   group.add(tin);
   loadBoard(tinUrl).then((model) => tin.add(model))
     .catch((error) => console.warn('Study fuse tin could not load:', error));
-  const looseFuse = new THREE.Group();
   // On its side in the tin: the caps' radius above the tin's floor.
-  looseFuse.rotation.set(0, 0.3, Math.PI / 2);
-  looseFuse.position.set(0.03, 0.026, 0);
-  tin.add(looseFuse);
-  fuse.then((model) => looseFuse.add(model.clone(true))).catch(() => {});
-  const fuseHit = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 8), hitMat);
-  fuseHit.position.set(0, 0.08, 0);
-  tin.add(fuseHit);
-  fuseHit.userData.hintKey = 'l3_fuse';
-  fuseHit.userData.interact = {
-    label: 'Take the spare fuse',
-    onInteract: () => {
-      if (!looseFuse.visible || breakerState !== 'blown') return;
-      looseFuse.visible = false;
-      const index = interactables.indexOf(fuseHit);
-      if (index >= 0) interactables.splice(index, 1);
-      onFuseTaken();
-      refreshBreakerLabel();
-    }
-  };
+  const spares = [
+    spareFuse('teaser', tin, new THREE.Vector3(0.03, 0.026, 0), new THREE.Vector3(0, 0.08, 0)),
+    // On the shelf the same way, the caps' radius above the board.
+    spareFuse('hunt', group, MANTEL_FUSE_AT.clone().add(new THREE.Vector3(0, 0.026, 0)),
+      MANTEL_FUSE_AT.clone().add(new THREE.Vector3(0, 0.05, 0.05)))
+  ];
 
-  function offerFuse(on) {
-    looseFuse.visible = true;
-    const index = interactables.indexOf(fuseHit);
-    if (on && index < 0) interactables.push(fuseHit);
-    if (!on && index >= 0) interactables.splice(index, 1);
+  /** Only the blackout's own spare can be taken; `kind` null offers none. */
+  function offerFuse(kind) {
+    for (const spare of spares) {
+      spare.loose.visible = !spare.taken;
+      const index = interactables.indexOf(spare.hit);
+      const on = spare.kind === kind && !spare.taken;
+      if (on && index < 0) interactables.push(spare.hit);
+      if (!on && index >= 0) interactables.splice(index, 1);
+    }
   }
 
   // ---------------------------------------------------------------- control
@@ -265,14 +293,15 @@ export function createStudyBlackout({
         candles.gust(new THREE.Vector3(STUDY_WINDOWS.wallX + 0.3, STUDY_WINDOWS.bottom, z), { strength: 1.1, radius: 6, life: 1.6 });
       }
       hearth.setLevel(0, { instant });
-      setBreakerState(blackoutKind === 'hunt' ? 'blown' : 'tripped');
-      offerFuse(blackoutKind === 'hunt');
+      blownHinted = false;
+      setBreakerState('blown');
+      offerFuse(blackoutKind);
       strikeIn = 4 + Math.random() * 4;
     } else {
       candles.setExtinguished(false);
       hearth.setLevel(1, { instant });
       setBreakerState('on');
-      offerFuse(false);
+      offerFuse(null);
       blackoutKind = null;
       strikeIn = Infinity;
     }
@@ -336,6 +365,7 @@ export function createStudyBlackout({
   }
 
   function reset() {
+    for (const spare of spares) spare.taken = false;
     setOut(false, { instant: true });
     blownHinted = false;
     leverAngle = leverTarget = LEVER_ON;

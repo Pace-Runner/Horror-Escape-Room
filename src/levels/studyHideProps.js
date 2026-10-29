@@ -84,11 +84,12 @@ export function createStudyHideProps({
   }
 
   /** One load per model; `pick` takes the part wanted (a node by name, or the whole scene). */
-  function place(url, name, x, y, z, yaw, { pick = null, onModel = null } = {}) {
+  function place(url, name, x, y, z, yaw, { pick = null, onModel = null, scale = 1 } = {}) {
     const holder = new THREE.Group();
     holder.name = name;
     holder.position.set(x, y, z);
     holder.rotation.y = yaw;
+    holder.scale.setScalar(scale);
     root.add(holder);
     if (!loads.has(url)) loads.set(url, loadModel(url));
     loads.get(url).then((model) => {
@@ -108,8 +109,11 @@ export function createStudyHideProps({
   // of a crouching Mark she would see (import_chesterfield.py); this box is
   // the model's own footprint. It faces -Z as it comes: into the room here.
   {
-    const cx = -3.0, cz = 3.7, w = 2.292, d = 1.037, h = 0.9;
-    place(chesterfieldUrl, 'Study_Chesterfield', cx, 0, cz, 0);
+    // 10% up on the import (Kiran, 2026-10-29): 0.9 m left too little of a
+    // crouch behind it. The footprint grows with it.
+    const scale = 1.1;
+    const cx = -3.0, cz = 3.7, w = 2.292 * scale, d = 1.037 * scale, h = 0.9 * scale;
+    place(chesterfieldUrl, 'Study_Chesterfield', cx, 0, cz, 0, { scale });
     solid('chesterfield', cx - w / 2, cx + w / 2, cz - d / 2, cz + d / 2, 0, h);
   }
 
@@ -186,6 +190,7 @@ export function createStudyHideProps({
     hit.position.set(cx, h / 2, cz + d / 2 + 0.1);
     hit.userData.hintKey = 'l3_hide';
     hit.userData.interact = { label: 'Hide in the wardrobe', onInteract: () => onEnterHideSpot(wardrobe) };
+    hit.userData.hideAndSeek = true;
     root.add(hit);
     interactables.push(hit);
     wardrobe.hit = hit;
@@ -235,10 +240,13 @@ export function createStudyHideProps({
   // Cloth simulated over the furniture shapes (build_dust_sheets.py). Two
   // low, one tall; two of them on the loft, where the second hunt begins.
   // Each faces into the room. The pooled hems are drawn, not collided with.
+  // 15% up on the built size (Kiran, 2026-10-29), so there is enough of each
+  // to actually get behind; the collider and the cover box grow with it.
+  const SHEET_SCALE = 1.15;
   function sheeted(name, cx, cz, floorY, w, d, h) {
-    place(sheetsUrl, `Study_${name}`, cx, floorY, cz, Math.PI, { pick: name, onModel:ageStudySheets });
-    const hw = w * 0.56, hd = d * 0.56;
-    solid(name, cx - hw, cx + hw, cz - hd, cz + hd, floorY, h);
+    place(sheetsUrl, `Study_${name}`, cx, floorY, cz, Math.PI, { pick: name, onModel:ageStudySheets, scale: SHEET_SCALE });
+    const hw = w * SHEET_SCALE * 0.56, hd = d * SHEET_SCALE * 0.56;
+    solid(name, cx - hw, cx + hw, cz - hd, cz + hd, floorY, h * SHEET_SCALE);
   }
   sheeted('Sheet_Armchair', 2.6, -3.2, 0, 0.9, 0.9, 1.0);
   sheeted('Sheet_Sofa', -2.4, -4.7, loftY, 1.9, 0.85, 0.9);
@@ -326,6 +334,7 @@ export function createStudyThrowables({ group, interactables, loftY,
     const hit = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8), hitMat);
     hit.position.set(x, y + 0.2, z);
     hit.userData.hintKey = 'l3_throw';
+    hit.userData.hideAndSeek = true;
     const id = kind === 'book' ? 'studyBook' : 'studyGlass';
     const entry = { kind, id, holder, items, hit, count };
     hit.userData.interact = {
