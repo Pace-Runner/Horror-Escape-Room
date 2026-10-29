@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import {parseAst} from 'rollup/parseAst';
 
 const source=fs.readFileSync(new URL('../src/main.js',import.meta.url),'utf8').replace(/\r\n/g,'\n');
 const clearBody=source.match(/function clearStartupFrame\(\) \{([\s\S]*?)\n\}/)[1];
@@ -16,24 +17,43 @@ const begin=source.slice(source.indexOf('function beginGame() {'),source.indexOf
 assert(begin.indexOf('clearStartupFrame();')<begin.indexOf("startScreen.classList.add('hidden')"));
 assert(source.includes('bootReady.then(() => {\n  clearStartupFrame();'));
 
-const shortcut=source.slice(source.indexOf('  // Instant level previews'),source.indexOf("  if (e.code === 'KeyG') {"));
-const handler=new Function('e','pinPadUI','photoBoardUI','documentUI','sceneManager','backrooms','activateLevel','abortTransition','TRANSITIONS','const activeRun={invalidate(){}};'+shortcut);
-for(const [code,level] of [['Digit1','bedroom'],['Digit2','hallwayBasement'],['Digit3','study'],['Numpad3','study'],['Digit4','backrooms'],['KeyL','hallwayBasement']]){
-  const calls=[];let aborted=false,prevented=false;
-  const invoke=extra=>handler({code,preventDefault(){prevented=true;},...extra},{isOpen:false},{isOpen:false},{isOpen:false},
-    {activeKey:'bedroom'},{setRoute(route){assert.equal(route.from,'bedroom');}},key=>calls.push(key),()=>aborted=true,{});
-  invoke({});assert.deepEqual(calls,[level]);assert(aborted&&prevented);
-  for(const extra of [{repeat:true},{ctrlKey:true},{target:{closest:()=>true}}]){calls.length=0;invoke(extra);assert.equal(calls.length,0);}
-}
-console.log('PASS: startup canvas cleared before menu removal; render state restored; production/demo shortcuts 1–4, numpad and L; repeat/modifier/text-field guards. No browser launched.');
 
-const handoffKey=source.slice(source.indexOf("  if(e.code==='Digit9'"),source.indexOf('  if (!player.isLocked) return;',source.indexOf("  if(e.code==='Digit9'")));
-let jumps=0;const jump=new Function('e','gameStarted','prepareStudyHandoffTest','const activeRun={invalidate(){}};'+handoffKey);
-for(const code of ['Digit9','Numpad9']){
-  jump({code,preventDefault(){}},true,()=>jumps++);
-  for(const extra of [{repeat:true},{ctrlKey:true},{metaKey:true},{altKey:true},{target:{closest:()=>true}}]){
-    const before=jumps;jump({code,preventDefault(){},...extra},true,()=>jumps++);assert.equal(jumps,before);
-  }
+// Execute the shipped gameplay listener; removed keys must have no effects in either mode.
+const ast=parseAst(source);let listener;
+function walk(node){
+ if(!node||typeof node!=='object')return;
+ if(node.type==='CallExpression'&&node.callee.property?.name==='addEventListener'&&node.arguments[0]?.value==='keydown'){
+  const callback=node.arguments[1];if(source.slice(callback.start,callback.end).includes('openingSequenceActive'))listener=callback;
+ }
+ for(const value of Object.values(node))if(Array.isArray(value))value.forEach(walk);else if(value?.type)walk(value);
 }
-assert.equal(jumps,2);jump({code:'Digit9',preventDefault(){}},false,()=>jumps++);assert.equal(jumps,2);
-console.log('PASS: 9/numpad9 handoff shortcut; works during cinematic/end card; repeat/modifier/text-input/title-screen guards.');
+walk(ast);assert(listener);
+const handlerSource=source.slice(listener.start,listener.end);
+for(const locked of [false,true])for(const scene of ['bedroom','upstairsHallway','hallwayBasement','backrooms','study']){
+ const effects=[];const record=key=>()=>effects.push(key);
+ const handler=new Function('openingSequenceActive','showHint','player','cutscene','KEYS_HELD_BY_CUTSCENES','studyHidden','sceneManager',
+ 'transitionInFlight','gameStarted','activeRun','activateLevel','prepareStudyHandoffTest','window','return '+handlerSource)(
+ false,record('hint'),{isLocked:locked},{isRunning:false},new Set(),false,{activeKey:scene},false,true,
+ {invalidate:record('invalidate')},record('level'),record('handoff'),{__game:{prepareStudyRevealTest:record('reveal')}});
+ for(const code of [...Array.from({length:9},(_,i)=>'Digit'+(i+1)),...Array.from({length:9},(_,i)=>'Numpad'+(i+1)),'KeyG','KeyL','KeyN']){
+  handler({code,preventDefault:record('prevent'),target:{closest:()=>false}});
+ }
+ assert.deepEqual(effects,[],scene+' developer key still active');
+}
+for(const code of ['KeyH','KeyI','KeyE','KeyF','KeyQ','KeyT','KeyV','KeyR','KeyK'])assert(handlerSource.includes(code),'lost player control '+code);
+for(const [code,expected] of [['KeyH','hint'],['KeyI','inspect'],['KeyF','flashlight'],['KeyQ','drop'],['KeyT','view'],['KeyV','visor'],['KeyR','restart'],['KeyK','credits']]){
+ const effects=[],record=key=>()=>effects.push(key);
+ const env={openingSequenceActive:false,player:{isLocked:true},cutscene:{isRunning:false},KEYS_HELD_BY_CUTSCENES:new Set(),studyHidden:false,
+  showHint:record('hint'),inspectHeldItem:record('inspect'),flashlightFound:true,gameState:{inventory:{has:()=>true}},flashlightSwitchOn:false,
+  setFlashlight:record('flashlight'),dropHeldItem:record('drop'),thirdPerson:false,setThirdPerson:record('view'),
+  visor:{toggle(){effects.push('visor');return 'none';}},showCaption(){},line:()=>[],openRestartConfirm:record('restart'),transitionInFlight:false,toggleCredits:record('credits')};
+ new Function('env','with(env){return '+handlerSource+';}')(env)({code,repeat:false});
+ assert.deepEqual(effects,[expected],'player control changed: '+code);
+}
+assert(!source.includes('skipOpeningNews'),'opening report still has keyboard bypass');
+const free=fs.readFileSync(new URL('../src/core/FreeCamera.js',import.meta.url),'utf8');
+assert(!free.includes('this.#listenForInput();'),'developer camera installs shortcuts');
+for(const name of ['PointerLockPlayer','PinPadUI','PhotoBoardUI','DocumentUI','CutsceneSkip','Newspaper','MenuPresentation','LeaderboardUI']){
+ const text=fs.readFileSync(new URL('../src/core/'+name+'.js',import.meta.url),'utf8');assert(text.includes('keydown'));
+}
+console.log('PASS: startup state; all digit/numpad developer jumps, G/L/N disabled across every scene; legitimate gameplay handlers and player skip/input modules preserved; no intro keyboard bypass.');

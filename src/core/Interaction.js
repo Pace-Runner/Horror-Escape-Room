@@ -21,6 +21,7 @@ export class Interaction {
     this.raycaster = new THREE.Raycaster();
     this.raycaster.far = 3.2;
     this.targets = [];
+    this.raycastHits = [];
     this.current = null;
     // Gate for the level-transition fade. Skipping update() alone is NOT
     // enough to suppress interaction: this keydown listener tests `current`,
@@ -109,8 +110,10 @@ export class Interaction {
     this.raycaster.setFromCamera(RAY_ORIGIN, this.camera);
     // `allow`, when set, narrows what can be used right now (main.js: only
     // the hide-and-seek's own objects while the study is dark).
-    const hits = this.raycaster.intersectObjects(this.targets, false)
+    this.raycastHits.length = 0;
+    const hits = this.raycaster.intersectObjects(this.targets, false, this.raycastHits)
       .filter(candidate=>this.isAvailable(candidate.object));
+    this.raycastHits.length = 0;
     // Most interactions keep nearest-hit behaviour. A child target may opt
     // into a higher priority when a broad parent hitbox overlaps it, such as
     // an item inside an open drawer. This preserves aiming at the item rather

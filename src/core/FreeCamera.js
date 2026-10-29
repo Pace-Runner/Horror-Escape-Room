@@ -229,7 +229,7 @@ export class FreeCamera {
     this.takeInProgress = null;
 
     this.statusElement = this.#createStatusElement();
-    this.#listenForInput();
+    // Developer camera remains callable by test tools, without gameplay shortcuts.
     window.addEventListener('resize', () => this.#updateAspect());
   }
 
