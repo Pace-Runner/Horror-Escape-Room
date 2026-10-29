@@ -1526,8 +1526,15 @@ captions.onLineStart = (line) => {
 captions.onLineCancel=line=>{if(line&&audio.voiceRequest?.owner===line){line.voiceReleased=true;audio.stopVoice();}};
 // Text-only lines show even with captions off -- see CaptionSequencer.isVoiced.
 captions.isVoiced = (line) => line?.recorded || audio.hasVoice(line?.voice);
+/**
+ * Examine text: what a prop says when the player presses E on it. It shows
+ * whatever the Captions setting is -- that setting is for subtitles, and with
+ * it off (the default) and most examine lines unrecorded, every "Examine ..."
+ * prompt in the house looked dead.
+ */
 function showCaption(text) {
-  interaction.showCaption(text);
+  const examine = (l) => (typeof l === 'string' ? { text: l, always: true } : { ...l, always: true });
+  interaction.showCaption(Array.isArray(text) ? text.map(examine) : examine(text));
 }
 
 // ---------- control tips ----------
@@ -1732,15 +1739,18 @@ const LEVEL_ONE_DOOR_BREATHING = 0.72;
  */
 const LEVEL_TWO_BREATHING = {
   /** Walking in: the same quiet background as Level 1. */
-  base: 0.05,
+  base: 0.035,
   /** The blackout at the metal door: it is close. */
-  blackout: 0.45,
+  blackout: 0.3,
   /** The CCTV hallway camera: something crosses the far end. */
-  cctvDash: 0.4,
+  cctvDash: 0.25,
   /** Camera five: it is in this room. The loudest it gets. */
-  cctvBasement: 0.5,
-  /** After any of those, once it has gone. */
-  settled: 0.18
+  cctvBasement: 0.32,
+  /**
+   * After any of those, once it has gone. Was 0.18 and held for the rest of the
+   * level, five times the walking-in level: back to the background instead.
+   */
+  settled: 0.04
 };
 
 /** Runs each Level 1 environmental beat once and makes its delays reset-safe. */
@@ -2065,7 +2075,8 @@ const cutsceneContext = {
   /** The breathing loop's level, 0..1 (ramped by the engine). */
   setBreathing: (level) => audio.setBreathing(level),
   /** The level the room being played normally breathes at, to settle back to. */
-  restingBreath: () => (sceneManager.activeKey === 'bedroom' ? LEVEL_ONE_BREATHING_BASE : BREATH_BASE_LEVEL),
+  restingBreath: () => (sceneManager.activeKey === 'bedroom' ? LEVEL_ONE_BREATHING_BASE
+    : sceneManager.activeKey === 'hallwayBasement' ? LEVEL_TWO_BREATHING.settled : BREATH_BASE_LEVEL),
   /** A light that is always in the scene and off: a scene positions and lights it, and turns it off in onEnd. */
   keyLight: cinematicLight,
   /** Lifts the black a transition or a catch left up, from inside a scene that opens on closed eyes. */
@@ -3360,6 +3371,11 @@ const study = createDeferredLevel(() => createStudyLevel({
       variant: 'note',
       body: DOCUMENTS.frontDoorNote.body
     });
+  },
+  onReadRecord: ({ title, body }) => {
+    if (documentUI.isOpen) return;
+    player.unlock();
+    documentUI.open({ title, body, variant: 'file' });
   },
   // Each of the front door's three locks, as itself.
   onLockOpened: (id) => sfx(STUDY_LOCK_SFX[id] ?? 'latch'),

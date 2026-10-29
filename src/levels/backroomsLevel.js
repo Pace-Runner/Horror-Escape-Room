@@ -781,6 +781,8 @@ export function createBackroomsLevel({
   });
 
   // --- blood on the ceiling, with drips still hanging off it ---
+  // Where each strand ends: a drop gathers there and falls (update()).
+  const bloodDrips = [];
   stainableLegs.forEach((name) => {
     const rand = lcg(hashName(name, 61));
     const n = decalCount(rand, legSpan(name), 3.4, BLOOD_CLEAN);
@@ -806,9 +808,61 @@ export function createBackroomsLevel({
         s.scale.set(0.05 + rand() * 0.05, len, 1);
         group.add(s);
         counts.strand++;
+        // Its own rhythm, so the corridor never drips in step.
+        bloodDrips.push({ x: s.position.x, y: HALL_H - len, z: s.position.z,
+          wait: 1.8 + rand() * 3.4, t: rand() * 5 });
       }
     }
   });
+
+  // The drops themselves: one InstancedMesh for every strand in the maze, so a
+  // few hundred drops cost one draw. A drop gathers at the strand's tip, swells,
+  // then falls under gravity to the carpet.
+  const BLOOD_FALL_G = 9.8;
+  const bloodDrop = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(0.016, 8, 6),
+    new THREE.MeshStandardMaterial({ color: 0x4a0606, roughness: 0.12, metalness: 0 }),
+    Math.max(1, bloodDrips.length)
+  );
+  bloodDrop.name = 'BackroomsBloodDrops';
+  bloodDrop.count = bloodDrips.length;
+  bloodDrop.layers.set(MAIN_ONLY);
+  // Spread over the whole maze and moved every frame: the bounds would be stale.
+  bloodDrop.frustumCulled = false;
+  bloodDrop.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  group.add(bloodDrop);
+  const _dropMatrix = new THREE.Matrix4();
+  const _dropPos = new THREE.Vector3();
+  const _dropQuat = new THREE.Quaternion();
+  const _dropScale = new THREE.Vector3();
+  const BLOOD_GATHER = 0.9;   // seconds swelling at the tip before it lets go
+  function updateBloodDrips(dt) {
+    for (let i = 0; i < bloodDrips.length; i++) {
+      const d = bloodDrips[i];
+      d.t += dt;
+      const fallTime = Math.sqrt((2 * d.y) / BLOOD_FALL_G);
+      if (d.t > d.wait + BLOOD_GATHER + fallTime) d.t -= d.wait + BLOOD_GATHER + fallTime;
+      if (d.t < d.wait) {
+        _dropScale.setScalar(0);
+        _dropPos.set(d.x, d.y, d.z);
+      } else if (d.t < d.wait + BLOOD_GATHER) {
+        const g = (d.t - d.wait) / BLOOD_GATHER;
+        _dropScale.set(g, g * (1 + g * 0.6), g);
+        _dropPos.set(d.x, d.y - 0.012 * g, d.z);
+      } else {
+        const f = d.t - d.wait - BLOOD_GATHER;
+        const y = d.y - 0.012 - 0.5 * BLOOD_FALL_G * f * f;
+        // Stretched by its speed, like the leak's drop.
+        const stretch = 1 + Math.min(1.6, BLOOD_FALL_G * f * 0.35);
+        _dropScale.set(0.85, stretch, 0.85);
+        _dropPos.set(d.x, Math.max(0.01, y), d.z);
+      }
+      _dropMatrix.compose(_dropPos, _dropQuat, _dropScale);
+      bloodDrop.setMatrixAt(i, _dropMatrix);
+    }
+    bloodDrop.instanceMatrix.needsUpdate = true;
+  }
+  updateBloodDrips(0);
 
   // --- blood on the walls: runs coming down, and dry smears ---
   WALL_RUNS.forEach(({ axis, at, from, to }) => {
@@ -2297,6 +2351,7 @@ export function createBackroomsLevel({
       // Stretched by its own acceleration, which is what a falling drop does
       // and what stops it reading as a bead sliding down glass.
       drip.scale.set(1 - fall * 0.25, 1 + fall * 1.4, 1 - fall * 0.25);
+      updateBloodDrips(dt);
     }
   };
 }

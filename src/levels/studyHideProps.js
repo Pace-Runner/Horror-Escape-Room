@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { hingeMotion } from './studyPuzzlePresentation.js';
 import { STUDY_RUG } from './studyHeroPresentation.js';
-import {ageStudySheets,gatherMiddleCurtain} from './studyVisualPolish.js';
+import {ageStudySheets} from './studyVisualPolish.js';
 import { line } from '../dialogue/index.js';
 import chesterfieldUrl from '../assets/models/study/study_chesterfield.glb?url';
 import wardrobeUrl from '../assets/models/study/study_wardrobe.glb?url';
@@ -206,7 +206,8 @@ export function createStudyHideProps({
       // The model hangs along X; a quarter turn hangs it along the wall.
       place(curtainUrl, `Study_Curtain_${index}`, curtainX, 0, (z0 + z1) / 2, Math.PI / 2, {
         onModel: (model) => {
-          if(index===0)gatherMiddleCurtain(model);
+          // The middle curtain hangs straight like its neighbour: the old
+          // gatherMiddleCurtain pinch read as a waist in mid-air.
           strips = [0, 1, 2, 3].map((i) => model.getObjectByName(`Strip_${i}`)).filter(Boolean);
         }
       });

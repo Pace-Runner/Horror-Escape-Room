@@ -85,6 +85,15 @@ const EYE_HEIGHT = 2.0;
 const SEEN_BELOW_EYE = 0.2;
 /** Seconds out of sight in a chase before she goes to where she last saw you. */
 const LOSE_SIGHT_AFTER = 1.1;
+/** How fast she turns toward where she is walking (per second, toward the error). */
+const TURN_RATE = 9;
+/** Facing further off the path than this (a cosine, ~75 degrees) she turns on the spot first. */
+const TURN_IN_PLACE = 0.25;
+/**
+ * After a chase, how long hearing him again counts as finding him again
+ * rather than a fresh sound to go and look at.
+ */
+const RECENT_CHASE = 8;
 /** Metres: how near a thing must be to the last clue to be searched. */
 const SEARCH_RADIUS = 6;
 /** Seconds she stands at a hide spot she is opening, before she knows. */
@@ -232,7 +241,10 @@ export function createStudySeeker({
     const f = floorOf(y);
     let best = null, bestD = Infinity;
     for (const node of nodes.values()) {
-      const sameFloor = node.f === f || (f === 's' || node.f === 's');
+      // A stair node is only a start or a goal FROM the stair. From the floor
+      // beside it, the stair's side is a wall, and choosing s_mid there sent
+      // her straight into it until the stuck timer gave up.
+      const sameFloor = f === 's' || node.f === f;
       if (!sameFloor) continue;
       const d = Math.hypot(node.x - x, node.z - z, (node.y - y) * 2);
       if (d >= bestD) continue;
@@ -297,6 +309,11 @@ export function createStudySeeker({
   /** Where a chase lost sight of him, so the search opens the spot beside it. */
   let lostHimAt = null;
   let outOfSight = 0;
+  /** She is walking to a thrown lure, not to anything of his. */
+  let chasingLure = false;
+  /** stateTime-free clock of when she last had him in a chase. */
+  let clock = 0;
+  let lastChaseAt = -Infinity;
   let searchQueue = [];
   let searchTime = 0;
   let checking = null;
@@ -370,15 +387,22 @@ export function createStudySeeker({
       path.shift();
       return path.length === 0;
     }
-    const step = Math.min(d, pace * dt);
+    // Turn first, then walk the way she faces. She used to slide along the
+    // path at full pace while the body was still turning, so a path that
+    // doubled back had her walking backwards for half a second.
+    faceToward(target.x, target.z, dt, TURN_RATE);
+    const fx = -Math.sin(creature.yaw), fz = -Math.cos(creature.yaw);
+    const facing = (fx * dx + fz * dz) / d;
+    const ease = facing <= TURN_IN_PLACE ? 0 : Math.min(1, (facing - TURN_IN_PLACE) / (1 - TURN_IN_PLACE));
+    const step = Math.min(d, pace * ease * dt);
     const next = { x: here.x + (dx / d) * step, z: here.z + (dz / d) * step };
     resolveCircle(next, BODY_RADIUS, walkBoxes(currentY));
     const y = groundAt(next.x, next.z, currentY);
     place(next.x, next.z, y);
-    faceToward(target.x, target.z, dt);
-    creature.setSpeed(pace);
+    creature.setSpeed(pace * ease);
     // Stuck on a corner the graph did not foresee: skip to the next point.
-    stuckTime = Math.hypot(next.x - lastPos.x, next.z - lastPos.z) < pace * dt * 0.25 ? stuckTime + dt : 0;
+    // Turning on the spot is not stuck.
+    stuckTime = ease > 0.5 && Math.hypot(next.x - lastPos.x, next.z - lastPos.z) < pace * dt * 0.25 ? stuckTime + dt : 0;
     lastPos = { x: next.x, z: next.z };
     if (stuckTime > 1.2) { stuckTime = 0; path.shift(); }
     return false;
@@ -466,7 +490,8 @@ export function createStudySeeker({
   }
 
   // ------------------------------------------------------------- behaviour
-  function startInvestigating(point, { urgent = false, sawHim = false } = {}) {
+  function startInvestigating(point, { urgent = false, sawHim = false, lure = false } = {}) {
+    chasingLure = lure;
     lastKnown = point;
     lostHimAt = sawHim ? point : null;
     searchQueue = [];
@@ -576,6 +601,8 @@ export function createStudySeeker({
       routeIndex = 0;
       lastPatrolNode = null;
       lastKnown = null;
+      chasingLure = false;
+      lastChaseAt = -Infinity;
       searchQueue = [];
       checking = null;
       outOfSight = 0;
@@ -632,12 +659,17 @@ export function createStudySeeker({
      */
     noise({ x, y = 0, z, radius = 6 }) {
       if (state === 'stopped' || state === 'withdraw' || state === 'caught' || state === 'chase') return false;
+      // Him first, always: a lure never pulls her off a player she can see,
+      // or one she can hear walking.
+      const player = getPlayer();
+      const t = tuning();
+      if (canSee(player, t) || hear(player, t)) return false;
       const here = creature.position;
       const d = Math.hypot(x - here.x, z - here.z, (y - currentY) * 0.5);
       // In the hunt she hears a lure from further off and always runs to it.
       const hunting = mode === 'hunt';
       if (d > radius * (hunting ? HUNT.noiseRadius : 1)) return false;
-      startInvestigating({ x, z, y: groundAt(x, z, y) }, { urgent: hunting || radius > 9 });
+      startInvestigating({ x, z, y: groundAt(x, z, y) }, { urgent: hunting || radius > 9, lure: true });
       return true;
     },
 
@@ -648,12 +680,15 @@ export function createStudySeeker({
       checking = null;
       searchQueue = [];
       lastKnown = null;
+      chasingLure = false;
+      lastChaseAt = -Infinity;
       onBreathing(0);
     },
 
     update(dt) {
       if (state === 'stopped' || state === 'caught' || dt <= 0) return;
       stateTime += dt;
+      clock += dt;
       const t = tuning();
       const player = getPlayer();
       const here = creature.position;
@@ -674,8 +709,8 @@ export function createStudySeeker({
         scheduleWhisper();
       }
 
-      // ---- the hide spot she is opening
-      if (checking && path.length === 0 && state === 'search') {
+      // ---- the hide spot she is opening (unless she sees him: that comes first)
+      if (checking && path.length === 0 && state === 'search' && !canSee(player, t)) {
         // The wardrobe's doors open, the curtain is pulled back.
         if (checkTime === 0) onCheckSpot(checking);
         checkTime += dt;
@@ -700,12 +735,26 @@ export function createStudySeeker({
       if (sees) {
         lastKnown = { x: player.x, z: player.z, y: player.groundY };
         outOfSight = 0;
+        chasingLure = false;
+        checking = null;
         if (state !== 'chase') { setState('chase'); onWhisper('chase'); }
       } else if (state === 'chase') {
         outOfSight += dt;
       }
+      if (state === 'chase') lastChaseAt = clock;
       const heard = sees ? null : hear(player, t);
-      if (heard && state !== 'chase') {
+      // His footsteps outrank everything else. Off after a lure, or so soon
+      // after a chase that it is the same chase, hearing him walk or run is
+      // finding him again: straight back to the chase, at him.
+      if (heard && state !== 'chase' && (chasingLure || clock - lastChaseAt < RECENT_CHASE)) {
+        chasingLure = false;
+        checking = null;
+        lastKnown = heard;
+        outOfSight = 0;
+        path = [];
+        setState('chase');
+        onWhisper('chase');
+      } else if (heard && state !== 'chase') {
         // A fresh sound she is not already walking to.
         const far = !lastKnown || Math.hypot(heard.x - lastKnown.x, heard.z - lastKnown.z) > 1.2;
         if (far || state === 'patrol') startInvestigating(heard, { urgent: player.sprinting });

@@ -66,6 +66,11 @@ export function createStudyLevel({
   onCrestSolved = () => {},
   /** The grandfather clock set to 11:15. */
   onClockSolved = () => {},
+  /**
+   * A typed record opened in the document reader (main.js): the incident note
+   * and the memory archive's clues. Without it they fall back to a caption.
+   */
+  onReadRecord = null,
   /** The physical crest reward was collected, not merely revealed. */
   onCrestKeyTaken = () => {},
   /** E on a hide spot (the wardrobe): main.js puts Mark inside it. */
@@ -366,7 +371,13 @@ export function createStudyLevel({
   const railingThickness = 0.12;
   colliders.push(
     { minX: stairX - stairHalfWidth - railingThickness, maxX: stairX - stairHalfWidth + railingThickness, minZ: stairTopZ, maxZ: stairBottomZ + 0.09 },
-    { minX: stairX + stairHalfWidth - railingThickness, maxX: stairX + stairHalfWidth + railingThickness, minZ: stairTopZ, maxZ: stairBottomZ }
+    { minX: stairX + stairHalfWidth - railingThickness, maxX: stairX + stairHalfWidth + railingThickness, minZ: stairTopZ, maxZ: stairBottomZ },
+    // The flight's high end, under the landing: from the clock's corner on the
+    // ground floor it is a 3 m wall of solid steps, and without this the player
+    // walked straight into it (groundAt rightly refuses a 3 m step). Only for
+    // feet below 2.4 m, so the loft and the top treads are untouched.
+    { minX: stairX - stairHalfWidth - railingThickness, maxX: stairX + stairHalfWidth + railingThickness,
+      minZ: stairTopZ - 0.02, maxZ: stairTopZ + 0.3, minY: 0, maxY: LOFT_Y - 0.7 }
   );
 
   // Human-scale steps along the right wall: 0.19 m rise, 0.28 m tread.
@@ -696,7 +707,10 @@ export function createStudyLevel({
   incidentNote.position.set(-0.52, 0.791, -0.22);
   incidentNote.userData.interact = {
     label: 'Read the incident note',
-    onInteract: () => showCaption('Containment failure logged at 23:15.')
+    // Up on screen to read; the caption is the fallback for a headless build.
+    onInteract: () => (onReadRecord
+      ? onReadRecord({ title: 'Incident Record', body: ['Containment failure', 'logged at 23:15.'] })
+      : showCaption('Containment failure logged at 23:15.'))
   };
   desk.add(incidentNote);
   interactables.push(incidentNote);
@@ -1230,7 +1244,11 @@ export function createStudyLevel({
     display.mesh.position.set([1, -1, 0][index] * 0.46, 1.72, 0.24);
     display.mesh.userData.interact = {
       label: `Read archive clue ${index + 1}`,
-      onInteract: () => { showCaption(text); voiceProgress(); readEvidence(`memory-clue-${index}`); }
+      onInteract: () => {
+        if (onReadRecord) onReadRecord({ title: `Memory Archive, record ${index + 1}`, body: text.split('\n') });
+        else showCaption(text);
+        voiceProgress(); readEvidence(`memory-clue-${index}`);
+      }
     };
     memoryArchive.add(display.mesh);
     interactables.push(display.mesh);

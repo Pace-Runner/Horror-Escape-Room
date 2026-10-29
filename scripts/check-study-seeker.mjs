@@ -135,6 +135,16 @@ try {
   });
   assert.ok(reached, `she never climbed to the archive (ended at ${JSON.stringify(seeker.position)} in ${seeker.state})`);
 
+  // From beside the stair (not its foot) she goes round to the foot and up,
+  // rather than into the stair's side.
+  for (const from of ['g_right', 'g_backR', 'g_screenE']) {
+    player = still(-6.8, 5.6, { crouching: true });
+    seeker.start({ mode: 'hunt', at: from, investigate: { x: 4.6, z: -3.4, y: loftY } });
+    let up = false;
+    run(30, () => { if (Math.abs(seeker.position.y - loftY) < 0.05) up = true; });
+    assert.ok(up, `from ${from} she never got up the stair (ended at ${JSON.stringify(seeker.position)})`);
+  }
+
   // A thrown book: she goes to where it lands.
   seeker.start({ mode: 'hunt', at: 'g_center' });
   player = still(-6.8, 5.6, { crouching: true });
@@ -144,6 +154,49 @@ try {
   let toBook = Infinity;
   run(12, () => { toBook = Math.min(toBook, Math.hypot(seeker.position.x - landing.x, seeker.position.z - landing.z)); });
   assert.ok(toBook < 0.6, `she should go to the book, got within ${toBook.toFixed(2)} m`);
+
+  // She never walks backwards: every step goes the way the body faces.
+  {
+    seeker.start({ mode: 'hunt', at: 'g_center' });
+    player = still(-6.8, 5.6, { crouching: true });
+    figure.setYaw(Math.PI);   // facing +Z, then sent the other way
+    seeker.noise({ x: 0.4, y: 0, z: -4.4, radius: 9 });
+    let last = { ...seeker.position }, worst = 0;
+    run(6, () => {
+      const p = seeker.position, dx = p.x - last.x, dz = p.z - last.z;
+      const along = -Math.sin(figure.yaw) * dx - Math.cos(figure.yaw) * dz;
+      if (Math.hypot(dx, dz) > 1e-4) worst = Math.min(worst, along / Math.hypot(dx, dz));
+      last = { ...p };
+    });
+    assert.ok(worst > -0.05, `she moved backwards (cosine ${worst.toFixed(2)})`);
+  }
+
+  // Him first: a lure never pulls her off a player she can see.
+  {
+    seeker.start({ mode: 'hunt', at: 'g_midR' });
+    run(0.1);
+    figure.setYaw(0);
+    const p = seeker.position;
+    player = still(p.x, p.z - 2);   // 2 m in front of her
+    assert.equal(seeker.noise({ x: -6, y: 0, z: 5, radius: 20 }), false, 'a lure pulled her off a player in plain sight');
+    seeker.update(1 / 30);
+    assert.equal(seeker.state, 'chase', 'she should chase the player she can see');
+  }
+
+  // His footsteps outrank a lure: throw, walk on, and she is back on him.
+  {
+    seeker.start({ mode: 'hunt', at: 'g_midR' });
+    player = still(-6.8, 5.6, { crouching: true });
+    assert.ok(seeker.noise({ x: 2.6, y: 0, z: 4.0, radius: 9 }), 'the lure is heard');
+    run(0.3);
+    const p = seeker.position;
+    figure.setYaw(0);
+    player = still(p.x, p.z + 2, { walking: true });   // behind her, walking
+    assert.equal(seeker.noise({ x: 2.6, y: 0, z: 4.0, radius: 9 }), false, 'a lure outranked his footsteps');
+    seeker.update(1 / 30);
+    assert.equal(seeker.state, 'chase', 'hearing him walk after a lure should be a chase');
+  }
+  player = still(-6.8, 5.6, { crouching: true });
 
   // Crouch-walking is silent; walking close by is heard. Behind her, out of sight.
   const behind = (crouching, walking) => {
@@ -219,7 +272,7 @@ try {
   }
 
   console.log(`PASS: ${lightsBefore} lights through a blackout; ${m.STUDY_NAV.edges.length} nav edges; stair climb to the archive; `
-    + 'book lure; crouch silence; Chesterfield low cover; chase < sprint on every difficulty; open and curtain catches; '
+    + 'book lure; never backwards; sight and footsteps outrank a lure; crouch silence; Chesterfield low cover; chase < sprint on every difficulty; open and curtain catches; '
     + `study scare pool (${[...new Set(studyPicks)].join(', ')}).`);
   console.log('Headless behaviour only: lighting, models, scares and the wardrobe view were not rendered.');
 } finally {
