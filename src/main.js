@@ -5724,26 +5724,16 @@ function debugOpenBedroomDoor({ carryThrough = true } = {}) {
 /**
  * Keys that do nothing while a cutscene plays. Each acts through the hand or
  * the view the scene has borrowed: the torch (F), a drop (Q), the visor (V),
- * third person (T), a hint caption over the scene (H), the debug skip (G).
- * Restart, credits and the level jumps are NOT here: each cancels the scene
+ * third person (T), a hint caption over the scene (H).
+ * Restart and credits are NOT here: each cancels the scene
  * properly, which is what they are for.
  */
-const KEYS_HELD_BY_CUTSCENES = new Set(['KeyF', 'KeyQ', 'KeyV', 'KeyT', 'KeyH', 'KeyG', 'KeyI']);
+const KEYS_HELD_BY_CUTSCENES = new Set(['KeyF', 'KeyQ', 'KeyV', 'KeyT', 'KeyH', 'KeyI']);
 
 window.addEventListener('keydown', (e) => {
   if (openingSequenceActive) return;
   if (e.code === 'KeyH') { showHint(e); return; }
-  if(e.code==='Digit9'||e.code==='Numpad9'){
-    if(!gameStarted||e.repeat||e.ctrlKey||e.metaKey||e.altKey
-      ||e.target?.closest?.('input, textarea, select, [contenteditable], [role="textbox"]'))return;
-    activeRun.invalidate();e.preventDefault();void prepareStudyHandoffTest();return;
-  }
   if (!player.isLocked) return;
-  if (import.meta.env.DEV && (e.code === 'Digit5' || e.code === 'Digit6')) {
-    if(e.repeat||e.ctrlKey||e.metaKey||e.altKey
-      ||e.target?.closest?.('input, textarea, select, [contenteditable], [role="textbox"]'))return;
-    activeRun.invalidate();e.preventDefault();void window.__game.prepareStudyRevealTest(e.code === 'Digit6');return;
-  }
   // A cutscene owns the view and the hand, so nothing that acts through either
   // reaches the game until it hands back -- see KEYS_HELD_BY_CUTSCENES.
   if (cutscene.isRunning && KEYS_HELD_BY_CUTSCENES.has(e.code)) return;
@@ -5756,63 +5746,6 @@ window.addEventListener('keydown', (e) => {
   if (studyHidden && e.code === 'KeyE' && !e.repeat && performance.now() - studyHiddenAt > 250) {
     exitStudyHideSpot();
     return;
-  }
-  // Instant level previews remain available in demo and production builds.
-  const levelShortcut = /^(?:Digit|Numpad)([1-4])$/.exec(e.code)?.[1]
-    ?? (e.code === 'KeyL' ? '2' : null);
-  if (levelShortcut) {
-    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey
-      || pinPadUI.isOpen || photoBoardUI.isOpen || documentUI.isOpen
-      || e.target?.closest?.('input, textarea, select, [contenteditable], [role="textbox"]')) return;
-    e.preventDefault();
-    activeRun.invalidate();
-    abortTransition();
-    if (levelShortcut === '4') {
-      const route = TRANSITIONS[sceneManager.activeKey] ?? { to: 'hallwayBasement' };
-      backrooms.setRoute({ from: sceneManager.activeKey, ...route });
-      activateLevel('backrooms');
-    } else {
-      activateLevel({ '1': 'bedroom', '2': 'hallwayBasement', '3': 'study' }[levelShortcut]);
-    }
-    return;
-  }
-  if (e.code === 'KeyG') {
-    activeRun.invalidate();
-    // Debug: skip the whole Level 1 puzzle chain and take the REAL exit.
-    //
-    // This drives the actual door -> hinge swing -> fade -> corridor path, so
-    // it is the one that tests the transition rather than the destination.
-    //
-    // Works by handing the player the door's own crowbar and key and calling
-    // its real interact twice (first press pries the planks, second opens it)
-    // rather than reaching in and setting puzzleState.doorUnlocked directly --
-    // that way the plank meshes, captions and exit timing all come from the
-    // shipping code path instead of a debug copy of it that could drift.
-    //
-    // The door asks for each tool IN THE HAND, so each is put there before its
-    // press; and it wants the floorboard pried before the planks, so that flag
-    // is set rather than playing the rug and the board through too.
-    //
-    // Every other level: G takes its real way out too, for testing --
-    //   upstairsHallway  down the stairs (exitLevel, as walking down does)
-    //   backrooms        through this crossing's exit door, unlatched by its own interact
-    //   hallwayBasement  out through the metal door's exit, power puzzle skipped
-    //   study            the released ending
-    const key = sceneManager.activeKey;
-    if (transitionInFlight || endingInFlight) {
-      // A press during a fade would queue a second exit behind the first.
-    } else if (key === 'upstairsHallway' || key === 'hallwayBasement') {
-      showCaption('[debug] G: level skipped.');
-      exitLevel(key);
-    } else if (key === 'backrooms') {
-      backrooms.refs.walkThroughExitDoor();
-    } else if (key === 'study') {
-      playEnding('released');
-    } else if (key !== 'bedroom') {
-      showCaption(`[debug] G does nothing in "${key}".`);
-    } else {
-      debugOpenBedroomDoor();
-    }
   }
   // Neither Q nor F acts on key auto-repeat. Held Q dropped item after item --
   // each repeat that landed once the drop clip had finished let go of whatever
@@ -6603,13 +6536,8 @@ function beginGame() {
   const newsFinished = openingNewsCutscene.play();
   // Prepare only the opening pair while the report covers the canvas.
   const levelOneReady = preloadLevel1();
-  const skipOpeningNews = (event) => {
-    if (event.code === 'KeyK' && openingNewsCutscene.skip()) event.preventDefault();
-  };
-  window.addEventListener('keydown', skipOpeningNews);
   const run = script.run(async (s) => {
     const newsResult = await newsFinished;
-    window.removeEventListener('keydown', skipOpeningNews);
     if (!s.alive()) return;
     // A skipped report rests on the same four photographs as a watched one.
     if (newsResult?.skipped) openingNewsCutscene.showAllPhotos();
