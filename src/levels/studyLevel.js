@@ -537,10 +537,11 @@ export function createStudyLevel({
   }
   function readEvidence(id) {
     evidenceRead.add(id);
-    if (evidenceRead.size >= 3) onThought('l3_07', { priority: 50 });
+    if (evidenceRead.size >= 3) onThought('l3_07', { priority: 50, document: true,
+      onEnded: correctedEvidence });
   }
   function correctedEvidence() {
-    if (puzzle.memoryVisorCollected && gameState.visorWorn) onThought('l3_05', { priority: 50 });
+    if (puzzle.memoryVisorCollected && gameState.visorWorn) onThought('l3_05', { priority: 40, document: true });
   }
 
 

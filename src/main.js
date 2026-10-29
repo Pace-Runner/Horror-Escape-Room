@@ -333,7 +333,7 @@ function showDifficultyChoice(show) {
 let currentDifficulty = DEFAULT_DIFFICULTY;
 
 function showMainMenu() {
-  studyArrival.cancel();
+  studyArrival.cancel(); levelArrivals.forEach(voice=>voice.cancel());
   tapeBlackoutAt = null;
   controlsScreen.classList.add('hidden');
   headphonesScreen.close();
@@ -1529,6 +1529,14 @@ const studyArrival=createStudyArrivalVoice({thoughts:markThoughts,
   isReady:()=>!transitionInFlight&&!cutscene.isRunning&&!caughtInFlight&&!openingSequenceActive
     &&player.isLocked&&player.lookEnabled&&!documentUI.isOpen&&!markThoughts.currentKey
     &&!audio.voiceSource&&!audio.voiceRequest&&!captions.isPlaying});
+const levelArrivals=['hallwayBasement','backrooms'].map(key=>createStudyArrivalVoice({
+  thoughts:markThoughts,keys:[key==='backrooms'?'backrooms_01':'l2_01'],priority:50,
+  isCurrent:()=>sceneManager.activeKey===key&&!gameState.endingChosen,
+  isReady:()=>!transitionInFlight&&!caughtInFlight&&!cutscene.isRunning&&!jumpScareRunning
+    &&player.isLocked&&!documentUI.isOpen&&!audio.voiceRequest&&!markThoughts.currentKey&&!captions.isPlaying,
+  onEnded:key==='hallwayBasement'?()=>thought('l2_20',{delay:.2,priority:50,
+    when:()=>sceneManager.activeKey==='hallwayBasement'&&hallwayBasement.refs.powerStage==='dead'}):undefined
+}));
 const interaction = new Interaction(camera, promptEl, captions);
 // Voice follows the caption rather than the other way round: the caption is
 // the primary channel and always exists, the clip may not. A line with no
@@ -4108,7 +4116,7 @@ function initializeBedroomPresentation() {
       }
     },
     onBlow: () => {
-      thought('l1_05');
+      thought('l1_05', { priority: 50, when: () => sceneManager.activeKey === 'bedroom' });
       bedroom.refs.pendantIntact.visible = false;
       bedroom.refs.pendantBroken.visible = true;
       audio.bulbPop();
@@ -5248,7 +5256,7 @@ function playStairsScare() {
 }
 
 function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
-  studyArrival.cancel();
+  studyArrival.cancel(); levelArrivals.forEach(voice=>voice.cancel());
   tapeBlackoutAt = null;
   const previousKey = sceneManager.activeKey;
   // A transition owns its spawn, even when re-entering the same hallway.
@@ -5374,10 +5382,9 @@ function activateLevel(key, { lockMovement = false, seamless = false } = {}) {
     generatorProgressStarted = false;
     breakerEngaged = false;
     breakerHintSeconds = null;
-    thought('l2_01', { onEnded:()=>thought('l2_20', { delay: .2,
-      when:()=>sceneManager.activeKey==='hallwayBasement'&&hallwayBasement.refs.powerStage==='dead' }) });
+    levelArrivals[0].arm();
   }
-  if (key === 'backrooms') thought('backrooms_01');
+  if (key === 'backrooms') levelArrivals[1].arm();
 
   return level;
 }
@@ -5556,7 +5563,7 @@ const INTERLUDES = {
 
 // ---------- game reset (restart without page refresh) ----------
 function resetGame({ startLevel = 'bedroom', chapterDestination = null } = {}) {
-  studyArrival.reset();
+  studyArrival.reset(); levelArrivals.forEach(voice=>voice.reset());
   tapeBlackoutAt = null;
   menuMusic.setActive(false);
   headphonesScreen.close();
@@ -7874,6 +7881,7 @@ function tick() {
   }
   cassetteReminders.update();
   studyArrival.update();
+  levelArrivals.forEach(voice=>voice.update());
   updateTapeAftermath();
   studyStealthVoice.update();
   markThoughts.update({ blocked: transitionInFlight || caughtInFlight || tapePlaying

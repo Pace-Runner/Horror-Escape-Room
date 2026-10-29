@@ -22,6 +22,7 @@ export function createMarkThoughts(audio,{captions=null,canPlay=()=>true}={}) {
     const text=MARK_THOUGHTS[entry.key][1];
     return audio.playVoice(voice,{
       priority:entry.priority,trimSilence:true,
+      shouldPlay:()=>current===entry&&allowed(entry),
       onStarted(buffer,source,timing){if(current!==entry)return;entry.source=source;entry.loading=false;
         seen.add(entry.key);lastPlayed.set(entry.key,audio.ctx?.currentTime??0);
         if(captions?.isPlaying&&!captions.isVoiceSequence)captions.cancel({keepFeedback:true});

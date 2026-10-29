@@ -342,7 +342,8 @@ export function createBackroomsLevel({
       if (thoughtCorridors.has(name) && thoughtCorridors.size >= 3) onThought('backrooms_02');
       thoughtCorridors.add(name);
       if (thoughtCorridors.size >= 8) {
-        onThought('backrooms_03',{priority:40,onEnded:()=>onThought('backrooms_04')});
+        onThought('backrooms_03',{priority:50,onEnded:()=>onThought('backrooms_04',{priority:50,
+          onEnded:()=>{if(LEGS[name].kind==='room')onThought('backrooms_05',{priority:50});}})});
       }
       if (LEGS[name].kind === 'room' && thoughtCorridors.size >= 8) onThought('backrooms_05');
       if (LEGS[name].kind === 'room') onRoomEnter(name);

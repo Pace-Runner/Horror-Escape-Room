@@ -105,6 +105,39 @@ try {
  assert(thoughts.play('l1_04',{priority:60}));const replacement=audio.voiceSource;
  firstGroupSource.onended();assert.equal(audio.voiceSource,replacement);assert.equal(thoughts.currentKey,'l1_04');
  thoughts.clear();assert.equal(audio.voiceSource,null);assert.equal(captions._line,null);
+ // Execute the shipped bulb callback while the cuff recording still owns the bus.
+ thoughts.clear({reset:true});captions.cancel();captions.setEnabled(false);
+ assert(thoughts.play('l1_04'));
+ const cuffSource=audio.voiceSource;
+ const blowBody=mainSource.match(/onBlow: \(\) => \{([\s\S]*?)\n    \}/)[1];
+ new Function('thought','sceneManager','bedroom','audio',blowBody)(
+   (key,options)=>thoughts.play(key,options),{activeKey:'bedroom'},
+   {refs:{pendantIntact:{},pendantBroken:{}}},{bulbPop(){}});
+ thoughts.update();assert(cuffSource.stopped);
+ assert.equal(thoughts.currentKey,'l1_05');
+ assert(el.textContent.includes(MARK_THOUGHTS.l1_05[1]),'bulb recording has no spoken subtitle with descriptions off');
+ assert(!thoughts.play('l1_06'),'pickup interrupted bulb reaction');
+ audio.voiceSource.onended();assert.equal(captions._line,null);
+ // State may change between a request and the decoded recording becoming ready.
+ thoughts.clear({reset:true});let finishDecode;
+ audio.voiceBuffers.set(oldKey,new Promise(resolve=>finishDecode=resolve));
+ assert(thoughts.play('l3_01'));documentOpen=true;
+ finishDecode(new Buffer());await Promise.resolve();await Promise.resolve();
+ assert.equal(audio.voiceSource,null,'obsolete decoded thought started inside document');
+ assert.equal(thoughts.currentKey,null);documentOpen=false;captions.setEnabled(true);
+ // Actual study evidence hooks: the third document's reaction owns its full beat.
+ thoughts.clear({reset:true});documentOpen=true;
+ const studySource=fs.readFileSync('src/levels/studyLevel.js','utf8');
+ const correctedBody=studySource.match(/function correctedEvidence\(\) \{([\s\S]*?)\n  \}/)[1];
+ const corrected=new Function('puzzle','gameState','onThought',correctedBody).bind(null,
+   {memoryVisorCollected:true},{visorWorn:true},(key,options)=>thoughts.play(key,options));
+ const evidenceBody=studySource.match(/function readEvidence\(id\) \{([\s\S]*?)\n  \}/)[1];
+ const readEvidence=new Function('id','evidenceRead','onThought','correctedEvidence',evidenceBody);
+ readEvidence('third',new Set(['first','second']),(key,options)=>thoughts.play(key,options),corrected);
+ assert.equal(thoughts.currentKey,'l3_07');const evidenceSource=audio.voiceSource;
+ corrected();assert.equal(audio.voiceSource,evidenceSource,'visor thought cut off evidence story');
+ evidenceSource.onended();assert.equal(thoughts.currentKey,'l3_05');
+ thoughts.clear();documentOpen=false;
  const nodes=[];globalThis.document={createElement(){const el={hidden:false,textContent:'',classList:{add(){},remove(){}},setAttribute(){},append(...children){this.children=children;}};nodes.push(el);return el;},body:{append(){}}};
  const hints=createContextualHints();for(let i=0;i<4;i++)hints.show('l3_clock');assert.equal(nodes[2].textContent,HINTS.l3_clock[2]);hints.reset();hints.show('l3_clock');assert.equal(nodes[2].textContent,HINTS.l3_clock[0]);hints.hide();
  for(const [progress,key] of [[{},'l3_clock'],[{clockSolved:true},'l3_crest'],[{crestSolved:true},'l3_memory'],[{memoryVisorCollected:true},'l3_trail'],[{correctedTrailSolved:true},'l3_restricted'],[{truthRecordsSolved:true},'l3_letter'],[{hasHollowOverrideKey:true},'l3_choice']])assert.equal(getAvailableHintKeys('study',progress)[0],key);
