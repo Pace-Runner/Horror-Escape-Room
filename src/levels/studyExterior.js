@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { MAIN_ONLY } from '../core/RenderLayers.js';
 import { STUDY_WINDOWS } from './studyWindows.js';
+import { Rain } from '../world/Rain.js';
 
 /**
  * THE OUTSIDE OF THE STUDY: the porch the front door opens onto, the gate
@@ -531,7 +532,10 @@ function createSkyMaterial(moonDirection) {
     fog: false,
     uniforms: {
       uTime: { value: 0 },
-      uMoonDir: { value: moonDirection.clone().normalize() }
+      uMoonDir: { value: moonDirection.clone().normalize() },
+      // A strike: how lit (0..1), and where in the sky it is.
+      uFlash: { value: 0 },
+      uStrikeDir: { value: new THREE.Vector3(-0.9, 0.35, 0.2).normalize() }
     },
     vertexShader: /* glsl */`
       varying vec3 vDir;
@@ -544,6 +548,8 @@ function createSkyMaterial(moonDirection) {
     fragmentShader: /* glsl */`
       uniform float uTime;
       uniform vec3 uMoonDir;
+      uniform float uFlash;
+      uniform vec3 uStrikeDir;
       varying vec3 vDir;
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float noise(vec2 p) {
@@ -580,6 +586,11 @@ function createSkyMaterial(moonDirection) {
         col += vec3(0.62, 0.64, 0.66) * disc * (1.0 - cover * 0.9);
         col += vec3(0.35, 0.38, 0.48) * star * (1.0 - cover);
         col = mix(col, cloud, cover);
+        // A strike lights the cloud from inside: brightest round where it
+        // is, and in the thick of the cloud; the gaps between stay darker.
+        float near = pow(max(dot(d, uStrikeDir), 0.0), 3.0);
+        float thick = smoothstep(0.4, 0.85, c) * smoothstep(-0.05, 0.15, h);
+        col += vec3(0.5, 0.56, 0.72) * uFlash * (0.12 + 0.88 * near) * (0.25 + 1.4 * thick);
         gl_FragColor = vec4(col, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -621,7 +632,8 @@ function createRain(rand, { count, minX, maxX, minZ, maxZ, top, bottom, skip, la
       uTime: { value: 0 },
       uTop: { value: top },
       uBottom: { value: bottom },
-      uLamp: { value: lamp.clone() }
+      uLamp: { value: lamp.clone() },
+      uFlash: { value: 0 }
     },
     vertexShader: /* glsl */`
       uniform float uTime, uTop, uBottom;
@@ -644,11 +656,14 @@ function createRain(rand, { count, minX, maxX, minZ, maxZ, top, bottom, skip, la
       }
     `,
     fragmentShader: /* glsl */`
+      uniform float uFlash;
       varying float vAlpha;
       varying float vLit;
       void main() {
         vec3 col = mix(vec3(0.2, 0.23, 0.28), vec3(1.0, 0.82, 0.55), vLit);
-        gl_FragColor = vec4(col, vAlpha * (0.1 + vLit * 0.4));
+        // A strike lights every drop at once.
+        col = mix(col, vec3(0.85, 0.9, 1.0), uFlash);
+        gl_FragColor = vec4(col, vAlpha * (0.1 + vLit * 0.4 + uFlash * 0.8));
         #include <colorspace_fragment>
       }
     `
@@ -1238,6 +1253,24 @@ export function createStudyExterior({ roomW, roomD, roomH, doorX, doorwayW, door
   });
   exterior.add(rain);
 
+  // And down the left side of the house, past the study's windows: the view
+  // out of them was the yard and the sky with no rain in it.
+  const { zs } = STUDY_WINDOWS;
+  const sideRain = new Rain({
+    count: 3600,
+    origin: new THREE.Vector3(left - 0.12, YARD_Y, (zs[0] + zs[zs.length - 1]) / 2),
+    out: new THREE.Vector3(-1, 0, 0),
+    width: zs[zs.length - 1] - zs[0] + 3.2,
+    depth: 7,
+    height: 9.5,
+    spread: 0.8,
+    wind: [0.1, 0.03],
+    brightness: 1.2
+  });
+  exterior.add(sideRain.object);
+  /** Seconds since the sky was last lit: a strike's pulses have dark gaps in them. */
+  let darkFor = Infinity;
+
   return {
     porch,
     gate,
@@ -1250,10 +1283,23 @@ export function createStudyExterior({ roomW, roomD, roomH, doorX, doorwayW, door
     nightLights: [sky, moon],
     /** The moonlit window light: the one a lightning strike comes in by. */
     windowLight: moon,
-    /** Moves the rain and the clouds. */
-    update(dt) {
+    /**
+     * Moves the rain and the clouds. `flash` (0..1) is a strike's light
+     * (studyBlackout.js): the sky and the rain light with it.
+     */
+    update(dt, { flash = 0 } = {}) {
       rain.material.uniforms.uTime.value += dt;
       skyMaterial.uniforms.uTime.value += dt;
+      sideRain.update(dt);
+      // Each strike somewhere new in the western sky, the side the windows face;
+      // not each pulse of one, which go dark for a moment between them.
+      if (flash > 0 && darkFor > 0.3) {
+        skyMaterial.uniforms.uStrikeDir.value.set(-1, 0.25 + Math.random() * 0.45, (Math.random() - 0.5) * 1.6).normalize();
+      }
+      darkFor = flash > 0 ? 0 : darkFor + dt;
+      skyMaterial.uniforms.uFlash.value = flash;
+      rain.material.uniforms.uFlash.value = flash;
+      sideRain.setFlash(flash);
     }
   };
 }

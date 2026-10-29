@@ -3972,6 +3972,7 @@ function initializeBedroomPresentation() {
   bedroomStorm = new Storm({
     bulbLight: bedroom.refs.bulbLight,
     lightningLight: bedroom.refs.lightning,
+    moonlight: bedroom.refs.moonlight,
     // The mesh as well as the light. Without it the glass keeps glowing.
     bulbMaterial: bedroom.refs.bulbMaterial,
     onFlash: () => {
@@ -3998,10 +3999,10 @@ function initializeBedroomPresentation() {
         windowFlashArmed = false;
         windowFlashUsed = true;
         const wz = bedroom.refs.windowGroup.position.z;
-        // For exactly the flash, not CREATURE_LINGER_SECONDS: this one is only
-        // ever there while the lightning is. Its aura gets the flash plus the
-        // usual second of tail.
-        const shownFor = bedroomStorm?.flashDuration || 0.2;
+        // For exactly the flash's bright strokes, not CREATURE_LINGER_SECONDS:
+        // this one is only ever there while the lightning is (not its fading
+        // afterglow). Its aura gets that plus the usual second of tail.
+        const shownFor = bedroomStorm?.revealSeconds || 0.2;
         showCreatureAt({
           x: -2.1,
           z: wz - 0.9,
@@ -4030,14 +4031,18 @@ function initializeBedroomPresentation() {
     bedroom.group.add(windowRevealLight, windowRevealLight.target);
   }
 
+  // Streaks from just beyond the glass to three metres out, leaning in towards
+  // the house on the wind; the strikes light them (see world/Rain.js).
   rain = new Rain({
-    count: 400,
-    width: 1.6,
-    height: 2.6,
-    depth: 0.5,
-    origin: new THREE.Vector3(-2.1, 0.4, bedroom.refs.windowGroup.position.z - 0.35)
+    count: 1100,
+    origin: new THREE.Vector3(bedroom.refs.windowGroup.position.x, -0.7, bedroom.refs.windowGroup.position.z - 0.12),
+    out: new THREE.Vector3(0, 0, -1),
+    width: 1.5,
+    depth: 3.2,
+    height: 4.4,
+    wind: [0.05, 0.12]
   });
-  bedroom.group.add(rain.points);
+  bedroom.group.add(rain.object);
 }
 
 /** Hides the window-flash figure and tears down its dedicated light -- see the note above. */
@@ -7444,6 +7449,8 @@ function tick() {
   if (sceneManager.activeKey === 'bedroom') {
     bedroomStorm.update(dt);
     rain.update(dt);
+    // As the glass does (bedroomLevel.js): the strike's share of its peak, over the moonlight.
+    rain.setFlash(Math.min(Math.max(0, bedroom.refs.lightning.intensity - bedroom.refs.moonlight) / 3.2, 1));
   }
   // Only while actually playing; menus and front pages do not spend play time.
   const isPlaying = player.isLocked && !newspaperView.isOpen;

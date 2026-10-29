@@ -9,6 +9,8 @@ import {
 import { addBaseboard } from '../world/trim.js';
 import { buildBrassKey, buildIronKey } from '../world/keyModels.js';
 import { createRainGlassMaterial } from '../world/RainGlassMaterial.js';
+import { createWindowBars } from '../world/windowBars.js';
+import { takeWindowShadows } from '../world/windowLight.js';
 import { createCandleFlames } from '../world/CandleFlames.js';
 import { createWallSconceKit, SCONCE_WALL_OFFSET } from '../world/wallSconce.js';
 import { loadModel, applyTextureByMaterialName } from '../world/modelLoader.js';
@@ -224,6 +226,11 @@ const ROOM_H = 2.9;
 // competing for the same few walkable metres. These anchors reserve a clear
 // centre route without changing what any interaction does.
 const WINDOW_POSITION_X = -2.35;
+/** The window's light between strikes (the lightning light's rest): moonlight through the glass. */
+const MOONLIGHT = 0.32;
+/** How far out in the storm the window's light stands, and its cone: just the window, seen from there. */
+const WINDOW_LIGHT_DISTANCE = 9;
+const WINDOW_LIGHT_ANGLE = 0.16;
 const PIN_RECESS_POSITION_Z = -1.35;
 const PINBOARD_SCALE = 1.9;
 const BED_POSITION_X = 1.65;
@@ -443,6 +450,9 @@ export function createBedroomLevel({
   // triangular block across this single ceiling plane. Keep normal lighting
   // and the plaster texture, but disable only that broken shadow receiver.
   ceiling.receiveShadow = false;
+  // But it casts: the window light comes in from above, and without a ceiling
+  // in its shadow map it shone straight through onto the far walls.
+  ceiling.castShadow = true;
   structure.add(ceiling);
 
   const wallMat = new THREE.MeshStandardMaterial({
@@ -825,37 +835,45 @@ export function createBedroomLevel({
   /**
    * LIGHTNING THAT ACTUALLY COMES THROUGH THE WINDOW.
    *
-   * It stayed a DirectionalLight -- its flat parallel fill is what reads as sky
-   * rather than as a searchlight -- but it now casts, and it is aimed along a
-   * line that puts the window's shadow somewhere worth looking.
+   * It is aimed along a line that puts the window's shadow somewhere worth
+   * looking: about 25 degrees above horizontal, throwing the window, its
+   * cross and its bars several metres across the floorboards.
    *
-   * The old aim was (-3, 2.4, -3.5) toward (-3, 0, -2.6): 21 degrees off
-   * VERTICAL, so even with shadows on, the window's patch would have landed
-   * about half a metre from the wall base, behind the radiator. It now comes in
-   * at roughly 25 degrees above horizontal, which throws the mullion cross
-   * several metres across the floorboards and up the far wall.
+   * A SpotLight far out in the storm, its cone just wide enough for the
+   * window, with no falloff over distance: flat parallel fill that reads as
+   * sky, not as a searchlight. It was a DirectionalLight, which lights the
+   * whole world wherever no shadow stops it, so every wall, skirting board and
+   * decal that did not take shadows lit up in each strike as if the room had
+   * no walls. The cone lights only what the window can, and spends its shadow
+   * map on the window's patch alone.
    *
    * autoUpdate = false is what makes it affordable. three.js re-renders a
-   * casting light's shadow map EVERY FRAME regardless of its intensity being
-   * zero, and this light is dark for 5 to 14 seconds at a time. main.js sets
-   * needsUpdate on the frame a flash begins (see the onFlash callback); the
-   * room is static for the flash's whole 0.12-0.3 s, so one 1024-square render
-   * per strike is the entire cost.
+   * casting light's shadow map EVERY FRAME, and the room it falls into is
+   * static. The map is rendered once as the room is built, and main.js sets
+   * needsUpdate again on the frame each flash begins (the onFlash callback),
+   * so one render per strike is the entire cost.
+   *
+   * Between strikes it is the night itself, MOONLIGHT: a dim cool patch through
+   * the window, barred, across the floor. Natural light from the window with
+   * no light added (every light is part of every shader in the room); a strike
+   * is this light, brighter, on top of it.
    */
-  const lightning = new THREE.DirectionalLight(0xbcd4ff, 0);
-  lightning.position.set(-4.2, 3.4, -7.5);
-  lightning.target.position.set(-0.6, 0, -0.4);
+  const lightning = new THREE.SpotLight(0xbcd4ff, MOONLIGHT, 0, WINDOW_LIGHT_ANGLE, 0.25, 0);
+  {
+    // Out along the old aim, through the middle of the window.
+    const through = new THREE.Vector3(WINDOW_POSITION_X, 1.5, -ROOM_D / 2);
+    const aim = new THREE.Vector3(3.6, -3.4, 7.1).normalize();
+    lightning.position.copy(through).addScaledVector(aim, -WINDOW_LIGHT_DISTANCE);
+    lightning.target.position.copy(through).addScaledVector(aim, 2.5);
+  }
   lightning.castShadow = true;
   lightning.shadow.mapSize.set(1024, 1024);
-  lightning.shadow.camera.left = -3.4;
-  lightning.shadow.camera.right = 3.4;
-  lightning.shadow.camera.top = 3.0;
-  lightning.shadow.camera.bottom = -3.0;
-  lightning.shadow.camera.near = 0.5;
-  lightning.shadow.camera.far = 16;
+  lightning.shadow.camera.near = WINDOW_LIGHT_DISTANCE - 2;
+  lightning.shadow.camera.far = WINDOW_LIGHT_DISTANCE + 9;
   // Negative bias, or the floorboards acne under PCFSoftShadowMap.
   lightning.shadow.bias = -0.0006;
   lightning.shadow.autoUpdate = false;
+  lightning.shadow.needsUpdate = true;
   group.add(lightning);
   group.add(lightning.target);
 
@@ -900,10 +918,10 @@ export function createBedroomLevel({
     bar.receiveShadow = true;
     windowGroup.add(bar);
   }
-  // Custom shader material (see world/RainGlassMaterial.js): streaks rain
-  // down the pane and flashes with the storm's lightning, instead of a
-  // static tinted-transparent built-in material.
-  const glassMaterial = createRainGlassMaterial();
+  // Custom shader material (see world/RainGlassMaterial.js): rain on the
+  // pane, glinting with the storm's lightning. Mostly clear: the night is the
+  // sky behind the bars, below.
+  const glassMaterial = createRainGlassMaterial({ sky: false, opacity: 0.16 });
   const glass = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.3), glassMaterial);
   glass.position.z = 0.05;
   windowGroup.add(glass);
@@ -919,6 +937,23 @@ export function createBedroomLevel({
   mH.position.z = 0.06;
   mH.castShadow = true;
   windowGroup.add(mH);
+  // Barred from the outside (world/windowBars.js): whatever this room keeps is
+  // not meant to leave by the window. Across the whole opening in the wall,
+  // just beyond its outer face and in front of the rain; they cast, so a
+  // flash throws them across the floor with the window's cross.
+  const windowBars = createWindowBars({ width: FRAME_W, height: FRAME_H + 0.1 });
+  windowBars.position.z = -0.065;
+  windowGroup.add(windowBars);
+  // The night beyond them: the storm sky the glass used to carry, now far
+  // enough out that the bars, the rain and the figure a flash shows all stand
+  // in front of it, dark against it when it lights. Opaque, so it is drawn
+  // first and the rain goes over it.
+  const skyMaterial = createRainGlassMaterial({ tint: new THREE.Color(0x060a10), opacity: 1, water: false });
+  skyMaterial.transparent = false;
+  skyMaterial.depthWrite = true;
+  const outsideSky = new THREE.Mesh(new THREE.PlaneGeometry(14, 9), skyMaterial);
+  outsideSky.position.set(0, 0.5, -4.6);
+  windowGroup.add(outsideSky);
   loadModel(level1WindowFrameRemodelUrl).then((windowFrameVisual) => {
     frameParts.forEach((_, index) => { windowGroup.children[index].visible = false; });
     mV.visible = false;
@@ -3404,6 +3439,10 @@ export function createBedroomLevel({
     [doorSlab, () => puzzleState.planksRemoved ? 'l1_bedroom_door' : 'l1_door_planks']
   ]) target.userData.hintKey = key;
 
+  // Everything the window's light reaches takes its shadow (world/windowLight.js).
+  // The ceiling keeps out of it, as it keeps out of the pendant's.
+  takeWindowShadows(group, lightning, { except: [ceiling] });
+
   return {
     group,
     interactables,
@@ -3449,6 +3488,8 @@ export function createBedroomLevel({
       pendantIntact,
       pendantBroken,
       lightning,
+      /** What the lightning light rests at between strikes: the night through the window. */
+      moonlight: MOONLIGHT,
       windowGroup,
       flashlight,
       flashlightHitbox,
@@ -3712,6 +3753,7 @@ export function createBedroomLevel({
       }
       this._t = (this._t ?? 0) + dt;
       glassMaterial.uniforms.uTime.value = this._t;
+      skyMaterial.uniforms.uTime.value = this._t;
 
       // Drive the nightstand lamp from the retained 3-1-5 schedule. It is
       // genuinely dark between windows, making each group countable without
@@ -3741,7 +3783,9 @@ export function createBedroomLevel({
       // feed that same value into the shader (normalised to 0-1) so the
       // window pane brightens in sync with the flash instead of on its
       // own separate timer.
-      glassMaterial.uniforms.uFlash.value = Math.min(lightning.intensity / 3.2, 1.0);
+      // The strike's share only: the moonlight it rests at is not a flash.
+      glassMaterial.uniforms.uFlash.value = Math.min(Math.max(0, lightning.intensity - MOONLIGHT) / 3.2, 1.0);
+      skyMaterial.uniforms.uFlash.value = glassMaterial.uniforms.uFlash.value;
 
       // Swing the pinboard open on its hinge once the photo puzzle is
       // solved, easing toward the target angle rather than snapping so

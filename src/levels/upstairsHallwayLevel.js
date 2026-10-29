@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { loadModel } from '../world/modelLoader.js';
 import { createRainGlassMaterial } from '../world/RainGlassMaterial.js';
+import { takeWindowShadows } from '../world/windowLight.js';
 import { Rain } from '../world/Rain.js';
 import {
   createClippingArt,
@@ -83,6 +84,8 @@ const SKIRTING_HEIGHT = 0.16;
 
 /** Where things stand along the hall, so the wall builder can leave room for them. */
 const WINDOW = { z: 6.0, y: 1.72, w: 1.3, h: 1.5 };
+/** The window's light between strikes: moonlight through the glass. */
+const MOONLIGHT = 0.5;
 /**
  * The turn at the foot of the stairs: a doorway in the right-hand wall of the
  * landing, through to a passage that runs on toward the basement. Without it
@@ -235,6 +238,8 @@ export function createUpstairsHallwayLevel({
   ceiling.position.set(0, HALL_H, WELL_END_Z / 2);
   setWorldUVs(ceiling, (p) => [(p.x + HALL_W / 2) / 2.4, p.z / 3.2]);
   ceiling.receiveShadow = false;
+  // It casts, as the bedroom's does: the window light comes in from above.
+  ceiling.castShadow = true;
   group.add(ceiling);
 
   // ---------- walls ----------------------------------------------------------
@@ -820,12 +825,19 @@ export function createUpstairsHallwayLevel({
   sky.position.set(LEFT_X - 2.5, WINDOW.y, WINDOW.z);
   sky.rotation.y = Math.PI / 2;
   group.add(sky);
-  const rain = new Rain({ count: 220, width: 0.9, height: 2.2, depth: 1.5, origin: new THREE.Vector3(LEFT_X - 0.9, WINDOW.y - 1.0, WINDOW.z) });
-  // Finer and fainter than the bedroom's: these fall a step from the glass,
-  // and at full size they read as snow.
-  rain.points.material.size = 0.011;
-  rain.points.material.opacity = 0.32;
-  group.add(rain.points);
+  // Streaks from just beyond the glass to the sky, the strikes lighting them
+  // (world/Rain.js). A little fainter than the bedroom's: the hall is darker.
+  const rain = new Rain({
+    count: 800,
+    origin: new THREE.Vector3(LEFT_X - 0.12, WINDOW.y - 1.9, WINDOW.z),
+    out: new THREE.Vector3(-1, 0, 0),
+    width: 1.4,
+    depth: 2.2,
+    height: 4.4,
+    wind: [0.12, 0.05],
+    brightness: 0.85
+  });
+  group.add(rain.object);
 
   const radiatorHost = new THREE.Group();
   radiatorHost.position.set(LEFT_X + 0.13, 0.19, WINDOW.z);
@@ -845,23 +857,29 @@ export function createUpstairsHallwayLevel({
   colliders.push({ minX: LEFT_X, maxX: LEFT_X + 0.24, minZ: WINDOW.z - 0.4, maxZ: WINDOW.z + 0.4 });
 
   /**
-   * The lightning, through the one window, exactly as the bedroom does it: a
-   * casting DirectionalLight whose shadow map is only re-rendered on the frame
-   * a flash starts, so the window's cross is thrown across the far wall.
+   * The lightning, through the one window, as the bedroom does it: a casting
+   * light whose shadow map is only re-rendered on the frame a flash starts, so
+   * the window's cross is thrown across the far wall. A SpotLight far out with
+   * its cone on the window and no falloff: a DirectionalLight lit the far ends
+   * of the hall through its walls wherever a surface took no shadow.
+   *
+   * Between strikes it rests at MOONLIGHT, the night coming in through the
+   * window, its map rendered once as the hall is built.
    */
-  const lightning = new THREE.DirectionalLight(0xbcd4ff, 0);
-  lightning.position.set(LEFT_X - 5, 3.4, WINDOW.z - 1.2);
-  lightning.target.position.set(RIGHT_X, 0.6, WINDOW.z + 0.6);
+  const lightning = new THREE.SpotLight(0xbcd4ff, MOONLIGHT, 0, 0.16, 0.25, 0);
+  {
+    const through = new THREE.Vector3(LEFT_X, WINDOW.y, WINDOW.z);
+    const aim = new THREE.Vector3(HALL_W + 5, -2.8, 1.8).normalize();
+    lightning.position.copy(through).addScaledVector(aim, -9);
+    lightning.target.position.copy(through).addScaledVector(aim, 2.5);
+  }
   lightning.castShadow = true;
   lightning.shadow.mapSize.set(1024, 1024);
-  lightning.shadow.camera.left = -3.5;
-  lightning.shadow.camera.right = 3.5;
-  lightning.shadow.camera.top = 3;
-  lightning.shadow.camera.bottom = -3;
-  lightning.shadow.camera.near = 0.5;
-  lightning.shadow.camera.far = 14;
+  lightning.shadow.camera.near = 7;
+  lightning.shadow.camera.far = 15;
   lightning.shadow.bias = -0.0006;
   lightning.shadow.autoUpdate = false;
+  lightning.shadow.needsUpdate = true;
   group.add(lightning, lightning.target);
 
   // ---------- furniture ------------------------------------------------------
@@ -1148,6 +1166,9 @@ export function createUpstairsHallwayLevel({
     c.minZ += origin.z; c.maxZ += origin.z;
   }
 
+  // Everything the window's light reaches takes its shadow (world/windowLight.js).
+  takeWindowShadows(group, lightning, { except: [ceiling] });
+
   return {
     group,
     interactables,
@@ -1223,8 +1244,10 @@ export function createUpstairsHallwayLevel({
         }
       }
       if (lightsOut) flash = 0;   // one already under way when they went
-      lightning.intensity = flash * 3.0;
+      // The moon goes with the lights, as the storm does: the blackouts are dark.
+      lightning.intensity = (lightsOut ? 0 : MOONLIGHT) + flash * 3.0;
       glassMaterial.uniforms.uFlash.value = flash;
+      rain.setFlash(flash);
       skyMat.color.setRGB(0.002 + flash * 0.35, 0.003 + flash * 0.4, 0.006 + flash * 0.55);
 
       // The pendant is failing, but it is the only light: it hums near full

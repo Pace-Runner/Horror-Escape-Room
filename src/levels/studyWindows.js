@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { createRainGlassMaterial } from '../world/RainGlassMaterial.js';
 
 /**
  * The study's windows: three tall casements in the left (west) wall, high enough
@@ -33,7 +34,9 @@ const WALL_DEPTH = 0.22;
  * @param {THREE.Material} deps.wallMat    the room's wallpaper material
  * @param {(w: number, h: number) => THREE.BufferGeometry} deps.wallGeometry
  * @param {THREE.Material} deps.trimMat    the frames' wood
- * @returns {THREE.Group} the whole left wall, openings and frames included
+ * @returns {THREE.Group} the whole left wall, openings and frames included. Its
+ *   userData.glassMaterial is the panes' (world/RainGlassMaterial.js): the level
+ *   moves its rain on (uTime) and flashes it with each strike (uFlash).
  */
 export function createLeftWallWithWindows({ roomD, roomH, wallMat, wallGeometry, trimMat }) {
   const { wallX, bottom, top, halfWidth, zs } = STUDY_WINDOWS;
@@ -60,11 +63,17 @@ export function createLeftWallWithWindows({ roomD, roomH, wallMat, wallGeometry,
     mesh.position.set(x, y, z);
     group.add(mesh);
   };
-  const glassMat = new THREE.MeshStandardMaterial({
-    color: 0x9fb2c9, roughness: 0.04, metalness: 0.1, transparent: true, opacity: 0.07, depthWrite: false
-  });
-
   const height = top - bottom;
+  // Rain on the glass, as on the house's other windows; nearly clear, and no
+  // painted sky, because the real one is out there (studyExterior.js).
+  const glassMat = createRainGlassMaterial({
+    tint: new THREE.Color(0x9fb2c9).multiplyScalar(0.06),
+    size: [halfWidth * 2, height],
+    opacity: 0.07,
+    sky: false
+  });
+  group.userData.glassMaterial = glassMat;
+
   const midY = (top + bottom) / 2;
   const lining = 0.07;
   const reveal = wallX - WALL_DEPTH / 2;

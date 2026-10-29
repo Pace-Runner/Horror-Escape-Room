@@ -357,6 +357,8 @@ export function createStudyBlackout({
     get kind() { return blackoutKind; },
     get breakerState() { return breakerState; },
     get lightning() { return lightningActive(); },
+    /** 0..1: how lit the sky is by a strike right now, for what the strike lights outside (studyExterior.js). */
+    get flash() { return flashAge === null ? 0 : flashStrength * flashCurve(flashAge); },
     /** 0 dark .. 1 full power, as the room's own lights see it. */
     get power() { return power; },
     /**

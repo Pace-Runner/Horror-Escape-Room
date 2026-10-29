@@ -360,11 +360,28 @@ well; the upstairs hallway replaced it there.)
 - `src/world/Storm.js` drives two lights: an unstable warm point light
   for the "dim yellow" bulb (random flicker/dip), and a cold blue
   directional light that flashes on an irregular timer to read as
-  lightning through the window. `Storm.blowBulb()` is called from the
+  lightning through the window. A flash is a real strike's shape: two to
+  four sharp return strokes with dark gaps, then a fading afterglow
+  (`revealSeconds` is the bright part, which the window scare uses).
+- The bedroom's and the upstairs hall's window light is a SpotLight far out
+  in the storm, its cone just on the window and with no falloff, so it reads
+  as sky and lights only what the window can. A DirectionalLight lit every
+  surface that took no shadow, so the walls, skirting and decals lit up in
+  each strike. Between strikes it rests at `MOONLIGHT`, a cool barred patch of
+  moonlight; a strike is the same light, brighter. `world/windowLight.js`
+  gives everything in the cone shadows; its map renders once at build and
+  once per strike. The house blackouts hold it dark.
+- The bedroom window is barred from outside (`world/windowBars.js`): round
+  steel bars through flat straps, in the dark steel of the study door's
+  containment bolts, so story-wise nothing kept in that room gets out by the
+  window. Its storm sky is a backdrop beyond the bars and the rain, so they
+  stand dark against a strike and a flash throws them across the floor. `Storm.blowBulb()` is called from the
   Level 1 intro script once the player frees themselves, per the
   story beat where the bulb blows right after standing up.
-- `src/world/Rain.js` is a small recycled-particle system sitting just
-  outside the bedroom window.
+- `src/world/Rain.js` is the rain outside the bedroom's, the upstairs
+  hall's and the study's windows: thin streaks leaning on the wind, moved
+  entirely on the GPU, fainter with distance and lit by each strike
+  (`setFlash`). It used to be point sprites, which read as snow.
 - `src/world/AudioEngine.js` synthesises a low wind drone, a thunder
   hit (fired every lightning flash), and a creak/footstep cue with the
   Web Audio API. Everything else is a recording: the breathing loop (on

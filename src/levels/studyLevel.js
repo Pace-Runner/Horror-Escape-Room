@@ -2698,7 +2698,11 @@ export function createStudyLevel({
           }
         }
       }
-      updateExterior(dt);
+      updateExterior(dt, { flash: blackout.flash });
+      // The rain on the windows, and each strike through them.
+      const windowGlass = windowWall.userData.glassMaterial;
+      windowGlass.uniforms.uTime.value += dt;
+      windowGlass.uniforms.uFlash.value = blackout.flash;
       studyCandles.update(dt, { playerPosition: getPlayerPosition() });
       if(puzzle.mirrorRevealed){
         syncRevealedFigure();

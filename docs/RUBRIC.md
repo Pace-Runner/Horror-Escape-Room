@@ -125,10 +125,11 @@ that the others do not?*"
 | Crystal decanter | `src/world/CrystalDecanter.js` | vertex: world position and normal; fragment: `refract()` per colour channel, `reflect()`, Schlick Fresnel, liquid tint, `FLAT_SHADED` normals from `dFdx`/`dFdy` | `uIndexOfRefraction`, `uDispersion`, `uFillHeight` |
 | Visor (post-process) | `src/world/VisorPass.js` | full-screen fragment: barrel warp, chromatic fringe, display-space grading, vignette | `uVisor` (wearing it), `uCaught` (being caught), `uBrightness` (settings) |
 | Waking up (post-process) | `src/world/WakePass.js` | eyelids, blur, double vision, glow | `uOpen`, `uBlur`, `uDouble`, `uGlow` (the wake-up scene) |
-| Rain on the window | `src/world/RainGlassMaterial.js` | vertex + fragment: procedural droplets and trails | `uTime`, `uFlash` (the storm's lightning) |
+| Rain on the window | `src/world/RainGlassMaterial.js` | vertex: view direction in the pane's own axes; fragment: a sky at infinity behind the glass (fbm cloud lit by a strike), drops that cling and slide, beaded drops as lenses, sized in metres | `uTime`, `uFlash` (the storm's lightning), `uSize`, `uOpacity`, `uSky` |
+| Falling rain | `src/world/Rain.js` | vertex: each drop a streak on the GPU (time-wrapped fall, wind drift, a quad turned to the eye about its fall line, never thinner than a pixel); fragment: soft edges, flash-lit | `uTime`, `uFlash` (the strike), `uEye`, `uScreenHeight` |
 | CCTV static | `src/world/StaticScreenMaterial.js` | noise, feed mixing | `uTime`, `uPower` (the generator), `uStaticMix` |
 | Dust in the torch beam | `src/world/DustMotes.js` | points shader, cone-shaped | `uTime`, `uBeamOn` (torch on/off) |
-| Night sky | `src/levels/studyExterior.js` | fbm clouds, moon, stars, drawn at the far plane (`clip.xyww`) | `uTime`, `uMoonDir` |
+| Night sky | `src/levels/studyExterior.js` | fbm clouds, moon, stars, drawn at the far plane (`clip.xyww`); a strike lights the cloud from inside | `uTime`, `uMoonDir`, `uFlash`, `uStrikeDir` (the blackout's strikes) |
 | Tinted glass | `src/world/TintedGlassMaterial.js` | `onBeforeCompile` edit of the standard shader: opacity rises at grazing angles | -- |
 
 ## Gameplay & Experience (25%)
