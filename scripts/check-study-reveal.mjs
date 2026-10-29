@@ -276,6 +276,69 @@ try {
     console.log('PASS: locked archive visibility, recessed letter pull, outward keyhole and seated key through opening/reset.');
   }
 
+  // All displayed symbols, including decoys, must participate in the same puzzle.
+  {
+    gameState.hasVisor = true; gameState.visorWorn = true;
+    const level = createStudyLevel({onUseItem:id=>gameState.inventory.delete(id)});
+    const hits = level.interactables.filter(h=>h.userData.interact?.label==='Inspect symbol');
+    assert.equal(hits.length,15,'gallery decoys are not selectable');
+    const photos=[];level.group.traverse(o=>{if(/^Archive_Photo_(Target|Decoy)_/.test(o.name))photos.push(o);});
+    const hitFor = photo => hits.find(h=>h.position.distanceTo(photo.position)<.04);
+    assert(photos.every(photo=>hitFor(photo)),'a displayed frame has no matching target');
+    const correct=[1,2,3].map(i=>hitFor(photos.find(p=>p.name==='Archive_Photo_Target_'+i)));
+    const decoys=photos.filter(p=>p.name.startsWith('Archive_Photo_Decoy_')).map(hitFor);
+    const borders=[];level.group.traverse(o=>{if(o.name==='Visor_Selected_Frame_Border')borders.push(o);});
+    assert(borders.every(b=>!b.visible),'correct answers highlighted before selection');
+    for(const decoy of decoys){
+      correct[0].userData.interact.onInteract();assert.equal(level.refs.puzzle.correctedTrailProgress,1);
+      decoy.userData.interact.onInteract();assert.equal(level.refs.puzzle.correctedTrailProgress,0);
+      assert(borders.some(b=>b.visible),'wrong selected frame never highlights');level.update(.2);
+      assert(borders.every(b=>!b.visible),'reset left a selected border');
+    }
+    correct[1].userData.interact.onInteract();assert.equal(level.refs.puzzle.correctedTrailProgress,0);
+    for(const hit of correct)hit.userData.interact.onInteract();
+    assert(level.refs.puzzle.correctedTrailSolved,'original symbol sequence no longer solves');
+    assert.equal(borders.filter(b=>b.visible).length,3,'gallery success hides correct selections');
+    assert(hits.every(hit=>!level.interactables.includes(hit)),'solved gallery still offers selections');
+    level.update(1);
+    const records=level.interactables.filter(hit=>/^Select (CONSENT|PROCEDURE|OUTCOME)$/.test(hit.userData.interact?.label));
+    assert.equal(records.length,3,'not all right-hand records are selectable');
+    const byName=name=>records.find(hit=>hit.userData.interact.label.includes(name));
+    const ordered=['CONSENT','PROCEDURE','OUTCOME'].map(byName);
+    const recordBorders=[];level.group.traverse(o=>{if(o.name==='Restricted_Record_Selected_Border')recordBorders.push(o);});
+    for(const wrong of [ordered[1],ordered[2]]){
+      wrong.userData.interact.onInteract();assert.equal(level.refs.puzzle.truthRecordProgress,0);
+      assert(recordBorders.some(b=>b.visible),'wrong record never highlights');level.update(.2);
+      assert(recordBorders.every(b=>!b.visible),'wrong record leaves highlights');
+    }
+    ordered[0].userData.interact.onInteract();assert.equal(recordBorders.filter(b=>b.visible).length,1);
+    ordered[2].userData.interact.onInteract();assert.equal(level.refs.puzzle.truthRecordProgress,0);level.update(.2);
+    assert(recordBorders.every(b=>!b.visible),'wrong order retains earlier correct highlight');
+    for(const hit of ordered)hit.userData.interact.onInteract();
+    assert(level.refs.puzzle.truthRecordsSolved,'right-hand original solution changed');
+    assert(recordBorders.every(b=>b.visible),'right-hand success lacks completion feedback');
+    level.update(.1);assert(records.every(hit=>!level.interactables.includes(hit)),'completed records retain stale prompts');
+
+    assert(!level.group.getObjectByName('Study_Sheet_Sofa'),'sofa still blocks gallery');
+    // The rear of every mount meets the front wall, and turning moves the knob only.
+    const dials=[];level.group.traverse(o=>{if(o.name==='Crest_Rotary_Knob')dials.push(o);});
+    assert.equal(dials.length,3);
+    for(const dial of dials){
+      const mount=dial.parent;mount.updateWorldMatrix(true,true);
+      const rear=mount.localToWorld(new THREE.Vector3(0,0,-.134));
+      assert(Math.abs(rear.z-6.5)<.01,'crest knob floats off wall');
+    }
+    gameState.inventory.add('archiveToken');
+    level.interactables.find(h=>h.userData.interact?.label==='Examine the brass socket').userData.interact.onInteract();
+    const knobs=level.interactables.filter(h=>/^(LEFT|CENTRE|RIGHT) lamp/.test(h.userData.interact?.label));
+    assert.equal(knobs.length,3);
+    const mountPos=dials[0].parent.position.clone(),before=dials[0].rotation.z;
+    knobs[0].userData.interact.onInteract();assert.notEqual(dials[0].rotation.z,before);
+    assert(dials[0].parent.position.equals(mountPos),'turning displaces wall mount');
+    level.reset();gameState.hasVisor=false;gameState.visorWorn=false;gameState.inventory.clear();
+    console.log('PASS: all 15 gallery symbols selectable; all 12 decoys and wrong order reset; no answer tint; original solution; clear gallery; mounted rotating crest knobs.');
+  }
+
   // Voice hooks must follow actual interactions, never visibility/proximity.
   {
     const events = []; let progress = 0, allowAuto = true;

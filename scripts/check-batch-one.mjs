@@ -51,7 +51,7 @@ interaction.beforeInteract=new Function('player','cutscene','sceneManager','bedr
   {get activeKey(){return flags.key;}},{refs:{puzzleState:{get chainsEscaped(){return flags.escaped;}},unlockCuff(){unlocked++;}}},
   {get selected(){return flags.selected;}});
 interaction.current=null;interaction.interact();assert.equal(unlocked,1,'held clip must work without a ray target');
-interaction.current={userData:{interact:{onInteract(){picked++;}}}};
+interaction.current={userData:{interact:{label:'Pick up',onInteract(){picked++;}}}};interaction.targets=[interaction.current];
 for(const change of [{key:'study'},{escaped:true},{selected:'crowbar'},{locked:false},{cinematic:true}]){
   Object.assign(flags,{locked:true,cinematic:false,key:'bedroom',escaped:false,selected:'paperclip'},change);
   const before=unlocked;interaction.interact();assert.equal(unlocked,before);

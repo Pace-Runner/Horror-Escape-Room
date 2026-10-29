@@ -75,13 +75,15 @@ export function createChapterSelect({ root, progress, onPick = () => {}, onClose
   }
 
   return {
-    open() {
+    open(view = 'chapters') {
+      root.dataset.view = view;
+      root.querySelector('#chapter-title').textContent = view === 'achievements' ? 'Achievements' : 'Chapters';
       const reset = root.querySelector('#progress-reset');
       reset.dataset.armed = 'false';
       reset.textContent = 'Reset progress';
       render();
       root.classList.remove('hidden');
-      (chapterList.querySelector('.chapter-card:not(:disabled)') ?? root.querySelector('#chapter-close')).focus({ preventScroll: true });
+      (view === 'achievements' ? root.querySelector('#chapter-close') : (chapterList.querySelector('.chapter-card:not(:disabled)') ?? root.querySelector('#chapter-close'))).focus({ preventScroll: true });
     },
     close() { root.classList.add('hidden'); },
     get isOpen() { return !root.classList.contains('hidden'); }

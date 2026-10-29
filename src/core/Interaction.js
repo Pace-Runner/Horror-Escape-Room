@@ -42,7 +42,27 @@ export class Interaction {
     if (!this.enabled) return;
     if (this.beforeInteract?.()) return;
     if (!this.current) return;
-    this.current.userData.interact.onInteract?.();
+    if (!this.isAvailable(this.current)) {this.current=null;this.promptEl.style.display='none';return;}
+    const result=this.current.userData.interact.onInteract?.();
+    this.refreshCurrent();
+    result?.then?.(()=>this.refreshCurrent(),()=>this.refreshCurrent());
+  }
+
+  isAvailable(target) {
+    if(!target||!this.targets.includes(target))return false;
+    const action=target.userData?.interact;
+    if(!action||typeof action.onInteract!=='function'||!action.label)return false;
+    if(action.enabled===false||(typeof action.enabled==='function'&&!action.enabled()))return false;
+    for(let node=target;node;node=node.parent)if(node.visible===false&&!(node===target&&action.allowHidden))return false;
+    return !this.allow||this.allow(target);
+  }
+
+  refreshCurrent() {
+    if(!this.enabled||!this.isAvailable(this.current)) {
+      this.current=null;this.promptEl.style.display='none';return;
+    }
+    this.promptEl.textContent=`[E] ${this.current.userData.interact.label}`;
+    this.promptEl.style.display='block';
   }
 
   setEnabled(enabled) {
@@ -73,7 +93,8 @@ export class Interaction {
    * override.
    */
   showCaption(text, duration) {
-    return this.captions.say(text, duration);
+    const feedback = line => typeof line === 'string' ? {text:line,interaction:true} : {...line,interaction:true};
+    return this.captions.say(Array.isArray(text)?text.map(feedback):feedback(text), duration);
   }
 
   update() {
@@ -89,7 +110,7 @@ export class Interaction {
     // `allow`, when set, narrows what can be used right now (main.js: only
     // the hide-and-seek's own objects while the study is dark).
     const hits = this.raycaster.intersectObjects(this.targets, false)
-      .filter((candidate) => !this.allow || this.allow(candidate.object));
+      .filter(candidate=>this.isAvailable(candidate.object));
     // Most interactions keep nearest-hit behaviour. A child target may opt
     // into a higher priority when a broad parent hitbox overlaps it, such as
     // an item inside an open drawer. This preserves aiming at the item rather

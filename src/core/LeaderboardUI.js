@@ -48,10 +48,13 @@ export function createLeaderboardUI({root,prompt,service,onClose=()=>{}}){
     offer(run){
       if(!run||offered.has(run.id))return;offered.add(run.id);offer=run;generation++;sending=false;previousFocus=document.activeElement;
       prompt.querySelector('[data-score-time]').textContent=`${formatScoreTime(run.time_ms)} · ${difficulty(run.difficulty)}`;
-      message.textContent='Save your fastest escape time.';submit.disabled=false;submit.hidden=false;
-      prompt.querySelector('[data-score-skip]').textContent='Skip';
+      const eligible=run.eligible!==false;
+      message.textContent=eligible?'Save your fastest escape time.':'This chapter or test run is not eligible. Complete all three levels from Start Game to submit a time.';
+      input.disabled=!eligible;submit.disabled=!eligible;submit.hidden=!eligible;
+      if(!eligible)offer=null;
+      prompt.querySelector('[data-score-skip]').textContent=eligible?'Skip':'Continue';
       try{input.value=localStorage.getItem('dont-let-it-out-nickname')??'';}catch{input.value='';}
-      prompt.classList.remove('hidden');input.focus();
+      prompt.classList.remove('hidden');(eligible?input:prompt.querySelector('[data-score-skip]')).focus();
     },
     reset(){this.close();hidePrompt();},
     get promptOpen(){return !prompt.classList.contains('hidden');}

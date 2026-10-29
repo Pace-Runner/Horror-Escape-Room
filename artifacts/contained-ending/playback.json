@@ -1,0 +1,30 @@
+{
+  "completed": true,
+  "errors": [],
+  "events": [
+    {
+      "kind": "start",
+      "key": "mark/LEVEL 3/l3_annabelle_ending_reseal.mp3",
+      "at": 2.6506666666666665,
+      "duration": 4.5452916666666665
+    },
+    {
+      "kind": "end",
+      "key": "mark/LEVEL 3/l3_annabelle_ending_reseal.mp3",
+      "at": 7.2
+    },
+    {
+      "kind": "start",
+      "key": "l3_news_contained.mp3",
+      "at": 14.161333333333333,
+      "duration": 16.718354166666668
+    },
+    {
+      "kind": "end",
+      "key": "l3_news_contained.mp3",
+      "at": 30.88
+    }
+  ],
+  "active": 0,
+  "voice": false
+}

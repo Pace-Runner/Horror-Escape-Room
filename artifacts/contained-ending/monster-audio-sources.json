@@ -1,0 +1,62 @@
+[
+  {
+    "file": "l3_hollow_breath.wav",
+    "mixkitId": 2234,
+    "source": "https://assets.mixkit.co/active_storage/sfx/2234/2234.wav",
+    "cut": [
+      0.18,
+      1.43
+    ],
+    "duration": 1.25,
+    "peakCeiling": 0.8,
+    "sourceSha256": "69f78ac2760d5cd990fac4da2206989d92b9532eb59b941ecb14ac64f88f7392"
+  },
+  {
+    "file": "l3_hollow_growl.wav",
+    "mixkitId": 1956,
+    "source": "https://assets.mixkit.co/active_storage/sfx/1956/1956.wav",
+    "cut": [
+      0.16,
+      1.36
+    ],
+    "duration": 1.2,
+    "peakCeiling": 0.8,
+    "sourceSha256": "27db2223d190802a1d74ef7864320f99f79b89b38556cfb6cabe65cf0db1d8ac"
+  },
+  {
+    "file": "l3_hollow_roar.wav",
+    "mixkitId": 13,
+    "source": "https://assets.mixkit.co/active_storage/sfx/13/13.wav",
+    "cut": [
+      0.08,
+      1.2
+    ],
+    "duration": 1.12,
+    "peakCeiling": 0.86,
+    "sourceSha256": "4a6a388da410e548c0f559d163f99360503b868a276e13aa0ea6cfd258835f0f"
+  },
+  {
+    "file": "l3_hollow_claw.wav",
+    "mixkitId": 2796,
+    "source": "https://assets.mixkit.co/active_storage/sfx/2796/2796.wav",
+    "cut": [
+      0.1,
+      1.0
+    ],
+    "duration": 0.9,
+    "peakCeiling": 0.88,
+    "sourceSha256": "717d2259ae38f014410247fd228d53bd3b36fd3e0bed161d9c185fb0986bf344"
+  },
+  {
+    "file": "l3_hollow_rush.wav",
+    "mixkitId": 2792,
+    "source": "https://assets.mixkit.co/active_storage/sfx/2792/2792.wav",
+    "cut": [
+      0,
+      0.18
+    ],
+    "duration": 0.18,
+    "peakCeiling": 0.82,
+    "sourceSha256": "e1de4e011ee6369aed772202a979590f03261e3607147bd2f04eda58ba5746eb"
+  }
+]

@@ -237,8 +237,8 @@ export function createStudyHideProps({
   }
 
   // ------------------------------------------------- dust-sheeted furniture
-  // Cloth simulated over the furniture shapes (build_dust_sheets.py). Two
-  // low, one tall; two of them on the loft, where the second hunt begins.
+  // Cloth simulated over the furniture shapes (build_dust_sheets.py).
+  // Low cover downstairs and a tall cabinet on the loft.
   // Each faces into the room. The pooled hems are drawn, not collided with.
   // 15% up on the built size (Kiran, 2026-10-29), so there is enough of each
   // to actually get behind; the collider and the cover box grow with it.
@@ -249,7 +249,7 @@ export function createStudyHideProps({
     solid(name, cx - hw, cx + hw, cz - hd, cz + hd, floorY, h * SHEET_SCALE);
   }
   sheeted('Sheet_Armchair', 2.6, -3.2, 0, 0.9, 0.9, 1.0);
-  sheeted('Sheet_Sofa', -2.4, -4.7, loftY, 1.9, 0.85, 0.9);
+  // The covered sofa blocked the gallery approach; the other cover stays in place.
   sheeted('Sheet_Cabinet', 2.6, -1.6, loftY, 0.9, 0.6, 1.8);
 
   return {

@@ -1,0 +1,67 @@
+[
+  {
+    "file": "l3_contained_tension.wav",
+    "mixkitId": 2510,
+    "source": "https://assets.mixkit.co/active_storage/sfx/2510/2510.wav",
+    "sourceSha256": "bd10c956cbcb55d9547d65545cc82b40a204b10264182745d2a115af5603e129",
+    "cut": [
+      30,
+      45
+    ],
+    "duration": 15.0,
+    "peakCeiling": 0.85,
+    "processing": "PCM16 stereo; peak scaled, 4ms/35ms boundary fades"
+  },
+  {
+    "file": "l3_contained_rise.wav",
+    "mixkitId": 786,
+    "source": "https://assets.mixkit.co/active_storage/sfx/786/786.wav",
+    "sourceSha256": "6cff66e20e1731cd4ecd183795f7decc3cc5a0450fc4c87da98fe31641af6bcf",
+    "cut": [
+      0.35,
+      3.55
+    ],
+    "duration": 3.2,
+    "peakCeiling": 0.85,
+    "processing": "PCM16 stereo; peak scaled, 4ms/35ms boundary fades"
+  },
+  {
+    "file": "l3_contained_hit.wav",
+    "mixkitId": 2917,
+    "source": "https://assets.mixkit.co/active_storage/sfx/2917/2917.wav",
+    "sourceSha256": "15583cbc68c0f6c93991aa06c288cc6e68dff28bb7bb35235fb06cc7f83bd2f7",
+    "cut": [
+      6.02,
+      9.62
+    ],
+    "duration": 3.6,
+    "peakCeiling": 0.9,
+    "processing": "PCM16 stereo; peak scaled, 4ms/35ms boundary fades"
+  },
+  {
+    "file": "l3_contained_aftermath.wav",
+    "mixkitId": 677,
+    "source": "https://assets.mixkit.co/active_storage/sfx/677/677.wav",
+    "sourceSha256": "75def6245c7235b852b33125a3bd062f3d94bdade66f1c7235a571b368d3ff8c",
+    "cut": [
+      0.4,
+      2.6
+    ],
+    "duration": 2.2,
+    "peakCeiling": 0.8,
+    "processing": "PCM16 stereo; peak scaled, 4ms/35ms boundary fades"
+  },
+  {
+    "file": "l3_contained_radio_tune.wav",
+    "mixkitId": 2563,
+    "source": "https://assets.mixkit.co/active_storage/sfx/2563/2563.wav",
+    "sourceSha256": "85c27d23c4adb161796acca506fa1b58e76b1c74c899adba67762e389ecfa314",
+    "cut": [
+      2.95,
+      4.85
+    ],
+    "duration": 1.9,
+    "peakCeiling": 0.65,
+    "processing": "PCM16 stereo; peak scaled, 4ms/35ms boundary fades"
+  }
+]

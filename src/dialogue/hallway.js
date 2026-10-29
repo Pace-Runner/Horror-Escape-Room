@@ -28,7 +28,7 @@ export const dialog_hallway_enter = [
 
 export const dialog_hallway_bedroom_door = ["The room you woke up in. You are not going back in there.", "hallway/bedroom_door.m4a"];
 
-export const dialog_hallway_locked_nursery = ["Locked. A child's room, once -- there are stickers on the panel, picked half off.", "hallway/locked_nursery.m4a"];
+export const dialog_hallway_locked_nursery = ["Locked. Something about this door makes me glad it won't open.", "hallway/locked_nursery.m4a"];
 
 export const dialog_hallway_locked_bathroom = ["Locked. Something heavy has been pushed against it from the other side.", "hallway/locked_bathroom.m4a"];
 

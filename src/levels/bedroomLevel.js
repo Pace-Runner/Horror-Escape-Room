@@ -1242,7 +1242,7 @@ export function createBedroomLevel({
     shelfFrameGroup.add(mansionPhoto);
     mansionPhoto.userData.interact = {
       label: 'Look at the house photograph',
-      onInteract: () => showCaption(HOUSE_PHOTOGRAPH.body)
+      onInteract: () => showCaption({text:HOUSE_PHOTOGRAPH.body,staticInspection:true})
     };
     interactables.push(mansionPhoto);
   }).catch((err) => {
@@ -1757,7 +1757,7 @@ export function createBedroomLevel({
   clawMarks.position.z = 0.014;
   clawMarks.userData.interact = {
     label: 'Examine the wall',
-    onInteract: () => { onThought('l1_08', { replayable: true }); showCaption(line('dialog_claw_marks')); }
+    onInteract: () => { onThought('l1_08', { replayable: true }) || showCaption(line('dialog_claw_marks')); }
   };
   interactables.push(clawMarks);
   heroWallDamage.add(clawMarks);
@@ -1886,7 +1886,7 @@ export function createBedroomLevel({
       // First read is the story beat; afterwards it is just a thing on the
       // floor, so re-examining does not replay the whole sequence.
       if (puzzleState.messageRead) {
-        showCaption(line('dialog_scratches_examine'));
+        markSays('dialog_scratches_examine');
         return;
       }
       puzzleState.messageRead = true;
@@ -2216,8 +2216,7 @@ export function createBedroomLevel({
   lampHit.userData.interact = {
     label: 'Observe the flashing lamp',
     onInteract: () => {
-      showCaption(line('dialog_lamp_examine'));
-      onThought('l1_12', { replayable: true });
+      onThought('l1_12', { replayable: true }) || showCaption(line('dialog_lamp_examine'));
     }
   };
   lampGroup.add(lampHit);
@@ -2246,7 +2245,7 @@ export function createBedroomLevel({
   bedsideJournalHitbox.userData.interact = {
     label: 'Examine old journal',
     priority: 5,
-    onInteract: () => showCaption("An old journal. Whoever was in here must've kept accounts.")
+    onInteract: () => showCaption({text:"An old journal. Whoever was in here must've kept accounts.",descriptive:true,staticInspection:true})
   };
   bookGroup.add(bedsideJournalHitbox);
   interactables.push(bedsideJournalHitbox);
@@ -2262,7 +2261,8 @@ export function createBedroomLevel({
   lampDrawerHitbox.name = 'Level1BedsideDrawerInteraction';
   lampDrawerHitbox.position.set(0, 0.61, LAMP_DRAWER_HITBOX_CLOSED_Z_METRES);
   lampDrawerHitbox.userData.interact = {
-    label: 'Locked drawer',
+    get label(){return drawerStates.lampDrawer.isOpen?'Close drawer':drawerStates.lampDrawer.isUnlocked?'Open drawer':'Locked drawer';},
+    enabled:()=>!!lampDrawerVisual&&lampDrawerMotion===0,
     onInteract: () => {
       if (lampDrawerMotion !== 0 || !lampDrawerVisual) return;
       if (drawerStates.lampDrawer.isOpen) {
@@ -2286,7 +2286,7 @@ export function createBedroomLevel({
           drawerStates.lampDrawer.isUnlocked = true;
           drawerStates.lampDrawer.isOpen = true;
           lampDrawerMotion = 1;
-          lampDrawerHitbox.userData.interact.label = 'Open/close drawer';
+          // The label getter reflects the new unlocked/open state immediately.
           startLampDrawerLockFall();
           onDrawerUnlocked();
         }
@@ -2856,11 +2856,12 @@ export function createBedroomLevel({
    */
   const lockedTries = { planks: 0, key: 0 };
   const pickLockedLine = linePicker([
-    'dialog_open_door_locked_1', 'dialog_open_door_locked_2', 'dialog_open_door_locked_3'
+    'dialog_open_door_locked_2', 'dialog_open_door_locked_3'
   ]);
 
   doorSlab.userData.interact = {
     label: 'Open door',
+    enabled:()=>!puzzleState.doorUnlocked,
     onInteract: () => {
       if (!puzzleState.planksRemoved) {
         if (puzzleState.hasCrowbar) {
@@ -2879,14 +2880,14 @@ export function createBedroomLevel({
           onSfx('door_locked_rattle');
           markSays(lockedTries.planks++ === 0
             ? 'dialog_door_planks_examine'
-            : pickLockedLine(['dialog_open_door_locked_1', 'dialog_open_door_locked_2']));
+            : pickLockedLine(['dialog_open_door_locked_2']));
         }
       } else if (!puzzleState.doorUnlocked) {
         if (!puzzleState.hasBedroomKey) {
           onSfx('door_locked_rattle');
           markSays(lockedTries.key++ === 0
             ? 'dialog_door_locked_needs_key'
-            : pickLockedLine(['dialog_open_door_locked_1', 'dialog_open_door_locked_3']));
+            : pickLockedLine(['dialog_open_door_locked_3']));
           return;
         }
         if (!isHolding('bedroomKey')) {
@@ -3062,7 +3063,8 @@ export function createBedroomLevel({
   });
   const nightstandLeft = addNightstand(SEARCH_NIGHTSTAND_POSITION_X, SEARCH_NIGHTSTAND_POSITION_Z);
   nightstandLeft.userData.interact = {
-    label: 'Open/close drawer',
+    get label(){return drawerStates.nightstandLeft.isOpen?'Close drawer':'Open drawer';},
+    enabled:()=>!!nightstandDrawer&&nightstandDrawerMotion===0,
     onInteract: () => {
       if (!nightstandDrawer || nightstandDrawerMotion !== 0) return;
       const opening = !drawerStates.nightstandLeft.isOpen;
@@ -3117,7 +3119,9 @@ export function createBedroomLevel({
   dresserTop.visible = false;
   dresser.add(dresserTop);
   dresserTop.userData.interact = {
-    label: 'Open/close middle drawer',
+    get label(){return drawerStates.dresserTop.isOpen?'Close middle drawer':'Open middle drawer';},
+    allowHidden:true,
+    enabled:()=>!!vanityDrawer&&vanityDrawerMotion===0,
     onInteract: () => {
       if (!vanityDrawer || vanityDrawerMotion !== 0) return;
       const opening = !drawerStates.dresserTop.isOpen;
@@ -3582,7 +3586,6 @@ export function createBedroomLevel({
       drawerStates.bin.isOpen = false;
       drawerStates.lampDrawer.isOpen = false;
       drawerStates.lampDrawer.isUnlocked = false;
-      lampDrawerHitbox.userData.interact.label = 'Locked drawer';
       lampDrawerProgress = 0;
       lampDrawerMotion = 0;
       if (lampDrawerVisual && lampDrawerClosedPosition) {

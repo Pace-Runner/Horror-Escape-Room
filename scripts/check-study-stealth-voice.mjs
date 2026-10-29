@@ -42,6 +42,14 @@ function harness(){
   h.end();h.end();h.end();assert.equal(h.played.length,3,'already standing near cover became an approach');
   h.setNear(false);h.ctrl.update();h.setNear(true);h.ctrl.update();assert(h.audio.voiceSource.voice.includes('_03_'));
 }
+{
+  const h=harness();assert(h.thoughts.play('l3_01'));const incidental=h.audio.voiceSource;
+  h.setEncounter(true);assert(h.ctrl.begin());
+  assert.notEqual(h.audio.voiceSource,incidental,'urgent blackout waited for unrelated inspection');
+  assert(h.audio.voiceSource.voice.includes('_01_'));
+  incidental.options.onEnded();assert(h.audio.voiceSource.voice.includes('_01_'),'stale incidental speech resumed');
+  h.ctrl.cancel();
+}
 for(const reason of ['caught','cancel','scene','cutscene']){
   const h=harness();h.setEncounter(true);h.ctrl.begin();h.ctrl.creatureEntered();h.ctrl.breakerNeeded();h.ctrl.throwablePicked('studyGlass');
   const stale=h.audio.voiceSource;

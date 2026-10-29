@@ -49,6 +49,10 @@ export function createProgress() {
       data.levelsReached.push(key);
       save();
     },
+    markChapterCompleted(from){
+      const next={upstairsHallway:'hallwayBasement',hallwayBasement:'study'}[from];
+      if(next)this.markLevelReached(next);
+    },
     has: (id) => !!data.achievements[id],
     count: (id) => data.counters[id] ?? 0,
     /** True only the first time, when the listeners hear about it too. */

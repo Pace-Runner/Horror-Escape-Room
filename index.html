@@ -74,7 +74,6 @@
     <div id="objective" role="status" aria-live="polite"></div>
     <!-- Shown as each study blackout starts (main.js showHuntBanner); timed by its CSS animation. -->
     <div id="hunt-banner" aria-live="assertive">Flip The Breaker Upstairs To End Hunt</div>
-    <aside id="context-panel" hidden aria-live="polite"></aside>
     <!-- Time left in this room, on every difficulty. See src/core/Difficulty.js. -->
     <div id="run-timer" aria-label="Time left"><span class="run-timer-label">Time left</span><span class="run-timer-value">0:00</span></div>
     <div id="interact-prompt"></div>
@@ -293,10 +292,11 @@
       <div class="menu-actions" id="menu-main-actions" role="menu">
         <button class="menu-option is-selected" id="menu-start" type="button" role="menuitem">Start Game</button>
         <button class="menu-option" id="menu-chapters" type="button" role="menuitem">Chapters</button>
-        <button class="menu-option" id="menu-settings" type="button" role="menuitem">Settings</button>
+        <button class="menu-option" id="menu-achievements" type="button" role="menuitem">Achievements</button>
         <button class="menu-option" id="menu-leaderboard" type="button" role="menuitem">Leaderboard</button>
         <button class="menu-option" id="menu-controls" type="button" role="menuitem">Controls</button>
         <button class="menu-option" id="menu-credits" type="button" role="menuitem">Credits</button>
+        <button class="menu-option" id="menu-settings" type="button" role="menuitem">Settings</button>
         <button class="menu-option" id="menu-quit" type="button" role="menuitem">Quit</button>
       </div>
       <!-- Start Game opens this in place of the list above. Choosing one starts
@@ -329,11 +329,12 @@
     <div id="legacy-start-controls" class="hidden">
       <div id="start-title">DON'T LET IT OUT</div>
       <div id="start-sub">Project HOLLOW &mdash; June 1987</div>
-      <button id="start-button">Click to begin</button>
-      <button id="settings-button">Settings</button>
-      <button id="pause-controls" class="pause-option">Controls</button>
-      <button id="restart-button" class="hidden">Restart</button>
-      <button id="pause-main-menu" class="pause-option">Back to Main Menu</button>
+      <button class="menu-option" id="start-button">Click to begin</button>
+      <button class="menu-option" id="settings-button">Settings</button>
+      <button id="pause-achievements" class="pause-option menu-option">Achievements</button>
+      <button id="pause-controls" class="pause-option menu-option">Controls</button>
+      <button id="restart-button" class="menu-option hidden">Restart</button>
+      <button id="pause-main-menu" class="pause-option menu-option">Back to Main Menu</button>
       <p class="pause-note">Returning to the main menu ends the current run.</p>
     </div>
   </div>
@@ -422,9 +423,10 @@
        it. See src/core/TapeSubtitles.js. -->
   <div id="tape-subtitle" class="hidden"></div>
 
-  <div id="settings-screen" class="hidden">
+  <div id="settings-screen" class="hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
     <div id="settings-panel">
-      <h2>Settings</h2>
+      <div class="menu-ornament" aria-hidden="true">&#10022;</div>
+      <h2 id="settings-title">Settings</h2>
 
       <div class="settings-row">
         <label for="settings-volume">Volume</label>
@@ -442,7 +444,7 @@
         <label for="settings-captions">Descriptive Captions</label>
         <input type="checkbox" id="settings-captions">
       </div>
-      <div id="settings-captions-hint">Show environmental descriptions. Spoken subtitles, interaction prompts and requested hints always remain available.</div>
+      <div id="settings-captions-hint">Show non-voice captions and interaction descriptions in smaller italics. When off, spoken subtitles and static-object inspections remain visible.</div>
 
       <div class="settings-row">
         <label for="settings-brightness">Brightness</label>
@@ -466,7 +468,7 @@
         <input type="checkbox" id="settings-fps">
       </div>
 
-      <button id="settings-close">Close</button>
+      <button class="menu-option" id="settings-close">Close</button>
     </div>
   </div>
 
@@ -509,9 +511,9 @@
     <div class="leaderboard-panel chapter-panel">
       <div class="menu-ornament" aria-hidden="true">✦</div>
       <h2 id="chapter-title">Chapters</h2>
-      <p class="score-note">Only rooms you have already reached can be replayed.</p>
+      <p class="score-note" id="chapter-note">Only rooms you have already reached can be replayed.</p>
       <div id="chapter-list"></div>
-      <h2 class="achievement-heading">Discoveries <span id="achievement-tally"></span></h2>
+      <h2 class="achievement-heading" id="achievement-heading">Discoveries <span id="achievement-tally"></span></h2>
       <div id="achievement-list"></div>
       <div class="score-actions"><button class="menu-option" id="progress-reset" type="button">Reset progress</button><button class="menu-option" id="chapter-close" type="button">Back to Menu</button></div>
     </div>

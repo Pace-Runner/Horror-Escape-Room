@@ -17,7 +17,7 @@ const T=createEndingTiming('reseal'),values=new Set(['hidden']);
 const title={style:{}},crawl={style:{},offsetHeight:1200},thanks={style:{}},team={replaceChildren(...nodes){this.nodes=nodes;}};
 const root={style:{},dataset:{},clientHeight:720,classList:{add:s=>values.add(s),remove:s=>values.delete(s),toggle(s,on){if(on)values.add(s);else values.delete(s);}},
   removeAttribute(){delete this.dataset.phase;},querySelector:s=>s.includes('title')?title:s.includes('crawl')?crawl:s.includes('thanks')?thanks:team};
-const canonical={cloneNode(deep){assert(deep);return {canonical:true};}};
+const canonical={cloneNode(deep){assert(deep);return {canonical:true,querySelectorAll:()=>[]};}};
 let reduced=false;const cinema=createEndingCinema({root,teamSource:canonical,reducedMotion:()=>reduced});
 assert(team.nodes[0].canonical);
 cinema.update(T.title+1,T);assert(!values.has('hidden'));assert.equal(title.style.opacity,'1');

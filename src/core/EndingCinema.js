@@ -16,7 +16,12 @@ export function createEndingCinema({root,teamSource,reducedMotion=()=>globalThis
   const thanks=root.querySelector('[data-cinema-thanks]');
   const team=root.querySelector('[data-cinema-team]');
   // The canonical team list stays in the full credits; never maintain a second copy of the names.
-  if(teamSource)team.replaceChildren(teamSource.cloneNode(true));
+  if(teamSource){
+    const credits=teamSource.cloneNode(true);
+    for(const note of credits.querySelectorAll('.credits-note'))
+      if(/world.*story|story.*world/i.test(note.textContent))note.remove();
+    team.replaceChildren(credits);
+  }
   let phase='hidden';
   function hide(){root.classList.add('hidden');root.removeAttribute('data-phase');title.style.opacity='0';crawl.style.transform='';thanks.style.opacity='0';thanks.style.transform='';phase='hidden';}
   return {hide,update(t,T){

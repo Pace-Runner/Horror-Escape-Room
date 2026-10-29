@@ -62,5 +62,5 @@ for(const completion of ['collect','play','scene']){
 }
 const main=fs.readFileSync('src/main.js','utf8');
 assert(main.includes('cassetteReminders.powerRestored()')&&main.includes('cassetteReminders.cassetteCollected()')&&main.includes('cassetteReminders.tapePlayed()'));
-assert(main.match(/function resetGame\(\) \{([\s\S]*?)\n\}/)[1].includes('cassetteReminders.reset();'));
+assert(main.match(/function resetGame\([^)]*\) \{([\s\S]*?)\n\}/)[1].includes('cassetteReminders.reset();'));
 console.log('PASS: exact two assets/MARK captions; both 15s boundaries; power/objective gates; immediate cancellation of playing/pending reminders; occupied dialogue/tape/cutscene protection; once per run; restart timers; scene cleanup.');

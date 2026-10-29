@@ -39,7 +39,7 @@ try {
    captions.say({text:'Legacy pickup caption',voice:'level1/pickup_paperclip.m4a'});
    await captions.play([{text:'Old story placeholder',voice:'level1/freed_1.m4a'},'Another placeholder']);
    thoughts.update();assert.equal(audio.voiceSource,speaking,`legacy caption cut off ${key}`);
-   assert.equal(el.textContent,MARK_THOUGHTS[key][1]);
+   assert(el.textContent.includes(MARK_THOUGHTS[key][1]),'interaction removed spoken subtitle');
    thoughts.clear({reset:true});captions.cancel();
    const legacy=captions.play([{text:'Unrecorded interaction sequence',voice:'level1/freed_1.m4a'}]);
    assert(thoughts.play(key),`unrecorded caption suppressed ${key}`);await legacy;

@@ -38,7 +38,7 @@ export function createTapeSubtitles({ subtitles }) {
     // able to inject markup into the page.
     box.replaceChildren(...cues.map((cue) => {
       const row = document.createElement('div');
-      renderCaptionText(row, cue);
+      renderCaptionText(row, {...cue,recorded:true});
       return row;
     }));
     box.classList.toggle('hidden', cues.length === 0);

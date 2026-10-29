@@ -1,3 +1,4 @@
+import {DESCRIPTIVE_DIALOGUE,STATIC_INSPECTIONS} from '../core/CaptionPolicy.js';
 /**
  * The dialogue loader. You should not need to edit this file -- edit the level
  * files next to it. See README.md in this folder for the workflow.
@@ -71,6 +72,8 @@ function toLine(entry, key) {
   // The key travels with the line, so the voice hook can tell WHICH line is
   // starting (the "hold the right item" lines get a spoken reaction).
   const out = { text, key };
+  if (STATIC_INSPECTIONS.has(key)) out.staticInspection = true;
+  if (DESCRIPTIVE_DIALOGUE.has(key)) out.descriptive = true;
   if (voice) out.voice = voice;
   if (typeof duration === 'number') out.duration = duration;
   return out;

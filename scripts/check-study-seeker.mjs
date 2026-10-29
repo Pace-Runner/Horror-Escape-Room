@@ -1,3 +1,4 @@
+import {createStudyCupboardProtection} from '../src/systems/StudyCupboardProtection.js';
 /** Level 3 hide-and-seek regression: node scripts/check-study-seeker.mjs.
  * Builds the real study in Node (stub canvas, no models, as check-study-reveal
  * does), then drives systems/StudySeeker.js against its real colliders, floors
@@ -260,6 +261,26 @@ try {
   for (let t = 0; t < 30 && opener.state !== 'caught'; t += 1 / 30) opener.update(1 / 30);
   assert.ok(caught.length === 1 && caught[0].how === 'found' && caught[0].spot === curtain,
     `searching beside the curtain should find him (caught: ${JSON.stringify(caught.map((c) => c.how))})`);
+
+
+  // Both authored encounters: complete cupboard protection, then the same AI search/catch.
+  for(const mode of ['teaser','hunt']){
+    caught.length=0;const wardrobe=hideProps.wardrobe;
+    let warnings=0;const protection=createStudyCupboardProtection({playWarning:()=>{warnings++;return true;}});
+    protection.enter(wardrobe);
+    player=still(wardrobe.eye[0],wardrobe.eye[2],{crouching:true,hiddenIn:wardrobe,hideProtected:true});
+    opener.start({mode,at:'g_entry'});
+    for(let i=0;i<449;i++){
+      protection.update(1/30,{encounter:true});player.hideProtected=protection.protected;opener.update(1/30);
+      assert.equal(caught.length,0,mode+' cupboard protection failed before 15 seconds');
+    }
+    assert.equal(warnings,1,mode+' warning missing/repeated');
+    for(let i=0;i<1800&&caught.length===0;i++){
+      protection.update(1/30,{encounter:true});player.hideProtected=protection.protected;opener.update(1/30);
+    }
+    assert.equal(protection.protected,false);assert.equal(caught.length,1,mode+' never finds expired cupboard hiding');
+    assert.equal(caught[0].how,'found');protection.leave();
+  }
 
   // ---- the catch scares: the study's three, never twice running; never in the backrooms
   const camera = new THREE.PerspectiveCamera(70, 1, 0.05, 100);

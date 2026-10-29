@@ -28,6 +28,7 @@ export function renderCaptionText(el, line) {
   const named = line.speaker || (line.markThought ? 'MARK' : prefix?.[1]);
   // Still styled as his line; only the name is withheld.
   const speaker = named && hiddenSpeakers.get(named.toUpperCase())?.() ? null : named;
+  el.classList.toggle('game-caption--descriptive', !line.recorded);
   el.classList.toggle('game-caption--hint', !!line.hint);
   el.classList.toggle('game-caption--thought', !!line.markThought);
   el.classList.toggle('game-caption--dialogue', !!named);
@@ -42,4 +43,21 @@ export function renderCaptionText(el, line) {
     name.textContent = speaker;
     el.replaceChildren(name, words);
   } else el.replaceChildren(words);
+}
+
+/** Speech and requested object text share the normal caption style and region. */
+export function renderCaptionLines(el, lines) {
+  if (!lines.length) return;
+  renderCaptionText(el, lines[0]);
+  if (lines.length === 1) return;
+  if (!el.ownerDocument) {
+    el.textContent = lines.map(line => line.text).join('\n');
+    return;
+  }
+  for (const line of lines.slice(1)) {
+    const row = el.ownerDocument.createElement('div');
+    row.className = 'game-caption__interaction';
+    renderCaptionText(row, line);
+    el.append(row);
+  }
 }

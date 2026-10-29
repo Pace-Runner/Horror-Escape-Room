@@ -51,7 +51,7 @@ const mapped=new Set(mappings.map(m=>m.file));
 assert.equal(new Set(mappings.map(m=>m.voice.toLowerCase())).size,mappings.length,'duplicate voice mapping');
 assert.deepEqual(walk('src/assets/voice').filter(f=>/\.(mp3|m4a|wav|ogg)$/i.test(f)&&!mapped.has(f)),[],'unmapped legacy voice recording');
 const unusedVoice=recordings.filter(f=>f.startsWith(markRoot)&&f.endsWith('.mp3')&&!mapped.has(f));
-const knownUnused=['LEVEL 3/l3_mark_reveal_06_someones_there.mp3'].map(f=>markRoot+f);
+const knownUnused=['LEVEL 1/l1_line_door_locked_1.mp3','BACKROOMS/backrooms_line_look_1.mp3','BACKROOMS/backrooms_line_look_2.mp3','BACKROOMS/backrooms_line_look_3.mp3','LEVEL 3/l3_mark_reveal_06_someones_there.mp3'].map(f=>markRoot+f);
 assert(unusedVoice.every(f=>knownUnused.includes(f)),'new unreferenced voice recording');
 const sourceFiles=walk('src').filter(f=>f.endsWith('.js')&&!f.startsWith('src/assets/'));
 const source=sourceFiles.filter(f=>!f.endsWith('/markThoughts.js')).map(f=>fs.readFileSync(f,'utf8')).join('\n');
@@ -74,7 +74,7 @@ for(const news of Object.values(ENDING_NEWS))for(let i=0;i<news.captions.length;
 const report={recordingCount:recordings.length,mappedVoiceCount:mappings.length,missingShippedVoiceFiles:[],unusedVoice,
   durationDifferences,
   containerMismatches:mappings.filter(m=>/\.mp3$/i.test(m.file)&&m.container==='MP4/AAC').map(m=>m.file),
-  unusedVoiceReasons:Object.fromEntries(unusedVoice.map(f=>[f,'Unused alternative reveal line retained to preserve the approved reveal order.'])),
+  unusedVoiceReasons:Object.fromEntries(unusedVoice.map(f=>[f,f.includes('reveal_06')?'Unused alternative reveal line retained to preserve the approved reveal order.':'Retired from active playback by request; original audio preserved.'])),
   legacyTextOnlyCaptionPaths:legacy,unreferencedAudio,mappings};
 fs.mkdirSync('docs/validation',{recursive:true});fs.writeFileSync('docs/validation/voice-dialogue-inventory.json',JSON.stringify(report,null,2)+'\n');
 console.log(JSON.stringify({recordings:recordings.length,mappedVoices:mappings.length,missing:0,unusedVoice,durationDifferences,legacyTextOnlyPaths:legacy.length,unreferencedAudio},null,2));

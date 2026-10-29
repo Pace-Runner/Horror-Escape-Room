@@ -99,7 +99,6 @@ export const dialog_door_planks_examine = ["Two wooden planks, boarded diagonall
 // Trying the door again while it is still locked: one of these at random each
 // time, never the same twice running. 2 is only said while the planks are on,
 // 3 only once they are off (see the door in levels/bedroomLevel.js).
-export const dialog_open_door_locked_1 = ["\"I need to unlock this door so I can find Annabelle.\"", "level1/open_door_locked_1.m4a"];
 export const dialog_open_door_locked_2 = ["\"I need to find something to break down these planks of wood.\"", "level1/open_door_locked_2.m4a"];
 export const dialog_open_door_locked_3 = ["\"It is still locked. The key might be hidden.\"", "level1/open_door_locked_3.m4a"];
 

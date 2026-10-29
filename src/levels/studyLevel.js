@@ -1,7 +1,7 @@
+import {createSelectionFeedback} from '../core/SelectionFeedback.js';
 import * as THREE from 'three';
 import {releaseHingeDepth} from '../cutscenes/releaseDoorMotion.js';
 import {createStudyMinimap} from './studyMinimap.js';
-import {CHOICE_CONSEQUENCES} from '../core/ContextPanels.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { createVisorGallery } from './studyVisorGallery.js';
 import { createStudyDecor } from './studyDecor.js';
@@ -95,6 +95,7 @@ export function createStudyLevel({
   group.name = 'Level3_Study';
   const interactables = [];
   const colliders = [];
+  const cameraSurfaces = [];
 
   const studySurfaces = createStudySurfaces();
   const loadStudyModel = (url) => loadModel(url).then(model => studySurfaces.harmoniseAsset(
@@ -391,6 +392,7 @@ export function createStudyLevel({
     step.position.set(stairX, stepHeight / 2, stairBottomZ - stairDepth * (index + 0.5));
     step.receiveShadow = true;
     group.add(step);
+    cameraSurfaces.push(step);
     const tread = new THREE.Mesh(treadGeometry, treadWoodMat);
     tread.position.set(stairX, stepHeight + 0.028, step.position.z + 0.015);
     tread.receiveShadow = true;
@@ -660,6 +662,7 @@ export function createStudyLevel({
   hourHandHitbox.position.set(0.025, 0.072, 0);
   hourHandHitbox.userData.interact = {
     label: 'Turn hour hand (+1 hour)',
+    enabled:()=>!puzzle.clockSolved,
     onInteract: () => rotateClockHand('hour')
   };
   hourHandPivot.add(hourHandHitbox);
@@ -672,6 +675,7 @@ export function createStudyLevel({
   minuteHandHitbox.position.set(-0.025, 0.11, 0.010);
   minuteHandHitbox.userData.interact = {
     label: 'Turn minute hand (+5 minutes)',
+    enabled:()=>!puzzle.clockSolved,
     onInteract: () => rotateClockHand('minute')
   };
   minuteHandPivot.add(minuteHandHitbox);
@@ -846,7 +850,7 @@ export function createStudyLevel({
 
   [[1.05, 0.2], [0, 0.85], [-1.05, 0.2]].forEach(([x, y], index) => {
     const sconce = new THREE.Group();
-    sconce.position.set(x, y, 0.15);
+    sconce.position.set(x, y, 0);
     const dial = dressCrestControl(sconce, crestBrassMat);
     shadowCrest.add(sconce);
     crestLamps.push(dial);
@@ -1448,6 +1452,7 @@ export function createStudyLevel({
    * record's frame (0.444 x 0.48, its face at z 0.25).
    */
   const truthRecordBorders = [];
+  const truthSelectionFeedback = createSelectionFeedback();
   const truthRecordBorderMat = new THREE.MeshBasicMaterial({ color: 0xf0c878, toneMapped: false });
   function truthRecordBorder() {
     const [outerW, outerH, innerW, innerH] = [0.444 / 2 + 0.022, 0.48 / 2 + 0.022, 0.444 / 2 + 0.006, 0.48 / 2 + 0.006];
@@ -1470,11 +1475,12 @@ export function createStudyLevel({
       ? ['Authorization precedes the method;', 'the consequence closes the file.']
       : ['PROJECT HOLLOW', '\u2014 RESTRICTED RECORDS']);
     truthRecordDisplays.forEach((display, index) => {
-      const selected = puzzle.truthRecordsSolved || index < puzzle.truthRecordProgress;
+      const selected = puzzle.truthRecordsSolved || index < puzzle.truthRecordProgress || truthSelectionFeedback.has(index);
       const heading = truthRecordNames[index];
       display.write([heading, ...truthNormalLines[index]]);
       truthRecordHits[index].userData.interact.label = `${selected ? 'Selected: ' : 'Select '}${truthRecordNames[index]}`;
       truthRecordBorders[index].visible = selected;
+      truthRecordHits[index].userData.interact.enabled = !puzzle.truthRecordsSolved;
     });
   }
   truthRecordNames.forEach((name, index) => {
@@ -1494,6 +1500,7 @@ export function createStudyLevel({
       label: `Select ${name}`,
       onInteract: () => {
         if (!puzzle.correctedTrailSolved || !restrictedDoorMotion.isOpen() || puzzle.truthRecordsSolved) return;
+        truthSelectionFeedback.choose(index,index===puzzle.truthRecordProgress);
         if (index !== puzzle.truthRecordProgress) {
           puzzle.truthRecordProgress = 0;
           updateTruthRecords();
@@ -1530,7 +1537,7 @@ export function createStudyLevel({
   function syncTruthRecordTargets() {
     // Interaction raycasts a flat target list, even under hidden parents.
     // Register selectors only after the cabinet has actually swung open.
-    const accessible = puzzle.correctedTrailSolved && restrictedDoorMotion.isOpen();
+    const accessible = puzzle.correctedTrailSolved && restrictedDoorMotion.isOpen() && !puzzle.truthRecordsSolved;
     for (const hit of truthRecordHits) {
       const index = interactables.indexOf(hit);
       if (accessible && index < 0) interactables.push(hit);
@@ -1603,17 +1610,19 @@ export function createStudyLevel({
   function setGallerySight(on) {
     symbolGallery.setVisor(on, puzzle.correctedTrailProgress, puzzle.correctedTrailSolved);
     for (const hit of trailMarkerHits) {
+      hit.userData.interact.enabled = !puzzle.correctedTrailSolved;
       const index = interactables.indexOf(hit);
-      if (on && index < 0) interactables.push(hit);
-      else if (!on && index >= 0) interactables.splice(index, 1);
+      if (on && !puzzle.correctedTrailSolved && index < 0) interactables.push(hit);
+      else if ((!on || puzzle.correctedTrailSolved) && index >= 0) interactables.splice(index, 1);
     }
   }
   // No special frame tint gives the solution away in ordinary sight.
   function updateTrailMarkers() { symbolGallery.setVisor(!!gameState.visorWorn, puzzle.correctedTrailProgress, puzzle.correctedTrailSolved); }
-  symbolGallery.targets.forEach((target, index) => {
+  symbolGallery.selections.forEach((target) => {
     const hit = new THREE.Mesh(new THREE.BoxGeometry(target.width, target.height, 0.06), archiveHitMat);
     hit.position.copy(target.position);
-    hit.position.z += 0.025;
+    hit.quaternion.copy(target.quaternion);
+    hit.translateZ(0.025);
     hit.userData.interact = {
       label: 'Inspect symbol',
       onInteract: () => {
@@ -1624,7 +1633,8 @@ export function createStudyLevel({
         }
         correctedEvidence();
         voiceProgress();
-        if (index !== puzzle.correctedTrailProgress) {
+        symbolGallery.select(target.index,target.sequence===puzzle.correctedTrailProgress);
+        if (target.sequence !== puzzle.correctedTrailProgress) {
           puzzle.correctedTrailProgress = 0;
           updateTrailMarkers();
           onSfx('metal_click');
@@ -1635,6 +1645,7 @@ export function createStudyLevel({
         onSfx('latch');
         if (puzzle.correctedTrailProgress === 3) {
           puzzle.correctedTrailSolved = true;
+          setGallerySight(!!gameState.visorWorn);
           interactables.push(restrictedPlaque.mesh);
           showCaption('A panel slides open in the upper archive.');
         }
@@ -1820,7 +1831,7 @@ export function createStudyLevel({
   concealmentChair.rotation.y = 0.52;
   // Her open hand rests on the rear shoulder of the existing chair shell.
   concealmentChair.updateMatrixWorld(true);
-  const injuredBracePoint=annabelle.localToWorld(new THREE.Vector3(-.23,.94,.12));
+  const injuredBracePoint=annabelle.localToWorld(new THREE.Vector3(-.17,.86,.14));
   annabelleFigure.setBracePoint(injuredBracePoint);
   annabelleMonster.studyBracePoint=injuredBracePoint;
   group.add(concealmentChair);
@@ -1865,7 +1876,7 @@ export function createStudyLevel({
   let cardPerformance=null,offerAmount=0;
   const personFinal=new THREE.Vector3(.86,0,-.77).applyAxisAngle(new THREE.Vector3(0,1,0),.52).add(new THREE.Vector3(-6.98,0,-4.98));
   const eased=value=>THREE.MathUtils.smoothstep(value,0,1);
-  function freeHandTarget(){return annabelle.localToWorld(new THREE.Vector3(-.23,.94,.12));}
+  function freeHandTarget(){return annabelle.localToWorld(new THREE.Vector3(-.17,.86,.14));}
   function offeredHandTarget(){return annabelle.localToWorld(new THREE.Vector3(-.18,1.06,.25));}
   function syncPersonRoots(){
     const offset=annabelleMonster.studyPositionOffset||[0,0];
@@ -1889,7 +1900,7 @@ export function createStudyLevel({
     const sourceHand=annabelleFigure.getHandBone();
     const offset=index&&sourceHand?index.getWorldPosition(new THREE.Vector3()).sub(sourceHand.getWorldPosition(new THREE.Vector3())):new THREE.Vector3();
     const world=hand.getWorldPosition(new THREE.Vector3()).add(offset)
-      .add(new THREE.Vector3(.035,.022,.003).applyQuaternion(annabelle.quaternion));
+      .add(new THREE.Vector3(.028,.018,.003).applyQuaternion(annabelle.quaternion));
     hollowOverrideKey.position.copy(hand.worldToLocal(world));
     hollowOverrideKey.quaternion.copy(hand.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(annabelle.quaternion));
     const worldScale=hand.getWorldScale(new THREE.Vector3());
@@ -2168,7 +2179,7 @@ export function createStudyLevel({
   function authorizeOverride(choice,socket) {
     if(overrideAuthorization!==null||puzzle.endingChoice!=='NONE'||gameState.endingChosen)return;
     if(!puzzle.mirrorRevealed||!gameState.inventory.has('hollowOverrideKey')){
-      showCaption({text:puzzle.mirrorRevealed?`${CHOICE_CONSEQUENCES[choice]} This decision cannot be undone. A PROJECT HOLLOW ACCESS KEYCARD is required.`:
+      showCaption({text:puzzle.mirrorRevealed?'This choice cannot be undone. Access keycard required.':
         'A PROJECT HOLLOW ACCESS KEYCARD is required.',always:true});return;
     }
     overrideAuthorization=choice;onUseItem('hollowOverrideKey');
@@ -2177,7 +2188,7 @@ export function createStudyLevel({
     for(const {hit} of overrideSockets){const i=interactables.indexOf(hit);if(i>=0)interactables.splice(i,1);}
     if(!interactables.includes(socket.handleHit))interactables.push(socket.handleHit);
     onSfx('latch');updateOverrideLabels();
-    showCaption({text:`${choice==='RELEASE'?'Emergency release authorized. Turn the control to release.':'Manual reseal authorized. Turn the handle to lock.'} This decision cannot be undone.`,always:true});
+    showCaption({text:'This choice cannot be undone',functional:true,duration:2.4});
   }
   function operateOverride(socket){
     if(overrideAuthorization!==socket.choice||socket.insertProgress<1||overrideTurning||puzzle.endingChoice!=='NONE'||gameState.endingChosen)return;
@@ -2231,7 +2242,7 @@ export function createStudyLevel({
     reader.root.position.x = -0.113; reader.root.position.y = -0.01;
     socketGroup.add(reader.root);
     const header = studyLabel(0.34, 0.072, true, true);
-    header.write(['PROJECT HOLLOW', isReleasePanel ? 'EMERGENCY RELEASE' : 'MANUAL RESEAL']);
+    header.write(['PROJECT HOLLOW', isReleasePanel ? 'RELEASE CONTAINMENT' : 'RESEAL CONTAINMENT']);
     header.mesh.position.set(0, 0.220, panelDepth + 0.0025);
     for (const y of [0.220, -0.220]) {
       const mount = new THREE.Mesh(new RoundedBoxGeometry(0.355, 0.080, 0.028, 1, 0.003), alcoveMat);
@@ -2393,10 +2404,19 @@ export function createStudyLevel({
     markSays
   });
 
+  studyMinimap.mapObjects(colliders,{loftY:LOFT_Y,landmarks:[desk,clock,shadowCrest,fireplace,memoryArchive]});
+
+  // Structural slabs block a camera boom even though they are walkable surfaces.
+  group.updateMatrixWorld(true);
+  const cameraColliders = [floor, ceiling, loft, loftLanding, ...cameraSurfaces].map(mesh => {
+    const box = new THREE.Box3().setFromObject(mesh);
+    return {minX:box.min.x,maxX:box.max.x,minY:box.min.y,maxY:box.max.y,minZ:box.min.z,maxZ:box.max.z};
+  });
   return {
     group,
     interactables,
     colliders,
+    cameraColliders,
     groundAt,
     loftY: LOFT_Y,
     // Just inside the new right-side entry, looking across the desk toward
@@ -2634,6 +2654,7 @@ export function createStudyLevel({
       distortedTrail.visible = true;
       puzzle.correctedTrailProgress = 0;
       puzzle.correctedTrailSolved = false;
+      symbolGallery.resetSelection();
       restrictedContents.visible = false;
       restrictedDoorMotion.reset();
       syncTruthRecordTargets();
@@ -2642,6 +2663,7 @@ export function createStudyLevel({
       const restrictedIndex = interactables.indexOf(restrictedPlaque.mesh);
       if (restrictedIndex >= 0) interactables.splice(restrictedIndex, 1);
       puzzle.truthRecordProgress = 0;
+      truthSelectionFeedback.clear();
       puzzle.truthRecordsSolved = false;
       puzzle.truthRecordsComplete = false;
       puzzle.mirrorUnlocked = false;
@@ -2705,6 +2727,8 @@ export function createStudyLevel({
     },
 
     update(dt) {
+      if(symbolGallery.updateSelection(dt))updateTrailMarkers();
+      if(truthSelectionFeedback.update(dt))updateTruthRecords();
       if (spokenPuzzle) {
         const solved = spokenPuzzle === 'clock' ? puzzle.clockSolved
           : spokenPuzzle === 'shadow' ? puzzle.crestSolved : puzzle.truthRecordsComplete;

@@ -1,3 +1,4 @@
+import {createSelectionFeedback} from '../core/SelectionFeedback.js';
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import photoUrl from '../assets/textures/study/archive_gallery_photos.jpg?url';
@@ -71,7 +72,8 @@ export function createVisorGallery({group, wood, brass, loftY}) {
   const frameGeometry=new RoundedBoxGeometry(1,1,1,1,.08);
   const standGeometry=new THREE.BoxGeometry(1,1,1);
   const trim=new THREE.Group();trim.name='Antique_Gallery_Frames';trim.userData.studyStaticDetails=true;group.add(trim);
-  const contents=[], targets=[], selectionBorders=[];
+  const contents=[], targets=[], selections=[], selectionBorders=[];
+  const feedback=createSelectionFeedback();
   const selectionMaterial=new THREE.MeshBasicMaterial({color:0xcce5eb,toneMapped:false});
   function selectionBorder(width,height) {
     const outerW=width/2+.022,outerH=height/2+.022;
@@ -123,9 +125,10 @@ export function createVisorGallery({group, wood, brass, loftY}) {
     const root=picture(layout.width,layout.height,[layout.x,loftY+layout.y,-6.07],0,
       atlasGeometry((i*5+Math.floor(i/5))%6,3,2,.015+(i%3)*.012),atlasGeometry(symbol,4,4,.025),photoMaterial,symbolMaterial,true);
     root.name=layout.target>=0?`Archive_Photo_Target_${layout.target+1}`:`Archive_Photo_Decoy_${decoy}`;
+    selections.push({position:root.position.clone(),quaternion:root.quaternion.clone(),width:layout.width,height:layout.height,sequence:layout.target,index:i});
+    const border=selectionBorder(layout.width,layout.height);root.add(border);selectionBorders[i]=border;
     if(layout.target>=0){
       targets[layout.target]={position:root.position.clone(),width:layout.width,height:layout.height};
-      const border=selectionBorder(layout.width,layout.height);root.add(border);selectionBorders[layout.target]=border;
     }
   });
   const mapArt=new THREE.TextureLoader().load(mapArtUrl);
@@ -154,9 +157,11 @@ export function createVisorGallery({group, wood, brass, loftY}) {
   warmLight.name='Project_Hollow_Map_Wash';warmLight.castShadow=false;
   warmLight.position.set(4.70,3.52,6.13);warmLight.target.position.set(4.70,2.45,6.40);
   group.add(warmLight,warmLight.target);
-  return {targets,setVisor(on,progress=0,complete=false){
+  return {targets,selections,select:(index,correct)=>feedback.choose(index,correct),
+    resetSelection:()=>feedback.clear(),updateSelection:dt=>feedback.update(dt),setVisor(on,progress=0,complete=false){
     for(const c of contents){c.image.geometry=on?c.hiddenGeometry:c.photoGeometry;c.image.material=on?c.hiddenMaterial:c.normalMaterial;}
-    selectionBorders.forEach((border,index)=>{border.visible=!!on&&!complete&&index<progress;});
+    selectionBorders.forEach((border,index)=>{const target=GALLERY_LAYOUT[index].target;
+      border.visible=!!on&&(feedback.has(index)||(target>=0&&(complete||target<progress)));});
     mapOverlay.visible=!!on;
   }};
 }

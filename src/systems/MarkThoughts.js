@@ -16,16 +16,17 @@ export function createMarkThoughts(audio,{captions=null,canPlay=()=>true}={}) {
   }
   function start(entry){
     if(!allowed(entry))return;
-    if(captions?.isPlaying&&!captions.isVoiceSequence)captions.cancel();
+    if(captions?.isPlaying&&!captions.isVoiceSequence)captions.cancel({keepFeedback:true});
     current=entry;entry.loading=true;
     const voice='mark/'+MARK_THOUGHTS[entry.key][0];
     const text=MARK_THOUGHTS[entry.key][1];
     return audio.playVoice(voice,{
-      priority:entry.priority,
-      onStarted(buffer,source){if(current!==entry)return;entry.source=source;entry.loading=false;
+      priority:entry.priority,trimSilence:true,
+      onStarted(buffer,source,timing){if(current!==entry)return;entry.source=source;entry.loading=false;
         seen.add(entry.key);lastPlayed.set(entry.key,audio.ctx?.currentTime??0);
+        if(captions?.isPlaying&&!captions.isVoiceSequence)captions.cancel({keepFeedback:true});
         captions?.say({text,speaker:'MARK',markThought:true,hint:entry.priority===VOICE_PRIORITY.hint,
-          recorded:true,manualEnd:true,duration:buffer.duration});},
+          recorded:true,manualEnd:true,duration:timing?.duration??buffer.duration});},
       onInterrupted(){if(current===entry){current=null;captions?.cancelMarkThought?.();entry.onInterrupted?.();}},
       onEnded(){if(current===entry){current=null;captions?.cancelMarkThought?.();entry.onEnded?.();}},
       onFailed(){if(current===entry){current=null;captions?.cancelMarkThought?.();entry.onFailed?.();}}

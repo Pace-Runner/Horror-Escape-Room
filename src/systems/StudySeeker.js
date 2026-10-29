@@ -329,6 +329,7 @@ export function createStudySeeker({
   let searchTime = 0;
   let checking = null;
   let checkTime = 0;
+  let expiredCupboard = null;
   let pauseTime = 0;
   let routeIndex = 0;
   let lastPatrolNode = null;
@@ -577,8 +578,12 @@ export function createStudySeeker({
     goTo(pick.x, pick.z, pick.y, pace);
   }
 
+  function protectedInCupboard(player) {
+    return player.hideProtected===true&&['wardrobe','cupboard'].includes(spotOf(player)?.kind);
+  }
+
   function catchPlayer(context) {
-    if (caught) return;
+    if (caught || protectedInCupboard(getPlayer())) return;
     caught = true;
     path = [];
     creature.setSpeed(0);
@@ -610,6 +615,7 @@ export function createStudySeeker({
     start({ mode: nextMode = 'hunt', at = 'g_entry', investigate = null } = {}) {
       mode = nextMode;
       caught = false;
+      expiredCupboard = null;
       routeIndex = 0;
       lastPatrolNode = null;
       lastKnown = null;
@@ -714,6 +720,17 @@ export function createStudySeeker({
         return;
       }
 
+      const occupied=spotOf(player);
+      if(!occupied||player.hideProtected===true)expiredCupboard=null;
+      if(player.hideProtected===false&&['wardrobe','cupboard'].includes(occupied?.kind)&&expiredCupboard!==occupied){
+        expiredCupboard=occupied;
+        const [x,z]=occupied.checkPoint;
+        lastKnown={x,z,y:occupied.floorY};lostHimAt=lastKnown;
+        searchQueue=[];checking=occupied;checkTime=0;searchTime=0;
+        goTo(x,z,occupied.floorY,SPEED.investigate*t.speed);
+        setState('search');
+      }
+
       // Whispers, while she looks rather than runs.
       whisperIn -= dt;
       if (whisperIn <= 0) {
@@ -723,6 +740,9 @@ export function createStudySeeker({
 
       // ---- the hide spot she is opening (unless she sees him: that comes first)
       if (checking && path.length === 0 && state === 'search' && !canSee(player, t)) {
+        if (spotOf(player)===checking&&protectedInCupboard(player)) {
+          checkTime=0;creature.setSpeed(0);creature.update(dt);return;
+        }
         // The wardrobe's doors open, the curtain is pulled back.
         if (checkTime === 0) onCheckSpot(checking);
         checkTime += dt;
@@ -777,7 +797,7 @@ export function createStudySeeker({
 
       // ---- catch
       const sameFloor = Math.abs(player.groundY - currentY) < 0.6;
-      if (sameFloor && Math.hypot(player.x - here.x, player.z - here.z) < CATCH_RANGE && (sees || state === 'chase')) {
+      if (!protectedInCupboard(player) && sameFloor && Math.hypot(player.x - here.x, player.z - here.z) < CATCH_RANGE && (sees || state === 'chase')) {
         catchPlayer({ how: 'reached' });
         creature.update(dt);
         return;
@@ -797,7 +817,7 @@ export function createStudySeeker({
         if (walk(dt)) startSearching();
       } else if (state === 'search') {
         searchTime += dt;
-        if (searchTime > t.giveUp) { onWhisper('found-nothing'); startPatrol(); }
+        if (searchTime > t.giveUp && checking!==expiredCupboard) { onWhisper('found-nothing'); startPatrol(); }
         else if (walk(dt) && !checking) {
           if (!nextSearchStep()) { onWhisper('found-nothing'); startPatrol(); }
         }

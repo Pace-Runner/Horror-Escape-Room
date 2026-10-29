@@ -1,0 +1,115 @@
+{
+  "checks": [
+    {
+      "age": 0,
+      "depth": 0.7336719944310718
+    },
+    {
+      "age": 0.3,
+      "depth": 0.6137295565556958
+    },
+    {
+      "age": 0.55,
+      "depth": 0.39149042262822414
+    },
+    {
+      "age": 0.72,
+      "depth": 0.33214291010394814
+    },
+    {
+      "age": 0.84,
+      "depth": 0.34607593580745455
+    },
+    {
+      "age": 0.9,
+      "depth": 0.4043326786067069
+    },
+    {
+      "branch": "release",
+      "style": {
+        "font": "\"Playfair Display\", Georgia, serif",
+        "plane": "none",
+        "perspective": "none"
+      },
+      "state": {
+        "t": 29.357083333333332,
+        "events": [
+          {
+            "branch": "release",
+            "key": "l3_news_release.mp3",
+            "startAt": 5.520000000000003,
+            "at": 0.32
+          }
+        ],
+        "active": 1,
+        "voice": true,
+        "phase": "credits",
+        "caption": "An injured young woman was found alive near a private residence believed to be connected to Project HOLLOW late last night."
+      },
+      "reset": {
+        "t": 29.357083333333332,
+        "events": [
+          {
+            "branch": "release",
+            "key": "l3_news_release.mp3",
+            "startAt": 5.520000000000003,
+            "at": 0.32
+          }
+        ],
+        "active": 0,
+        "voice": false,
+        "caption": "An injured young woman was found alive near a private residence believed to be connected to Project HOLLOW late last night."
+      }
+    },
+    {
+      "branch": "reseal",
+      "style": {
+        "font": "\"Playfair Display\", Georgia, serif",
+        "plane": "none",
+        "perspective": "none"
+      },
+      "state": {
+        "t": 19.966625,
+        "events": [
+          {
+            "branch": "release",
+            "key": "l3_news_release.mp3",
+            "startAt": 5.520000000000003,
+            "at": 0.32
+          },
+          {
+            "branch": "reseal",
+            "key": "l3_news_contained.mp3",
+            "startAt": 5.6800000000000015,
+            "at": 0.48
+          }
+        ],
+        "active": 1,
+        "voice": true,
+        "phase": "credits",
+        "caption": "Authorities remain unable to enter a sealed private residence believed to be connected to Project HOLLOW."
+      },
+      "reset": {
+        "t": 19.966625,
+        "events": [
+          {
+            "branch": "release",
+            "key": "l3_news_release.mp3",
+            "startAt": 5.520000000000003,
+            "at": 0.32
+          },
+          {
+            "branch": "reseal",
+            "key": "l3_news_contained.mp3",
+            "startAt": 5.6800000000000015,
+            "at": 0.48
+          }
+        ],
+        "active": 0,
+        "voice": false,
+        "caption": "Authorities remain unable to enter a sealed private residence believed to be connected to Project HOLLOW."
+      }
+    }
+  ],
+  "errors": []
+}

@@ -115,7 +115,6 @@ export function createBackroomsBarks({
 }) {
   const deadEnds = findDeadEnds();
   const pickDeadEnd = linePicker(['dialog_dead_end_1', 'dialog_dead_end_2', 'dialog_dead_end_3']);
-  const LOOKS = ['dialog_look_at_monster_1', 'dialog_look_at_monster_2', 'dialog_look_at_monster_3'];
 
   // Per run: these are "the first time" beats, so a second crossing after a
   // restart gets them again, but a catch and respawn does not.
@@ -160,25 +159,6 @@ export function createBackroomsBarks({
       if (!roamSaid && p.moving > 0.3) {
         roamed += dt;
         if (roamed >= ROAM_SECONDS) want('dialog_backrooms_roam', () => { roamSaid = true; });
-      }
-
-      // ---- seeing it ----
-      if (seesFigure(p)) {
-        // How long it had been gone is read once, as the sighting begins.
-        if (inView === 0) goneBefore = outOfView;
-        inView += dt;
-        outOfView = 0;
-        if (!remarked && looksSaid < LOOKS.length && inView >= SIGHT_HOLD
-          && goneBefore >= SIGHT_GONE_FOR && sinceLook >= SIGHT_SPACING) {
-          // A sighting beats any other reaction waiting for the box.
-          if (pending?.key !== LOOKS[looksSaid]) pending = null;
-          want(LOOKS[looksSaid], () => { looksSaid++; sinceLook = 0; remarked = true; });
-        }
-      } else {
-        inView = 0;
-        outOfView += dt;
-        // One line per sighting: it has to go out of view to earn another.
-        remarked = false;
       }
 
       // ---- dead ends ----

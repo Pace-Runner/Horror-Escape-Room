@@ -1,0 +1,26 @@
+{
+  "ok": true,
+  "results": [
+    "Actual DOM: exact eight-button keyboard wrapping, mouse selection, Enter opens Achievements, separate Chapters view, Back, shared pause styling.",
+    [
+      {
+        "id": "l1_07",
+        "decodedDuration": 2.298770833333333,
+        "playbackDuration": 1.69,
+        "elapsed": 1.6906666666666668
+      },
+      {
+        "id": "l2_01",
+        "decodedDuration": 3.68325,
+        "playbackDuration": 3.0900000000000003,
+        "elapsed": 3.0906666666666665
+      },
+      {
+        "id": "l3_stealth_01",
+        "decodedDuration": 4.153458333333333,
+        "playbackDuration": 3.43,
+        "elapsed": 3.4400000000000004
+      }
+    ]
+  ]
+}

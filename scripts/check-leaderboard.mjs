@@ -81,7 +81,7 @@ const run=(time,difficulty='easy',ending='released')=>({time_ms:time,difficulty,
   db.error=null;assert.deepEqual(await service.top(),[]);await assert.rejects(()=>createLeaderboardService(null).top());
 }
 const main=fs.readFileSync('src/main.js','utf8'),html=fs.readFileSync('index.html','utf8');
-assert(/id="menu-settings"[^]*?<\/button>\s*<button[^]*?id="menu-leaderboard"/.test(html));
+assert(/id="menu-achievements"[^]*?<\/button>\s*<button[^]*?id="menu-leaderboard"/.test(html));
 assert(main.includes("activeRun.finish('released'")&&main.includes("activeRun.finish('contained'"));
 assert(main.includes('!cutscene.isRunning&&!player.cinematic&&player.lookEnabled'));
 assert(!main.includes('await leaderboardUI')&&!main.includes('await leaderboardService'),'network blocks gameplay');

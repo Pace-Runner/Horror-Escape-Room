@@ -1,0 +1,35 @@
+{
+  "ok": true,
+  "calls": [
+    [
+      "volume",
+      0.65
+    ],
+    [
+      "menuVolume",
+      0.65
+    ],
+    [
+      "sensitivity",
+      1.5
+    ],
+    [
+      "brightness",
+      1.1
+    ],
+    [
+      "graphics",
+      "low"
+    ],
+    [
+      "captions",
+      true
+    ],
+    [
+      "fps",
+      true
+    ]
+  ],
+  "chapters": "saved Level 2 clickable after reload; Level 3 persisted",
+  "leaderboard": "successful ending nickname and submit; chapter eligibility feedback"
+}

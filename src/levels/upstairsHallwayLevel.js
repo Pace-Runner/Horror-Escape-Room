@@ -610,7 +610,7 @@ export function createUpstairsHallwayLevel({
     const subject = piece.title.replace(/^An? /, 'the ');
     return {
       label: `Look at ${subject.charAt(0).toLowerCase()}${subject.slice(1)}`,
-      onInteract: () => onInspect({ title: piece.title, body: piece.body, art: pieceArt, fullscreen })
+      onInteract: () => onInspect({ title: piece.title, body: piece.body, art: pieceArt, fullscreen, staticInspection:[HALLWAY.house,HALLWAY.heightMarks,HALLWAY.mirror,HALLWAY.paleMarks].includes(piece) })
     };
   };
 

@@ -1,8 +1,12 @@
 {
-  "recordingCount": 206,
-  "mappedVoiceCount": 123,
+  "recordingCount": 207,
+  "mappedVoiceCount": 120,
   "missingShippedVoiceFiles": [],
   "unusedVoice": [
+    "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_look_1.mp3",
+    "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_look_2.mp3",
+    "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_look_3.mp3",
+    "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_line_door_locked_1.mp3",
     "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_mark_reveal_06_someones_there.mp3"
   ],
   "durationDifferences": [],
@@ -11,6 +15,10 @@
     "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/anabelle_reading_letter.mp3"
   ],
   "unusedVoiceReasons": {
+    "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_look_1.mp3": "Retired from active playback by request; original audio preserved.",
+    "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_look_2.mp3": "Retired from active playback by request; original audio preserved.",
+    "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_look_3.mp3": "Retired from active playback by request; original audio preserved.",
+    "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_line_door_locked_1.mp3": "Retired from active playback by request; original audio preserved.",
     "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_mark_reveal_06_someones_there.mp3": "Unused alternative reveal line retained to preserve the approved reveal order."
   },
   "legacyTextOnlyCaptionPaths": [
@@ -117,21 +125,6 @@
     {
       "key": "dialog_exit_door_opens",
       "voice": "backrooms/exit_door_opens.m4a",
-      "status": "existing text-only placeholder; no shipped recording"
-    },
-    {
-      "key": "dialog_look_at_monster_1",
-      "voice": "backrooms/look_monster_1.m4a",
-      "status": "existing text-only placeholder; no shipped recording"
-    },
-    {
-      "key": "dialog_look_at_monster_2",
-      "voice": "backrooms/look_monster_2.m4a",
-      "status": "existing text-only placeholder; no shipped recording"
-    },
-    {
-      "key": "dialog_look_at_monster_3",
-      "voice": "backrooms/look_monster_3.m4a",
       "status": "existing text-only placeholder; no shipped recording"
     },
     {
@@ -397,11 +390,6 @@
     {
       "key": "dialog_middle_drawer_shut",
       "voice": "level1/middle_drawer_shut.m4a",
-      "status": "existing text-only placeholder; no shipped recording"
-    },
-    {
-      "key": "dialog_open_door_locked_1",
-      "voice": "level1/open_door_locked_1.m4a",
       "status": "existing text-only placeholder; no shipped recording"
     },
     {
@@ -1546,6 +1534,10 @@
     }
   ],
   "unreferencedAudio": [
+    "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_look_1.mp3",
+    "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_look_2.mp3",
+    "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_look_3.mp3",
+    "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_line_door_locked_1.mp3",
     "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_mark_reveal_06_someones_there.mp3",
     "src/assets/audio/endings-contained/l3_hollow_claw.wav",
     "src/assets/audio/endings-contained/l3_hollow_rush.wav"
@@ -1598,6 +1590,14 @@
       "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_stealth_07_power_restored.mp3",
       "container": "MPEG audio",
       "duration": 5.198367346938783
+    },
+    {
+      "id": "l3_stealth_08",
+      "voice": "mark/LEVEL 3/l3_stealth_08_hiding_warning.mp3",
+      "owner": "thought",
+      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 3/l3_stealth_08_hiding_warning.mp3",
+      "container": "MPEG audio",
+      "duration": 3.186938775510201
     },
     {
       "id": "l2_hint_find_cassette",
@@ -2216,14 +2216,6 @@
       "duration": 2.2465306122448996
     },
     {
-      "id": "l1_door_locked_1",
-      "voice": "mark/LEVEL 1/l1_line_door_locked_1.mp3",
-      "owner": "thought",
-      "file": "src/assets/audio/Dont Let it out Mark voice/LEVEL 1/l1_line_door_locked_1.mp3",
-      "container": "MPEG audio",
-      "duration": 3.7616326530612185
-    },
-    {
       "id": "l1_door_locked_2",
       "voice": "mark/LEVEL 1/l1_line_door_locked_2.mp3",
       "owner": "thought",
@@ -2270,30 +2262,6 @@
       "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_dead_end_3.mp3",
       "container": "MPEG audio",
       "duration": 2.56
-    },
-    {
-      "id": "backrooms_look_1",
-      "voice": "mark/BACKROOMS/backrooms_line_look_1.mp3",
-      "owner": "thought",
-      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_look_1.mp3",
-      "container": "MPEG audio",
-      "duration": 6.7134693877551275
-    },
-    {
-      "id": "backrooms_look_2",
-      "voice": "mark/BACKROOMS/backrooms_line_look_2.mp3",
-      "owner": "thought",
-      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_look_2.mp3",
-      "container": "MPEG audio",
-      "duration": 6.243265306122469
-    },
-    {
-      "id": "backrooms_look_3",
-      "voice": "mark/BACKROOMS/backrooms_line_look_3.mp3",
-      "owner": "thought",
-      "file": "src/assets/audio/Dont Let it out Mark voice/BACKROOMS/backrooms_line_look_3.mp3",
-      "container": "MPEG audio",
-      "duration": 5.511836734693889
     },
     {
       "id": "l3_come_round",

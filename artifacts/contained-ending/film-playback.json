@@ -1,0 +1,66 @@
+{
+  "state": {
+    "done": true,
+    "events": [
+      {
+        "key": "l3_news_contained.mp3",
+        "startAt": 5.421333333333334,
+        "at": 0.22133333333333333
+      }
+    ],
+    "active": 0,
+    "voice": false,
+    "captionVisible": false,
+    "caption": "The residence remains sealed under police observation.",
+    "transform": ""
+  },
+  "reset": {
+    "done": true,
+    "events": [
+      {
+        "key": "l3_news_contained.mp3",
+        "startAt": 5.421333333333334,
+        "at": 0.22133333333333333
+      },
+      {
+        "key": "l3_news_contained.mp3",
+        "startAt": 5.570666666666668,
+        "at": 0.37066666666666664
+      }
+    ],
+    "active": 0,
+    "voice": false,
+    "captionVisible": false,
+    "caption": "The residence remains sealed under police observation.",
+    "transform": ""
+  },
+  "errors": [],
+  "T": {
+    "look": 0.25,
+    "lookDuration": 1.8,
+    "voice": 2.4499999999999997,
+    "voiceDuration": 4.54530612244898,
+    "voiceEnd": 6.99530612244898,
+    "afterVoice": 0.45,
+    "human": 7.44530612244898,
+    "hollow": 10.64530612244898,
+    "still": 10.64530612244898,
+    "claw": 12.74530612244898,
+    "contact": 13.32530612244898,
+    "fade": 13.32530612244898,
+    "black": 13.46530612244898,
+    "title": 13.91530612244898,
+    "credits": 17.86530612244898,
+    "creditsEnd": 41.865306122448985,
+    "news": 18.665306122448982,
+    "newsDuration": 16.718354166666668,
+    "newsEnd": 35.38366028911565,
+    "end": 42.26530612244898,
+    "finalLock": 8.24530612244898,
+    "quiet": 8.94530612244898,
+    "lastMechanism": 6.845306122448981,
+    "seal": 7.79530612244898,
+    "windDown": 8.54530612244898,
+    "locked": 8.84530612244898
+  }
+}

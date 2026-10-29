@@ -1,4 +1,5 @@
-import { setupCaptionSurface, renderCaptionText } from './CaptionPresentation.js';
+import { setupCaptionSurface, renderCaptionLines } from './CaptionPresentation.js';
+import { isEssentialCaption } from './CaptionPolicy.js';
 
 /**
  * The game's one caption authority.
@@ -26,9 +27,8 @@ import { setupCaptionSurface, renderCaptionText } from './CaptionPresentation.js
  *   say()  - one incidental line. This is what examining a radiator does, and
  *            it is what all ~50 existing call sites get. A later say() replaces
  *            an earlier one, exactly as before.
- *   play() - a story sequence. Outranks say(): while one is running, incidental
- *            examine text is dropped rather than being allowed to cut into the
- *            middle of a beat.
+ *   play() - a story sequence. Retains its caption/audio clock while direct
+ *            interaction text is rendered alongside it in the same caption area.
  *
  * That ordering is the point. The old code let whatever spoke last win, which
  * for a story means the player brushing a prop can delete a plot line.
@@ -56,8 +56,6 @@ const FADE = 0.4;
  */
 const SWAP_FADE = 0.16;
 const SWAP_GAP = 0.06;
-// Input errors, item requirements and puzzle status remain functional feedback.
-const FUNCTIONAL_KEY = /(?:^|_)(?:hint|wrong|invalid|full|need|needs|hold|required|missing|blocked|unpowered|locked|no_power|not_ready|taken|insert|load|trip|trips|tripped|already|pickup)(?:_|$)/;
 
 export function readingTime(text) {
   return Math.min(READ_MAX, Math.max(READ_MIN, READ_FIXED + text.length * READ_PER_CHAR));
@@ -91,12 +89,6 @@ export class CaptionSequencer {
     /** True while a play() sequence owns the box, so say() stands aside. */
     this._sequence = false;
     this._resolve = null;
-    /**
-     * A help line (a hint) drawn in the box while captions are off and a story
-     * sequence is running unseen underneath it. Its own little clock, so the
-     * hidden sequence keeps its timing: { line, phase, t } or null.
-     */
-    this._aside = null;
     /** Fires when a line becomes visible; the voice bus hangs off this. */
     this.onLineStart = null;
     this.onLineCancel = null;
@@ -107,6 +99,8 @@ export class CaptionSequencer {
      * hints can opt into `always` independently of this setting.
      */
     this.isVoiced = line => Boolean(line?.recorded || line?.voice);
+    this.isSpeechPending = () => false;
+    this._feedback = null;
   }
 
   get isPlaying() {
@@ -118,18 +112,17 @@ export class CaptionSequencer {
   }
 
   _preservesThought(line) {
-    return this._line?.markThought && !line.markThought && !line.revealManaged
-      && !line.always && !this.isVoiced(line);
+    return (this._line?.markThought || this.isVoiced(this._line) || this.isSpeechPending())
+      && !line.markThought && !line.revealManaged && !line.endingManaged && !this.isVoiced(line);
   }
 
   get isVisible() {
-    return this._phase !== 'idle';
+    return this._phase !== 'idle' || !!this._feedback;
   }
 
   /**
-   * One incidental line. Returns false if a story sequence is running, so the
-   * caller can tell it was dropped (nothing needs to today, but a level that
-   * wants to re-offer the line later can).
+   * One incidental line. Direct interactions remain visible beside a running
+   * subtitle without interrupting its voice or story clock.
    *
    * Takes a plain string, a { text, voice, duration } line, or the array that
    * dialogue/index.js line() returns. A line object is what lets an examine
@@ -139,9 +132,18 @@ export class CaptionSequencer {
    */
   say(text, duration) {
     if (Array.isArray(text)) {
+      text = text.map(toLine);
       if (!text.length) return false;
       if (text.length > 1) {
-        if (this._sequence) return false;
+        if (text.every(line=>this._preservesThought(line)) && text.some(line=>this._shows(line))) {
+          this._incidentalFeedback(text);return true;
+        }
+        if (this._sequence) {
+          if(text.every(line=>!this.isVoiced(line))&&text.some(line=>this._shows(line))) {
+            this._incidentalFeedback(text);return true;
+          }
+          return false;
+        }
         this.play(text);
         return true;
       }
@@ -149,39 +151,42 @@ export class CaptionSequencer {
     }
     const line = typeof text === 'string' ? { text } : { ...text };
     if (duration != null) line.duration = duration;
-    if (this._preservesThought(line)) return false;
+    if (this._preservesThought(line)) {
+      if (this._shows(line)) { this._showFeedback(toLine(line)); return true; }
+      return false;
+    }
     if (this._sequence) {
-      // Requested help may use the box while a hidden description advances.
-      // Visible dialogue keeps ownership of its subtitle surface.
-      if (this._shows(this._line) || !line.always) return false;
-      this._showAside(toLine(line));
-      return true;
+      // Requested object text is never dropped because a scene owns the clock.
+      if (!this.isVoiced(line) && this._shows(line)) {
+        this._showFeedback(toLine(line));return true;
+      }
+      return false;
     }
     this._start(toLine(line), false);
     return true;
   }
 
-  _showAside(line) {
-    this._aside = { line, phase: 'in', t: 0 };
-    renderCaptionText(this.el, line);
-    this.el.style.transitionDuration = `${FADE}s`;
-    this.el.classList.add('visible');
+  _essential(line) { return isEssentialCaption(line, this.isVoiced); }
+
+  _render() {
+    const active = this._phase === 'in' || this._phase === 'hold';
+    const primary = active && this._shows(this._line) ? this._line : null;
+    const feedback=this._feedback?.line;
+    const lines = [primary, feedback&&this._shows(feedback)?feedback:null].filter(Boolean);
+    renderCaptionLines(this.el, lines.map(line=>({...line,recorded:!!this.isVoiced(line)})));
+    this.el.classList.toggle('visible', lines.length > 0);
   }
 
-  /** Advances the aside line on the same frame clock as everything else. */
-  _updateAside(dt) {
-    const aside = this._aside;
-    aside.t += dt;
-    if (aside.phase === 'in' && aside.t >= FADE) {
-      aside.phase = 'hold';
-      aside.t = 0;
-    } else if (aside.phase === 'hold' && aside.t >= aside.line.duration) {
-      aside.phase = 'out';
-      aside.t = 0;
-      this.el.classList.remove('visible');
-    } else if (aside.phase === 'out' && aside.t >= FADE) {
-      this._aside = null;
-    }
+  _incidentalFeedback(lines) {
+    // Keep optional prose separate from essential text when combining a multi-line inspection.
+    const essential=lines.filter(line=>this._essential(line));
+    const visible=essential.length?essential:lines;
+    this._showFeedback(toLine({text:visible.map(line=>line.text).join(' '),descriptive:!essential.length,staticInspection:visible.some(line=>line.staticInspection)}));
+  }
+
+  _showFeedback(line) {
+    this._feedback = {line,remaining:line.duration};
+    this._render();
   }
 
   /**
@@ -198,7 +203,11 @@ export class CaptionSequencer {
    */
   play(lines, { interrupt = true } = {}) {
     const list = (Array.isArray(lines) ? lines : [lines]).map(toLine).filter((l) => l.text);
-    if (!list.length || list.every(line=>this._preservesThought(line))) return Promise.resolve(true);
+    if (!list.length) return Promise.resolve(true);
+    if (list.every(line=>this._preservesThought(line))) {
+      if(list.some(line=>this._shows(line)))this._incidentalFeedback(list);
+      return Promise.resolve(true);
+    }
     if (this._sequence && !interrupt) return Promise.resolve(false);
 
     this._settle(false);
@@ -216,11 +225,10 @@ export class CaptionSequencer {
     this._hideLine();
   }
 
-  /** Fades the current line out, unless a hint drawn over it owns the box. */
+  /** Fade the current line; requested object text keeps its own reading time. */
   _hideLine() {
-    if (this._aside) return;
     this.el.style.transitionDuration = `${this._queue.length ? SWAP_FADE : FADE}s`;
-    this.el.classList.remove('visible');
+    this._render();
   }
 
   /**
@@ -228,7 +236,16 @@ export class CaptionSequencer {
    * released. resetGame() calls this: a restart used to leave the previous
    * run's captions to fade in over the fresh room.
    */
-  cancel() {
+  cancel({keepFeedback = false} = {}) {
+    if (keepFeedback && this._line?.interaction
+      && (this._phase === 'in' || this._phase === 'hold')) {
+      const requested = [this._line,...this._queue].filter(line=>line.interaction);
+      const essential=requested.filter(line=>this._essential(line));
+      const visible=essential.length?essential:requested;
+      const line = toLine({text:visible.map(line=>line.text).join(' '),interaction:true,descriptive:!essential.length,staticInspection:visible.some(line=>line.staticInspection)});
+      this._feedback = {line,remaining:line.duration};
+    }
+    if (!keepFeedback) this._feedback = null;
     this.onLineCancel?.(this._line);
     this._settle(false);
     this._queue = [];
@@ -236,23 +253,30 @@ export class CaptionSequencer {
     this._sequence = false;
     this._line = null;
     this._t = 0;
-    this._aside = null;
     this.el.style.transitionDuration = '';
-    this.el.classList.remove('visible');
+    this._render();
   }
   cancelMarkThought() {
     if(!this._line?.markThought)return;
-    this.cancel();this.el.style.transitionDuration='0s';this.el.textContent='';
+    this.cancel({keepFeedback:true});this.el.style.transitionDuration='0s';
+    if(!this._feedback)this.el.textContent='';
   }
   extendMarkThought(seconds) {
     if(this._line?.markThought)this._line.duration=Math.max(1,seconds);
   }
   isCurrent(line){return this._line===line;}
-  waitForVoice(line){if(this.isCurrent(line)){line.manualEnd=true;line.voicePending=true;this.el.classList.remove('visible');}}
+  waitForVoice(line){if(this.isCurrent(line)){line.manualEnd=true;line.voicePending=true;this._render();}}
   beginVoice(line,duration){
     if(!this.isCurrent(line))return;
     line.duration=duration;line.manualEnd=true;line.voicePending=false;this._phase='in';this._t=0;
-    if(this._shows(line)){renderCaptionText(this.el,line);this.el.classList.add('visible');}
+    this._render();
+  }
+
+  failVoice(line) {
+    if (!this.isCurrent(line)) return;
+    line.voicePending=false;line.manualEnd=false;line.duration=readingTime(line.text);
+    this._phase='in';this._t=0;
+    this._render();
   }
 
   setPaused(paused) {
@@ -269,12 +293,7 @@ export class CaptionSequencer {
    */
   setEnabled(enabled) {
     this.enabled = enabled;
-    if (this._aside) return;   // a hint on screen keeps showing either way
-    const onScreen = this._phase === 'hold' || this._phase === 'in';
-    const show = onScreen && this._shows(this._line);
-    // A line that started hidden never wrote its text, so write it now.
-    if (show) renderCaptionText(this.el, this._line);
-    this.el.classList.toggle('visible', show);
+    this._render();
   }
 
   /**
@@ -282,13 +301,15 @@ export class CaptionSequencer {
    * for with H) is help, not dialogue, and shows even with captions off.
    */
   _shows(line) {
-    return !line?.voicePending&&(this.enabled || Boolean(line?.always || line?.hint || line?.functional || line?.recorded)
-      || FUNCTIONAL_KEY.test(line?.key??'') || this.isVoiced(line));
+    return !!line && !line.voicePending && (this.enabled || this._essential(line));
   }
 
   update(dt) {
     if (this.paused) return;
-    if (this._aside) this._updateAside(dt);
+    if (this._feedback) {
+      this._feedback.remaining -= dt;
+      if (this._feedback.remaining <= 0) {this._feedback=null;this._render();}
+    }
     if (this._phase === 'idle') return;
     this._t += dt;
 
@@ -317,29 +338,26 @@ export class CaptionSequencer {
       this._phase = 'idle';
       this._sequence = false;
       this._line = null;
-      if (!this._aside) this.el.style.transitionDuration = '';
+      this.el.style.transitionDuration = '';
+      this._render();
       if (wasSequence) this._settle(true);
     }
   }
 
   _start(line, isSequence) {
+    // A delayed recording can start after the player has inspected an object.
+    // Keep that requested text in this same surface when speech takes ownership.
+    if (this._line?.interaction && (this.isVoiced(line) || line.recorded)
+      && (this._phase === 'in' || this._phase === 'hold')) {
+      this._feedback = {line:this._line,remaining:this._line.duration};
+    }
     if(this._line!==line)this.onLineCancel?.(this._line);
     this._line = line;
     this._sequence = isSequence;
     this._phase = 'in';
     this._t = 0;
-    // A line that will not be seen leaves the box alone, so a hint drawn
-    // there (captions off) is not overwritten by the story running unseen.
-    if (this._shows(line)) {
-      this._aside = null;
-      renderCaptionText(this.el, line);
-      // Set before the class flips, so the browser uses this duration for the
-      // transition it is about to start rather than the previous one.
-      this.el.style.transitionDuration = `${isSequence ? SWAP_FADE : FADE}s`;
-      this.el.classList.add('visible');
-    } else if (!this._aside) {
-      this.el.classList.remove('visible');
-    }
+    this.el.style.transitionDuration = `${isSequence ? SWAP_FADE : FADE}s`;
+    this._render();
     this.onLineStart?.(line);
   }
 

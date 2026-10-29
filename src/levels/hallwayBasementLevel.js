@@ -2344,6 +2344,7 @@ export function createHallwayBasementLevel({
   lab.add(sparkLight);
 
   fuseBox.userData.interact = {
+    allowHidden:true,
     label: FUSE_COVER_CLOSED_LABEL,
     onInteract: () => {
       if (!fuseCover.open) {
@@ -2522,7 +2523,7 @@ export function createHallwayBasementLevel({
   maintenanceNote.rotation.y = Math.PI / 2;
   maintenanceNote.userData.interact = {
     label: 'Read maintenance log',
-    onInteract: () => { onThought('l2_06', { replayable: false }); showCaption(line('dialog_maintenance_log')); }
+    onInteract: () => { onThought('l2_06', { replayable: false }) || showCaption(line('dialog_maintenance_log')); }
   };
   interactables.push(maintenanceNote);
   lab.add(maintenanceNote);
@@ -3045,7 +3046,7 @@ export function createHallwayBasementLevel({
     breakerTripTimeRemainingInSeconds = BREAKER_TRIP_GLARE_IN_SECONDS;
     onSpark();
     onOverload();
-    showCaption(line('dialog_breaker_panel_trips', { capacity: PANEL_CAPACITY_IN_AMPS }));
+    showCaption({text:`Over ${PANEL_CAPACITY_IN_AMPS}A — panel tripped.`,functional:true,duration:2.4});
   }
 
   /**
@@ -3131,11 +3132,7 @@ export function createHallwayBasementLevel({
     onSfx(breakerIsOn[circuitId] ? 'breaker_on' : 'breaker_off');
 
     const drawnInAmps = getTotalBreakerLoadInAmps();
-    const remainingInAmps = PANEL_CAPACITY_IN_AMPS - drawnInAmps;
-    showCaption(line(
-      remainingInAmps < 0 ? 'dialog_breaker_load_over' : 'dialog_breaker_load_spare',
-      { drawn: drawnInAmps, capacity: PANEL_CAPACITY_IN_AMPS, spare: remainingInAmps }
-    ));
+    showCaption({text:`${drawnInAmps}A / ${PANEL_CAPACITY_IN_AMPS}A${drawnInAmps>PANEL_CAPACITY_IN_AMPS?' — overloaded':''}`,functional:true,duration:2.4});
   }
 
   /**
@@ -3180,7 +3177,7 @@ export function createHallwayBasementLevel({
       // goes up and will not stay: it falls back on its own a moment later.
       setMainLever(true);
       mainLever.springBackInSeconds = 0.45;
-      showCaption(line('dialog_main_lever_drops_back', { missing: missing.join(' and ') }));
+      showCaption({text:'The lever will not stay up.',functional:true,duration:2.4});
       return;
     }
     routePower();
@@ -5069,7 +5066,7 @@ export function createHallwayBasementLevel({
   blackPool.visible = false;
   blackPool.userData.interact = {
     label: 'Examine the pool',
-    onInteract: () => { onThought('l2_18', { replayable: true }); showCaption(line('dialog_black_pool_examine')); }
+    onInteract: () => { onThought('l2_18', { replayable: true }) || showCaption(line('dialog_black_pool_examine')); }
   };
   lab.add(blackPool);
 
@@ -5293,7 +5290,7 @@ export function createHallwayBasementLevel({
   tornNotes.position.set(-0.2, 0.848, 0.15);
   tornNotes.userData.interact = {
     label: 'Read the torn notes',
-    onInteract: () => { onThought('l2_04', { replayable: true }); showCaption(line('dialog_torn_notes')); }
+    onInteract: () => { onThought('l2_04', { replayable: true }) || showCaption(line('dialog_torn_notes')); }
   };
   interactables.push(tornNotes);
   workbench.add(tornNotes);
@@ -5379,7 +5376,7 @@ export function createHallwayBasementLevel({
   operatingTableHit.position.set(OPERATING_TABLE.x, OPERATING_TABLE.padTop - 0.03, OPERATING_TABLE.z);
   operatingTableHit.userData.interact = {
     label: 'Examine the table',
-    onInteract: () => { onThought('l2_02', { replayable: true, onEnded:()=>onThought('l2_13') }); showCaption(line('dialog_operating_table')); }
+    onInteract: () => { onThought('l2_02', { replayable: true, onEnded:()=>onThought('l2_13') }) || showCaption(line('dialog_operating_table')); }
   };
   interactables.push(operatingTableHit);
   lab.add(operatingTableHit);

@@ -186,8 +186,8 @@ export function createHallwayBlinks({
       showCreature({ x, z });
     } else {
       creature.setPosition(x, z);
-      creature.setYaw(Math.atan2(-(eye.x - x), -(eye.z - z)));
     }
+    creature.setYaw(Math.atan2(-(eye.x-x),-(eye.z-z)));
     // Gone completely while the lights are out -- not a dark shape with eyes
     // in it moving up the hall (Kiran, 2026-10-28). It is moved in the dark and
     // only shown again with the light, where it now stands.
@@ -250,6 +250,7 @@ export function createHallwayBlinks({
      * update() resets every bone.
      */
     update(dt) {
+      if(running&&creature.visible){const p=creature.position;creature.setYaw(Math.atan2(-(camera.position.x-p.x),-(camera.position.z-p.z)));}
       if (cocked && creature.visible) creature.offsetBones(COCKED_POSE);
       clock.update(dt);
     },

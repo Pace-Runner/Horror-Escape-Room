@@ -26,7 +26,7 @@ export const ACHIEVEMENTS = [
   { id: 'rooms_all', category: 'Backrooms', title: 'Her Whole Life', description: 'Find every room in the backrooms.' },
 
   { id: 'power_first_try', category: 'Puzzles', title: 'Right First Time', description: 'Seat the correct fuse without trying a wrong one.' },
-  { id: 'clock', category: 'Puzzles', title: 'Quarter Past Eleven', description: 'Set the grandfather clock.' },
+  { id: 'clock', category: 'Puzzles', title: 'Tick Tock', description: 'Set the grandfather clock.' },
   { id: 'crest', category: 'Puzzles', title: 'Three Lights', description: 'Solve the shadow crest.' },
   { id: 'letter', category: 'Puzzles', title: 'Dear Mark', description: 'Read Annabelle\'s letter.', hidden: true },
 

@@ -35,6 +35,9 @@ export function createAnnabelle() {
     if (bone) bone.quaternion.multiply(new THREE.Quaternion().setFromEuler(new THREE.Euler(x,y,z)));
   }
   function placeLimb(upper,lower,tip,support) {
+    // Re-solve from authored joint roll, never from a previously aimed limb.
+    get(upper).quaternion.copy(rest.get(upper).quaternion);
+    get(lower).quaternion.copy(rest.get(lower).quaternion);
     root.updateMatrixWorld(true);
     const shoulder=get(upper).getWorldPosition(new THREE.Vector3());
     const elbow=get(lower).getWorldPosition(new THREE.Vector3());
@@ -42,8 +45,12 @@ export function createAnnabelle() {
     const a=shoulder.distanceTo(elbow), b=elbow.distanceTo(hand);
     const direction=support.clone().sub(shoulder),distance=THREE.MathUtils.clamp(direction.length(),Math.abs(a-b)+.01,(a+b)*.98);
     direction.normalize();
-    const pole=new THREE.Vector3(0,-1,.25).applyQuaternion(root.quaternion);
-    pole.addScaledVector(direction,-pole.dot(direction)).normalize();
+    const side=upper.startsWith('Left')?1:-1;
+    const pole=(upper.includes('Hand')?new THREE.Vector3(0,-1,.25):new THREE.Vector3(side*.18,-.9,.30))
+      .applyQuaternion(root.getWorldQuaternion(new THREE.Quaternion()));
+    pole.addScaledVector(direction,-pole.dot(direction));
+    if(pole.lengthSq()<1e-6){pole.set(0,0,1).applyQuaternion(root.getWorldQuaternion(new THREE.Quaternion()));pole.addScaledVector(direction,-pole.dot(direction));}
+    pole.normalize();
     const along=(a*a+distance*distance-b*b)/(2*distance);
     const bend=shoulder.clone().addScaledVector(direction,along).addScaledVector(pole,Math.sqrt(Math.max(0,a*a-along*along)));
     const inverse=root.getWorldQuaternion(new THREE.Quaternion()).invert();
@@ -70,9 +77,9 @@ export function createAnnabelle() {
       offset('Spine',0.02,0,0.02); offset('Spine1',0.015); offset('Spine2',0.01);
     }
     // Left arm guards the ribs; right hand takes her weight against the chair.
-    aim('LeftArm','LeftForeArm',[-0.22,-0.82,0.48]);
+    aim('LeftArm','LeftForeArm',[0.22,-0.94,0.20]);
     aim('LeftForeArm','LeftHand',[.05,.55,.30]);
-    aim('RightArm','RightForeArm',[0.20,-0.73,0.65]);
+    aim('RightArm','RightForeArm',[-0.22,-0.94,0.20]);
     aim('RightForeArm','RightHand',[-0.10,-0.92,0.30]);
     offset('LeftHand',0.10,0,0.08); offset('RightHand',0.08,0,-0.08);
     offset('LeftShoulder',0.015,0,0.035);offset('RightShoulder',0,0,-0.025);
@@ -120,7 +127,7 @@ export function createAnnabelle() {
     offset('Head',THREE.MathUtils.lerp(0.23,pitch*0.65,lift)+flinch*0.10,
       THREE.MathUtils.lerp(-0.12,yaw*0.7,lift)+Math.sin(time*0.73)*0.008,Math.sin(time*0.91)*0.006);
     for(const event of acting){
-      const w=envelope(event)*.55*(hurtSince===null?1:.65),a=event.age;
+      const w=envelope(event)*.35*(hurtSince===null?1:.65),a=event.age;
       // Delayed head/arm accents overlap rather than arriving on the same frame.
       const delayed=w*THREE.MathUtils.smoothstep(a,.18,.65);
       switch(event.id){
@@ -214,11 +221,15 @@ export function createAnnabelle() {
       offset('Spine1',.06*w);offset('Head',.08*w);
     }
     // Keep the protective hand at the ribs, never up against the face.
-    const guard=root.localToWorld(new THREE.Vector3(.10,1.02-.80*endingSeated,.17));
+    const guard=root.localToWorld(new THREE.Vector3(.10+Math.sin(time*.8)*.004,.90+breath*.004-.68*endingSeated,.17));
     placeLimb('LeftArm','LeftForeArm','LeftHand',guard);
     if(endingSeated>0){
       placeLimb('RightArm','RightForeArm','RightHand',root.localToWorld(new THREE.Vector3(-.22,.94-.80*endingSeated,.22)));
     }else if(crouched)braceHand();
+    if(endingSeated===0){
+      aim('LeftHand','LeftHandMiddle1',[-.15,-.85,.25]);
+      if(offerWeight<.01)aim('RightHand','RightHandMiddle1',[.1,-.95,.2]);
+    }
     if(offerWeight>0&&endingSeated===0){
       const wrist=get('RightHand'),before=wrist.quaternion.clone();
       aim('RightHand','RightHandMiddle1',[0,.35,1]);

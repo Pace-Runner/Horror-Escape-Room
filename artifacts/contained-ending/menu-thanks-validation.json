@@ -1,0 +1,17 @@
+{
+  "menuStart": true,
+  "menuCredits": true,
+  "thanksCentre": [
+    632,
+    284.5
+  ],
+  "viewport": [
+    1264,
+    569
+  ],
+  "before": "matrix(1, 0, 0, 1, 0, 0)",
+  "after": "matrix(1, 0, 0, 1, 0, 0)",
+  "thanksOpacity": "1",
+  "creditsEnd": 51.24510204081633,
+  "end": 55.44510204081633
+}

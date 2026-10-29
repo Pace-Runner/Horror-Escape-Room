@@ -19,10 +19,14 @@ export function createStudyStealthVoice({thoughts,audio,captions,isSceneCurrent,
   function request(n){const k=key(n);if(requested.has(k))return false;requested.add(k);pending.add(k);pump();return true;}
   function pump(){
     if(state==='idle'||state==='caught'||!isSceneCurrent()||!canSpeak()||current)return;
-    if(audio.voiceSource||audio.voiceRequest||thoughts.currentKey||captions?.isVoiceSequence)return;
     const order=['01','02','05','03','04','07'];
     const n=order.find(n=>pending.has(key(n))&&(n==='01'||n==='07'||(n==='02'?finished.has(key('01')):n==='05'?finished.has(key('02')):introSettled)));
     if(!n)return;
+    const urgent=['01','02','07'].includes(n);
+    const priority=urgent?VOICE_PRIORITY.urgent:VOICE_PRIORITY.story;
+    if(captions?.isVoiceSequence)return;
+    if((audio.voiceSource||audio.voiceRequest||thoughts.currentKey)
+      &&(!urgent||(audio.voiceRequest?.priority??VOICE_PRIORITY.cutscene)>priority))return;
     const k=key(n),token=generation;current=k;
     const end=()=>{if(token!==generation||current!==k)return;current=null;pending.delete(k);finished.add(k);if(n==='02')introSettled=true;pump();};
     const interrupted=()=>{
@@ -30,7 +34,7 @@ export function createStudyStealthVoice({thoughts,audio,captions,isSceneCurrent,
       // A higher-priority scene can cancel an introduction, but never resurrect its tail.
       if(n==='01'||n==='02'){pending.clear();introSettled=true;}
     };
-    const started=thoughts.play(k,{priority:VOICE_PRIORITY.story,replayable:true,
+    const started=thoughts.play(k,{priority,replayable:true,
       when:()=>token===generation&&isSceneCurrent()&&(state==='restored'||isEncounterCurrent()),
       onEnded:end,onFailed:interrupted,onInterrupted:interrupted});
     if(!started&&current===k)current=null;

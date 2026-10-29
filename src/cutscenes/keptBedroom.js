@@ -430,6 +430,17 @@ export function createKeptBedroomBeat({ her, bed }) {
     forward(toHim, _dir);
     her.setPosition(pose.x - _dir.x * recoil, pose.z - _dir.z * recoil);
     her.setYaw(pose.yaw);
+    // Failure never exposes the human figure. Keep the same path and cue clock,
+    // using the monster's own grounded gait rather than the Mixamo-only pose.
+    if (!figure) {
+      her.setCorrection(0);
+      her.setSpeed(pose.speed);
+      her.update(dt);
+      her.offsetBones({ Head: [jolt * .05, pose.twist * .25, 0] });
+      const count = Math.floor(pose.d / .55);
+      while (steps < count) { steps++; onStep?.(pose.x, pose.z); }
+      return true;
+    }
     // Her figure poses her, its own walk off: the feet below do the walking.
     figure.setLocomotion(0, 0);
     // Her eyes are on him until she cannot look at him any more.

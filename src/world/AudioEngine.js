@@ -1,3 +1,4 @@
+import {voicePlaybackWindow} from '../core/VoiceTiming.js';
 // The one AudioContext, and everything that plays through it.
 //
 // Wind, thunder, creaks and the scripted pass-by footsteps are synthesised with
@@ -924,8 +925,12 @@ export class AudioEngine {
       if(this.voiceSource===src){this.voiceSource=null;this.voiceRequest=null;}
       if(!src.__interrupted)options.onEnded?.();
     };
-    const offset=typeof options.offset==='function'?options.offset():options.offset??0;
-    this.voiceSource=src;src.start(startAt,Math.min(Math.max(0,offset),Math.max(0,buffer.duration-.001)));options.onStarted?.(buffer,src);
+    const window=options.trimSilence?voicePlaybackWindow(buffer):{offset:0,end:buffer.duration};
+    const requested=typeof options.offset==='function'?options.offset():options.offset??window.offset;
+    const offset=Math.min(Math.max(window.offset,requested),Math.max(window.offset,window.end-.001));
+    const duration=window.end-offset;
+    this.voiceSource=src;src.start(startAt,offset,duration);
+    options.onStarted?.(buffer,src,{offset,duration,startAt});
   }
 
   #noiseBuffer(seconds = 2) {
