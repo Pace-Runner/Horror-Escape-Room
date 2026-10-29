@@ -2128,6 +2128,12 @@ export function createBackroomsLevel({
     group,
     interactables,
     colliders,
+    // The shoulder boom must stay beneath the low ceiling when looking down.
+    // Camera-only slabs leave player movement and the maze's colliders unchanged.
+    cameraColliders: [
+      { minX: BOX_MIN_X, maxX: BOX_MAX_X, minZ: BOX_MIN_Z, maxZ: BOX_MAX_Z, minY: HALL_H, maxY: Infinity },
+      { minX: BOX_MIN_X, maxX: BOX_MAX_X, minZ: BOX_MIN_Z, maxZ: BOX_MAX_Z, minY: -Infinity, maxY: 0 }
+    ],
     // Where SceneManager puts the player. Rewritten by setRoute() for each
     // crossing, which main.js calls before activating the level -- the two
     // crossings come in at opposite ends of the maze.

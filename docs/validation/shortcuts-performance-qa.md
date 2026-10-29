@@ -26,3 +26,8 @@ Targeted CPU benchmark, not end-to-end game FPS: 100 real Three.js mesh targets,
 - No complete browser walkthrough or GPU/frame-time profile was performed. No claim of visually measured end-to-end FPS improvement. The changes do not touch voice/caption source, UI markup/CSS, assets or rendering configuration. Existing untracked teammate/devlog files were preserved.
 
 Changed production files: `src/main.js` (keyboard bindings only), `src/core/FreeCamera.js` (remove listener registration), `src/core/Interaction.js` (temporary array reuse). Regression files: `scripts/check-startup-shortcuts.mjs`, `scripts/check-interaction-performance.mjs`.
+
+## Requested Backrooms camera follow-up
+
+Added camera-only floor/ceiling slabs using the existing maze bounds and 2.35 m ceiling. The existing shoulder-boom collision code pulls the camera inside the room when looking down/up, preventing an exterior view through the ceiling/floor. No player movement colliders, other levels, voice or caption logic changed. Regression: actual slab definitions tested over 537 standing/crouching/jumping pitch combinations, plus clear-view/in-place output cases; existing camera and maze checks pass. No browser visual verification was performed. This follow-up is a separate commit from the performance pass.
+Follow-up production build: PASS, 21.66 s; existing chunk-size warning only.
