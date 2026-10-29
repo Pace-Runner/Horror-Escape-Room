@@ -11,12 +11,26 @@ export function setupCaptionSurface(el, { recorded = false } = {}) {
   }
 }
 
+/** Speaker names kept off the caption while their predicate says so (setSpeakerNameHidden). */
+const hiddenSpeakers = new Map();
+
+/**
+ * Keeps `name`'s label off every caption while `isHidden()` is true. main.js
+ * hides MARK until Annabelle's letter tells the player who he is.
+ */
+export function setSpeakerNameHidden(name, isHidden) {
+  if (isHidden) hiddenSpeakers.set(name.toUpperCase(), isHidden);
+  else hiddenSpeakers.delete(name.toUpperCase());
+}
+
 export function renderCaptionText(el, line) {
   const prefix = !line.markThought && line.text.match(/^(ANNABELLE|MARK|SCIENTIST|GIRL|MAN|WOMAN|DOCTOR|RESEARCHER):\s*/i);
-  const speaker = line.speaker || (line.markThought ? 'MARK' : prefix?.[1]);
+  const named = line.speaker || (line.markThought ? 'MARK' : prefix?.[1]);
+  // Still styled as his line; only the name is withheld.
+  const speaker = named && hiddenSpeakers.get(named.toUpperCase())?.() ? null : named;
   el.classList.toggle('game-caption--hint', !!line.hint);
   el.classList.toggle('game-caption--thought', !!line.markThought);
-  el.classList.toggle('game-caption--dialogue', !!speaker);
+  el.classList.toggle('game-caption--dialogue', !!named);
   // Keep headless consumers and the original source text/timing untouched.
   if (!el.ownerDocument) { el.textContent = line.text; return; }
   const words = el.ownerDocument.createElement('span');

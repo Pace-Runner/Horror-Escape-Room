@@ -45,6 +45,7 @@ import { DOORWAYS, drawMonsterStart, roomInteriors } from './levels/backroomsMaz
 import { createUpstairsHallwayLevel } from './levels/upstairsHallwayLevel.js';
 import { createScreenFade, wait } from './core/ScreenFade.js';
 import { gameState, resetState, addItem, removeItem, itemCount, canCarryMore, STACKS, ITEMS, HOTBAR_SLOTS, inventorySlots } from './core/GameState.js';
+import { setSpeakerNameHidden } from './core/CaptionPresentation.js';
 import { createItemInspect } from './core/ItemInspect.js';
 import { createHeldItems } from './core/HeldItems.js';
 import { createLeftTorch } from './core/LeftTorch.js';
@@ -210,6 +211,9 @@ const openingNewsCutscene = createOpeningNewsCutscene({
  */
 const runTimer = createRunTimer({ el: runTimerEl, onExpire: () => playOutOfTime() });
 const activeRun=createActiveRun();
+// The player does not learn his own name until Annabelle's letter in the
+// study (gameState.letterRead): until then his lines carry no MARK label.
+setSpeakerNameHidden('MARK', () => !gameState.letterRead);
 /**
  * Levels reached and achievements earned, across page loads (core/Progress.js).
  * achieve() is the one call every hook below makes; a new one shows a toast.
