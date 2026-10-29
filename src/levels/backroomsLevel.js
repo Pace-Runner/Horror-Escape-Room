@@ -1412,6 +1412,10 @@ export function createBackroomsLevel({
    */
   function loadDoorModel() {
     return loadModel(doorModelUrl).then((doorModel) => {
+      // The top rail and both posts have coplanar overlapping front/back faces.
+      // A 2 mm joinery reveal separates them on every Backrooms frame copy.
+      const topRail = doorModel.getObjectByName('doorFrameTop');
+      if (topRail) topRail.position.z += 0.002;
       doorModel.traverse((child) => {
         if (!child.isMesh) return;
         child.castShadow = true;
@@ -1743,7 +1747,8 @@ export function createBackroomsLevel({
       leaf?.parent?.remove(leaf);
       DOORWAYS.forEach((d, i) => {
         const frame = i === 0 ? model : model.clone(true);
-        frame.position.set(d.x, 0, d.z);
+        // Keep the rear trim face off the coplanar wallpaper as well.
+        frame.position.set(d.x + d.nx * 0.002, 0, d.z + d.nz * 0.002);
         frame.rotation.y = Math.atan2(d.nx, d.nz);
         group.add(frame);
       });

@@ -560,7 +560,8 @@ export function createStudyLevel({
   const chairSeat = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.42), chairMat);
   chairSeat.position.y = 0.45;
   chairGroup.add(chairSeat);
-  const chairBack = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 0.05), chairMat);
+  // A 2 mm reveal prevents the back's sides overlapping the seat's side faces.
+  const chairBack = new THREE.Mesh(new THREE.BoxGeometry(0.416, 0.5, 0.05), chairMat);
   chairBack.position.set(0, 0.7, 0.19);
   chairGroup.add(chairBack);
   [-0.18, 0.18].forEach((x) => {
