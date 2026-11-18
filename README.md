@@ -4,10 +4,12 @@ A Three.js horror escape room built for COMS3006A/COMS3025A (Computer
 Graphics and Visualisation). See `Storyline Overview.pdf` for the full
 story this world is built from.
 
+Nominated for best game 2026 WITS computer graphics module
+
 ## Play Online now!
 https://pace-runner.github.io/Horror-Escape-Room/
 
-## Run
+## Run Locally
 
 ```
 npm install
