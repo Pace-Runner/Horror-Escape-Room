@@ -4,6 +4,9 @@ A Three.js horror escape room built for COMS3006A/COMS3025A (Computer
 Graphics and Visualisation). See `Storyline Overview.pdf` for the full
 story this world is built from.
 
+## Play Online now!
+
+
 ## Run
 
 ```
